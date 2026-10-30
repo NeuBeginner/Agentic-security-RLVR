@@ -13,9 +13,10 @@ class PipelineConfig:
     
     # Generator model settings
     GENERATOR_GPU: str = "L4"
-    DEFAULT_MODEL_NAME: str = "Qwen/Qwen2.5-Coder-7B-Instruct"
+    DEFAULT_MODEL_NAME: str = "Qwen/Qwen3-Coder-Next"
+    FALLBACK_MODEL_NAME: str = "Qwen/Qwen3.5-35B-A-Instruct"
     TEMPERATURE: float = 0.2
-    MAX_TOKENS: int = 2048
+    MAX_TOKENS: int = 4096
 
     # RLVR Reward Shaping
     REWARD_INVARIANT_BREACH: float = 1.0      # Verified Exploit found
