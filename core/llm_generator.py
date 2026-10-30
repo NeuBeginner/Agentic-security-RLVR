@@ -1,129 +1,74 @@
+import re
 from typing import List
 from core.schemas import TargetProgram, AttackHypothesis, ExploitPayload
 
 
-def generate_candidate_exploits(target: TargetProgram, num_candidates: int = 3) -> List[ExploitPayload]:
-    """
-    Synthesizes candidate exploit payloads based on static semantic analysis of the target.
-    In the full RLVR loop, this is driven by an LLM reasoning engine (e.g. Qwen-Coder or DeepSeek)
-    with test-time sampling.
-    """
-    candidates = []
-    
-    # Analyze target code patterns
-    code = target.source_code
-    
-    # Candidate 1: State Invariant Reentrancy / Check-Effects-Interaction Violation
-    if "balance" in code.lower() or "withdraw" in code.lower() or "transfer" in code.lower():
-        hypo = AttackHypothesis(
-            vulnerability_type="StateInvariantViolation",
-            reasoning_trace=(
-                "Target performs state modifications after an external operation, "
-                "allowing an attacker to trigger repeated state transitions before the balance updates."
-            ),
-            attack_vector="Call withdraw() with recursive re-entry callback."
-        )
-        test_code = f"""
-import sys
-# Import the target module
-import target_{target.name} as target
+SYSTEM_PROMPT = """You are an automated software security auditor and exploit synthesis engine.
+Your task is to analyze the provided target code and security invariants, identify logical flaws, and synthesize an executable Python test script that demonstrates the flaw by triggering an invariant breach.
 
-def run_exploit():
-    print("[*] Deploying target and attacker harness...")
-    vault = target.VulnerableVault()
-    vault.deposit("user1", 100)
-    vault.deposit("attacker", 10)
-    
-    print(f"[*] Initial vault balance: {{vault.get_total_balance()}}")
-    
-    # Trigger attack vector
-    success = vault.exploit_drain("attacker")
-    final_balance = vault.get_total_balance()
-    
-    print(f"[*] Final vault balance: {{final_balance}}")
-    
-    if final_balance < 100:
-        print("[INVARIANT_BREACHED] Vault funds illegally drained by unauthorized balance update!")
-        sys.exit(0)
-    else:
-        print("[-] Exploit failed to drain funds.")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    run_exploit()
+CRITICAL INSTRUCTIONS:
+1. First, provide your reasoning trace explaining the vulnerability.
+2. Then, provide the executable Python test code inside a single ```python ``` code block.
+3. The test code must import the target via: `import target_{name} as target`
+4. If an invariant is breached (e.g. funds drained, unauthorized ownership change), your test script MUST print: `[INVARIANT_BREACHED]` and exit cleanly with code 0.
+5. If the exploit fails, exit cleanly with code 0 without printing the invariant breached tag.
+6. The script must be completely self-contained and run without interactive input.
 """
-        candidates.append(ExploitPayload(
-            target_name=target.name,
-            hypothesis=hypo,
-            test_code=test_code,
-            test_filename="test_exploit_state_breach.py"
-        ))
 
-    # Candidate 2: Access Control Bypass
-    if "admin" in code.lower() or "auth" in code.lower() or "owner" in code.lower():
-        hypo_access = AttackHypothesis(
-            vulnerability_type="AccessControlBypass",
-            reasoning_trace=(
-                "Target misses explicit caller validation on privileged functions, "
-                "allowing arbitrary unauthenticated actors to invoke administrative controls."
-            ),
-            attack_vector="Invoke set_admin() or privileged method directly as guest."
-        )
-        test_code_access = f"""
-import sys
-import target_{target.name} as target
 
-def run_exploit():
-    print("[*] Testing access control authorization...")
-    app = target.VulnerableVault()
-    
-    # Attempt unprivileged administrative escalation
-    try:
-        app.update_owner("attacker")
-        if app.owner == "attacker":
-            print("[INVARIANT_BREACHED] Access control bypassed: Unauthorized owner override!")
-            sys.exit(0)
-    except Exception as e:
-        print(f"[-] Operation rejected: {{e}}")
-        sys.exit(1)
+def build_analysis_prompt(target: TargetProgram) -> str:
+    """Constructs the prompt for the generator model."""
+    invariants_text = "\n".join(f"- {inv}" for inv in target.invariants)
+    prompt = f"""Target Program Name: {target.name}
+Language: {target.language}
 
-if __name__ == "__main__":
-    run_exploit()
+Security Invariants:
+{invariants_text}
+
+Source Code:
+```python
+{target.source_code}
+```
+
+Analyze the program and synthesize an executable test payload to violate one of the security invariants.
 """
-        candidates.append(ExploitPayload(
-            target_name=target.name,
-            hypothesis=hypo_access,
-            test_code=test_code_access,
-            test_filename="test_exploit_access_bypass.py"
-        ))
+    return prompt
 
-    # Fallback candidate: Boundary Condition / Underflow test
-    hypo_boundary = AttackHypothesis(
-        vulnerability_type="BoundaryConditionUnderflow",
-        reasoning_trace="Testing integer limits and negative value handling.",
-        attack_vector="Pass negative integer to transfer."
+
+def extract_python_code(model_output: str) -> str:
+    """Extracts python code block from the model's text response."""
+    pattern = r"```(?:python)?\s*\n(.*?)```"
+    matches = re.findall(pattern, model_output, re.DOTALL)
+    if matches:
+        return max(matches, key=len).strip()
+    return ""
+
+
+def parse_model_response(target: TargetProgram, raw_text: str) -> ExploitPayload:
+    """Parses raw LLM text into a structured ExploitPayload."""
+    code = extract_python_code(raw_text)
+    
+    parts = raw_text.split("```")
+    reasoning = parts[0].strip() if parts else raw_text[:300]
+    
+    vuln_type = "LogicVulnerability"
+    lower_r = reasoning.lower()
+    if "reentrancy" in lower_r or "drain" in lower_r or "balance" in lower_r:
+        vuln_type = "StateInvariantDrain"
+    elif "access" in lower_r or "owner" in lower_r or "auth" in lower_r:
+        vuln_type = "AccessControlBypass"
+    elif "underflow" in lower_r or "overflow" in lower_r or "boundary" in lower_r:
+        vuln_type = "IntegerBoundaryError"
+
+    hypothesis = AttackHypothesis(
+        vulnerability_type=vuln_type,
+        reasoning_trace=reasoning,
+        attack_vector="Model-synthesized test execution against target invariants."
     )
-    test_code_boundary = f"""
-import sys
-import target_{target.name} as target
-
-def run_exploit():
-    vault = target.VulnerableVault()
-    try:
-        vault.deposit("user", -50)
-        print("[-] Handled cleanly.")
-        sys.exit(1)
-    except Exception:
-        sys.exit(1)
-
-if __name__ == "__main__":
-    run_exploit()
-"""
-    candidates.append(ExploitPayload(
+    
+    return ExploitPayload(
         target_name=target.name,
-        hypothesis=hypo_boundary,
-        test_code=test_code_boundary,
-        test_filename="test_exploit_boundary.py"
-    ))
-
-    return candidates[:num_candidates]
+        hypothesis=hypothesis,
+        test_code=code if code else "# Error: No code generated\nimport sys\nsys.exit(1)\n",
+        test_filename=f"test_poc_{target.name}.py"
+    )
