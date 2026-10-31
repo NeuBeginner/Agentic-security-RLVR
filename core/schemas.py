@@ -128,6 +128,7 @@ class RLVRTrajectory(BaseModel):
     slither_hints: List[Dict[str, Any]] = Field(default_factory=list)
     prompt_used: str = Field(default="")
     hypothesis: AttackHypothesis
+    full_completion_text: str = Field(default="", description="Full model response text corresponding to generated_token_ids")
     generated_exploit: str
     reward: float
     category: ResultCategory = Field(default=ResultCategory.RUNTIME_REVERT)
@@ -187,6 +188,7 @@ class GRPORollout(BaseModel):
     checkpoint_id: str = Field(default="base")
     prompt_hash: str = Field(default="")
     hypothesis: AttackHypothesis
+    full_completion_text: str = Field(default="", description="Full model response text corresponding to generated_token_ids")
     exploit_code: str
     reward: float
     category: ResultCategory = Field(default=ResultCategory.RUNTIME_REVERT)

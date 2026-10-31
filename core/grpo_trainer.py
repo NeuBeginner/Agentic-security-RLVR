@@ -333,6 +333,7 @@ def group_rollouts_by_prompt(
                     checkpoint_id=checkpoint_id,
                     prompt_hash=p_hash,
                     hypothesis=hypothesis,
+                    full_completion_text=item.get("full_completion_text") or item.get("raw_model_response") or item.get("generated_exploit", ""),
                     exploit_code=item.get("generated_exploit", ""),
                     reward=float(item.get("reward", 0.0)),
                     category=cat_enum,
@@ -503,9 +504,10 @@ def train_grpo_epochs(
     for g_idx, group in enumerate(groups, 1):
         group_items = []
         for r_item in group.rollouts:
+            training_completion = r_item.full_completion_text or r_item.exploit_code
             input_ids, attention_mask, completion_mask = prepare_rollout_tokens(
                 prompt_str=group.prompt,
-                completion_str=r_item.exploit_code,
+                completion_str=training_completion,
                 tokenizer=tokenizer,
                 device=device,
                 max_seq_len=max_seq_len,

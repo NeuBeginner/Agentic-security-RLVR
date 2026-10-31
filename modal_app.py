@@ -174,7 +174,7 @@ class ProductionAuditAgent:
             response_text,
             attempt_idx=1,
             generated_token_ids=token_ids_list,
-            prompt_text=user_prompt
+            prompt_text=text
         ).model_dump()
 
     @modal.method()
@@ -208,7 +208,7 @@ class ProductionAuditAgent:
             response_text,
             attempt_idx=99,
             generated_token_ids=token_ids_list,
-            prompt_text=prompt
+            prompt_text=text
         ).model_dump()
 
 
@@ -297,7 +297,7 @@ class DevReasoningAgent:
             response_text,
             attempt_idx=1,
             generated_token_ids=token_ids_list,
-            prompt_text=user_prompt
+            prompt_text=text
         ).model_dump()
 
     @modal.method()
@@ -331,7 +331,7 @@ class DevReasoningAgent:
             response_text,
             attempt_idx=99,
             generated_token_ids=token_ids_list,
-            prompt_text=prompt
+            prompt_text=text
         ).model_dump()
 
 
@@ -509,7 +509,7 @@ def run_control_foundry_tests(target_name: str = "Vault"):
     3. Malformed contract name -> Rejected upfront before Foundry (reward -0.50, GENERATION_FORMAT_ERROR)
     """
     print("\n" + "=" * 78)
-    print("🧪 EXECUTING MANDATORY FOUNDRY HARNESS CONTROL TEST SUITE (ROUND 2)")
+    print("🧪 EXECUTING MANDATORY FOUNDRY HARNESS CONTROL TEST SUITE (ROUND 5)")
     print("=" * 78)
 
     benchmarks_dir = os.path.join(os.path.dirname(__file__), "benchmarks", "targets", "solidity")
@@ -689,7 +689,7 @@ def main(
     print(f"🧬 Use LoRA Adapter Checkpoint: {use_lora}")
     print("=" * 78)
 
-    # Fast-path: Control test suite for Foundry harness verification (Round 2)
+    # Fast-path: Control test suite for Foundry harness verification (Round 5)
     if mode.lower() in ("test-harness", "check-harness", "control"):
         run_control_foundry_tests(target_name)
         return

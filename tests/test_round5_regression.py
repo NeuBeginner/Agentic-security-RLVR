@@ -187,12 +187,154 @@ def test_prompt_identity_vs_completion_grouping():
 # 2. GENERATED TOKEN IDS PIPELINE THROUGH PRODUCTION PATH
 # =============================================================================
 
+# =============================================================================
+# 2. GENERATED TOKEN IDS PIPELINE THROUGH PRODUCTION PATH (REAL TOKENIZER)
+# =============================================================================
+
+def test_real_qwen_tokenizer_prompt_and_token_id_lineage():
+    """
+    Supervisor Blockers 1 & 2 (Round 5):
+    Uses the real HuggingFace Qwen2.5-Coder tokenizer from local cache.
+    Proves:
+    1. Full generation prompt (with chat template and system prompt) is preserved in prompt_used.
+    2. Model response tokens generated during inference match training completion tokens 100% bitwise.
+    3. full_completion_text matches the decoded generated_token_ids character-by-character.
+    4. ExploitModule code is extracted into generated_exploit for EVM testing, while full reasoning + code
+       is preserved in full_completion_text for GRPO policy training.
+    """
+    from transformers import AutoTokenizer
+    from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_analysis_prompt
+
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Coder-1.5B-Instruct")
+    target = TargetProgram(
+        name="Vault",
+        source_code="contract Vault { mapping(address => uint256) public balances; }",
+        language="solidity",
+        invariants=["Depositor Solvency"]
+    )
+
+    # 1. Real chat-templated generation prompt
+    user_prompt = build_analysis_prompt(target)
+    messages = [
+        {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt}
+    ]
+    formatted_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    expected_prompt_ids = tokenizer.encode(formatted_prompt, add_special_tokens=True)
+
+    # 2. Real model output sequence with reasoning and code
+    raw_response = (
+        "### Vulnerability Analysis\n"
+        "The target contract Vault allows unconstrained withdrawals.\n\n"
+        "```solidity\n"
+        "// SPDX-License-Identifier: MIT\n"
+        "pragma solidity ^0.8.20;\n\n"
+        "contract ExploitModule {\n"
+        "    address public target;\n"
+        "    constructor(address _target) payable {\n"
+        "        target = _target;\n"
+        "    }\n"
+        "    function runExploit() external payable {\n"
+        "        // exploit execution\n"
+        "    }\n"
+        "}\n"
+        "```\n"
+        "Attack sequence complete."
+    )
+    real_generated_token_ids = tokenizer.encode(raw_response, add_special_tokens=False)
+
+    # 3. Production pipeline: parse_model_response preserves full prompt & generated token IDs
+    payload = parse_model_response(
+        target,
+        raw_response,
+        attempt_idx=1,
+        generated_token_ids=real_generated_token_ids,
+        prompt_text=formatted_prompt
+    )
+    assert payload.prompt_text == formatted_prompt
+    assert payload.generated_token_ids == real_generated_token_ids
+    assert payload.raw_model_response == raw_response
+    assert "contract ExploitModule" in payload.test_code
+    assert payload.format_valid is True
+
+    # 4. Production CandidateRecord creation
+    candidate = CandidateRecord(
+        candidate_id="real_qwen_cand_1",
+        run_id="run_qwen_test",
+        target_name=target.name,
+        payload=payload,
+        verdict=VerificationVerdict(
+            target_name=target.name,
+            is_verified=False,
+            reward_score=0.5,
+            category=ResultCategory.INVARIANT_BREACH_UNREPLAYED,
+            vulnerability_type="ReentrancyDrain",
+            poc_code=payload.test_code,
+            feedback="trace"
+        ),
+        prompt_text=payload.prompt_text,
+        prompt_hash=compute_prompt_hash(payload.prompt_text),
+        model_id="Qwen/Qwen2.5-Coder-1.5B-Instruct",
+        checkpoint_id="base"
+    )
+
+    # 5. Production finalized trajectory creation
+    traj = create_finalized_trajectory(candidate, target)
+    assert traj.prompt_used == formatted_prompt
+    assert traj.full_completion_text == raw_response
+    assert traj.generated_exploit == payload.test_code
+    assert traj.generated_token_ids == real_generated_token_ids
+
+    # 6. GRPO Grouping
+    groups = group_rollouts_by_prompt([traj.model_dump(), traj.model_dump()], group_size=2)
+    assert len(groups) == 1
+    grp = groups[0]
+    assert grp.prompt == formatted_prompt
+
+    r_item = grp.rollouts[0]
+    assert r_item.full_completion_text == raw_response
+    assert r_item.exploit_code == payload.test_code
+    assert r_item.generated_token_ids == real_generated_token_ids
+
+    # 7. GRPO Token preparation for policy forward pass
+    training_completion = r_item.full_completion_text or r_item.exploit_code
+    input_ids, attention_mask, completion_mask = prepare_rollout_tokens(
+        prompt_str=grp.prompt,
+        completion_str=training_completion,
+        tokenizer=tokenizer,
+        device="cpu",
+        stored_generated_token_ids=r_item.generated_token_ids
+    )
+
+    prompt_len = len(expected_prompt_ids)
+    extracted_prompt_ids = input_ids[0, :prompt_len].tolist()
+    extracted_completion_ids = input_ids[0, prompt_len:].tolist()
+
+    # Invariant A: Training prompt IDs match inference prompt IDs 100% bitwise!
+    assert extracted_prompt_ids == expected_prompt_ids
+
+    # Invariant B: Training completion IDs match inference generated IDs 100% bitwise!
+    # Note: prepare_rollout_tokens appends EOS if not present
+    if real_generated_token_ids and real_generated_token_ids[-1] != tokenizer.eos_token_id:
+        expected_with_eos = real_generated_token_ids + [tokenizer.eos_token_id]
+    else:
+        expected_with_eos = real_generated_token_ids
+    assert extracted_completion_ids == expected_with_eos
+
+    # Invariant C: Decoded completion tokens match raw model response character-for-character!
+    decoded_completion = tokenizer.decode(extracted_completion_ids, skip_special_tokens=True)
+    assert decoded_completion.strip() == raw_response.strip()
+
+    # Invariant D: Completion mask is zero on prompt and 1.0 on generated completion!
+    assert completion_mask[0, :prompt_len].sum().item() == 0.0
+    assert completion_mask[0, prompt_len:].sum().item() == float(len(extracted_completion_ids))
+
+
 class MockTokenizer:
-    """Mock tokenizer simulating HuggingFace Qwen tokenizer."""
+    """Mock tokenizer simulating HuggingFace Qwen tokenizer for unit testing."""
     eos_token_id = 9999
 
     def encode(self, text, add_special_tokens=True):
-        # Deterministic dummy mapping
         words = text.split()
         return [hash(w) % 1000 for w in words]
 
@@ -250,12 +392,13 @@ contract ExploitModule {
     # 3. Finalized trajectory
     traj = create_finalized_trajectory(rec, target)
     assert traj.generated_token_ids == mock_token_ids
+    assert traj.full_completion_text == raw_response
 
     # 4. GRPO Token preparation
     tok = MockTokenizer()
     input_ids, attention_mask, completion_mask = prepare_rollout_tokens(
         prompt_str=traj.prompt_used,
-        completion_str=traj.generated_exploit,
+        completion_str=traj.full_completion_text,
         tokenizer=tok,
         device="cpu",
         stored_generated_token_ids=traj.generated_token_ids
