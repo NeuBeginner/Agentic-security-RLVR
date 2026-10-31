@@ -3,66 +3,67 @@ from typing import List
 from core.schemas import TargetProgram, AttackHypothesis, ExploitPayload
 
 
-SYSTEM_PROMPT = """You are an automated software security auditor and exploit synthesis engine.
-Your task is to analyze the provided target code and security invariants, identify logical flaws, and synthesize an executable Python test script that demonstrates the flaw by triggering an invariant breach.
+SOLIDITY_SYSTEM_PROMPT = """You are an expert Web3 smart contract security researcher and automated exploit engineer.
+Your task is to analyze the provided Solidity target contract and its security invariants, identify logical or economic vulnerabilities, and synthesize a complete, self-contained Foundry test contract (`Exploit.t.sol`).
 
-CRITICAL INSTRUCTIONS:
-1. Provide your reasoning trace explaining the vulnerability.
-2. Provide the executable Python test code inside a single ```python ``` code block.
-3. The test code must import the target via: `import target_{name} as target`
-4. PRECONDITIONS: Carefully inspect all requirement checks! If a method checks `if attacker not in balances` or requires user setup, you MUST perform necessary initial setup (e.g. deposit a small initial amount for the attacker) before invoking the exploit vector.
-5. If an invariant is breached (e.g. funds drained, unauthorized ownership change), print: `[INVARIANT_BREACHED]` and exit cleanly with code 0.
-6. If the exploit fails, exit cleanly with code 0 without printing the invariant breached tag.
+CRITICAL FOUNDRY INSTRUCTIONS:
+1. Provide a reasoning trace explaining the root cause and the exploit vector.
+2. Provide the complete Solidity test contract inside a single ```solidity ``` code block.
+3. Import the target using relative import: `import "../src/{name}.sol";`
+4. The test contract must declare a function: `function testExploit() public` (or `external`).
+5. Include any auxiliary helper contracts (like an Attacker contract with receive()/fallback()) directly inside the same file.
+6. In `testExploit()`, perform the attack and assert the invariant breach:
+   - For example: `assert(address(vault).balance == 0);`
+7. Ensure valid Solidity 0.8.20 syntax with matching pragma: `pragma solidity ^0.8.20;`
 """
 
 
 def build_analysis_prompt(target: TargetProgram) -> str:
-    """Constructs the prompt for initial exploit synthesis."""
+    """Constructs the prompt for the generator model."""
     invariants_text = "\n".join(f"- {inv}" for inv in target.invariants)
-    prompt = f"""Target Program Name: {target.name}
-Language: {target.language}
+    prompt = f"""Target Contract Name: {target.name}
+Language: Solidity 0.8.20
 
 Security Invariants:
 {invariants_text}
 
-Source Code:
-```python
+Contract Source Code:
+```solidity
 {target.source_code}
 ```
 
-Analyze the program and synthesize an executable test payload to violate one of the security invariants.
-Remember to satisfy any prerequisites (like depositing first) so your exploit can execute properly.
+Synthesize a complete Foundry test contract with `testExploit()` that reproduces the vulnerability and breaches the invariant.
 """
     return prompt
 
 
 def build_refinement_prompt(target: TargetProgram, failed_code: str, error_feedback: str) -> str:
-    """Constructs the prompt for the self-correction refinement loop."""
-    return f"""Your previous exploit test script failed when executed in the sandbox.
+    """Constructs the prompt for self-correction based on Foundry execution traces."""
+    return f"""Your previous Foundry exploit test failed to prove the vulnerability.
 
---- EXECUTION FEEDBACK ---
+--- FORGE EXECUTION TRACE ---
 {error_feedback}
---------------------------
+-----------------------------
 
-Previous Generated Code:
-```python
+Previous Exploit Code:
+```solidity
 {failed_code}
 ```
 
-Target Code:
-```python
+Target Contract:
+```solidity
 {target.source_code}
 ```
 
-Analyze the error. Did an assertion fail? Did you miss a prerequisite (such as calling deposit() before exploit_drain())?
-Fix the bug in your test harness and provide the complete corrected Python script inside a single ```python ``` code block.
-Ensure that if the vulnerability is triggered, it prints `[INVARIANT_BREACHED]`.
+Carefully inspect the compiler error or revert trace above.
+Fix any issues with function signatures, gas, reentrancy guards, or balance setup.
+Return the complete, corrected Solidity test contract in a single ```solidity ``` code block with `function testExploit()`.
 """
 
 
-def extract_python_code(model_output: str) -> str:
-    """Extracts python code block from the model's text response."""
-    pattern = r"```(?:python)?\s*\n(.*?)```"
+def extract_solidity_code(model_output: str) -> str:
+    """Extracts solidity code block from the model's text response."""
+    pattern = r"```(?:solidity)?\s*\n(.*?)```"
     matches = re.findall(pattern, model_output, re.DOTALL)
     if matches:
         return max(matches, key=len).strip()
@@ -71,29 +72,31 @@ def extract_python_code(model_output: str) -> str:
 
 def parse_model_response(target: TargetProgram, raw_text: str, attempt_idx: int = 1) -> ExploitPayload:
     """Parses raw LLM text into a structured ExploitPayload."""
-    code = extract_python_code(raw_text)
+    code = extract_solidity_code(raw_text)
     
     parts = raw_text.split("```")
     reasoning = parts[0].strip() if parts else raw_text[:300]
     
-    vuln_type = "LogicVulnerability"
+    vuln_type = "Web3Vulnerability"
     lower_r = (reasoning + "\n" + code).lower()
-    if "reentrancy" in lower_r or "drain" in lower_r or "balance" in lower_r:
-        vuln_type = "StateInvariantDrain"
+    if "reentrancy" in lower_r or "drain" in lower_r:
+        vuln_type = "ReentrancyDrain"
     elif "access" in lower_r or "owner" in lower_r or "auth" in lower_r:
-        vuln_type = "AccessControlBypass"
-    elif "underflow" in lower_r or "overflow" in lower_r or "boundary" in lower_r:
-        vuln_type = "IntegerBoundaryError"
+        vuln_type = "AccessControlPrivilegeEscalation"
+    elif "flash" in lower_r or "oracle" in lower_r:
+        vuln_type = "OraclePriceManipulation"
+    elif "overflow" in lower_r or "underflow" in lower_r:
+        vuln_type = "ArithmeticError"
 
     hypothesis = AttackHypothesis(
         vulnerability_type=vuln_type,
         reasoning_trace=reasoning,
-        attack_vector="Model-synthesized test execution against target invariants."
+        attack_vector="Foundry EVM execution against contract invariants."
     )
     
     return ExploitPayload(
         target_name=target.name,
         hypothesis=hypothesis,
-        test_code=code if code else "# Error: No code generated\nimport sys\nsys.exit(1)\n",
-        test_filename=f"test_poc_attempt_{attempt_idx}_{target.name}.py"
+        test_code=code if code else "// Error: No Solidity code generated\n",
+        test_filename=f"Exploit_{attempt_idx}.t.sol"
     )

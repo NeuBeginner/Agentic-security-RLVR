@@ -27,24 +27,24 @@ gpu_image = (
 
 
 @app.cls(
-    gpu=config.GENERATOR_GPU,
+    gpu=config.DEV_GPU_TYPE,
     image=gpu_image,
-    timeout=900,
+    timeout=600,
 )
-class ReasoningGenerator:
+class SolidityReasoningAgent:
     """
-    GPU-accelerated reasoning agent on Modal.
-    Loads neural network weights and generates dynamic exploit test suites.
+    GPU-accelerated Web3 reasoning agent on Modal.
+    Loads neural network weights and synthesizes Foundry (Solidity) exploit test suites.
     """
     @modal.enter()
     def load_model(self):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
         
-        print(f"[*] Initializing model on Modal GPU ({config.GENERATOR_GPU}): {config.DEFAULT_MODEL_NAME}")
-        self.tokenizer = AutoTokenizer.from_pretrained(config.DEFAULT_MODEL_NAME)
+        print(f"[*] Initializing model on Modal GPU ({config.DEV_GPU_TYPE}): {config.DEV_GPU_MODEL}")
+        self.tokenizer = AutoTokenizer.from_pretrained(config.DEV_GPU_MODEL)
         self.model = AutoModelForCausalLM.from_pretrained(
-            config.DEFAULT_MODEL_NAME,
+            config.DEV_GPU_MODEL,
             torch_dtype=torch.float16,
             device_map="auto"
         )
@@ -52,62 +52,18 @@ class ReasoningGenerator:
         print(f"[+] Model weights loaded into GPU VRAM: {allocated_mb:.1f} MB allocated.")
 
     @modal.method()
-    def generate_batch(self, target_dict: dict, count: int = 10) -> list:
-        """Generates a batch of distinct candidate rollouts using varied sampling temperatures."""
+    def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3) -> dict:
+        """Synthesizes a Foundry test contract to exploit the target Solidity contract."""
         import torch
         from core.schemas import TargetProgram
-        from core.llm_generator import SYSTEM_PROMPT, build_analysis_prompt, parse_model_response
+        from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_analysis_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
         user_prompt = build_analysis_prompt(target)
         
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
-        ]
-        
-        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        inputs = self.tokenizer([text], return_tensors="pt").to("cuda")
-
-        payloads = []
-        temperatures = [0.2, 0.3, 0.4, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85]
-        
-        print(f"[*] Generating {count} distinct rollouts on GPU...")
-        with torch.no_grad():
-            for i in range(count):
-                temp = temperatures[i % len(temperatures)]
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=config.MAX_TOKENS,
-                    temperature=temp,
-                    do_sample=(temp > 0.0),
-                    pad_token_id=self.tokenizer.eos_token_id
-                )
-                generated_ids = [
-                    output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, outputs)
-                ]
-                response_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-                payload = parse_model_response(target, response_text, attempt_idx=i+1)
-                payloads.append(payload.model_dump())
-                
-        return payloads
-
-    @modal.method()
-    def refine_candidate(self, target_dict: dict, failed_code: str, error_feedback: str) -> dict:
-        """
-        Closed-loop self-correction:
-        Feeds the sandbox execution feedback back to the model to synthesize a corrected exploit.
-        """
-        import torch
-        from core.schemas import TargetProgram
-        from core.llm_generator import SYSTEM_PROMPT, build_refinement_prompt, parse_model_response
-
-        target = TargetProgram(**target_dict)
-        refinement_prompt = build_refinement_prompt(target, failed_code, error_feedback)
-        
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": refinement_prompt}
         ]
         
         text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -116,8 +72,43 @@ class ReasoningGenerator:
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
-                max_new_tokens=config.MAX_TOKENS,
-                temperature=0.2,  # Low temperature for careful correction
+                max_new_tokens=2048,
+                temperature=temperature,
+                do_sample=(temperature > 0.0),
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+        
+        generated_ids = [
+            output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, outputs)
+        ]
+        response_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        
+        payload = parse_model_response(target, response_text)
+        return payload.model_dump()
+
+    @modal.method()
+    def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str) -> dict:
+        """Closed-loop self-correction using Foundry (forge test) execution feedback."""
+        import torch
+        from core.schemas import TargetProgram
+        from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_refinement_prompt, parse_model_response
+
+        target = TargetProgram(**target_dict)
+        prompt = build_refinement_prompt(target, failed_code, error_trace)
+        
+        messages = [
+            {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt}
+        ]
+        
+        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        inputs = self.tokenizer([text], return_tensors="pt").to("cuda")
+
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=2048,
+                temperature=0.1,
                 do_sample=True,
                 pad_token_id=self.tokenizer.eos_token_id
             )
@@ -127,8 +118,7 @@ class ReasoningGenerator:
         ]
         response_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
         
-        refined_payload = parse_model_response(target, response_text, attempt_idx=99)
-        return refined_payload.model_dump()
+        return parse_model_response(target, response_text, attempt_idx=99).model_dump()
 
 
 @app.function(
@@ -139,14 +129,13 @@ class ReasoningGenerator:
 )
 def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     """
-    Modal Remote Function:
-    Runs an individual exploit candidate inside an isolated, ephemeral sandbox.
-    Can be dynamically mapped to hundreds of parallel instances.
+    Modal Remote Function (Foundry / EVM Sandbox Worker):
+    Compiles Solidity contract via solc 0.8.20 and executes forge test in an isolated EVM.
     """
     target = TargetProgram(**target_dict)
     payload = ExploitPayload(**payload_dict)
     
-    # 1. Execute in isolated sandbox
+    # 1. Execute in Foundry EVM sandbox
     raw_result = run_payload_in_sandbox(target, payload)
     
     # 2. Evaluate verifiable reward & invariant status
@@ -158,99 +147,71 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
 @app.local_entrypoint()
 def main():
     """
-    Local CLI entrypoint for orchestrating distributed verification on Modal.
+    Local CLI entrypoint for orchestrating distributed Foundry verification on Modal.
     Usage: modal run modal_app.py
     """
     print("\n" + "=" * 75)
-    print("🛡️  AEGIS-RLVR: 10-Rollout Exploration & Closed-Loop Refinement Pipeline")
+    print("🛡️  AEGIS-RLVR: Web3 Smart Contract Foundry EVM Pipeline on Modal")
     print("=" * 75)
     
-    # 1. Load benchmark target
-    benchmark_file = os.path.join(
-        os.path.dirname(__file__), "benchmarks", "targets", "sample_vault.py"
+    # 1. Load real Solidity target contract
+    target_path = os.path.join(
+        os.path.dirname(__file__), "benchmarks", "targets", "solidity", "Vault.sol"
     )
-    with open(benchmark_file, "r", encoding="utf-8") as f:
+    with open(target_path, "r", encoding="utf-8") as f:
         target_source = f.read()
         
     target = TargetProgram(
-        name="vault",
+        name="Vault",
         source_code=target_source,
-        language="python",
-        invariants=["total_funds >= sum(balances)", "owner == initial_owner"]
+        language="solidity",
+        invariants=["address(vault).balance >= totalDeposits"]
     )
     
-    print(f"\n[1] Target loaded: '{target.name}'")
+    print(f"\n[1] Target loaded: '{target.name}.sol'")
     print(f"    Invariants: {target.invariants}")
+    print(f"    Solidity Version: {config.SOLC_VERSION}")
     
-    # 2. Batch Generation on Modal GPU (10 attempts)
-    print(f"\n[2] Dispatching to Modal GPU ({config.GENERATOR_GPU}) for 10 Neural Rollouts...")
-    generator = ReasoningGenerator()
+    # 2. Neural Exploit Synthesis on Modal GPU
+    print(f"\n[2] Dispatching to Modal GPU ({config.DEV_GPU_TYPE}) for Solidity Exploit Synthesis...")
+    generator = SolidityReasoningAgent()
     
-    raw_payloads = generator.generate_batch.remote(target.model_dump(), count=10)
-    candidates = [ExploitPayload(**p) for p in raw_payloads]
-    print(f"[+] Successfully synthesized {len(candidates)} candidates on GPU.")
+    payload_dict = generator.generate_solidity_exploit.remote(target.model_dump(), temperature=0.3)
+    payload = ExploitPayload(**payload_dict)
     
-    # 3. Parallel Execution in 10 Modal Sandboxes
-    print(f"\n[3] Spawning {len(candidates)} parallel ephemeral sandboxes in Modal Cloud...")
-    targets_data = [target.model_dump() for _ in candidates]
-    payloads_data = [c.model_dump() for c in candidates]
+    print(f"[+] Model formulated hypothesis: {payload.hypothesis.vulnerability_type}")
+    print(f"[+] Reasoning snippet: {payload.hypothesis.reasoning_trace[:150]}...")
+    print(f"[+] Synthesized Foundry test: {len(payload.test_code.splitlines())} lines.")
     
-    results = list(verify_exploit_remote.map(targets_data, payloads_data))
+    # 3. Execution in Foundry Sandbox on Modal
+    print("\n[3] Spawning ephemeral Foundry/EVM container on Modal Cloud...")
+    print("    Running: forge test -vvv ...")
     
-    print("\n" + "=" * 75)
-    print("📊 INITIAL 10-ROLLOUT RESULTS")
-    print("=" * 75)
+    result_dict = verify_exploit_remote.remote(target.model_dump(), payload.model_dump())
+    verdict = VerificationVerdict(**result_dict)
     
-    verified_candidates = []
-    failed_candidates = []
-    
-    for idx, res in enumerate(results, start=1):
-        verdict = VerificationVerdict(**res)
-        status = "✅ VERIFIED EXPLOIT" if verdict.is_verified else "❌ REJECTED"
-        print(f"Attempt #{idx:02d}: [{status}] | Type: {verdict.vulnerability_type} | Reward: {verdict.reward_score:+.2f}")
-        if verdict.is_verified:
-            verified_candidates.append((candidates[idx-1], verdict))
-        else:
-            failed_candidates.append((candidates[idx-1], verdict))
-            
-    print(f"\nInitial Pass Rate: {len(verified_candidates)}/{len(candidates)} verified.")
-
-    # 4. Closed-Loop Refinement (Feedback Loop)
-    if failed_candidates and len(verified_candidates) < len(candidates):
-        print("\n" + "=" * 75)
-        print("🔄 ACTIVATING CLOSED-LOOP REFINEMENT (SELF-CORRECTION)")
-        print("=" * 75)
+    # 4. Closed-loop Refinement if needed
+    if not verdict.is_verified:
+        print(f"\n[!] Initial test rejected: {verdict.feedback[:200]}...")
+        print("[*] Feeding forge execution trace back to GPU for automated refinement...")
         
-        # Take the most promising failed attempt that had an execution trace
-        candidate_to_refine, failed_verdict = failed_candidates[0]
-        print(f"[*] Selected Candidate for refinement: {candidate_to_refine.hypothesis.vulnerability_type}")
-        print(f"[*] Sandbox Error Feedback: {failed_verdict.feedback[:200]}...")
-        print("[*] Feeding error feedback back to Modal GPU for automated correction...")
-        
-        refined_dict = generator.refine_candidate.remote(
+        refined_dict = generator.refine_solidity_exploit.remote(
             target.model_dump(),
-            candidate_to_refine.test_code,
-            failed_verdict.feedback
+            payload.test_code,
+            verdict.feedback
         )
-        refined_candidate = ExploitPayload(**refined_dict)
-        print(f"[+] GPU synthesized refined exploit ({len(refined_candidate.test_code.splitlines())} lines).")
+        refined_payload = ExploitPayload(**refined_dict)
         
-        # Re-run refined candidate in sandbox
-        print("[*] Dispatching refined candidate to Modal sandbox...")
-        refined_result_dict = verify_exploit_remote.remote(target.model_dump(), refined_candidate.model_dump())
-        refined_verdict = VerificationVerdict(**refined_result_dict)
+        print("[*] Re-testing refined exploit in Foundry sandbox...")
+        result_dict = verify_exploit_remote.remote(target.model_dump(), refined_payload.model_dump())
+        verdict = VerificationVerdict(**result_dict)
         
-        ref_status = "✅ VERIFIED EXPLOIT" if refined_verdict.is_verified else "❌ REJECTED"
-        print(f"\nRefinement Result: [{ref_status}]")
-        print(f"  Vulnerability : {refined_verdict.vulnerability_type}")
-        print(f"  RLVR Reward   : {refined_verdict.reward_score:+.2f}")
-        print(f"  Feedback      : {refined_verdict.feedback}")
-        
-        if refined_verdict.is_verified:
-            verified_candidates.append((refined_candidate, refined_verdict))
-
     print("\n" + "=" * 75)
-    print(f"🏁 FINAL SUMMARY: {len(verified_candidates)} exploit(s) rigorously proven and verified.")
+    status = "✅ VERIFIED EXPLOIT (EVM INVARIANT BREACHED)" if verdict.is_verified else "❌ REJECTED"
+    print(f"EVM VERIFICATION VERDICT: [{status}]")
+    print(f"Vulnerability Type     : {verdict.vulnerability_type}")
+    print(f"RLVR Reward            : {verdict.reward_score:+.2f}")
+    print(f"Sandbox Feedback       : {verdict.feedback}")
     print("=" * 75 + "\n")
 
 

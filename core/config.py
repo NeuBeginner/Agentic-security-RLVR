@@ -6,22 +6,27 @@ class PipelineConfig:
     # Modal Application Settings
     APP_NAME: str = "aegis-rlvr-security"
     
-    # Sandboxed execution limits
-    SANDBOX_TIMEOUT_SEC: int = 45
-    SANDBOX_CPU_CORES: float = 1.0
-    SANDBOX_MEMORY_MB: int = 1024
+    # GPU Audit Model (Modal GPU Worker)
+    AUDIT_GPU_MODEL: str = "qtum/Qwen3-Coder-30B-A3B-Audit"
+    AUDIT_GPU_TYPE: str = "H100"
     
-    # Generator model settings
-    GENERATOR_GPU: str = "T4"
-    DEFAULT_MODEL_NAME: str = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-    TEMPERATURE: float = 0.2
-    MAX_TOKENS: int = 2048
-
+    # Fast reasoning agent fallback (API or lightweight dev model)
+    DEV_GPU_MODEL: str = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+    DEV_GPU_TYPE: str = "T4"
+    
+    # Sandboxed Foundry Execution limits
+    SANDBOX_TIMEOUT_SEC: int = 60
+    SANDBOX_CPU_CORES: float = 2.0
+    SANDBOX_MEMORY_MB: int = 2048
+    
+    # Solidity / EVM settings
+    SOLC_VERSION: str = "0.8.20"
+    
     # RLVR Reward Shaping
-    REWARD_INVARIANT_BREACH: float = 1.0      # Verified Exploit found
-    REWARD_COMPILATION_FAIL: float = -0.5    # Broken syntax / compilation failure
+    REWARD_INVARIANT_BREACH: float = 1.0      # Verified Exploit found (EVM assert passed)
+    REWARD_COMPILATION_FAIL: float = -0.5    # solc / forge compilation error
     REWARD_SAFE_RUN: float = -0.1            # Clean execution, no invariant breached
-    REWARD_TIMEOUT: float = -0.3             # Infinite loop or hang
+    REWARD_TIMEOUT: float = -0.3             # Revert / out of gas / infinite loop
 
 
 config = PipelineConfig()
