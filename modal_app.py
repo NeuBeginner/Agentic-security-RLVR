@@ -848,7 +848,7 @@ def main(
             model_id=model_id,
             checkpoint_id=checkpoint_id,
             prompt_text=p.prompt_text or target_prompt,
-            prompt_hash=prompt_hash,
+            prompt_hash=compute_prompt_hash(p.prompt_text or target_prompt),
             replay_eligible=(v.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED),
             reproduced=False
         )

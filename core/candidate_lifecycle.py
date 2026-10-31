@@ -165,7 +165,7 @@ def create_finalized_trajectory(
     """
     traj_id = f"traj_{candidate.run_id}_{candidate.candidate_id}"
     actual_prompt = candidate.prompt_text or candidate.payload.prompt_text or target.source_code
-    actual_prompt_hash = candidate.prompt_hash or compute_prompt_hash(actual_prompt)
+    actual_prompt_hash = compute_prompt_hash(actual_prompt)
     full_completion = candidate.payload.raw_model_response or candidate.payload.test_code
     
     return RLVRTrajectory(
