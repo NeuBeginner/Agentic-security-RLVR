@@ -85,13 +85,54 @@ def parse_forge_output(output_text: str):
     return structured_data, test_status, revert_reason, decoded_logs
 
 
+# Prohibited cheatcode patterns to isolate exploit execution from harness privileges
+PROHIBITED_CHEATCODES = [
+    "forge-std/Test.sol",
+    "forge-std/Vm.sol",
+    "0x7109709ECfa91a80626fF3989D68f67F5b1DD12D",
+    "vm.deal",
+    "vm.prank",
+    "vm.store",
+    "vm.warp",
+    "vm.roll",
+    "vm.mockCall",
+    "vm.expectRevert",
+    "vm.load",
+    "vm.etch",
+    "vm.sign",
+    "Vm constant vm",
+    "Vm public vm"
+]
+
+
+def detect_prohibited_cheatcodes(code: str) -> bool:
+    """Detects attempts by candidate ExploitModule to use privileged Foundry cheatcodes."""
+    for pattern in PROHIBITED_CHEATCODES:
+        if pattern in code:
+            return True
+    return False
+
+
 def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> ExecutionResult:
     """
     Executes an exploit module against a trusted verification harness in Foundry.
     Zero trust in model-supplied assertions: verification is performed exclusively
-    by the immutable test harness in the EVM.
+    by the immutable test harness in the EVM. Enforces cheatcode isolation.
     """
     start_time = time.time()
+
+    # Pre-execution check: block any exploit attempting to hijack Foundry cheatcodes
+    if detect_prohibited_cheatcodes(payload.test_code):
+        return ExecutionResult(
+            return_code=-3,
+            stdout="",
+            stderr="Security Violation: ExploitModule attempted to import or execute Foundry cheatcodes (vm.*).",
+            execution_time_sec=0.01,
+            timed_out=False,
+            invariant_violated=False,
+            cheatcode_detected=True,
+            verified_by_harness=False
+        )
     
     with tempfile.TemporaryDirectory() as tmpdir:
         src_dir = os.path.join(tmpdir, "src")
@@ -125,8 +166,10 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 
         # Write candidate ExploitModule (strictly sanitized filename to prevent path traversal)
         safe_filename = "ExploitModule.sol"
-        exploit_path = os.path.join(test_dir, safe_filename)
-        with open(exploit_path, "w", encoding="utf-8") as f:
+        # Write in both src and test so both named import styles resolve cleanly
+        with open(os.path.join(test_dir, safe_filename), "w", encoding="utf-8") as f:
+            f.write(payload.test_code)
+        with open(os.path.join(src_dir, safe_filename), "w", encoding="utf-8") as f:
             f.write(payload.test_code)
             
         env = os.environ.copy()
@@ -151,14 +194,14 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             structured_json, test_status, revert_reason, decoded_logs = parse_forge_output(proc.stdout or "")
             
             # Rigorous Invariant Verification:
-            # The trusted harness alone emits [INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]
-            # upon detecting physical state insolvency in the EVM.
+            # The trusted harness alone emits [INVARIANT_BREACHED:...] in EVM logs
+            # upon detecting physical state insolvency/equity collapse.
             has_breach_signal = (
-                "[INVARIANT_BREACHED" in output_text or
-                any("[INVARIANT_BREACHED" in str(l) for l in decoded_logs)
+                any("[INVARIANT_BREACHED" in str(l) for l in decoded_logs) or
+                ("[INVARIANT_BREACHED" in output_text and proc.returncode == 0)
             )
             
-            # Test must pass (asserting breach) with zero return code
+            # Test must pass with zero return code, success status, and genuine breach signal
             inv_violated = (
                 proc.returncode == 0 and
                 (test_status == "Success" or "[PASS]" in output_text) and
@@ -175,7 +218,9 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 structured_json=structured_json,
                 test_status=test_status,
                 revert_reason=revert_reason,
-                decoded_logs=decoded_logs
+                decoded_logs=decoded_logs,
+                cheatcode_detected=False,
+                verified_by_harness=inv_violated
             )
             
         except subprocess.TimeoutExpired as e:

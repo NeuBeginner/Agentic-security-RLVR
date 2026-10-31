@@ -25,10 +25,13 @@ class PipelineConfig:
     SOLC_VERSION: str = "0.8.20"
     
     # RLVR Reward Shaping
-    REWARD_INVARIANT_BREACH: float = 1.0      # Verified Exploit found (EVM assert passed)
-    REWARD_COMPILATION_FAIL: float = -0.5    # solc / forge compilation error or revert
-    REWARD_SAFE_RUN: float = -0.1            # Clean execution, no invariant breached
-    REWARD_TIMEOUT: float = -0.3             # Out of gas / infinite loop
+    REWARD_INVARIANT_BREACH: float = 1.0       # Verified Exploit found (EVM assert passed)
+    REWARD_RUNTIME_REVERT: float = -0.25      # Compiled cleanly, but reverted during EVM runtime
+    REWARD_COMPILATION_FAIL: float = -0.5     # solc / forge compilation error
+    REWARD_SAFE_RUN: float = -0.1             # Clean execution, no invariant breached
+    REWARD_TIMEOUT: float = -0.3              # Out of gas / infinite loop
+    REWARD_CHEATCODE_PENALTY: float = -1.0    # Attempted to use Foundry cheatcodes / sandbox escape
+
 
 
 config = PipelineConfig()

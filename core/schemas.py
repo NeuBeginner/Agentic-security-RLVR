@@ -42,6 +42,9 @@ class ExecutionResult(BaseModel):
     test_status: Optional[str] = None       # "Success" or "Failure"
     revert_reason: Optional[str] = None     # Extracted EVM revert / panic reason
     decoded_logs: List[str] = Field(default_factory=list)
+    cheatcode_detected: bool = False
+    verified_by_harness: bool = False
+    gas_used: Optional[int] = None
 
 
 class VerificationVerdict(BaseModel):
@@ -52,3 +55,6 @@ class VerificationVerdict(BaseModel):
     vulnerability_type: str
     poc_code: str
     feedback: str
+    state_delta_verified: bool = False
+    reproducible: bool = False
+

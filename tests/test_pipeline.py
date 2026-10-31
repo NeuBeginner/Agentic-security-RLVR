@@ -110,7 +110,7 @@ def test_reject_dummy_passing_test():
     verdict = evaluate_execution_trace(payload, result)
 
     assert verdict.is_verified is False
-    assert verdict.reward_score == config.REWARD_COMPILATION_FAIL
+    assert verdict.reward_score == config.REWARD_RUNTIME_REVERT
     assert "Vault remains solvent" in verdict.feedback
 
 
@@ -168,7 +168,7 @@ def test_verify_real_reentrancy_exploit():
 
     assert verdict.is_verified is True
     assert verdict.reward_score == config.REWARD_INVARIANT_BREACH
-    assert "SUCCESS: Invariant breached" in verdict.feedback
+    assert "SUCCESS: Multi-factor verification passed" in verdict.feedback
 
 
 def test_verify_erc4626_inflation_exploit():
@@ -217,7 +217,7 @@ def test_verify_erc4626_inflation_exploit():
 
     assert verdict.is_verified is True
     assert verdict.reward_score == config.REWARD_INVARIANT_BREACH
-    assert "SUCCESS: Invariant breached" in verdict.feedback
+    assert "SUCCESS: Multi-factor verification passed" in verdict.feedback
 
 
 
@@ -290,3 +290,112 @@ def test_checksum_validation_detects_tampering():
     with pytest.raises(ValueError, match="Checksum mismatch"):
         if computed_sha != expected_sha:
             raise ValueError(f"Checksum mismatch! Expected {expected_sha}, got {computed_sha}")
+
+
+# =============================================================================
+# 7. TEST CHEATCODE DETECTION & PENALTY (P0 FIX)
+# =============================================================================
+def test_detect_prohibited_cheatcodes():
+    from sandbox.runner import detect_prohibited_cheatcodes, run_payload_in_sandbox
+
+    sneaky_cheatcode_code = """
+    // SPDX-License-Identifier: MIT
+    pragma solidity ^0.8.20;
+    import "forge-std/Test.sol";
+
+    contract ExploitModule {
+        function runExploit() external payable {
+            // Attempt to forge breach by warping or pranking
+            vm.prank(address(0xDEAD));
+        }
+    }
+    """
+    assert detect_prohibited_cheatcodes(sneaky_cheatcode_code) is True
+
+    clean_code = """
+    // SPDX-License-Identifier: MIT
+    pragma solidity ^0.8.20;
+    contract ExploitModule {
+        function runExploit() external payable {}
+    }
+    """
+    assert detect_prohibited_cheatcodes(clean_code) is False
+
+    # Ensure runner rejects cheatcode exploit before compilation
+    target = TargetProgram(name="Vault", source_code="contract Vault{}", language="solidity")
+    payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(
+            vulnerability_type="CheatcodeAttack",
+            reasoning_trace="Try to prank state",
+            attack_vector="vm.prank"
+        ),
+        test_code=sneaky_cheatcode_code
+    )
+    result = run_payload_in_sandbox(target, payload)
+    assert result.cheatcode_detected is True
+    assert result.return_code == -3
+
+    verdict = evaluate_execution_trace(payload, result)
+    assert verdict.is_verified is False
+    assert verdict.reward_score == config.REWARD_CHEATCODE_PENALTY
+    assert "SECURITY VIOLATION" in verdict.feedback
+
+
+# =============================================================================
+# 8. TEST MULTI-FACTOR INVARIANT VERIFICATION (P0 FIX)
+# =============================================================================
+def test_multifactor_verification_rejects_spurious_breach():
+    """
+    Ensures that if invariant_violated is claimed, but the test status is Failure
+    or exit code is non-zero, it is firmly rejected.
+    """
+    payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(
+            vulnerability_type="ReentrancyDrain",
+            reasoning_trace="Spurious claim",
+            attack_vector="Exit failure"
+        ),
+        test_code="contract ExploitModule{}"
+    )
+
+    spurious_result = ExecutionResult(
+        return_code=1,
+        stdout="[FAIL] testExploit()",
+        stderr="Reverted",
+        execution_time_sec=0.5,
+        timed_out=False,
+        invariant_violated=True,  # Flawed signal!
+        test_status="Failure",
+        decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"]
+    )
+    verdict = evaluate_execution_trace(payload, spurious_result)
+    assert verdict.is_verified is False
+    assert verdict.reward_score != config.REWARD_INVARIANT_BREACH
+
+
+# =============================================================================
+# 9. TEST TARGET-AGNOSTIC PROMPT GENERATOR
+# =============================================================================
+def test_target_agnostic_prompt_builder():
+    from core.llm_generator import build_analysis_prompt, build_auditor_prompt
+
+    custom_target = TargetProgram(
+        name="LendingPool",
+        source_code="contract LendingPool { function flashLoan() external {} }",
+        language="solidity",
+        invariants=["Pool reserves must cover active borrow obligations"]
+    )
+
+    auditor_prompt = build_auditor_prompt(custom_target)
+    assert "LendingPool" in auditor_prompt
+    assert "Pool reserves must cover active borrow obligations" in auditor_prompt
+    assert "JSON" in auditor_prompt
+
+    analysis_prompt = build_analysis_prompt(custom_target)
+    assert "LendingPool" in analysis_prompt
+    assert "Pool reserves must cover active borrow obligations" in analysis_prompt
+    assert "ExploitModule" in analysis_prompt
+    assert "vm.*" in analysis_prompt or "cheatcode" in analysis_prompt.lower()
+

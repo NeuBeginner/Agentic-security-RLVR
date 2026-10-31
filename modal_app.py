@@ -143,6 +143,47 @@ class ProductionAuditAgent:
         response_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
         return parse_model_response(target, response_text, attempt_idx=99).model_dump()
 
+    @modal.method()
+    def audit_target_contract(self, target_dict: dict) -> list:
+        """
+        Native role for Qwen-Audit: analyzes Solidity code and outputs
+        structured JSON array of vulnerability findings.
+        """
+        import json
+        import torch
+        from core.schemas import TargetProgram
+        from core.llm_generator import AUDIT_DETECTOR_SYSTEM_PROMPT, build_auditor_prompt
+
+        target = TargetProgram(**target_dict)
+        prompt = build_auditor_prompt(target)
+        messages = [
+            {"role": "system", "content": AUDIT_DETECTOR_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt}
+        ]
+        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        inputs = self.tokenizer([text], return_tensors="pt").to("cuda")
+
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=1536,
+                temperature=0.2,
+                do_sample=True,
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+        generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, outputs)]
+        response_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        
+        try:
+            start_idx = response_text.find("[")
+            end_idx = response_text.rfind("]")
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                return json.loads(response_text[start_idx : end_idx + 1])
+        except Exception:
+            pass
+        return [{"title": "Detected Vulnerability", "category": "LogicFlaw", "description": response_text[:300]}]
+
+
 
 # =============================================================================
 # 2. DEV SMOKE-TEST AGENT (T4 - Lightweight 1.5B Model for cheap CI/CD)
@@ -267,23 +308,24 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
 # 4. CLI ENTRYPOINT
 # =============================================================================
 @app.local_entrypoint()
-def main(mode: str = "audit", target_name: str = "Vault"):
+def main(mode: str = "audit", target_name: str = "Vault", num_candidates: int = 3):
     """
     CLI orchestrator on Modal.
     Usage:
       Production Mode (H100 + 30B Qtum Audit Model):
         modal run modal_app.py --mode audit --target-name Vault
-        modal run modal_app.py --mode audit --target-name ERC4626Vault
+        modal run modal_app.py --mode audit --target-name ERC4626Vault --num-candidates 3
 
       Dev / Smoke-Test Mode (T4 + 1.5B Model):
         modal run modal_app.py --mode dev --target-name Vault
-        modal run modal_app.py --mode dev --target-name ERC4626Vault
+        modal run modal_app.py --mode dev --target-name ERC4626Vault --num-candidates 3
     """
     print("\n" + "=" * 75)
     print("🛡️  AEGIS-RLVR: Web3 Smart Contract Foundry EVM Pipeline on Modal")
     print(f"📦 Model Persistent Volume: '{config.MODEL_VOLUME_NAME}'")
     print(f"⚙️  Execution Profile     : '{mode.upper()}'")
     print(f"🎯 Target Contract        : '{target_name}'")
+    print(f"⚡ Parallel Candidates    : {num_candidates}")
     print("=" * 75)
     
     # Select reasoning engine based on mode
@@ -332,52 +374,83 @@ def main(mode: str = "audit", target_name: str = "Vault"):
     print(f"    Trusted Harness: {target_name}Harness.t.sol")
     print(f"    Solidity Version: {config.SOLC_VERSION}")
     
-    # 2. Neural Exploit Synthesis on Modal GPU
-    print(f"\n[2] Dispatching to Modal GPU for Solidity Exploit Synthesis...")
-    payload_dict = generator.generate_solidity_exploit.remote(target.model_dump(), temperature=0.3)
-    payload = ExploitPayload(**payload_dict)
+    # Optional: If Production mode, run native Qwen-Audit detection first
+    if mode.lower() == "audit":
+        print("\n[*] Running Native Qwen-Audit Security Scan...")
+        try:
+            audit_findings = generator.audit_target_contract.remote(target.model_dump())
+            print(f"[+] Qwen-Audit identified {len(audit_findings)} finding(s):")
+            for idx, finding in enumerate(audit_findings, 1):
+                title = finding.get("title", "Unknown")
+                cat = finding.get("category", "General")
+                sev = finding.get("severity", "Medium")
+                print(f"    {idx}. [{sev}] {title} ({cat})")
+        except Exception as e:
+            print(f"[!] Audit scan notice: {e}")
+
+    # 2. Parallel Exploit Synthesis (Agentic Fuzzing / Multi-Candidate Rollout)
+    print(f"\n[2] Dispatching {num_candidates} parallel exploit hypotheses to Modal GPU...")
+    temperatures = [0.2 + (i * 0.25) for i in range(num_candidates)]
+    candidate_payloads = []
     
-    print(f"[+] Model formulated hypothesis: {payload.hypothesis.vulnerability_type}")
-    print(f"[+] Reasoning snippet: {payload.hypothesis.reasoning_trace[:150]}...")
-    print(f"[+] Synthesized ExploitModule ({len(payload.test_code.splitlines())} lines):")
-    print("-" * 50)
-    print(payload.test_code)
-    print("-" * 50)
+    for i, temp in enumerate(temperatures, 1):
+        payload_dict = generator.generate_solidity_exploit.remote(target.model_dump(), temperature=temp)
+        payload = ExploitPayload(**payload_dict)
+        payload.attempt_number = i
+        candidate_payloads.append(payload)
+        print(f"    [Candidate #{i}] Hypothesis: {payload.hypothesis.vulnerability_type} (temp={temp:.2f})")
+
+    # 3. Parallel Execution in Ephemeral Foundry Sandboxes on Modal Cloud (.map)
+    print(f"\n[3] Spawning {len(candidate_payloads)} parallel ephemeral Foundry/EVM containers (.map)...")
+    target_dicts = [target.model_dump()] * len(candidate_payloads)
+    payload_dicts = [p.model_dump() for p in candidate_payloads]
     
-    # 3. Execution in Foundry Sandbox against Trusted Harness on Modal
-    print("\n[3] Spawning ephemeral Foundry/EVM container on Modal Cloud...")
-    print(f"    Running: forge test --offline --json -vvvv against {target_name}Harness.t.sol ...")
-    
-    result_dict = verify_exploit_remote.remote(target.model_dump(), payload.model_dump())
-    verdict = VerificationVerdict(**result_dict)
-    
+    # Distributed execution across Modal CPU workers
+    verdict_dicts = list(verify_exploit_remote.map(target_dicts, payload_dicts))
+    verdicts = [VerificationVerdict(**vd) for vd in verdict_dicts]
+
+    for idx, (p, v) in enumerate(zip(candidate_payloads, verdicts), 1):
+        status_icon = "✅ BREACHED" if v.is_verified else "❌ REJECTED"
+        print(f"    [Worker #{idx}] {status_icon} | Reward: {v.reward_score:+.2f} | {v.feedback[:80]}...")
+
+    # Identify if any candidate succeeded
+    verified_verdict = next((v for v in verdicts if v.is_verified), None)
+    verified_payload = next((p for p, v in zip(candidate_payloads, verdicts) if v.is_verified), None)
+
     # 4. Closed-loop Refinement if needed
-    if not verdict.is_verified:
-        print(f"\n[!] Initial exploit rejected: {verdict.feedback[:200]}...")
-        print("[*] Feeding structured EVM execution trace back to GPU for refinement...")
+    if not verified_verdict:
+        print("\n[!] None of the initial candidates breached the invariant.")
+        print("[*] Selecting candidate with highest reward for closed-loop refinement...")
+        best_candidate, best_verdict = max(zip(candidate_payloads, verdicts), key=lambda cv: cv[1].reward_score)
+        print(f"    Top candidate: {best_candidate.hypothesis.vulnerability_type} (Score: {best_verdict.reward_score:+.2f})")
+        print(f"    EVM feedback: {best_verdict.feedback[:200]}...")
         
         refined_dict = generator.refine_solidity_exploit.remote(
             target.model_dump(),
-            payload.test_code,
-            verdict.feedback
+            best_candidate.test_code,
+            best_verdict.feedback
         )
         refined_payload = ExploitPayload(**refined_dict)
-        print(f"[+] Refined ExploitModule ({len(refined_payload.test_code.splitlines())} lines):")
-        print("-" * 50)
-        print(refined_payload.test_code)
-        print("-" * 50)
+        print(f"[+] Refined ExploitModule synthesized ({len(refined_payload.test_code.splitlines())} lines).")
         
         print("[*] Re-testing refined ExploitModule in Foundry sandbox...")
-        result_dict = verify_exploit_remote.remote(target.model_dump(), refined_payload.model_dump())
-        verdict = VerificationVerdict(**result_dict)
-        
+        res_dict = verify_exploit_remote.remote(target.model_dump(), refined_payload.model_dump())
+        final_verdict = VerificationVerdict(**res_dict)
+        final_payload = refined_payload
+    else:
+        final_verdict = verified_verdict
+        final_payload = verified_payload
+
     print("\n" + "=" * 75)
-    status = f"✅ VERIFIED EXPLOIT ({verdict.vulnerability_type} INVARIANT BREACHED)" if verdict.is_verified else "❌ REJECTED"
+    status = f"✅ VERIFIED EXPLOIT ({final_verdict.vulnerability_type} INVARIANT BREACHED)" if final_verdict.is_verified else "❌ REJECTED"
     print(f"EVM VERIFICATION VERDICT: [{status}]")
-    print(f"Vulnerability Type     : {verdict.vulnerability_type}")
-    print(f"RLVR Reward            : {verdict.reward_score:+.2f}")
-    print(f"Sandbox Feedback       : {verdict.feedback}")
+    print(f"Vulnerability Type     : {final_verdict.vulnerability_type}")
+    print(f"RLVR Reward Score      : {final_verdict.reward_score:+.2f}")
+    print(f"State Delta Verified   : {final_verdict.state_delta_verified}")
+    print(f"Reproducible in EVM    : {final_verdict.reproducible}")
+    print(f"Sandbox Feedback       : {final_verdict.feedback}")
     print("=" * 75 + "\n")
+
 
 
 if __name__ == "__main__":
