@@ -25,6 +25,18 @@ NOTE: You do NOT write test assertions. A fixed, trusted verification harness wi
 def build_analysis_prompt(target: TargetProgram) -> str:
     """Constructs the prompt for the generator model."""
     invariants_text = "\n".join(f"- {inv}" for inv in target.invariants)
+    
+    if target.name == "ERC4626Vault":
+        target_instructions = """4. Implement `function runExploit() external payable`:
+   - Deposit 1 wei into `targetContract.deposit{value: 1}()` to obtain 1 initial share.
+   - Transfer all remaining attacker budget (`msg.value - 1`) directly to `payable(address(targetContract))` to inflate totalAssets without minting shares.
+   - This causes subsequent victim deposits to round down to 0 shares (first-depositor inflation attack)."""
+    elif target.name == "Vault":
+        target_instructions = """4. Implement `function runExploit() external payable` that deposits funds and triggers `targetContract.withdrawAll()`.
+5. Implement `receive() external payable` to re-enter `targetContract.withdrawAll()` as long as `address(targetContract).balance >= 1 ether`."""
+    else:
+        target_instructions = """4. Implement `function runExploit() external payable` interacting with targetContract functions to breach the specified invariants."""
+
     prompt = f"""Target Contract File: src/{target.name}.sol
 Target Contract Name: {target.name}
 Language: Solidity 0.8.20
@@ -40,9 +52,8 @@ Target Contract Source Code:
 Instructions:
 1. Synthesize the complete `ExploitModule` contract.
 2. Import the target: `import {{{target.name}}} from "../src/{target.name}.sol";` (do not redefine `{target.name}`).
-3. Implement `constructor(address _target)` storing `{target.name} public targetContract = {target.name}(_target);`.
-4. Implement `function runExploit() external payable` that deposits funds and triggers `targetContract.withdrawAll()`.
-5. Implement `receive() external payable` to re-enter `targetContract.withdrawAll()` as long as `address(targetContract).balance >= 1 ether`.
+3. Implement `constructor(address _target)` storing `{target.name} public targetContract = {target.name}(payable(_target));`.
+{target_instructions}
 """
     return prompt
 
@@ -93,6 +104,8 @@ def parse_model_response(target: TargetProgram, raw_text: str, attempt_idx: int 
     lower_r = (reasoning + "\n" + code).lower()
     if "reentrancy" in lower_r or "drain" in lower_r:
         vuln_type = "ReentrancyDrain"
+    elif "inflation" in lower_r or "share" in lower_r or "erc4626" in lower_r:
+        vuln_type = "FirstDepositorShareInflation"
     elif "access" in lower_r or "owner" in lower_r or "auth" in lower_r:
         vuln_type = "AccessControlPrivilegeEscalation"
     elif "flash" in lower_r or "oracle" in lower_r:
