@@ -1,12 +1,14 @@
-from core.schemas import ExecutionResult, ExploitPayload, VerificationVerdict
+import uuid
+import time
+from core.schemas import ExecutionResult, ExploitPayload, VerificationVerdict, TargetProgram, RLVRTrajectory
 from core.config import config
 
 
 def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -> VerificationVerdict:
     """
-    Computes a deterministic, verifiable reward score based on structured execution feedback.
-    Applies multi-factor invariant verification to eliminate false positives and sandbox tampering.
-    This serves as the RLVR ground-truth signal.
+    Computes a deterministic, verifiable reward score based on multi-factor execution feedback.
+    Applies strict invariant verification and independent reproducibility confirmation.
+    This serves as the RLVR ground-truth signal for GRPO training.
     """
     # 1. Immediate rejection and severe penalty for cheatcode/sandbox tampering
     if result.cheatcode_detected:
@@ -18,7 +20,8 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
             poc_code=payload.test_code,
             feedback="SECURITY VIOLATION: ExploitModule attempted to use Foundry cheatcodes (vm.*) or unprivileged test environments.",
             state_delta_verified=False,
-            reproducible=False
+            reproducible=False,
+            refinement_iteration=payload.attempt_number
         )
 
     # 2. Check for execution timeout (DoS / out-of-gas / infinite loop)
@@ -31,11 +34,11 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
             poc_code=payload.test_code,
             feedback=f"Execution timed out after {result.execution_time_sec:.1f}s. Possible out-of-gas or infinite recursion.",
             state_delta_verified=False,
-            reproducible=False
+            reproducible=False,
+            refinement_iteration=payload.attempt_number
         )
 
     # 3. Multi-Factor Invariant Verification (Verified 0-day Exploit)
-    # Both the test runner must succeed (exit 0) AND the trusted invariant log must be present
     has_valid_breach_log = any("[INVARIANT_BREACHED" in str(log) for log in result.decoded_logs)
     is_genuine_breach = (
         result.invariant_violated and
@@ -47,25 +50,35 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
 
     if is_genuine_breach:
         logs_detail = f" Logs: {result.decoded_logs}" if result.decoded_logs else ""
+        
+        # Award full reward ONLY if reproducibility in an independent run was confirmed
+        if result.reproducibility_confirmed:
+            reward = config.REWARD_INVARIANT_BREACH
+            feedback_msg = f"SUCCESS: Multi-factor verification passed and independently reproduced in clean EVM!{logs_detail}"
+            reproduced = True
+        else:
+            reward = config.REWARD_BREACH_NO_REPLAY
+            feedback_msg = f"PARTIAL SUCCESS: Invariant breached, but awaiting independent reproducibility check.{logs_detail}"
+            reproduced = False
+
         return VerificationVerdict(
             target_name=payload.target_name,
             is_verified=True,
-            reward_score=config.REWARD_INVARIANT_BREACH,
+            reward_score=reward,
             vulnerability_type=payload.hypothesis.vulnerability_type,
             poc_code=payload.test_code,
-            feedback=f"SUCCESS: Multi-factor verification passed! Invariant breach proven in EVM (status: {result.test_status}).{logs_detail}",
+            feedback=feedback_msg,
             state_delta_verified=True,
-            reproducible=True
+            reproducible=reproduced,
+            refinement_iteration=payload.attempt_number
         )
 
     # 4. Check for compilation or EVM runtime revert failures
     if result.return_code != 0:
         if result.revert_reason:
-            # Compiled cleanly, but execution reverted in EVM (closer to exploit than compile error)
             error_msg = f"EVM Runtime Revert: {result.revert_reason}"
             reward = config.REWARD_RUNTIME_REVERT
         else:
-            # solc compiler or syntax error
             raw_err = result.stderr if result.stderr.strip() else result.stdout
             error_msg = f"Compilation Error: {raw_err[:350].strip()}"
             reward = config.REWARD_COMPILATION_FAIL
@@ -79,7 +92,8 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
             poc_code=payload.test_code,
             feedback=f"Execution Failed (exit code {result.return_code}): {error_msg}{logs_detail}",
             state_delta_verified=False,
-            reproducible=False
+            reproducible=False,
+            refinement_iteration=payload.attempt_number
         )
 
     # 5. Clean execution, but invariant was NOT breached (Safe run / No-op)
@@ -91,5 +105,29 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
         poc_code=payload.test_code,
         feedback="Safe Execution: Test completed cleanly, but target contract maintained all security invariants.",
         state_delta_verified=False,
-        reproducible=True
+        reproducible=True,
+        refinement_iteration=payload.attempt_number
+    )
+
+
+def create_trajectory_record(
+    target: TargetProgram,
+    payload: ExploitPayload,
+    verdict: VerificationVerdict,
+    prompt_used: str = ""
+) -> RLVRTrajectory:
+    """Packages the verified execution trajectory for GRPO fine-tuning."""
+    return RLVRTrajectory(
+        trajectory_id=str(uuid.uuid4()),
+        timestamp=time.time(),
+        target_name=target.name,
+        target_code=target.source_code,
+        slither_hints=target.slither_findings,
+        prompt_used=prompt_used,
+        hypothesis=payload.hypothesis,
+        generated_exploit=payload.test_code,
+        reward=verdict.reward_score,
+        is_verified=verdict.is_verified,
+        reproduced=verdict.reproducible,
+        feedback_trace=verdict.feedback
     )

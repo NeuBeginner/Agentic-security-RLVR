@@ -11,7 +11,7 @@ from core.config import config
 # Path to pre-baking script
 PREBAKE_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebake_solc.py")
 
-# Optimized, Pinned Foundry + Solc + OpenZeppelin Execution Image for Modal
+# Optimized, Pinned Foundry + Solc + OpenZeppelin + Slither Execution Image for Modal
 sandbox_image = (
     modal.Image.debian_slim(python_version="3.10")
     .apt_install("curl", "git", "build-essential", "ca-certificates")
@@ -50,6 +50,33 @@ remappings = [
 ]
 """
 
+# Prohibited cheatcode patterns to isolate exploit execution from harness privileges
+PROHIBITED_CHEATCODES = [
+    "forge-std/Test.sol",
+    "forge-std/Vm.sol",
+    "0x7109709ECfa91a80626fF3989D68f67F5b1DD12D",
+    "vm.deal",
+    "vm.prank",
+    "vm.store",
+    "vm.warp",
+    "vm.roll",
+    "vm.mockCall",
+    "vm.expectRevert",
+    "vm.load",
+    "vm.etch",
+    "vm.sign",
+    "Vm constant vm",
+    "Vm public vm"
+]
+
+
+def detect_prohibited_cheatcodes(code: str) -> bool:
+    """Detects attempts by candidate ExploitModule to use privileged Foundry cheatcodes."""
+    for pattern in PROHIBITED_CHEATCODES:
+        if pattern in code:
+            return True
+    return False
+
 
 def parse_forge_output(output_text: str):
     """Parses forge test --json structured output for status, revert reason, and logs."""
@@ -85,32 +112,58 @@ def parse_forge_output(output_text: str):
     return structured_data, test_status, revert_reason, decoded_logs
 
 
-# Prohibited cheatcode patterns to isolate exploit execution from harness privileges
-PROHIBITED_CHEATCODES = [
-    "forge-std/Test.sol",
-    "forge-std/Vm.sol",
-    "0x7109709ECfa91a80626fF3989D68f67F5b1DD12D",
-    "vm.deal",
-    "vm.prank",
-    "vm.store",
-    "vm.warp",
-    "vm.roll",
-    "vm.mockCall",
-    "vm.expectRevert",
-    "vm.load",
-    "vm.etch",
-    "vm.sign",
-    "Vm constant vm",
-    "Vm public vm"
-]
-
-
-def detect_prohibited_cheatcodes(code: str) -> bool:
-    """Detects attempts by candidate ExploitModule to use privileged Foundry cheatcodes."""
-    for pattern in PROHIBITED_CHEATCODES:
-        if pattern in code:
-            return True
-    return False
+def run_slither_analysis(target: TargetProgram) -> list:
+    """
+    Executes Slither AST / taint analysis on the target contract.
+    Returns structured list of static vulnerability warnings to prime reasoning models.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        src_dir = os.path.join(tmpdir, "src")
+        os.makedirs(src_dir, exist_ok=True)
+        
+        target_path = os.path.join(src_dir, f"{target.name}.sol")
+        with open(target_path, "w", encoding="utf-8") as f:
+            f.write(target.source_code)
+            
+        json_out = os.path.join(tmpdir, "slither.json")
+        cmd = ["slither", target_path, "--json", json_out, "--solc-solcs-select", config.SOLC_VERSION]
+        
+        try:
+            subprocess.run(cmd, cwd=tmpdir, capture_output=True, text=True, timeout=30)
+            if os.path.exists(json_out):
+                with open(json_out, "r", encoding="utf-8") as jf:
+                    data = json.load(jf)
+                    results = data.get("results", {}).get("detectors", [])
+                    extracted = []
+                    for det in results[:5]:  # Top 5 most critical detectors
+                        extracted.append({
+                            "check": det.get("check"),
+                            "impact": det.get("impact"),
+                            "confidence": det.get("confidence"),
+                            "description": det.get("description", "")[:200]
+                        })
+                    return extracted
+        except Exception:
+            pass
+            
+    # Fallback AST heuristic detection if Slither binary is offline
+    fallback_detectors = []
+    src_lower = target.source_code.lower()
+    if ".call{value:" in src_lower and "balances[" in src_lower:
+        fallback_detectors.append({
+            "check": "reentrancy-eth",
+            "impact": "High",
+            "confidence": "High",
+            "description": "Possible reentrancy via low-level call{value} prior to state updates."
+        })
+    if "totalsupply" in src_lower and "totalassets" in src_lower and "/" in src_lower:
+        fallback_detectors.append({
+            "check": "divide-before-multiply-inflation",
+            "impact": "High",
+            "confidence": "High",
+            "description": "Exchange rate share division susceptible to first-depositor inflation attack."
+        })
+    return fallback_detectors
 
 
 def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> ExecutionResult:
@@ -166,7 +219,6 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 
         # Write candidate ExploitModule (strictly sanitized filename to prevent path traversal)
         safe_filename = "ExploitModule.sol"
-        # Write in both src and test so both named import styles resolve cleanly
         with open(os.path.join(test_dir, safe_filename), "w", encoding="utf-8") as f:
             f.write(payload.test_code)
         with open(os.path.join(src_dir, safe_filename), "w", encoding="utf-8") as f:
@@ -193,15 +245,12 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             # Parse structured JSON output
             structured_json, test_status, revert_reason, decoded_logs = parse_forge_output(proc.stdout or "")
             
-            # Rigorous Invariant Verification:
-            # The trusted harness alone emits [INVARIANT_BREACHED:...] in EVM logs
-            # upon detecting physical state insolvency/equity collapse.
+            # Invariant verification: must have breach log from harness and zero exit code
             has_breach_signal = (
                 any("[INVARIANT_BREACHED" in str(l) for l in decoded_logs) or
                 ("[INVARIANT_BREACHED" in output_text and proc.returncode == 0)
             )
             
-            # Test must pass with zero return code, success status, and genuine breach signal
             inv_violated = (
                 proc.returncode == 0 and
                 (test_status == "Success" or "[PASS]" in output_text) and
@@ -220,7 +269,8 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 revert_reason=revert_reason,
                 decoded_logs=decoded_logs,
                 cheatcode_detected=False,
-                verified_by_harness=inv_violated
+                verified_by_harness=inv_violated,
+                reproducibility_confirmed=False
             )
             
         except subprocess.TimeoutExpired as e:
@@ -243,3 +293,16 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 timed_out=False,
                 invariant_violated=False
             )
+
+
+def verify_independent_replay(target: TargetProgram, payload: ExploitPayload) -> bool:
+    """
+    Executes an independent second run in a completely fresh ephemeral EVM container.
+    Confirms 100% deterministic reproducibility before awarding full RLVR reward.
+    """
+    replay_result = run_payload_in_sandbox(target, payload)
+    return (
+        replay_result.invariant_violated and
+        replay_result.return_code == 0 and
+        not replay_result.cheatcode_detected
+    )

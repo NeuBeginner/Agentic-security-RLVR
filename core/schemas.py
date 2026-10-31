@@ -1,3 +1,4 @@
+import time
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
@@ -12,13 +13,19 @@ class TargetProgram(BaseModel):
         default=None,
         description="Immutable, trusted Foundry test harness for EVM state verification"
     )
+    slither_findings: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Static analysis warnings extracted by Slither AST parser"
+    )
 
 
 class AttackHypothesis(BaseModel):
-    """Reasoning hypothesis formulated by the Generator agent."""
-    vulnerability_type: str = Field(..., description="E.g., Reentrancy, AccessControl, IntegerUnderflow")
+    """Reasoning hypothesis formulated by Auditor or Frontier Agent."""
+    vulnerability_type: str = Field(..., description="E.g., Reentrancy, AccessControl, FirstDepositorInflation")
     reasoning_trace: str = Field(..., description="Chain of thought explaining the logical flaw")
     attack_vector: str = Field(..., description="Summary of how to trigger the vulnerability")
+    affected_functions: List[str] = Field(default_factory=list)
+    confidence_score: float = Field(default=1.0)
 
 
 class ExploitPayload(BaseModel):
@@ -28,6 +35,7 @@ class ExploitPayload(BaseModel):
     test_code: str = Field(..., description="Executable exploit code (ExploitModule contract)")
     test_filename: str = Field(default="ExploitModule.sol")
     attempt_number: int = Field(default=1)
+    generator_engine: str = Field(default="local-gpu")  # e.g., "gemini-flash", "qwen-audit", "qwen-dev"
 
 
 class ExecutionResult(BaseModel):
@@ -44,7 +52,9 @@ class ExecutionResult(BaseModel):
     decoded_logs: List[str] = Field(default_factory=list)
     cheatcode_detected: bool = False
     verified_by_harness: bool = False
+    reproducibility_confirmed: bool = False
     gas_used: Optional[int] = None
+    state_delta: Dict[str, Any] = Field(default_factory=dict)
 
 
 class VerificationVerdict(BaseModel):
@@ -57,4 +67,23 @@ class VerificationVerdict(BaseModel):
     feedback: str
     state_delta_verified: bool = False
     reproducible: bool = False
+    refinement_iteration: int = 1
 
+
+class RLVRTrajectory(BaseModel):
+    """
+    Complete ground-truth trajectory pair formatted for GRPO / PPO policy training.
+    Accumulated in Modal Volume to fine-tune the reasoning model on verified outputs.
+    """
+    trajectory_id: str
+    timestamp: float = Field(default_factory=time.time)
+    target_name: str
+    target_code: str
+    slither_hints: List[Dict[str, Any]]
+    prompt_used: str
+    hypothesis: AttackHypothesis
+    generated_exploit: str
+    reward: float
+    is_verified: bool
+    reproduced: bool
+    feedback_trace: str

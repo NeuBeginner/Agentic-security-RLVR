@@ -161,13 +161,15 @@ def test_verify_real_reentrancy_exploit():
         timed_out=False,
         invariant_violated=True,
         test_status="Success",
-        decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"]
+        decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
+        reproducibility_confirmed=True
     )
 
     verdict = evaluate_execution_trace(payload, result)
 
     assert verdict.is_verified is True
     assert verdict.reward_score == config.REWARD_INVARIANT_BREACH
+    assert verdict.reproducible is True
     assert "SUCCESS: Multi-factor verification passed" in verdict.feedback
 
 
@@ -210,13 +212,15 @@ def test_verify_erc4626_inflation_exploit():
         timed_out=False,
         invariant_violated=True,
         test_status="Success",
-        decoded_logs=["[INVARIANT_BREACHED:SHARE_INFLATION_DEPOSITOR_DILUTION]"]
+        decoded_logs=["[INVARIANT_BREACHED:SHARE_INFLATION_DEPOSITOR_DILUTION]"],
+        reproducibility_confirmed=True
     )
 
     verdict = evaluate_execution_trace(payload, result)
 
     assert verdict.is_verified is True
     assert verdict.reward_score == config.REWARD_INVARIANT_BREACH
+    assert verdict.reproducible is True
     assert "SUCCESS: Multi-factor verification passed" in verdict.feedback
 
 
@@ -398,4 +402,84 @@ def test_target_agnostic_prompt_builder():
     assert "Pool reserves must cover active borrow obligations" in analysis_prompt
     assert "ExploitModule" in analysis_prompt
     assert "vm.*" in analysis_prompt or "cheatcode" in analysis_prompt.lower()
+
+
+# =============================================================================
+# 10. TEST REPRODUCIBILITY DISTINCTION & REWARD SHAPING
+# =============================================================================
+def test_reproducibility_distinction():
+    payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(
+            vulnerability_type="ReentrancyDrain",
+            reasoning_trace="Test replay",
+            attack_vector="receive()"
+        ),
+        test_code="contract ExploitModule {}"
+    )
+
+    # Result without independent reproducibility confirmed
+    unconfirmed_result = ExecutionResult(
+        return_code=0,
+        stdout="[PASS] testExploit()",
+        stderr="",
+        execution_time_sec=0.5,
+        timed_out=False,
+        invariant_violated=True,
+        test_status="Success",
+        decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
+        reproducibility_confirmed=False
+    )
+    verdict = evaluate_execution_trace(payload, unconfirmed_result)
+    assert verdict.is_verified is True
+    assert verdict.reproducible is False
+    assert verdict.reward_score == config.REWARD_BREACH_NO_REPLAY  # 0.5
+
+
+# =============================================================================
+# 11. TEST GRPO TRAJECTORY CREATION & SLITHER FALLBACK
+# =============================================================================
+def test_create_trajectory_record_for_grpo():
+    from core.evaluator import create_trajectory_record
+    from sandbox.runner import run_slither_analysis
+
+    target = TargetProgram(
+        name="Vault",
+        source_code="contract Vault { mapping(address => uint) balances; function withdraw() { msg.sender.call{value: 1}(''); balances[msg.sender] = 0; } }",
+        language="solidity",
+        invariants=["Depositor Solvency"]
+    )
+    # Test Slither fallback parser
+    slither_findings = run_slither_analysis(target)
+    assert len(slither_findings) > 0
+    assert any("reentrancy" in f["check"].lower() for f in slither_findings)
+    target.slither_findings = slither_findings
+
+    payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(
+            vulnerability_type="ReentrancyDrain",
+            reasoning_trace="Reentrancy trace",
+            attack_vector="call{value}"
+        ),
+        test_code="contract ExploitModule {}"
+    )
+    verdict = VerificationVerdict(
+        target_name="Vault",
+        is_verified=True,
+        reward_score=1.0,
+        vulnerability_type="ReentrancyDrain",
+        poc_code="contract ExploitModule {}",
+        feedback="Verified and reproduced",
+        state_delta_verified=True,
+        reproducible=True
+    )
+
+    traj = create_trajectory_record(target, payload, verdict, prompt_used="audit prompt")
+    assert traj.reward == 1.0
+    assert traj.is_verified is True
+    assert traj.reproduced is True
+    assert len(traj.slither_hints) > 0
+    assert traj.target_name == "Vault"
+
 

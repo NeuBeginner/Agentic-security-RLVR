@@ -1,7 +1,9 @@
+import os
 import re
 import json
 from typing import List, Optional, Dict, Any
 from core.schemas import TargetProgram, AttackHypothesis, ExploitPayload
+from core.config import config
 
 
 # =============================================================================
@@ -19,6 +21,9 @@ For each vulnerability, output a structured JSON array of findings with:
 """
 
 
+# =============================================================================
+# 2. EXPLOIT ENGINEER PROMPT (Optimized for Frontier / Coder Synthesis)
+# =============================================================================
 EXPLOIT_ENGINEER_SYSTEM_PROMPT = """You are an automated exploit synthesis engineer in an isolated EVM environment.
 Your task is to analyze the target contract and the specified security invariants, then synthesize an executable, unprivileged attacker contract named `ExploitModule` (`contract ExploitModule`).
 
@@ -37,7 +42,6 @@ CRITICAL EVM EXPLOIT SPECIFICATIONS:
 
 # Backwards compatibility alias
 SOLIDITY_SYSTEM_PROMPT = EXPLOIT_ENGINEER_SYSTEM_PROMPT
-
 
 
 def build_auditor_prompt(target: TargetProgram) -> str:
@@ -62,10 +66,18 @@ Output your findings as a valid JSON array of objects.
 def build_analysis_prompt(target: TargetProgram, hypothesis: Optional[AttackHypothesis] = None) -> str:
     """
     Target-agnostic prompt for exploit synthesis.
-    Directs the model to break the specified invariants without hardcoded contract names.
+    Integrates Slither static analysis findings and formal invariants without hardcoded contract names.
     """
     invariants_text = "\n".join(f"- {inv}" for inv in target.invariants) if target.invariants else "- Depositor equity & solvency"
     
+    slither_context = ""
+    if target.slither_findings:
+        slither_lines = [
+            f"- [{f.get('impact', 'Medium')}] {f.get('check')}: {f.get('description')}"
+            for f in target.slither_findings
+        ]
+        slither_context = "\nStatic Analysis (Slither) Detectors:\n" + "\n".join(slither_lines) + "\n"
+
     hypothesis_context = ""
     if hypothesis:
         hypothesis_context = f"""
@@ -81,7 +93,7 @@ Language: Solidity 0.8.20
 
 Security Invariants Being Tested:
 {invariants_text}
-{hypothesis_context}
+{slither_context}{hypothesis_context}
 Target Contract Source Code:
 ```solidity
 {target.source_code}
@@ -178,3 +190,28 @@ def parse_model_response(target: TargetProgram, raw_text: str, attempt_idx: int 
         test_filename="ExploitModule.sol",
         attempt_number=attempt_idx
     )
+
+
+def synthesize_exploit_gemini(
+    target: TargetProgram,
+    hypothesis: Optional[AttackHypothesis] = None,
+    api_key: Optional[str] = None
+) -> ExploitPayload:
+    """
+    Synthesizes candidate ExploitModule using Gemini Flash frontier reasoning API.
+    Direct integration via google-genai SDK.
+    """
+    from google import genai
+    
+    key = api_key or config.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY", "")
+    client = genai.Client(api_key=key) if key else genai.Client()
+    
+    prompt = build_analysis_prompt(target, hypothesis)
+    response = client.models.generate_content(
+        model=config.GEMINI_MODEL,
+        contents=prompt,
+        config={"system_instruction": EXPLOIT_ENGINEER_SYSTEM_PROMPT, "temperature": 0.3}
+    )
+    payload = parse_model_response(target, response.text or "")
+    payload.generator_engine = "gemini-flash"
+    return payload

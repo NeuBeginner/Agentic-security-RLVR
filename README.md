@@ -1,97 +1,126 @@
-# Aegis-RLVR: Autonomous Web3 Smart Contract Security Framework
+# Aegis-RLVR 2.0: Autonomous Multi-Agent Web3 Security Framework
 
 [![Modal Serverless](https://img.shields.io/badge/Powered%20By-Modal%20Cloud-blue?logo=python)](https://modal.com)
 [![EVM Engine](https://img.shields.io/badge/EVM%20Engine-Foundry%20%7C%20Anvil-black)](https://getfoundry.sh)
+[![Static Analysis](https://img.shields.io/badge/Static%20Analysis-Slither-yellow)](https://github.com/crytic/slither)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Research: RLVR](https://img.shields.io/badge/Research-RLVR%20%26%20Formal%20Verification-orange)](#research-overview)
+[![Research: RLVR](https://img.shields.io/badge/Research-RLVR%20%26%20GRPO%20Buffer-orange)](#research-overview)
 
-**Aegis-RLVR** is an autonomous smart contract security and exploit synthesis pipeline designed to eliminate False Positives in Web3 audits. It couples Large Language Model reasoning with **Reinforcement Learning from Verifiable Rewards (RLVR)** and distributed, ephemeral **Foundry / EVM execution sandboxes** running on Modal Cloud.
+**Aegis-RLVR 2.0** is an autonomous smart contract security auditing, exploit synthesis, and reinforcement learning framework designed to eliminate False Positives in Web3 audits. It couples multi-agent frontier reasoning with **deterministic EVM invariant verification**, strict cheatcode barriers, and **Reinforcement Learning from Verifiable Rewards (RLVR)** data collection for GRPO policy training.
 
 ---
 
-## 🔬 Research Overview & Problem Statement
+## 🔬 Architecture & Methodology (Aegis-RLVR 2.0)
 
-Conventional coding benchmarks (SWE-bench, HumanEval) evaluate generic Python/JS coding proficiency, which does **not** correlate with the ability to detect and exploit subtle EVM vulnerabilities (e.g. storage collisions, reentrancy vectors, flash loan oracle manipulation).
-
-### The Solution: Verifiable EVM Invariant Feedback
-Aegis-RLVR closes the execution loop directly inside a sandboxed EVM:
-1. **Frontier Reasoning / Local Auditor:** Synthesizes exploit hypotheses and generates self-contained Foundry test harnesses (`Exploit.t.sol`).
-2. **Ephemeral Foundry Sandboxes (Modal):** Pre-baked with `solc` compilers (0.8.19 – 0.8.28), standard libraries (`forge-std`, `@openzeppelin/contracts`), executing `forge test --offline --json -vvvv` in isolated Linux containers.
-3. **Deterministic RLVR Rewards:** 
-   - `[PASS]` on exploit execution + invariant breach = **+1.00 Reward (Verified 0-day)**
-   - Compiler or revert failure = **-0.50 Penalty (with structured trace fed back for auto-refinement)**
-   - Safe run without breach = **-0.10 Penalty**
+Aegis-RLVR 2.0 addresses the critical gap between static LLM auditors and executable proof-of-concept verification:
 
 ```mermaid
 flowchart TD
-    TargetContract["Solidity Target Contract (.sol)"] --> Agent["Reasoning Agent (Production 30B H100 / Dev T4)"]
+    TargetContract["Solidity Target Contract (.sol)"] --> Slither["Phase 1: Slither AST Static Analysis"]
     
-    subgraph ModalCloud["Modal Serverless Cloud"]
-        direction TB
-        Agent -->|"Synthesized Foundry Harness"| Dispatcher["Task Dispatcher"]
-        Dispatcher --> Box1["Ephemeral Foundry Sandbox #1"]
-        Dispatcher --> Box2["Ephemeral Foundry Sandbox #2"]
-        Dispatcher --> BoxN["Ephemeral Foundry Sandbox #N"]
-        
-        Box1 --> Forge["forge test --offline --json -vvvv"]
-        Box2 --> Forge
-        BoxN --> Forge
+    subgraph MultiAgentReasoning["Phase 2: Specialized Reasoning Layer"]
+        Slither --> Auditor["Security Auditor: Qwen3-Coder-30B-A3B-Audit<br/>(Outputs structured JSON findings)"]
+        Slither --> Generator["Exploit Synthesizer: Gemini 2.5 Flash / Coder<br/>(Outputs unprivileged ExploitModule)"]
     end
     
-    Forge -->|"Structured Revert Trace & Logs"| Feedback["Closed-Loop Refinement (Self-Correction)"]
-    Feedback -.->|"Auto-Correction"| Agent
-    Forge -->|"Invariant Violated (Funds Drained)"| PoC["Reproducible Foundry PoC & Security Advisory"]
+    subgraph ModalExecution["Phase 3: Parallel Ephemeral Foundry Sandboxes (.map)"]
+        Generator --> Box1["Worker #1 (t=0.20)"]
+        Generator --> Box2["Worker #2 (t=0.40)"]
+        Generator --> BoxN["Worker #N (t=0.70)"]
+        
+        Box1 --> Forge1["forge test --offline --json -vvvv"]
+        Box2 --> Forge2["forge test --offline --json -vvvv"]
+        BoxN --> ForgeN["forge test --offline --json -vvvv"]
+    end
+    
+    subgraph VerificationConsensus["Phase 4 & 5: Multi-Factor Verification & Replay"]
+        Forge1 --> Evaluator["Multi-Factor Evaluator<br/>(Anti-Cheatcode Guard + State Delta)"]
+        Forge2 --> Evaluator
+        ForgeN --> Evaluator
+        
+        Evaluator -->|Breached| Replay["Phase 5: Independent Replay Verification<br/>(Clean second container for 100% determinism)"]
+        Evaluator -->|Failed| Refine["Phase 4: Closed-Loop Multi-Round Refinement"]
+        Refine -.-> Generator
+    end
+    
+    Replay -->|Confirmed Replay| PoC["Verified 0-Day PoC (Reward: +1.00)"]
+    Replay --> Trajectory["Phase 6: RLVR Trajectory Buffer (Modal Volume)<br/>(Ready for GRPO Policy Fine-Tuning)"]
 ```
 
 ---
 
-## ⚡ Architectural Division of Labor on Modal
+## ⚡ Specialized Division of Labor
 
-- **Production Audit Tier (H100 80GB):** Runs the domain-specific security audit model [`qtum/Qwen3-Coder-30B-A3B-Audit`](https://huggingface.co/qtum/Qwen3-Coder-30B-A3B-Audit) with weights cached in persistent `modal.Volume` (`aegis-model-cache`) for on-premise vulnerability discovery and exploit synthesis.
-- **Dev / CI Smoke-Test Tier (T4):** Runs `Qwen/Qwen2.5-Coder-1.5B-Instruct` on a low-cost Tesla T4 for rapid, low-cost verification of the Foundry compilation/execution pipeline.
-- **Modal CPU Workers:** Ephemeral, parallel **Foundry + Anvil + Slither** environments with sub-second spin-up, pre-baked `solc` (0.8.19 – 0.8.28), and zero idle costs.
+1. **Static Analysis Layer (Slither):** Runs on ephemeral Modal CPU workers to extract AST detector signals (`reentrancy-eth`, `divide-before-multiply`, `uninitialized-state`) to prime downstream LLMs with hard architectural facts.
+2. **Security Auditor (Qwen3-Coder-30B-A3B-Audit on Modal H100):** Operates in its native domain-trained role—analyzing Solidity source code to output structured JSON finding arrays without hallucinations.
+3. **Primary Exploit Synthesizer (Gemini 2.5 Flash / Coder Models):** Generates clean, unprivileged `ExploitModule` contracts targeting formal security invariants.
+4. **Cheatcode & Sandbox Barrier:** Pre-execution AST checks block any attempt to use privileged Foundry cheatcodes (`vm.deal`, `vm.prank`, `vm.store`, `Test.sol`), ensuring the exploit acts strictly as an external on-chain entity.
+5. **Multi-Candidate Parallel Execution (Modal `.map`):** Dispatches $K$ parallel candidate hypotheses simultaneously across ephemeral Linux Foundry containers.
+6. **Independent Replay Verification:** Every passing exploit is re-executed in a completely fresh, isolated EVM container to guarantee 100% deterministic reproducibility.
+7. **RLVR Ground-Truth Trajectory Buffer:** Commits `(prompt, hypothesis, exploit, trace, reward)` pairs into persistent Modal Volume (`/vol/models/trajectories`) for offline **GRPO (Group Relative Policy Optimization)** fine-tuning.
+
+---
+
+## 📊 RLVR Reward Shaping
+
+| Execution Outcome | Ground-Truth Reward | Impact on Policy / Action |
+| :--- | :---: | :--- |
+| **Verified Exploit + Confirmed Replay** | **`+1.00`** | Deterministic 0-day exploit confirmed |
+| **Breached Invariant (Flaky / No Replay)** | **`+0.50`** | Partial success, non-deterministic |
+| **Clean Execution (Invariant Intact)** | **`-0.10`** | Safe run, target contract defended |
+| **EVM Runtime Revert** | **`-0.25`** | Syntactically valid, reverted during execution |
+| **Execution Timeout (Out-of-Gas)** | **`-0.30`** | Execution timed out (>60s) |
+| **Solidity Compiler Error (`solc`)** | **`-0.50`** | Compilation / syntax failure |
+| **Cheatcode Tampering Attempt (`vm.*`)** | **`-1.00`** | Immediate disqualification & penalty |
 
 ---
 
 ## 📁 Repository Structure
 
 ```
-D:\AI\Agentic-security-RLVR/
+D:\AI\agentic-security-rlvr/
 ├── core/
-│   ├── config.py           # Modal resources, model checkpoints, RLVR rewards
-│   ├── schemas.py          # Pydantic schemas for contracts, hypotheses, verdicts
-│   ├── llm_generator.py    # Foundry exploit synthesis & refinement prompts
-│   └── evaluator.py        # EVM execution trace & verifiable reward evaluation
+│   ├── config.py           # Modal cloud settings, Gemini API, RLVR reward shaping
+│   ├── schemas.py          # Pydantic schemas (Target, Hypothesis, Result, Trajectory)
+│   ├── llm_generator.py    # Target-agnostic prompts (Auditor JSON, Exploit synthesis, Gemini)
+│   └── evaluator.py        # Multi-factor invariant evaluation & GRPO trajectory packager
 ├── sandbox/
-│   └── runner.py           # Pre-baked Foundry / solc / OpenZeppelin sandbox image & runner
+│   ├── runner.py           # Foundry runner, Slither analysis, cheatcode barrier, replay verification
+│   └── prebake_solc.py     # Solc compiler prebaking script with SHA256 integrity validation
 ├── benchmarks/
-│   └── targets/solidity/   # Vulnerable contract benchmarks (Damn Vulnerable DeFi)
-│       └── Vault.sol
-├── modal_app.py            # Primary Modal orchestration pipeline (Dual Tier: Audit & Dev)
+│   └── targets/solidity/   # Benchmark targets with trusted Foundry harnesses
+│       ├── Vault.sol & VaultHarness.t.sol           (Reentrancy solvency invariant)
+│       └── ERC4626Vault.sol & ERC4626VaultHarness.t.sol (Share inflation dilution invariant)
+├── tests/
+│   └── test_pipeline.py    # 13 comprehensive unit tests (cheatcodes, parser, multi-factor)
+├── modal_app.py            # Aegis-RLVR 2.0 distributed orchestrator on Modal Cloud
 ├── requirements.txt
 └── README.md
 ```
 
 ---
 
-## 🚀 Running the Pipeline on Modal
+## 🚀 Running Aegis-RLVR 2.0 on Modal
 
 ### Prerequisites
 ```bash
-pip install modal
+pip install modal google-genai
 modal profile activate neubeginner
 ```
 
-### 1. Production Mode (H100 + 30B Qtum Security Model)
-For full-scale autonomous vulnerability auditing and grant benchmark evaluation:
+### 1. Gemini Flash Mode (Frontier API Reasoning + Modal Foundry Sandboxes)
 ```bash
-modal run modal_app.py --mode audit
+modal run modal_app.py --generator gemini --target-name ERC4626Vault --num-candidates 3
 ```
 
-### 2. Dev / CI Mode (T4 + 1.5B Model)
-For fast, cost-efficient sanity checking of the Foundry execution sandbox:
+### 2. Production Mode (H100 + 30B Qtum Security Model + Slither)
 ```bash
-modal run modal_app.py --mode dev
+modal run modal_app.py --mode audit --target-name Vault --num-candidates 5
+```
+
+### 3. Dev / CI Smoke-Test Mode (T4 GPU + Ephemeral EVM Sandboxes)
+```bash
+modal run modal_app.py --mode dev --target-name ERC4626Vault --num-candidates 3
 ```
 
 ---
