@@ -13,7 +13,8 @@ from core.schemas import (
     AttackHypothesis,
     ExploitPayload,
     ExecutionResult,
-    VerificationVerdict
+    VerificationVerdict,
+    ResultCategory
 )
 from core.evaluator import evaluate_execution_trace
 from sandbox.runner import parse_forge_output
@@ -431,9 +432,28 @@ def test_reproducibility_distinction():
         reproducibility_confirmed=False
     )
     verdict = evaluate_execution_trace(payload, unconfirmed_result)
-    assert verdict.is_verified is True
+    assert verdict.is_verified is False
+    assert verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED
     assert verdict.reproducible is False
     assert verdict.reward_score == config.REWARD_BREACH_NO_REPLAY  # 0.5
+
+    # Result WITH independent reproducibility confirmed
+    confirmed_result = ExecutionResult(
+        return_code=0,
+        stdout="[PASS] testExploit()",
+        stderr="",
+        execution_time_sec=0.5,
+        timed_out=False,
+        invariant_violated=True,
+        test_status="Success",
+        decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
+        reproducibility_confirmed=True
+    )
+    confirmed_verdict = evaluate_execution_trace(payload, confirmed_result)
+    assert confirmed_verdict.is_verified is True
+    assert confirmed_verdict.category == ResultCategory.EXPLOIT_CONFIRMED
+    assert confirmed_verdict.reproducible is True
+    assert confirmed_verdict.reward_score == config.REWARD_INVARIANT_BREACH  # 1.0
 
 
 # =============================================================================

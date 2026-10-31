@@ -13,7 +13,16 @@ from core.schemas import (
     ExecutionResult,
     VerificationVerdict,
     AttackHypothesis,
-    RLVRTrajectory
+    RLVRTrajectory,
+    ResultCategory
+)
+from core.candidate_lifecycle import (
+    CandidateRecord,
+    rank_candidates,
+    select_candidate_for_replay,
+    finalize_candidate_replay,
+    create_finalized_trajectory,
+    compute_prompt_hash
 )
 from core.evaluator import evaluate_execution_trace, create_trajectory_record
 from sandbox.runner import (
@@ -44,6 +53,8 @@ gpu_image = (
         "torch",
         "transformers>=4.40.0",
         "accelerate>=0.28.0",
+        "peft>=0.14.0",
+        "trl>=0.14.0",
         "pydantic>=2.0.0",
         "google-genai>=2.0.0",
     )
@@ -157,7 +168,14 @@ class ProductionAuditAgent:
             )
         generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, outputs)]
         response_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        return parse_model_response(target, response_text).model_dump()
+        token_ids_list = generated_ids[0].tolist()
+        return parse_model_response(
+            target,
+            response_text,
+            attempt_idx=1,
+            generated_token_ids=token_ids_list,
+            prompt_text=user_prompt
+        ).model_dump()
 
     @modal.method()
     def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str) -> dict:
@@ -184,7 +202,14 @@ class ProductionAuditAgent:
             )
         generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, outputs)]
         response_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        return parse_model_response(target, response_text, attempt_idx=99).model_dump()
+        token_ids_list = generated_ids[0].tolist()
+        return parse_model_response(
+            target,
+            response_text,
+            attempt_idx=99,
+            generated_token_ids=token_ids_list,
+            prompt_text=prompt
+        ).model_dump()
 
 
 # =============================================================================
@@ -198,6 +223,9 @@ class ProductionAuditAgent:
 )
 class DevReasoningAgent:
     """Lightweight dev reasoning agent on Modal T4 (Qwen2.5-Coder-1.5B-Instruct)."""
+    use_lora: bool = modal.parameter(default=False)
+    checkpoint_dir: str = modal.parameter(default="/vol/models/checkpoints/checkpoint-step-1")
+
     @modal.enter()
     def load_model(self):
         import os
@@ -215,6 +243,24 @@ class DevReasoningAgent:
             device_map="auto",
             cache_dir=cache_dir
         )
+        if self.use_lora:
+            target_ckpt = self.checkpoint_dir
+            if os.path.exists("/vol/models/checkpoints"):
+                subdirs = [
+                    os.path.join("/vol/models/checkpoints", d)
+                    for d in os.listdir("/vol/models/checkpoints")
+                    if d.startswith("checkpoint-step-")
+                ]
+                if subdirs:
+                    subdirs.sort(key=os.path.getmtime)
+                    target_ckpt = subdirs[-1]
+            if os.path.exists(target_ckpt):
+                try:
+                    from peft import PeftModel
+                    self.model = PeftModel.from_pretrained(self.model, target_ckpt)
+                    print(f"[✓] Successfully attached trained GRPO LoRA adapter from: {target_ckpt}")
+                except Exception as e:
+                    print(f"[!] Warning attaching LoRA adapter: {e}")
         try:
             model_volume.commit()
         except Exception:
@@ -245,7 +291,14 @@ class DevReasoningAgent:
             )
         generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, outputs)]
         response_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        return parse_model_response(target, response_text).model_dump()
+        token_ids_list = generated_ids[0].tolist()
+        return parse_model_response(
+            target,
+            response_text,
+            attempt_idx=1,
+            generated_token_ids=token_ids_list,
+            prompt_text=user_prompt
+        ).model_dump()
 
     @modal.method()
     def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str) -> dict:
@@ -272,7 +325,14 @@ class DevReasoningAgent:
             )
         generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, outputs)]
         response_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        return parse_model_response(target, response_text, attempt_idx=99).model_dump()
+        token_ids_list = generated_ids[0].tolist()
+        return parse_model_response(
+            target,
+            response_text,
+            attempt_idx=99,
+            generated_token_ids=token_ids_list,
+            prompt_text=prompt
+        ).model_dump()
 
 
 # =============================================================================
@@ -342,6 +402,257 @@ def record_trajectory_remote(trajectory_dict: dict) -> str:
     return filepath
 
 
+@app.function(
+    gpu=config.DEV_GPU_TYPE,
+    image=gpu_image,
+    volumes={"/vol/models": model_volume},
+    timeout=1800,
+)
+def train_grpo_remote(
+    model_id: str,
+    num_steps: int = 5,
+    learning_rate: float = 5e-6,
+    batch_group_size: int = 4
+) -> dict:
+    """
+    Executes GRPO Policy Gradient training with LoRA on Modal GPU worker.
+    Loads verified trajectory groups, computes advantages, updates LoRA parameters,
+    and commits the trained adapter checkpoint to Modal Volume.
+    """
+    import os
+    import torch
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from core.grpo_trainer import (
+        load_trajectories_from_directory,
+        group_rollouts_by_prompt,
+        setup_lora_model,
+        train_grpo_epochs,
+        save_lora_checkpoint
+    )
+
+    print(f"\n[*] Starting GRPO LoRA Policy Optimization on Modal GPU for: {model_id}")
+    trajectories = load_trajectories_from_directory(config.TRAJECTORY_DIR)
+    print(f"[*] Loaded {len(trajectories)} raw trajectory records from {config.TRAJECTORY_DIR}")
+
+    groups = group_rollouts_by_prompt(trajectories, group_size=batch_group_size)
+    print(f"[*] Formed {len(groups)} GRPO candidate rollout groups with normalized advantages.")
+
+    if not groups:
+        return {
+            "status": "skipped",
+            "message": "No rollout groups with >=2 candidates found in trajectories. Run audit rollouts first.",
+            "steps_completed": 0
+        }
+
+    cache_dir = config.MODEL_CACHE_DIR
+    print(f"[*] Loading tokenizer for {model_id}...")
+    tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=cache_dir)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    print(f"[*] Loading base model weights on GPU...")
+    dtype = torch.float16 if config.DEV_GPU_TYPE == "T4" else torch.bfloat16
+    base_model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        torch_dtype=dtype,
+        device_map="auto",
+        cache_dir=cache_dir
+    )
+
+    lora_model = setup_lora_model(
+        base_model,
+        r=config.GRPO_LORA_R,
+        lora_alpha=config.GRPO_LORA_ALPHA,
+        lora_dropout=config.GRPO_LORA_DROPOUT
+    )
+
+    optimizer = torch.optim.AdamW(
+        [p for p in lora_model.parameters() if p.requires_grad],
+        lr=learning_rate
+    )
+
+    epochs = max(1, num_steps)
+    print(f"[*] Executing GRPO training loop for {epochs} epoch(s) across {len(groups)} group(s)...")
+
+    step_stats = train_grpo_epochs(
+        model=lora_model,
+        optimizer=optimizer,
+        groups=groups,
+        tokenizer=tokenizer,
+        epochs=epochs,
+        device="cuda",
+        clip_eps=config.GRPO_CLIP_EPS,
+        beta_kl=config.GRPO_BETA_KL
+    )
+
+    save_path = save_lora_checkpoint(lora_model, tokenizer, config.GRPO_CHECKPOINT_DIR, step=len(step_stats))
+    try:
+        model_volume.commit()
+        print(f"[✓] Checkpoint committed to persistent Modal volume.")
+    except Exception as e:
+        print(f"[!] Volume commit warning: {e}")
+
+    return {
+        "status": "success",
+        "checkpoint_path": save_path,
+        "steps_completed": len(step_stats),
+        "logs": [s.model_dump() for s in step_stats]
+    }
+
+
+def run_control_foundry_tests(target_name: str = "Vault"):
+    """
+    Executes mandatory control verification tests for the Foundry Harness and Category Reward logic:
+    1. Minimal benign ExploitModule (no-op) -> Compiles, links, reverts in harness (reward -0.25, RUNTIME_REVERT)
+    2. Working Reentrancy ExploitModule -> Drains vault, breaches invariant, confirmed replay (reward +1.0, EXPLOIT_CONFIRMED)
+    3. Malformed contract name -> Rejected upfront before Foundry (reward -0.50, GENERATION_FORMAT_ERROR)
+    """
+    print("\n" + "=" * 78)
+    print("🧪 EXECUTING MANDATORY FOUNDRY HARNESS CONTROL TEST SUITE (ROUND 2)")
+    print("=" * 78)
+
+    benchmarks_dir = os.path.join(os.path.dirname(__file__), "benchmarks", "targets", "solidity")
+    target_path = os.path.join(benchmarks_dir, f"{target_name}.sol")
+    harness_path = os.path.join(benchmarks_dir, f"{target_name}Harness.t.sol")
+
+    with open(target_path, "r", encoding="utf-8") as f:
+        target_source = f.read()
+    with open(harness_path, "r", encoding="utf-8") as f:
+        harness_source = f.read()
+
+    invariants_map = {
+        "Vault": ["address(vault).balance >= balances[victim] (Depositor Solvency)"],
+        "ERC4626Vault": [
+            "victimShares > 0 (No zero-share deposit robbery)",
+            "vault.convertToAssets(victimShares) >= 0.95 * VICTIM_DEPOSIT (Dilution Protection)"
+        ]
+    }
+    target = TargetProgram(
+        name=target_name,
+        source_code=target_source,
+        language="solidity",
+        invariants=invariants_map.get(target_name, ["Security invariant intact"]),
+        trusted_harness_code=harness_source
+    )
+
+    # 1. TEST 1: Minimal Benign ExploitModule (No LLM)
+    print("\n[Control Test 1] Testing Minimal Benign ExploitModule (No LLM)...")
+    benign_code = """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Vault} from "../src/Vault.sol";
+
+contract ExploitModule {
+    Vault public targetContract;
+
+    constructor(address _target) payable {
+        targetContract = Vault(payable(_target));
+    }
+
+    function runExploit() external payable {
+        // Benign execution: does not breach solvency invariant
+    }
+
+    receive() external payable {}
+}
+"""
+    p1 = parse_model_response(target, f"```solidity\n{benign_code}\n```")
+    v1_dict = verify_exploit_remote.remote(target.model_dump(), p1.model_dump())
+    v1 = VerificationVerdict(**v1_dict)
+    print(f"    Status: {'✅ PASS' if v1.category == ResultCategory.RUNTIME_REVERT else '❌ FAIL'}")
+    print(f"    Category: {v1.category.value} | Reward: {v1.reward_score:+.2f}")
+    print(f"    Feedback: {v1.feedback[:120]}...")
+    assert v1.category == ResultCategory.RUNTIME_REVERT, f"Expected RUNTIME_REVERT, got {v1.category}"
+    assert v1.reward_score <= 0.0, f"Expected non-positive reward, got {v1.reward_score}"
+    assert not v1.is_verified, "Benign test must not be verified as exploit"
+    print("    [✓] Control Test 1 verified: Import and compilation succeeded without Declaration 'ExploitModule' error.")
+
+    # 2. TEST 2: Confirmed Reentrancy ExploitModule
+    print("\n[Control Test 2] Testing Confirmed Working Reentrancy ExploitModule...")
+    working_exploit = """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Vault} from "../src/Vault.sol";
+
+contract ExploitModule {
+    Vault public targetContract;
+    uint256 public constant ATTACK_AMOUNT = 1 ether;
+
+    constructor(address _target) payable {
+        targetContract = Vault(payable(_target));
+    }
+
+    function runExploit() external payable {
+        targetContract.deposit{value: ATTACK_AMOUNT}();
+        targetContract.withdrawAll();
+    }
+
+    receive() external payable {
+        if (address(targetContract).balance >= ATTACK_AMOUNT) {
+            targetContract.withdrawAll();
+        }
+    }
+}
+"""
+    p2 = parse_model_response(target, f"```solidity\n{working_exploit}\n```")
+    v2_dict = verify_exploit_remote.remote(target.model_dump(), p2.model_dump())
+    v2 = VerificationVerdict(**v2_dict)
+
+    # Initial run before independent replay: must be INVARIANT_BREACH_UNREPLAYED with reward +0.50
+    assert v2.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED, f"Expected INVARIANT_BREACH_UNREPLAYED, got {v2.category}"
+    assert not v2.is_verified, "Initial breach must NOT have is_verified=True before independent replay!"
+    assert v2.reward_score == config.REWARD_BREACH_NO_REPLAY, f"Expected +0.50, got {v2.reward_score}"
+    print(f"    Initial Pre-Replay: ✅ PASS | Category: {v2.category.value} | Reward: {v2.reward_score:+.2f} | is_verified={v2.is_verified}")
+
+    replay_confirmed = verify_replay_remote.remote(target.model_dump(), p2.model_dump())
+    v2.reproducible = replay_confirmed
+    if replay_confirmed:
+        v2.category = ResultCategory.EXPLOIT_CONFIRMED
+        v2.is_verified = True
+        v2.reward_score = config.REWARD_INVARIANT_BREACH
+        v2.replay_status = "CONFIRMED"
+
+    print(f"    Status: {'✅ PASS' if v2.is_verified and replay_confirmed else '❌ FAIL'}")
+    print(f"    Post-Replay Category: {v2.category.value} | Reward: {v2.reward_score:+.2f} | is_verified={v2.is_verified}")
+    print(f"    Feedback: {v2.feedback[:120]}...")
+    print(f"    Independent Replay: {'CONFIRMED (100% Deterministic)' if replay_confirmed else 'FAILED'}")
+    assert v2.is_verified, "Confirmed working exploit must be verified after successful replay"
+    assert v2.category == ResultCategory.EXPLOIT_CONFIRMED
+    assert v2.reward_score == 1.0
+    print("    [✓] Control Test 2 verified: Initial run gave INVARIANT_BREACH_UNREPLAYED (+0.50), post-replay gave EXPLOIT_CONFIRMED (+1.00).")
+
+    # Record this verified trajectory as BOOTSTRAP POSITIVE EXAMPLE for GRPO!
+    prompt_str = build_analysis_prompt(target)
+    t_rec = create_trajectory_record(target, p2, v2, prompt_used=prompt_str)
+    record_trajectory_remote.remote(t_rec.model_dump())
+    print("    [✓] Positive ground-truth trajectory committed to persistent volume for GRPO training!")
+
+    # 3. TEST 3: Malformed Contract Name (Formatting Error)
+    print("\n[Control Test 3] Testing Malformed Contract Name (contract VaultAttack)...")
+    malformed_code = """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract VaultAttack {
+    constructor(address _target) payable {}
+    function runExploit() external payable {}
+}
+"""
+    p3 = parse_model_response(target, f"```solidity\n{malformed_code}\n```")
+    v3_dict = verify_exploit_remote.remote(target.model_dump(), p3.model_dump())
+    v3 = VerificationVerdict(**v3_dict)
+    print(f"    Status: {'✅ PASS' if v3.category == ResultCategory.GENERATION_FORMAT_ERROR else '❌ FAIL'}")
+    print(f"    Category: {v3.category.value} | Reward: {v3.reward_score:+.2f}")
+    print(f"    Feedback: {v3.feedback[:120]}...")
+    assert v3.category == ResultCategory.GENERATION_FORMAT_ERROR
+    assert v3.reward_score == config.REWARD_FORMAT_ERROR
+    print("    [✓] Control Test 3 verified: Format error caught before invoking Foundry.")
+
+    print("\n" + "=" * 78)
+    print("🎉 ALL FOUNDRY HARNESS CONTROL TESTS PASSED (0 ERRORS)")
+    print("=" * 78 + "\n")
+
+
 # =============================================================================
 # 4. CLI ENTRYPOINT: AEGIS-RLVR 2.0 ORCHESTRATOR
 # =============================================================================
@@ -351,7 +662,8 @@ def main(
     target_name: str = "Vault",
     generator: str = "local",
     num_candidates: int = 3,
-    max_rounds: int = 2
+    max_rounds: int = 2,
+    use_lora: bool = False
 ):
     """
     Aegis-RLVR 2.0 CLI orchestrator on Modal.
@@ -364,6 +676,9 @@ def main(
 
       Dev Mode (T4 GPU + Ephemeral Sandboxes):
         modal run modal_app.py --mode dev --target-name Vault
+
+      Inference with trained LoRA adapter:
+        modal run modal_app.py --mode dev --target-name Vault --use-lora True
     """
     print("\n" + "=" * 78)
     print("🛡️  AEGIS-RLVR 2.0: Autonomous Multi-Agent Web3 Security Framework")
@@ -371,7 +686,38 @@ def main(
     print(f"⚙️  Execution Profile        : '{mode.upper()}' (Generator: {generator.upper()})")
     print(f"🎯 Target Contract           : '{target_name}'")
     print(f"⚡ Parallel Hypotheses (.map): {num_candidates}")
+    print(f"🧬 Use LoRA Adapter Checkpoint: {use_lora}")
     print("=" * 78)
+
+    # Fast-path: Control test suite for Foundry harness verification (Round 2)
+    if mode.lower() in ("test-harness", "check-harness", "control"):
+        run_control_foundry_tests(target_name)
+        return
+
+    # Fast-path: Offline GRPO Policy Optimization on accumulated trajectories
+    if mode.lower() == "train":
+        print(f"\n[Phase Train] Dispatching GRPO LoRA Policy Optimization on Modal GPU...")
+        train_model_id = config.DEV_GPU_MODEL if generator.lower() == "dev" or target_name == "Vault" else config.AUDIT_GPU_MODEL
+        print(f"[*] Target Model : {train_model_id}")
+        print(f"[*] Steps        : {max_rounds}")
+        print(f"[*] Group Size   : {num_candidates}")
+
+        train_res = train_grpo_remote.remote(
+            model_id=train_model_id,
+            num_steps=max_rounds,
+            learning_rate=config.GRPO_LEARNING_RATE,
+            batch_group_size=num_candidates
+        )
+        print("\n" + "=" * 78)
+        print(f"🎯 GRPO TRAINING RESULT   : {train_res.get('status', 'unknown').upper()}")
+        print(f"📦 LoRA Checkpoint Path   : {train_res.get('checkpoint_path', 'None')}")
+        print(f"📈 Steps Completed        : {train_res.get('steps_completed', 0)}")
+        if train_res.get("logs"):
+            print("📊 Training Step Logs:")
+            for s_log in train_res["logs"]:
+                print(f"   - Step {s_log.get('step')}: Loss={s_log.get('loss', 0.0):.4f}, Mean Reward={s_log.get('mean_reward', 0.0):.2f}, KL={s_log.get('kl_divergence', 0.0):.6f}")
+        print("=" * 78 + "\n")
+        return
 
     # 1. Resolve Solidity target contract and trusted verification harness
     benchmarks_dir = os.path.join(os.path.dirname(__file__), "benchmarks", "targets", "solidity")
@@ -422,22 +768,32 @@ def main(
         except Exception as e:
             print(f"[!] Slither notice: {e}")
 
-    # 3. Phase 2: Hypothesis Formulation & Multi-Candidate Exploit Synthesis
-    print(f"\n[Phase 2] Synthesizing {num_candidates} parallel exploit hypotheses...")
-    candidate_payloads = []
+    # 3. Phase 2: Hypothesis Formulation & Multi-Candidate Exploit Synthesis (Round 4 Lifecycle)
+    run_id = f"run_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+    target_prompt = build_analysis_prompt(target)
+    prompt_hash = compute_prompt_hash(target_prompt)
+    model_id = config.DEV_GPU_MODEL if generator.lower() == "dev" or target_name == "Vault" else config.AUDIT_GPU_MODEL
+    checkpoint_id = "checkpoint-step-2" if use_lora else "base"
+
+    print(f"\n[Phase 2] Synthesizing {num_candidates} parallel exploit hypotheses (Run ID: {run_id})...")
+    all_candidate_records: List[CandidateRecord] = []
+    initial_payloads: List[ExploitPayload] = []
 
     if generator.lower() == "gemini":
         print("[+] Generator: Gemini 2.5 Flash (Frontier Reasoning API)")
         for i in range(1, num_candidates + 1):
             p = synthesize_exploit_gemini(target)
+            p.candidate_id = f"{run_id}_c{i}_r0"
+            p.run_id = run_id
+            p.generation_iteration = 0
+            p.candidate_index = i
             p.attempt_number = i
-            candidate_payloads.append(p)
-            print(f"    [Candidate #{i}] Hypothesis: {p.hypothesis.vulnerability_type} (Gemini API)")
+            initial_payloads.append(p)
+            print(f"    [Candidate #{i} | ID: {p.candidate_id}] Hypothesis: {p.hypothesis.vulnerability_type} (Gemini API)")
     else:
         if mode.lower() == "audit":
             print(f"[+] Generator: Production Tier ({config.AUDIT_GPU_MODEL} on Modal H100)")
             llm_agent = ProductionAuditAgent()
-            # Optional native Qwen-Audit scan
             try:
                 findings = llm_agent.audit_target_contract.remote(target.model_dump())
                 print(f"[+] Qwen-Audit detected {len(findings)} vulnerability finding(s):")
@@ -446,102 +802,195 @@ def main(
             except Exception as e:
                 print(f"[!] Audit scan notice: {e}")
         else:
-            print(f"[+] Generator: Dev Tier ({config.DEV_GPU_MODEL} on Modal T4)")
-            llm_agent = DevReasoningAgent()
+            lora_note = " + Trained GRPO LoRA" if use_lora else ""
+            print(f"[+] Generator: Dev Tier ({config.DEV_GPU_MODEL}{lora_note} on Modal T4)")
+            llm_agent = DevReasoningAgent(use_lora=use_lora)
 
         temperatures = [0.2 + (i * 0.2) for i in range(num_candidates)]
         for i, temp in enumerate(temperatures, 1):
             p_dict = llm_agent.generate_solidity_exploit.remote(target.model_dump(), temperature=temp)
             p = ExploitPayload(**p_dict)
+            p.candidate_id = f"{run_id}_c{i}_r0"
+            p.run_id = run_id
+            p.generation_iteration = 0
+            p.candidate_index = i
             p.attempt_number = i
-            candidate_payloads.append(p)
-            print(f"    [Candidate #{i}] Hypothesis: {p.hypothesis.vulnerability_type} (t={temp:.2f})")
+            if not p.prompt_text:
+                p.prompt_text = target_prompt
+            initial_payloads.append(p)
+            print(f"    [Candidate #{i} | ID: {p.candidate_id}] Hypothesis: {p.hypothesis.vulnerability_type} (t={temp:.2f})")
 
     # 4. Phase 3: Distributed Execution in Parallel Foundry Sandboxes (.map)
-    print(f"\n[Phase 3] Dispatching {len(candidate_payloads)} concurrent Foundry sandboxes via Modal .map()...")
-    target_dicts = [target.model_dump()] * len(candidate_payloads)
-    payload_dicts = [p.model_dump() for p in candidate_payloads]
+    print(f"\n[Phase 3] Dispatching {len(initial_payloads)} concurrent Foundry sandboxes via Modal .map()...")
+    target_dicts = [target.model_dump()] * len(initial_payloads)
+    payload_dicts = [p.model_dump() for p in initial_payloads]
 
     verdict_dicts = list(verify_exploit_remote.map(target_dicts, payload_dicts))
-    verdicts = [VerificationVerdict(**vd) for vd in verdict_dicts]
 
-    for idx, (p, v) in enumerate(zip(candidate_payloads, verdicts), 1):
-        status_icon = "✅ BREACHED" if v.is_verified else "❌ REJECTED"
-        print(f"    [Worker #{idx}] {status_icon} | Reward: {v.reward_score:+.2f} | {v.feedback[:80]}...")
+    for idx, (p, vd) in enumerate(zip(initial_payloads, verdict_dicts), 1):
+        v = VerificationVerdict(**vd)
+        v.candidate_id = p.candidate_id
+        v.run_id = run_id
+        v.generation_iteration = 0
+        v.candidate_index = idx
 
-    verified_verdict = next((v for v in verdicts if v.is_verified), None)
-    verified_payload = next((p for p, v in zip(candidate_payloads, verdicts) if v.is_verified), None)
+        status_icon = "✅ BREACHED" if v.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED else "❌ REJECTED"
+        print(f"    [Worker #{idx} | {p.candidate_id}] {status_icon} [{v.category.value}] | Reward: {v.reward_score:+.2f} | {v.feedback[:75]}...")
 
-    # 5. Phase 4: Closed-Loop Multi-Round Refinement (if initial batch failed)
+        rec = CandidateRecord(
+            candidate_id=p.candidate_id,
+            run_id=run_id,
+            target_name=target.name,
+            generation_iteration=0,
+            candidate_index=idx,
+            payload=p,
+            verdict=v,
+            model_id=model_id,
+            checkpoint_id=checkpoint_id,
+            prompt_text=p.prompt_text or target_prompt,
+            prompt_hash=prompt_hash,
+            replay_eligible=(v.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED),
+            reproduced=False
+        )
+        all_candidate_records.append(rec)
+
+    # 5. Phase 4: Closed-Loop Multi-Round Refinement (if initial batch had no invariant breach)
     current_round = 1
-    while not verified_verdict and current_round <= max_rounds:
-        print(f"\n[Phase 4 - Round {current_round}/{max_rounds}] Refining top candidate from EVM trace...")
-        best_cand, best_verd = max(zip(candidate_payloads, verdicts), key=lambda cv: cv[1].reward_score)
-        print(f"    Top candidate: {best_cand.hypothesis.vulnerability_type} (Score: {best_verd.reward_score:+.2f})")
-        print(f"    EVM trace: {best_verd.feedback[:200]}...")
+    while current_round <= max_rounds:
+        # Check if an invariant breach already exists
+        has_breach = any(c.verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED for c in all_candidate_records)
+        if has_breach:
+            break
 
+        print(f"\n[Phase 4 - Round {current_round}/{max_rounds}] Refining top-ranked candidate from EVM trace...")
+        ranked_so_far = rank_candidates(all_candidate_records)
+        best_cand = ranked_so_far[0]
+        print(f"    Top candidate to refine: {best_cand.candidate_id} | {best_cand.payload.hypothesis.vulnerability_type} (Score: {best_cand.verdict.reward_score:+.2f})")
+        print(f"    EVM trace              : {best_cand.verdict.feedback[:180]}...")
+
+        ref_id = f"{run_id}_ref{current_round}"
         if generator.lower() == "gemini":
-            from core.llm_generator import build_refinement_prompt, extract_solidity_code
+            from core.llm_generator import build_refinement_prompt
             from google import genai
             client = genai.Client()
-            ref_prompt = build_refinement_prompt(target, best_cand.test_code, best_verd.feedback)
+            ref_prompt = build_refinement_prompt(target, best_cand.payload.test_code, best_cand.verdict.feedback)
             resp = client.models.generate_content(
                 model=config.GEMINI_MODEL,
                 contents=ref_prompt,
                 config={"system_instruction": SOLIDITY_SYSTEM_PROMPT, "temperature": 0.1}
             )
-            refined_payload = parse_model_response(target, resp.text or "", attempt_idx=current_round + 1)
+            refined_payload = parse_model_response(
+                target,
+                resp.text or "",
+                attempt_idx=current_round + 1,
+                prompt_text=ref_prompt
+            )
         else:
             ref_dict = llm_agent.refine_solidity_exploit.remote(
                 target.model_dump(),
-                best_cand.test_code,
-                best_verd.feedback
+                best_cand.payload.test_code,
+                best_cand.verdict.feedback
             )
             refined_payload = ExploitPayload(**ref_dict)
-            refined_payload.attempt_number = current_round + 1
+            if not refined_payload.prompt_text:
+                from core.llm_generator import build_refinement_prompt
+                refined_payload.prompt_text = build_refinement_prompt(target, best_cand.payload.test_code, best_cand.verdict.feedback)
 
-        print(f"[+] Re-testing refined candidate in Foundry sandbox...")
+        refined_payload.candidate_id = ref_id
+        refined_payload.run_id = run_id
+        refined_payload.generation_iteration = current_round
+        refined_payload.candidate_index = len(all_candidate_records) + 1
+        refined_payload.attempt_number = current_round + 1
+
+        print(f"[+] Re-testing refined candidate {ref_id} in Foundry sandbox...")
         res_dict = verify_exploit_remote.remote(target.model_dump(), refined_payload.model_dump())
         cand_verdict = VerificationVerdict(**res_dict)
-        if cand_verdict.is_verified:
-            verified_verdict = cand_verdict
-            verified_payload = refined_payload
+        cand_verdict.candidate_id = ref_id
+        cand_verdict.run_id = run_id
+        cand_verdict.generation_iteration = current_round
+        cand_verdict.candidate_index = refined_payload.candidate_index
+
+        status_icon = "✅ BREACHED" if cand_verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED else "❌ REJECTED"
+        print(f"    [Refinement #{current_round} | {ref_id}] {status_icon} [{cand_verdict.category.value}] | Reward: {cand_verdict.reward_score:+.2f}")
+
+        # CRITICAL: Preserve refined candidate in the common audit collection
+        ref_record = CandidateRecord(
+            candidate_id=ref_id,
+            run_id=run_id,
+            target_name=target.name,
+            generation_iteration=current_round,
+            candidate_index=refined_payload.candidate_index,
+            payload=refined_payload,
+            verdict=cand_verdict,
+            model_id=model_id,
+            checkpoint_id=checkpoint_id,
+            prompt_text=refined_payload.prompt_text,
+            prompt_hash=compute_prompt_hash(refined_payload.prompt_text),
+            replay_eligible=(cand_verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED),
+            reproduced=False
+        )
+        all_candidate_records.append(ref_record)
+
+        if cand_verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED:
+            print(f"[✓] Invariant breach successfully achieved during refinement round {current_round}!")
             break
+
         current_round += 1
 
-    final_verdict = verified_verdict or verdicts[0]
-    final_payload = verified_payload or candidate_payloads[0]
+    # 6. Phase 5: Explicit Replay Candidate Selection & Verification (Round 4/5)
+    print(f"\n[Phase 5] Selecting replay candidate via explicit ranking policy over ALL {len(all_candidate_records)} candidates...")
+    replay_candidate = select_candidate_for_replay(all_candidate_records)
 
-    # 6. Phase 5: Independent Replay Verification (Guaranteed Reproducibility)
-    reproduced = False
-    if final_verdict.is_verified:
-        print("\n[Phase 5] Executing Independent Replay in a fresh, isolated EVM container...")
-        reproduced = verify_replay_remote.remote(target.model_dump(), final_payload.model_dump())
-        final_verdict.reproducible = reproduced
-        if reproduced:
-            final_verdict.reward_score = config.REWARD_INVARIANT_BREACH
-            print("[✓] REPRODUCIBILITY CONFIRMED: 100% deterministic invariant breach across independent runs!")
-        else:
-            final_verdict.reward_score = config.REWARD_BREACH_NO_REPLAY
-            print("[!] Flaky run detected: Replay did not reproduce invariant breach.")
+    if replay_candidate is not None:
+        print(f"[+] Replay candidate selected: {replay_candidate.candidate_id} (Category: {replay_candidate.verdict.category.value})")
+        # Strict candidate ID identity assertion
+        assert replay_candidate.candidate_id == replay_candidate.payload.candidate_id, "Candidate ID mismatch with payload"
+        assert replay_candidate.candidate_id == replay_candidate.verdict.candidate_id, "Candidate ID mismatch with verdict"
 
-    # 7. Phase 6: Trajectory Recording for RLVR / GRPO Policy Fine-Tuning
-    print("\n[Phase 6] Recording trajectory pair into Modal Volume for RLVR Training...")
-    try:
-        traj_record = create_trajectory_record(target, final_payload, final_verdict)
-        saved_path = record_trajectory_remote.remote(traj_record.model_dump())
-        print(f"[✓] Trajectory committed: {saved_path} (Reward: {final_verdict.reward_score:+.2f})")
-    except Exception as e:
-        print(f"[!] Trajectory recording notice: {e}")
+        print(f"[*] Executing independent replay in isolated clean EVM sandbox...")
+        try:
+            reproduced = verify_replay_remote.remote(target.model_dump(), replay_candidate.payload.model_dump())
+            finalize_candidate_replay(replay_candidate, replay_success=reproduced, replay_infra_error=False)
+            if reproduced:
+                print(f"[✓] EXPLOIT CONFIRMED: Candidate {replay_candidate.candidate_id} 100% reproduced in independent replay!")
+            else:
+                print(f"[!] Replay failed for candidate {replay_candidate.candidate_id}: marked as unconfirmed breach.")
+        except Exception as exc:
+            print(f"[!] Replay remote invocation raised infrastructure exception: {type(exc).__name__}: {exc}")
+            finalize_candidate_replay(replay_candidate, replay_success=False, replay_infra_error=True)
+            replay_candidate.verdict.feedback = f"Replay Infrastructure Error ({type(exc).__name__}): {exc}"
 
+        primary_record = replay_candidate
+    else:
+        print("[-] No candidate breached the security invariant. Replay NOT ELIGIBLE.")
+        # Select best non-breach candidate according to ranking policy
+        ranked_all = rank_candidates(all_candidate_records)
+        primary_record = ranked_all[0]
+        print(f"[*] Best non-success candidate: {primary_record.candidate_id} ({primary_record.verdict.category.value})")
+
+    # 7. Phase 6: Trajectory Persistence Post-Replay (Round 4)
+    print(f"\n[Phase 6] Persisting verified trajectory records to Modal Volume...")
+    recorded_count = 0
+    for record in all_candidate_records:
+        if record.verdict.category != ResultCategory.INFRA_ERROR:
+            try:
+                traj = create_finalized_trajectory(record, target)
+                record_trajectory_remote.remote(traj.model_dump())
+                recorded_count += 1
+            except Exception as e:
+                print(f"[!] Trajectory persistence notice: {e}")
+    print(f"[✓] {recorded_count} finalized candidate trajectory records committed to persistent Modal Volume.")
+
+    # 8. Phase 7: Complete Audit Report & Summary
     print("\n" + "=" * 78)
-    status = f"✅ VERIFIED EXPLOIT ({final_verdict.vulnerability_type})" if final_verdict.is_verified else "❌ REJECTED"
-    print(f"AEGIS-RLVR 2.0 VERDICT    : [{status}]")
-    print(f"Vulnerability Type         : {final_verdict.vulnerability_type}")
-    print(f"RLVR Ground-Truth Reward   : {final_verdict.reward_score:+.2f}")
-    print(f"Independent EVM Replay     : {'CONFIRMED (100% Deterministic)' if final_verdict.reproducible else 'FAILED / UNCONFIRMED'}")
-    print(f"State Delta Verified       : {final_verdict.state_delta_verified}")
-    print(f"Sandbox Feedback           : {final_verdict.feedback}")
+    status_label = "✅ CONFIRMED EXPLOIT" if primary_record.verdict.is_verified else "❌ NON-SUCCESS"
+    print(f"AEGIS-RLVR VERDICT            : [{status_label}]")
+    print(f"Selected Candidate ID         : {primary_record.candidate_id} (Iteration: {primary_record.generation_iteration})")
+    print(f"Outcome Category              : {primary_record.verdict.category.value}")
+    print(f"Vulnerability Type            : {primary_record.verdict.vulnerability_type}")
+    print(f"Final RLVR Ground-Truth Reward: {primary_record.verdict.reward_score:+.2f}")
+    print(f"Independent EVM Replay        : {'CONFIRMED (100% Deterministic)' if primary_record.verdict.reproducible else 'FAILED / NOT_ELIGIBLE'}")
+    print(f"Total Candidates Evaluated    : {len(all_candidate_records)}")
     print("=" * 78 + "\n")
 
 

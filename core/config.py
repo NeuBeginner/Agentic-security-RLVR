@@ -43,9 +43,25 @@ class PipelineConfig:
     REWARD_BREACH_NO_REPLAY: float = 0.5      # Invariant breached once, but non-reproducible
     REWARD_RUNTIME_REVERT: float = -0.25      # Compiled cleanly, but reverted during EVM runtime
     REWARD_COMPILATION_FAIL: float = -0.5     # solc / forge compilation error
+    REWARD_FORMAT_ERROR: float = -0.5         # Malformed model response / missing contract ExploitModule
     REWARD_SAFE_RUN: float = -0.1             # Clean execution, no invariant breached
     REWARD_TIMEOUT: float = -0.3              # Out of gas / infinite loop
     REWARD_CHEATCODE_PENALTY: float = -1.0    # Attempted to use Foundry cheatcodes / sandbox escape
+    REWARD_INFRA_ERROR: float = 0.0           # Infrastructure / harness environment failure (neutral)
+
+    # GRPO Policy Optimization Parameters
+    GRPO_GROUP_SIZE: int = 4
+    GRPO_LEARNING_RATE: float = 5e-6
+    GRPO_BETA_KL: float = 0.04
+    GRPO_CLIP_EPS: float = 0.2
+    GRPO_LORA_R: int = 16
+    GRPO_LORA_ALPHA: int = 32
+    GRPO_LORA_DROPOUT: float = 0.05
+    GRPO_CHECKPOINT_DIR: str = "/vol/models/checkpoints"
+    GRPO_TARGET_MODULES: tuple = (
+        "q_proj", "k_proj", "v_proj", "o_proj",
+        "gate_proj", "up_proj", "down_proj"
+    )
 
 
 config = PipelineConfig()

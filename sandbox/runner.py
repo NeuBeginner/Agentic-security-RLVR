@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import time
 import modal
-from core.schemas import ExploitPayload, ExecutionResult, TargetProgram
+from core.schemas import ExploitPayload, ExecutionResult, TargetProgram, ResultCategory
 from core.config import config
 
 # Path to pre-baking script
@@ -174,13 +174,28 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
     """
     start_time = time.time()
 
-    # Pre-execution check: block any exploit attempting to hijack Foundry cheatcodes
+    # Pre-execution check 1: Reject malformed generation without running Foundry
+    if not payload.format_valid:
+        return ExecutionResult(
+            return_code=-4,
+            stdout="",
+            stderr=f"GENERATION_FORMAT_ERROR: {payload.format_error_reason}",
+            execution_time_sec=0.0,
+            category=ResultCategory.GENERATION_FORMAT_ERROR,
+            timed_out=False,
+            invariant_violated=False,
+            cheatcode_detected=False,
+            verified_by_harness=False
+        )
+
+    # Pre-execution check 2: Block any exploit attempting to hijack Foundry cheatcodes
     if detect_prohibited_cheatcodes(payload.test_code):
         return ExecutionResult(
             return_code=-3,
             stdout="",
             stderr="Security Violation: ExploitModule attempted to import or execute Foundry cheatcodes (vm.*).",
             execution_time_sec=0.01,
+            category=ResultCategory.CHEATCODE_DETECTED,
             timed_out=False,
             invariant_violated=False,
             cheatcode_detected=True,
@@ -245,7 +260,7 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             # Parse structured JSON output
             structured_json, test_status, revert_reason, decoded_logs = parse_forge_output(proc.stdout or "")
             
-            # Invariant verification: must have breach log from harness and zero exit code
+            # Determine fine-grained category
             has_breach_signal = (
                 any("[INVARIANT_BREACHED" in str(l) for l in decoded_logs) or
                 ("[INVARIANT_BREACHED" in output_text and proc.returncode == 0)
@@ -256,12 +271,26 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 (test_status == "Success" or "[PASS]" in output_text) and
                 has_breach_signal
             )
+
+            # Classify outcome category
+            if inv_violated:
+                category = ResultCategory.EXPLOIT_CONFIRMED
+            elif proc.returncode == 0:
+                category = ResultCategory.SAFE_RUN
+            elif revert_reason is not None or "EVM Runtime Revert" in output_text:
+                category = ResultCategory.RUNTIME_REVERT
+            elif "Compiler run failed" in output_text or "ParserError" in output_text or "Error (" in output_text:
+                category = ResultCategory.COMPILATION_ERROR
+            else:
+                # If forge failed without compiler or test output, it's an infrastructure fault
+                category = ResultCategory.INFRA_ERROR
             
             return ExecutionResult(
                 return_code=proc.returncode,
                 stdout=proc.stdout or "",
                 stderr=proc.stderr or "",
                 execution_time_sec=elapsed,
+                category=category,
                 timed_out=False,
                 invariant_violated=inv_violated,
                 structured_json=structured_json,
@@ -273,6 +302,18 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 reproducibility_confirmed=False
             )
             
+        except FileNotFoundError as fnf:
+            # forge command not found in environment -> INFRA_ERROR
+            elapsed = time.time() - start_time
+            return ExecutionResult(
+                return_code=-5,
+                stdout="",
+                stderr=f"INFRA_ERROR: Foundry executable not found: {fnf}",
+                execution_time_sec=elapsed,
+                category=ResultCategory.INFRA_ERROR,
+                timed_out=False,
+                invariant_violated=False
+            )
         except subprocess.TimeoutExpired as e:
             elapsed = time.time() - start_time
             return ExecutionResult(
@@ -280,6 +321,7 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 stdout=e.stdout if isinstance(e.stdout, str) else "",
                 stderr=e.stderr if isinstance(e.stderr, str) else "",
                 execution_time_sec=elapsed,
+                category=ResultCategory.RUNTIME_REVERT,
                 timed_out=True,
                 invariant_violated=False
             )
@@ -288,8 +330,9 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             return ExecutionResult(
                 return_code=-2,
                 stdout="",
-                stderr=str(ex),
+                stderr=f"INFRA_ERROR: Unexpected sandbox execution exception: {ex}",
                 execution_time_sec=elapsed,
+                category=ResultCategory.INFRA_ERROR,
                 timed_out=False,
                 invariant_violated=False
             )
@@ -304,5 +347,6 @@ def verify_independent_replay(target: TargetProgram, payload: ExploitPayload) ->
     return (
         replay_result.invariant_violated and
         replay_result.return_code == 0 and
-        not replay_result.cheatcode_detected
+        not replay_result.cheatcode_detected and
+        replay_result.category == ResultCategory.EXPLOIT_CONFIRMED
     )
