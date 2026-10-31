@@ -16,7 +16,8 @@ from core.schemas import (
     VerificationVerdict
 )
 from core.evaluator import evaluate_execution_trace
-from sandbox.runner import parse_forge_output
+from sandbox.runner import parse_forge_output, run_payload_in_sandbox
+from sandbox.harness_registry import get_trusted_harness
 
 
 # =============================================================================
@@ -24,7 +25,7 @@ from sandbox.runner import parse_forge_output
 # =============================================================================
 def test_parse_forge_output_success():
     mock_forge_json = {
-        "test/VaultHarness.t.sol:VaultTrustedHarness": {
+        "test/VaultTrustedHarness.t.sol:VaultTrustedHarness": {
             "test_results": {
                 "testExploit()": {
                     "status": "Success",
@@ -48,7 +49,7 @@ def test_parse_forge_output_success():
 
 def test_parse_forge_output_revert():
     mock_forge_json = {
-        "test/VaultHarness.t.sol:VaultTrustedHarness": {
+        "test/VaultTrustedHarness.t.sol:VaultTrustedHarness": {
             "test_results": {
                 "testExploit()": {
                     "status": "Failure",
@@ -68,7 +69,45 @@ def test_parse_forge_output_revert():
 
 
 # =============================================================================
-# 2. TEST REJECTION OF DUMMY PASSING TEST (POINT 2)
+# 2. TEST MANDATORY WORKER-SIDE HARNESS RESOLUTION (POINT 1)
+# =============================================================================
+def test_unregistered_target_aborts_immediately():
+    """
+    Ensures that an unknown target without an immutable worker-side harness
+    is immediately aborted and cannot be verified or gamed.
+    """
+    target = TargetProgram(
+        name="ArbitraryUntrustedContract",
+        source_code="contract Foo {}",
+        language="solidity"
+    )
+    payload = ExploitPayload(
+        target_name="ArbitraryUntrustedContract",
+        hypothesis=AttackHypothesis(
+            vulnerability_type="LogicFlaw",
+            reasoning_trace="Testing bypass",
+            attack_vector="No harness"
+        ),
+        test_code="// Fake test attempting bypass with forged log\n// [INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"
+    )
+
+    result = run_payload_in_sandbox(target, payload)
+
+    assert result.invariant_violated is False
+    assert result.return_code == -3
+    assert "SECURITY ABORT" in result.stderr
+    assert "has no registered immutable harness" in result.stderr
+
+
+def test_trusted_harness_registry_lookup():
+    """Validates that Vault is properly registered in the immutable registry."""
+    harness = get_trusted_harness("Vault")
+    assert "contract VaultTrustedHarness is Test" in harness
+    assert "[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]" in harness
+
+
+# =============================================================================
+# 3. TEST REJECTION OF DUMMY PASSING TEST (POINT 2)
 # =============================================================================
 def test_reject_dummy_passing_test():
     """
@@ -115,7 +154,7 @@ def test_reject_dummy_passing_test():
 
 
 # =============================================================================
-# 3. TEST GENUINE REENTRANCY INVARIANT BREACH (POINTS 2 & 3)
+# 4. TEST GENUINE REENTRANCY INVARIANT BREACH EVALUATION
 # =============================================================================
 def test_verify_real_reentrancy_exploit():
     """
@@ -172,7 +211,7 @@ def test_verify_real_reentrancy_exploit():
 
 
 # =============================================================================
-# 4. TEST TIMEOUT HANDLING
+# 5. TEST TIMEOUT HANDLING
 # =============================================================================
 def test_timeout_handling():
     payload = ExploitPayload(
@@ -203,7 +242,7 @@ def test_timeout_handling():
 
 
 # =============================================================================
-# 5. TEST PATH TRAVERSAL SANITIZATION (POINT 4)
+# 6. TEST PATH TRAVERSAL SANITIZATION
 # =============================================================================
 def test_path_traversal_sanitization():
     """
@@ -223,7 +262,7 @@ def test_path_traversal_sanitization():
 
 
 # =============================================================================
-# 6. TEST CHECKSUM VALIDATION LOGIC (POINT 6)
+# 7. TEST CHECKSUM VALIDATION LOGIC
 # =============================================================================
 def test_checksum_validation_detects_tampering():
     """
@@ -236,7 +275,6 @@ def test_checksum_validation_detects_tampering():
 
     assert computed_sha != expected_sha
 
-    # Test that a mismatch raises ValueError
     with pytest.raises(ValueError, match="Checksum mismatch"):
         if computed_sha != expected_sha:
             raise ValueError(f"Checksum mismatch! Expected {expected_sha}, got {computed_sha}")

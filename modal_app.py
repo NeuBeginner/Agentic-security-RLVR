@@ -298,23 +298,16 @@ def main(mode: str = "audit"):
     with open(target_path, "r", encoding="utf-8") as f:
         target_source = f.read()
 
-    harness_path = os.path.join(
-        os.path.dirname(__file__), "benchmarks", "targets", "solidity", "VaultHarness.t.sol"
-    )
-    with open(harness_path, "r", encoding="utf-8") as f:
-        harness_source = f.read()
-        
     target = TargetProgram(
         name="Vault",
         source_code=target_source,
         language="solidity",
         invariants=["address(vault).balance >= balances[victim] (Depositor Solvency)"],
-        trusted_harness_code=harness_source
     )
     
     print(f"\n[1] Target loaded: '{target.name}.sol'")
     print(f"    Invariants: {target.invariants}")
-    print(f"    Trusted Harness: VaultHarness.t.sol (Depositor Solvency)")
+    print(f"    Worker Verification: Immutable VaultTrustedHarness on Modal")
     print(f"    Solidity Version: {config.SOLC_VERSION}")
     
     # 2. Neural Exploit Synthesis on Modal GPU
