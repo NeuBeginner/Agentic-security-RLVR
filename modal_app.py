@@ -291,22 +291,30 @@ def main(mode: str = "audit"):
         print(f"\n[+] Dev/CI Tier: Loading {config.DEV_GPU_MODEL} on Modal {config.DEV_GPU_TYPE}...")
         generator = DevReasoningAgent()
     
-    # 1. Load real Solidity target contract
+    # 1. Load real Solidity target contract and trusted verification harness
     target_path = os.path.join(
         os.path.dirname(__file__), "benchmarks", "targets", "solidity", "Vault.sol"
     )
     with open(target_path, "r", encoding="utf-8") as f:
         target_source = f.read()
+
+    harness_path = os.path.join(
+        os.path.dirname(__file__), "benchmarks", "targets", "solidity", "VaultHarness.t.sol"
+    )
+    with open(harness_path, "r", encoding="utf-8") as f:
+        harness_source = f.read()
         
     target = TargetProgram(
         name="Vault",
         source_code=target_source,
         language="solidity",
-        invariants=["address(vault).balance >= totalDeposits"]
+        invariants=["address(vault).balance >= balances[victim] (Depositor Solvency)"],
+        trusted_harness_code=harness_source
     )
     
     print(f"\n[1] Target loaded: '{target.name}.sol'")
     print(f"    Invariants: {target.invariants}")
+    print(f"    Trusted Harness: VaultHarness.t.sol (Depositor Solvency)")
     print(f"    Solidity Version: {config.SOLC_VERSION}")
     
     # 2. Neural Exploit Synthesis on Modal GPU
@@ -316,18 +324,18 @@ def main(mode: str = "audit"):
     
     print(f"[+] Model formulated hypothesis: {payload.hypothesis.vulnerability_type}")
     print(f"[+] Reasoning snippet: {payload.hypothesis.reasoning_trace[:150]}...")
-    print(f"[+] Synthesized Foundry test: {len(payload.test_code.splitlines())} lines.")
+    print(f"[+] Synthesized ExploitModule: {len(payload.test_code.splitlines())} lines.")
     
-    # 3. Execution in Foundry Sandbox on Modal
+    # 3. Execution in Foundry Sandbox against Trusted Harness on Modal
     print("\n[3] Spawning ephemeral Foundry/EVM container on Modal Cloud...")
-    print("    Running: forge test --offline --json -vvvv ...")
+    print("    Running: forge test --offline --json -vvvv against VaultHarness.t.sol ...")
     
     result_dict = verify_exploit_remote.remote(target.model_dump(), payload.model_dump())
     verdict = VerificationVerdict(**result_dict)
     
     # 4. Closed-loop Refinement if needed
     if not verdict.is_verified:
-        print(f"\n[!] Initial test rejected: {verdict.feedback[:200]}...")
+        print(f"\n[!] Initial exploit rejected: {verdict.feedback[:200]}...")
         print("[*] Feeding structured EVM execution trace back to GPU for refinement...")
         
         refined_dict = generator.refine_solidity_exploit.remote(
@@ -337,12 +345,12 @@ def main(mode: str = "audit"):
         )
         refined_payload = ExploitPayload(**refined_dict)
         
-        print("[*] Re-testing refined exploit in Foundry sandbox...")
+        print("[*] Re-testing refined ExploitModule in Foundry sandbox...")
         result_dict = verify_exploit_remote.remote(target.model_dump(), refined_payload.model_dump())
         verdict = VerificationVerdict(**result_dict)
         
     print("\n" + "=" * 75)
-    status = "✅ VERIFIED EXPLOIT (EVM INVARIANT BREACHED)" if verdict.is_verified else "❌ REJECTED"
+    status = "✅ VERIFIED EXPLOIT (DEPOSITOR SOLVENCY BREACHED)" if verdict.is_verified else "❌ REJECTED"
     print(f"EVM VERIFICATION VERDICT: [{status}]")
     print(f"Vulnerability Type     : {verdict.vulnerability_type}")
     print(f"RLVR Reward            : {verdict.reward_score:+.2f}")

@@ -8,6 +8,10 @@ class TargetProgram(BaseModel):
     source_code: str = Field(..., description="Raw source code of the target program")
     language: str = Field(default="solidity", description="Language of target (solidity, python, c)")
     invariants: List[str] = Field(default_factory=list, description="Formal security properties/invariants")
+    trusted_harness_code: Optional[str] = Field(
+        default=None,
+        description="Immutable, trusted Foundry test harness for EVM state verification"
+    )
 
 
 class AttackHypothesis(BaseModel):
@@ -21,8 +25,8 @@ class ExploitPayload(BaseModel):
     """Executable proof-of-concept payload generated for verification."""
     target_name: str
     hypothesis: AttackHypothesis
-    test_code: str = Field(..., description="Executable test harness code (e.g. Foundry test or Python script)")
-    test_filename: str = Field(default="Exploit.t.sol")
+    test_code: str = Field(..., description="Executable exploit code (ExploitModule contract)")
+    test_filename: str = Field(default="ExploitModule.sol")
     attempt_number: int = Field(default=1)
 
 

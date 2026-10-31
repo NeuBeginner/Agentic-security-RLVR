@@ -8,38 +8,24 @@ import modal
 from core.schemas import ExploitPayload, ExecutionResult, TargetProgram
 from core.config import config
 
-SOLC_PREBAKE_CMD = (
-    "python3 -c \""
-    "import urllib.request, json, os; "
-    "req = urllib.request.Request('https://binaries.soliditylang.org/linux-amd64/list.json', headers={'User-Agent': 'Mozilla/5.0'}); "
-    "data = json.loads(urllib.request.urlopen(req, timeout=30).read()); "
-    "targets = [f'0.8.{i}' for i in range(19, 29)]; "
-    "print('[*] Pre-baking solc versions:', targets); "
-    "for b in data.get('builds', []): "
-    "    v = b.get('version'); "
-    "    if v in targets: "
-    "        d = f'/root/.svm/{v}'; os.makedirs(d, exist_ok=True); p = f'{d}/solc-{v}'; "
-    "        if not os.path.exists(p): "
-    "            url = f'https://binaries.soliditylang.org/linux-amd64/{b[\"path\"]}'; "
-    "            r = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}); "
-    "            with urllib.request.urlopen(r, timeout=60) as resp, open(p, 'wb') as f: f.write(resp.read()); "
-    "            os.chmod(p, 0o755); print(f'[✓] solc {v} cached');"
-    "\""
-)
+# Path to pre-baking script
+PREBAKE_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebake_solc.py")
 
-# Optimized Foundry + Solc + OpenZeppelin Execution Image for Modal
+# Optimized, Pinned Foundry + Solc + OpenZeppelin Execution Image for Modal
 sandbox_image = (
     modal.Image.debian_slim(python_version="3.10")
     .apt_install("curl", "git", "build-essential", "ca-certificates")
+    # Copy verified solc prebake script into image
+    .add_local_file(PREBAKE_SCRIPT_PATH, "/opt/prebake_solc.py", copy=True)
     .run_commands(
         # 1. Install Foundry toolchain (forge, cast, anvil)
         "curl -sSfL https://foundry.paradigm.xyz | bash",
         "/root/.foundry/bin/foundryup",
-        # 2. Pre-bake solc compilers (0.8.19 - 0.8.28) directly into ~/.svm
-        SOLC_PREBAKE_CMD,
-        # 3. Pre-bake standard libraries: forge-std and @openzeppelin/contracts
+        # 2. Pre-bake verified solc compilers (0.8.19 - 0.8.28) with SHA256 validation
+        "python3 /opt/prebake_solc.py",
+        # 3. Pre-bake pinned standard libraries: forge-std (v1.9.5) and openzeppelin-contracts (v5.0.2)
         "mkdir -p /opt/foundry_base/lib && cd /opt/foundry_base/lib && "
-        "git clone --depth 1 https://github.com/foundry-rs/forge-std.git forge-std && "
+        "git clone --depth 1 -b v1.9.5 https://github.com/foundry-rs/forge-std.git forge-std && "
         "git clone --depth 1 -b v5.0.2 https://github.com/OpenZeppelin/openzeppelin-contracts.git openzeppelin-contracts",
     )
     .env({"PATH": "/root/.foundry/bin:$PATH"})
@@ -101,8 +87,9 @@ def parse_forge_output(output_text: str):
 
 def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> ExecutionResult:
     """
-    Executes a Solidity exploit using Foundry (forge test --offline --json -vvvv)
-    inside an isolated Modal container.
+    Executes an exploit module against a trusted verification harness in Foundry.
+    Zero trust in model-supplied assertions: verification is performed exclusively
+    by the immutable test harness in the EVM.
     """
     start_time = time.time()
     
@@ -125,14 +112,20 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
         with open(os.path.join(tmpdir, "foundry.toml"), "w", encoding="utf-8") as f:
             f.write(FOUNDRY_TOML_CONTENT)
             
-        # Write target contract: src/Target.sol
+        # Write target contract: src/{target.name}.sol
         target_path = os.path.join(src_dir, f"{target.name}.sol")
         with open(target_path, "w", encoding="utf-8") as f:
             f.write(target.source_code)
             
-        # Write exploit test: test/Exploit.t.sol
-        exploit_filename = payload.test_filename if payload.test_filename.endswith(".sol") else "Exploit.t.sol"
-        exploit_path = os.path.join(test_dir, exploit_filename)
+        # Write trusted invariant test harness: test/{target.name}Harness.t.sol
+        if target.trusted_harness_code:
+            harness_path = os.path.join(test_dir, f"{target.name}Harness.t.sol")
+            with open(harness_path, "w", encoding="utf-8") as f:
+                f.write(target.trusted_harness_code)
+                
+        # Write candidate ExploitModule (strictly sanitized filename to prevent path traversal)
+        safe_filename = "ExploitModule.sol"
+        exploit_path = os.path.join(test_dir, safe_filename)
         with open(exploit_path, "w", encoding="utf-8") as f:
             f.write(payload.test_code)
             
@@ -157,27 +150,20 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             # Parse structured JSON output
             structured_json, test_status, revert_reason, decoded_logs = parse_forge_output(proc.stdout or "")
             
-            # Substantive checks: prevent dummy / empty tests from gaming RLVR
-            has_target_call = target.name in payload.test_code
-            has_assert = (
-                "assert" in payload.test_code or 
-                "require" in payload.test_code or 
-                "[INVARIANT_BREACHED]" in payload.test_code
+            # Rigorous Invariant Verification:
+            # The trusted harness alone emits [INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]
+            # upon detecting physical state insolvency in the EVM.
+            has_breach_signal = (
+                "[INVARIANT_BREACHED" in output_text or
+                any("[INVARIANT_BREACHED" in str(l) for l in decoded_logs)
             )
             
-            is_exploit_success = (
-                (test_status == "Success" or "[PASS]" in output_text) and
+            # Test must pass (asserting breach) with zero return code
+            inv_violated = (
                 proc.returncode == 0 and
-                has_target_call and
-                has_assert
+                (test_status == "Success" or "[PASS]" in output_text) and
+                has_breach_signal
             )
-            
-            is_explicit_log = (
-                "[INVARIANT_BREACHED]" in output_text or 
-                any("[INVARIANT_BREACHED]" in str(l) for l in decoded_logs)
-            ) and proc.returncode == 0
-            
-            inv_violated = is_exploit_success or is_explicit_log
             
             return ExecutionResult(
                 return_code=proc.returncode,
