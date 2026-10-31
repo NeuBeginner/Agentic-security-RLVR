@@ -5,6 +5,8 @@ from dataclasses import dataclass
 class PipelineConfig:
     # Modal Application Settings
     APP_NAME: str = "aegis-rlvr-security"
+    MODEL_VOLUME_NAME: str = "aegis-model-cache"
+    MODEL_CACHE_DIR: str = "/vol/models/huggingface"
     
     # GPU Audit Model (Modal GPU Worker)
     AUDIT_GPU_MODEL: str = "qtum/Qwen3-Coder-30B-A3B-Audit"
@@ -24,9 +26,9 @@ class PipelineConfig:
     
     # RLVR Reward Shaping
     REWARD_INVARIANT_BREACH: float = 1.0      # Verified Exploit found (EVM assert passed)
-    REWARD_COMPILATION_FAIL: float = -0.5    # solc / forge compilation error
+    REWARD_COMPILATION_FAIL: float = -0.5    # solc / forge compilation error or revert
     REWARD_SAFE_RUN: float = -0.1            # Clean execution, no invariant breached
-    REWARD_TIMEOUT: float = -0.3             # Revert / out of gas / infinite loop
+    REWARD_TIMEOUT: float = -0.3             # Out of gas / infinite loop
 
 
 config = PipelineConfig()

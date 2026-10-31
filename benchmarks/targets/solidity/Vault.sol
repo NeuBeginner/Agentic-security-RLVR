@@ -2,11 +2,11 @@
 pragma solidity ^0.8.20;
 
 /**
- * @title VulnerableVault
+ * @title Vault
  * @notice Simulates a DeFi lending/staking vault containing a classic 
  * Checks-Effects-Interactions (Reentrancy) flaw in withdrawAll().
  */
-contract VulnerableVault {
+contract Vault {
     mapping(address => uint256) public balances;
     uint256 public totalDeposits;
     address public owner;

@@ -22,17 +22,22 @@ class ExploitPayload(BaseModel):
     target_name: str
     hypothesis: AttackHypothesis
     test_code: str = Field(..., description="Executable test harness code (e.g. Foundry test or Python script)")
-    test_filename: str = Field(default="ExploitTest.py")
+    test_filename: str = Field(default="Exploit.t.sol")
+    attempt_number: int = Field(default=1)
 
 
 class ExecutionResult(BaseModel):
-    """Raw result collected from the isolated Modal sandbox container."""
+    """Structured result collected from the isolated Modal sandbox container."""
     return_code: int
     stdout: str
     stderr: str
     execution_time_sec: float
     timed_out: bool = False
     invariant_violated: bool = False
+    structured_json: Optional[Dict[str, Any]] = None
+    test_status: Optional[str] = None       # "Success" or "Failure"
+    revert_reason: Optional[str] = None     # Extracted EVM revert / panic reason
+    decoded_logs: List[str] = Field(default_factory=list)
 
 
 class VerificationVerdict(BaseModel):

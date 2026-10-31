@@ -2,7 +2,7 @@ import os
 import sys
 import modal
 
-# Ensure local core package is in Python path
+# Ensure local core and sandbox packages are in Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.config import config
@@ -13,7 +13,10 @@ from sandbox.runner import sandbox_image, run_payload_in_sandbox
 # Initialize Modal Application
 app = modal.App(name=config.APP_NAME)
 
-# 1. GPU Image for reasoning and refinement engine
+# Persistent volume for caching model weights across container restarts
+model_volume = modal.Volume.from_name(config.MODEL_VOLUME_NAME, create_if_missing=True)
+
+# 1. GPU Image for reasoning and exploit synthesis engine
 gpu_image = (
     modal.Image.debian_slim(python_version="3.10")
     .pip_install(
@@ -29,27 +32,46 @@ gpu_image = (
 @app.cls(
     gpu=config.DEV_GPU_TYPE,
     image=gpu_image,
+    volumes={"/vol/models": model_volume},
     timeout=600,
 )
 class SolidityReasoningAgent:
     """
     GPU-accelerated Web3 reasoning agent on Modal.
-    Loads neural network weights and synthesizes Foundry (Solidity) exploit test suites.
+    Loads neural network weights directly from persistent Modal Volume.
     """
     @modal.enter()
     def load_model(self):
+        import os
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
         
+        cache_dir = config.MODEL_CACHE_DIR
+        os.makedirs(cache_dir, exist_ok=True)
+        
         print(f"[*] Initializing model on Modal GPU ({config.DEV_GPU_TYPE}): {config.DEV_GPU_MODEL}")
-        self.tokenizer = AutoTokenizer.from_pretrained(config.DEV_GPU_MODEL)
+        print(f"[*] Persistent volume cache: {cache_dir}")
+        
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            config.DEV_GPU_MODEL,
+            cache_dir=cache_dir,
+        )
         self.model = AutoModelForCausalLM.from_pretrained(
             config.DEV_GPU_MODEL,
             torch_dtype=torch.float16,
-            device_map="auto"
+            device_map="auto",
+            cache_dir=cache_dir,
         )
+        
+        # Commit newly downloaded weights to Modal Volume so future runs don't re-download
+        try:
+            model_volume.commit()
+            print("[✓] Model weights committed to persistent Modal Volume.")
+        except Exception as e:
+            print(f"[!] Volume commit notice: {e}")
+            
         allocated_mb = torch.cuda.memory_allocated() / (1024 ** 2)
-        print(f"[+] Model weights loaded into GPU VRAM: {allocated_mb:.1f} MB allocated.")
+        print(f"[+] Model weights loaded. Active GPU VRAM: {allocated_mb:.1f} MB.")
 
     @modal.method()
     def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3) -> dict:
@@ -88,7 +110,7 @@ class SolidityReasoningAgent:
 
     @modal.method()
     def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str) -> dict:
-        """Closed-loop self-correction using Foundry (forge test) execution feedback."""
+        """Closed-loop self-correction using Foundry structured execution feedback."""
         import torch
         from core.schemas import TargetProgram
         from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_refinement_prompt, parse_model_response
@@ -130,12 +152,12 @@ class SolidityReasoningAgent:
 def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     """
     Modal Remote Function (Foundry / EVM Sandbox Worker):
-    Compiles Solidity contract via solc 0.8.20 and executes forge test in an isolated EVM.
+    Compiles Solidity contract via cached solc and executes forge test --offline --json -vvvv.
     """
     target = TargetProgram(**target_dict)
     payload = ExploitPayload(**payload_dict)
     
-    # 1. Execute in Foundry EVM sandbox
+    # 1. Execute in Foundry EVM sandbox (offline + JSON)
     raw_result = run_payload_in_sandbox(target, payload)
     
     # 2. Evaluate verifiable reward & invariant status
@@ -152,6 +174,7 @@ def main():
     """
     print("\n" + "=" * 75)
     print("🛡️  AEGIS-RLVR: Web3 Smart Contract Foundry EVM Pipeline on Modal")
+    print(f"📦 Model Persistent Volume: '{config.MODEL_VOLUME_NAME}'")
     print("=" * 75)
     
     # 1. Load real Solidity target contract
@@ -173,7 +196,7 @@ def main():
     print(f"    Solidity Version: {config.SOLC_VERSION}")
     
     # 2. Neural Exploit Synthesis on Modal GPU
-    print(f"\n[2] Dispatching to Modal GPU ({config.DEV_GPU_TYPE}) for Solidity Exploit Synthesis...")
+    print(f"\n[2] Dispatching to Modal GPU ({config.DEV_GPU_TYPE}) with Volume caching...")
     generator = SolidityReasoningAgent()
     
     payload_dict = generator.generate_solidity_exploit.remote(target.model_dump(), temperature=0.3)
@@ -185,7 +208,7 @@ def main():
     
     # 3. Execution in Foundry Sandbox on Modal
     print("\n[3] Spawning ephemeral Foundry/EVM container on Modal Cloud...")
-    print("    Running: forge test -vvv ...")
+    print("    Running: forge test --offline --json -vvvv ...")
     
     result_dict = verify_exploit_remote.remote(target.model_dump(), payload.model_dump())
     verdict = VerificationVerdict(**result_dict)
@@ -193,7 +216,7 @@ def main():
     # 4. Closed-loop Refinement if needed
     if not verdict.is_verified:
         print(f"\n[!] Initial test rejected: {verdict.feedback[:200]}...")
-        print("[*] Feeding forge execution trace back to GPU for automated refinement...")
+        print("[*] Feeding structured EVM execution trace back to GPU for refinement...")
         
         refined_dict = generator.refine_solidity_exploit.remote(
             target.model_dump(),

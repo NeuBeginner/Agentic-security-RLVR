@@ -6,33 +6,39 @@ from core.schemas import TargetProgram, AttackHypothesis, ExploitPayload
 SOLIDITY_SYSTEM_PROMPT = """You are an expert Web3 smart contract security researcher and automated exploit engineer.
 Your task is to analyze the provided Solidity target contract and its security invariants, identify logical or economic vulnerabilities, and synthesize a complete, self-contained Foundry test contract (`Exploit.t.sol`).
 
-CRITICAL FOUNDRY INSTRUCTIONS:
-1. Provide a reasoning trace explaining the root cause and the exploit vector.
-2. Provide the complete Solidity test contract inside a single ```solidity ``` code block.
-3. Import the target using relative import: `import "../src/{name}.sol";`
-4. The test contract must declare a function: `function testExploit() public` (or `external`).
-5. Include any auxiliary helper contracts (like an Attacker contract with receive()/fallback()) directly inside the same file.
-6. In `testExploit()`, perform the attack and assert the invariant breach:
-   - For example: `assert(address(vault).balance == 0);`
-7. Ensure valid Solidity 0.8.20 syntax with matching pragma: `pragma solidity ^0.8.20;`
+CRITICAL FOUNDRY SPECIFICATIONS:
+1. Provide a concise reasoning trace explaining the root cause and exploit vector.
+2. Provide the complete, compilable Solidity test contract inside a single ```solidity ... ``` code block.
+3. Import the target contract using: `import "../src/{target_name}.sol";` (and optionally `import "forge-std/Test.sol";`).
+4. The test contract must declare `function testExploit() public` (or `external`).
+5. Include helper/attacker contracts (with `receive()` or `fallback()` if receiving Ether) directly in the same file.
+6. Fund the target contract with initial deposits in `setUp()` or inside `testExploit()`.
+7. At the end of `testExploit()`, perform an explicit assertion checking that the security invariant was breached:
+   - Example: `assert(address(vault).balance == 0);`
+8. Always use valid Solidity 0.8.20 syntax with `pragma solidity ^0.8.20;`.
 """
 
 
 def build_analysis_prompt(target: TargetProgram) -> str:
     """Constructs the prompt for the generator model."""
     invariants_text = "\n".join(f"- {inv}" for inv in target.invariants)
-    prompt = f"""Target Contract Name: {target.name}
+    prompt = f"""Target Contract File: src/{target.name}.sol
+Target Contract Name: {target.name}
 Language: Solidity 0.8.20
 
 Security Invariants:
 {invariants_text}
 
-Contract Source Code:
+Target Contract Source Code:
 ```solidity
 {target.source_code}
 ```
 
-Synthesize a complete Foundry test contract with `testExploit()` that reproduces the vulnerability and breaches the invariant.
+Instructions:
+1. Synthesize a complete Foundry test contract in `test/Exploit.t.sol`.
+2. Import the target: `import "../src/{target.name}.sol";`
+3. Setup an attacker and execute the exploit in `function testExploit() public`.
+4. Assert the invariant violation (e.g. draining funds or privilege escalation).
 """
     return prompt
 
@@ -45,18 +51,18 @@ def build_refinement_prompt(target: TargetProgram, failed_code: str, error_feedb
 {error_feedback}
 -----------------------------
 
-Previous Exploit Code:
-```solidity
-{failed_code}
-```
-
-Target Contract:
+Target Contract (src/{target.name}.sol):
 ```solidity
 {target.source_code}
 ```
 
-Carefully inspect the compiler error or revert trace above.
-Fix any issues with function signatures, gas, reentrancy guards, or balance setup.
+Previous Failed Exploit Code:
+```solidity
+{failed_code}
+```
+
+Carefully inspect the compiler error or EVM revert trace above.
+Fix any issues with imports, missing `receive()` functions, incorrect contract names, or gas limits.
 Return the complete, corrected Solidity test contract in a single ```solidity ``` code block with `function testExploit()`.
 """
 
@@ -98,5 +104,6 @@ def parse_model_response(target: TargetProgram, raw_text: str, attempt_idx: int 
         target_name=target.name,
         hypothesis=hypothesis,
         test_code=code if code else "// Error: No Solidity code generated\n",
-        test_filename=f"Exploit_{attempt_idx}.t.sol"
+        test_filename="Exploit.t.sol",
+        attempt_number=attempt_idx
     )
