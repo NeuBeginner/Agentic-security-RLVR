@@ -267,20 +267,23 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
 # 4. CLI ENTRYPOINT
 # =============================================================================
 @app.local_entrypoint()
-def main(mode: str = "audit"):
+def main(mode: str = "audit", target_name: str = "Vault"):
     """
     CLI orchestrator on Modal.
     Usage:
       Production Mode (H100 + 30B Qtum Audit Model):
-        modal run modal_app.py --mode audit
+        modal run modal_app.py --mode audit --target-name Vault
+        modal run modal_app.py --mode audit --target-name ERC4626Vault
 
       Dev / Smoke-Test Mode (T4 + 1.5B Model):
-        modal run modal_app.py --mode dev
+        modal run modal_app.py --mode dev --target-name Vault
+        modal run modal_app.py --mode dev --target-name ERC4626Vault
     """
     print("\n" + "=" * 75)
     print("🛡️  AEGIS-RLVR: Web3 Smart Contract Foundry EVM Pipeline on Modal")
     print(f"📦 Model Persistent Volume: '{config.MODEL_VOLUME_NAME}'")
     print(f"⚙️  Execution Profile     : '{mode.upper()}'")
+    print(f"🎯 Target Contract        : '{target_name}'")
     print("=" * 75)
     
     # Select reasoning engine based on mode
@@ -291,30 +294,42 @@ def main(mode: str = "audit"):
         print(f"\n[+] Dev/CI Tier: Loading {config.DEV_GPU_MODEL} on Modal {config.DEV_GPU_TYPE}...")
         generator = DevReasoningAgent()
     
-    # 1. Load real Solidity target contract and trusted verification harness
-    target_path = os.path.join(
-        os.path.dirname(__file__), "benchmarks", "targets", "solidity", "Vault.sol"
-    )
+    # 1. Resolve Solidity target contract and trusted verification harness
+    benchmarks_dir = os.path.join(os.path.dirname(__file__), "benchmarks", "targets", "solidity")
+    target_path = os.path.join(benchmarks_dir, f"{target_name}.sol")
+    harness_path = os.path.join(benchmarks_dir, f"{target_name}Harness.t.sol")
+    
+    if not os.path.exists(target_path):
+        raise FileNotFoundError(f"Target contract file not found: {target_path}")
+    if not os.path.exists(harness_path):
+        raise FileNotFoundError(f"Verification harness file not found: {harness_path}")
+
     with open(target_path, "r", encoding="utf-8") as f:
         target_source = f.read()
 
-    harness_path = os.path.join(
-        os.path.dirname(__file__), "benchmarks", "targets", "solidity", "VaultHarness.t.sol"
-    )
     with open(harness_path, "r", encoding="utf-8") as f:
         harness_source = f.read()
         
+    invariants_map = {
+        "Vault": ["address(vault).balance >= balances[victim] (Depositor Solvency)"],
+        "ERC4626Vault": [
+            "victimShares > 0 (No zero-share deposit robbery)",
+            "vault.convertToAssets(victimShares) >= 0.95 * VICTIM_DEPOSIT (Dilution Protection)"
+        ]
+    }
+    target_invariants = invariants_map.get(target_name, ["Security invariant intact"])
+        
     target = TargetProgram(
-        name="Vault",
+        name=target_name,
         source_code=target_source,
         language="solidity",
-        invariants=["address(vault).balance >= balances[victim] (Depositor Solvency)"],
+        invariants=target_invariants,
         trusted_harness_code=harness_source
     )
     
     print(f"\n[1] Target loaded: '{target.name}.sol'")
     print(f"    Invariants: {target.invariants}")
-    print(f"    Trusted Harness: VaultHarness.t.sol (Depositor Solvency)")
+    print(f"    Trusted Harness: {target_name}Harness.t.sol")
     print(f"    Solidity Version: {config.SOLC_VERSION}")
     
     # 2. Neural Exploit Synthesis on Modal GPU

