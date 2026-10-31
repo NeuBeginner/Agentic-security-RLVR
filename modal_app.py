@@ -346,7 +346,7 @@ def main(mode: str = "audit", target_name: str = "Vault"):
     
     # 3. Execution in Foundry Sandbox against Trusted Harness on Modal
     print("\n[3] Spawning ephemeral Foundry/EVM container on Modal Cloud...")
-    print("    Running: forge test --offline --json -vvvv against VaultHarness.t.sol ...")
+    print(f"    Running: forge test --offline --json -vvvv against {target_name}Harness.t.sol ...")
     
     result_dict = verify_exploit_remote.remote(target.model_dump(), payload.model_dump())
     verdict = VerificationVerdict(**result_dict)
@@ -372,7 +372,7 @@ def main(mode: str = "audit", target_name: str = "Vault"):
         verdict = VerificationVerdict(**result_dict)
         
     print("\n" + "=" * 75)
-    status = "✅ VERIFIED EXPLOIT (DEPOSITOR SOLVENCY BREACHED)" if verdict.is_verified else "❌ REJECTED"
+    status = f"✅ VERIFIED EXPLOIT ({verdict.vulnerability_type} INVARIANT BREACHED)" if verdict.is_verified else "❌ REJECTED"
     print(f"EVM VERIFICATION VERDICT: [{status}]")
     print(f"Vulnerability Type     : {verdict.vulnerability_type}")
     print(f"RLVR Reward            : {verdict.reward_score:+.2f}")
