@@ -4,10 +4,14 @@ from pydantic import BaseModel, Field
 
 class TargetProgram(BaseModel):
     """Represents a code snippet or contract subjected to security auditing."""
-    name: str = Field(..., description="Unique identifier or contract name (e.g. 'Vault')")
+    name: str = Field(..., description="Unique identifier or contract name")
     source_code: str = Field(..., description="Raw source code of the target program")
     language: str = Field(default="solidity", description="Language of target (solidity, python, c)")
     invariants: List[str] = Field(default_factory=list, description="Formal security properties/invariants")
+    trusted_harness_code: Optional[str] = Field(
+        default=None,
+        description="Immutable, trusted Foundry test harness for EVM state verification"
+    )
 
 
 class AttackHypothesis(BaseModel):

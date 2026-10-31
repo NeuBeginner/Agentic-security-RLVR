@@ -298,16 +298,23 @@ def main(mode: str = "audit"):
     with open(target_path, "r", encoding="utf-8") as f:
         target_source = f.read()
 
+    harness_path = os.path.join(
+        os.path.dirname(__file__), "benchmarks", "targets", "solidity", "VaultHarness.t.sol"
+    )
+    with open(harness_path, "r", encoding="utf-8") as f:
+        harness_source = f.read()
+        
     target = TargetProgram(
         name="Vault",
         source_code=target_source,
         language="solidity",
         invariants=["address(vault).balance >= balances[victim] (Depositor Solvency)"],
+        trusted_harness_code=harness_source
     )
     
     print(f"\n[1] Target loaded: '{target.name}.sol'")
     print(f"    Invariants: {target.invariants}")
-    print(f"    Worker Verification: Immutable VaultTrustedHarness on Modal")
+    print(f"    Trusted Harness: VaultHarness.t.sol (Depositor Solvency)")
     print(f"    Solidity Version: {config.SOLC_VERSION}")
     
     # 2. Neural Exploit Synthesis on Modal GPU
@@ -317,7 +324,10 @@ def main(mode: str = "audit"):
     
     print(f"[+] Model formulated hypothesis: {payload.hypothesis.vulnerability_type}")
     print(f"[+] Reasoning snippet: {payload.hypothesis.reasoning_trace[:150]}...")
-    print(f"[+] Synthesized ExploitModule: {len(payload.test_code.splitlines())} lines.")
+    print(f"[+] Synthesized ExploitModule ({len(payload.test_code.splitlines())} lines):")
+    print("-" * 50)
+    print(payload.test_code)
+    print("-" * 50)
     
     # 3. Execution in Foundry Sandbox against Trusted Harness on Modal
     print("\n[3] Spawning ephemeral Foundry/EVM container on Modal Cloud...")
@@ -337,6 +347,10 @@ def main(mode: str = "audit"):
             verdict.feedback
         )
         refined_payload = ExploitPayload(**refined_dict)
+        print(f"[+] Refined ExploitModule ({len(refined_payload.test_code.splitlines())} lines):")
+        print("-" * 50)
+        print(refined_payload.test_code)
+        print("-" * 50)
         
         print("[*] Re-testing refined ExploitModule in Foundry sandbox...")
         result_dict = verify_exploit_remote.remote(target.model_dump(), refined_payload.model_dump())
