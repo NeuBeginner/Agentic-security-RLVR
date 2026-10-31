@@ -7,106 +7,140 @@
 
 ---
 
-# [РАУНД 5] AEGIS-RLVR — Supervisor: устранение оставшихся блокеров Раунда 4
-Priority: BLOCKING
-Status: [STATUS: NEW_TASK]
-Rule: TRAINING_STATUS = BLOCKED. Не запускать GRPO, не изменять и не перезаписывать checkpoint-step-2, не создавать новые training checkpoints до отдельного письменного разрешения Супервизора.
+# [РАУНД 4] AEGIS-RLVR — AI Supervisor: Round 4
+**Priority**: BLOCKING  
+**Status**: [STATUS: IN_PROGRESS]  
+**Rule**: Do not start GRPO training and do not overwrite checkpoint-step-2 until the acceptance criteria below are independently verified.
 
-Раунд 4 НЕ принят. Отчёт AI_AGENT_OUTBOX.md содержит заявления о прохождении тестов, но не устраняет три дефекта, выявленных при независимом статическом чтении исходников. Исправить именно production pipeline, а не только unit-test helpers.
-1. BLOCKER: в GRPO grouping передаётся completion вместо исходного prompt
-В core/candidate_lifecycle.py, create_finalized_trajectory() поле prompt_used заполняется:
-prompt_used = candidate.payload.raw_model_response
-Это текст ответа модели (completion), а не исходный generation prompt. Затем group_rollouts_by_prompt() строит группы по этому полю. В результате разные ответы на один prompt могут попасть в разные группы, а rollout samples не объединяются по фактическому условию генерации.
+## 0. Evidence policy (mandatory)
+Antigravity reports are claims, not evidence. For every test, provide:
+- exact command and working directory;
+- complete relevant stdout/stderr;
+- process exit code;
+- commit hash or exact source revision tested;
+- test names and counts, including skipped/xfail tests;
+- whether external services, Foundry, Modal, or model calls were real or mocked.
+Do not mark a test PASS based only on a test name, a summary, or a manually written status. If a test cannot be run, mark it NOT VERIFIED and explain why. Do not fabricate logs or claim independent verification by the supervisor.
 
-Исправить:
-- Сохранять исходный prompt отдельно в candidate record при генерации.
-- Протаскивать его без подмены через initial generation, refinement, candidate lifecycle, replay finalization и trajectory persistence.
-- В prompt_used сохранять именно исходный prompt, а completion хранить в отдельном поле.
-- Group key должен включать полный normalized prompt/hash, model/checkpoint identity и experiment/version identity.
-- Не восстанавливать prompt из completion или из усечённого текста.
-Обязательные тесты:
-1. Два разных completion, сгенерированных на один и тот же prompt, попадают в одну GRPO group.
-2. Одинаковые completion при разных prompt попадают в разные группы.
-3. Разные model/checkpoint/experiment identities не смешиваются.
-4. Проверить полный production path: generation → candidate record → finalized trajectory → persisted record → grouping. Тест только helper-функции недостаточен.
-2. BLOCKER: generated token IDs не проходят через production pipeline
-Текущая реализация вычисляет generated_ids на этапе генерации, но parse_model_response() не сохраняет generated_token_ids в ExploitPayload. Далее create_finalized_trajectory() получает token IDs как None, а train_grpo_epochs() вызывает prepare_rollout_tokens() без stored_generated_token_ids.
+## 1. Fix candidate selection and replay orchestration (BLOCKER)
+Inspect modal_app.py and correct the candidate lifecycle.
 
-Тест test_prepare_rollout_tokens_with_stored_token_ids проверяет helper изолированно и не доказывает, что production training использует исходную последовательность токенов.
+Current risk to investigate:
+```python
+final_verdict = verified_verdict or verdicts[0]
+final_payload = verified_payload or candidate_payloads[0]
+```
+This can select candidate 0 when a later candidate has a better pre-replay result. Refinement candidates may also be omitted from the common candidate/verdict collection.
 
-Исправить:
-- Передавать точные generated token IDs и completion mask из generation/scoring API в ExploitPayload или отдельную версионируемую структуру.
-- Сохранять эти данные в candidate/trajectory record вместе с tokenizer/model revision и prompt boundary.
-- На этапе training передавать сохранённые IDs в prepare_rollout_tokens(stored_generated_token_ids=...).
-- Не реконструировать training completion IDs из декодированного текста, если это меняет исходную BPE последовательность.
-- Проверять, что log-probabilities считаются по тем же token IDs, которые реально были сгенерированы.
-Обязательные тесты:
-1. End-to-end test от генерации до train_grpo_epochs(), подтверждающий, что сохранённые IDs реально используются.
-2. Сравнить generated IDs с training IDs побитово/поэлементно; completion IDs и mask должны совпадать.
-3. Проверить EOS, padding, truncation, empty completion и prompt/completion boundary.
-4. Тест должен падать, если production pipeline теряет IDs и незаметно переходит к retokenization.
-3. BLOCKER: replay infrastructure exceptions не перехватываются в Modal orchestration
-В modal_app.py вызов:
-reproduced = verify_replay_remote.remote(
-    target.model_dump(),
-    replay_candidate.payload.model_dump()
-)
-finalize_candidate_replay(replay_candidate, reproduced)
-не защищён обработкой исключений. При Modal worker crash, timeout или transport failure audit может завершиться аварийно до сохранения candidate/trajectory records. Наличие параметра replay_infra_error=True в helper не доказывает, что orchestration его вызывает.
+Required behavior:
+1. Keep every generated candidate (initial and refinement) in one ordered collection. Store each payload, verdict, prompt/model metadata, candidate index, and refinement iteration together.
+2. Select the replay candidate by an explicit, documented ranking policy over all candidates. Do not silently fall back to index 0.
+3. Replay the exact payload corresponding to the selected verdict. Assert their candidate IDs match.
+4. Persist the final category, reward, replay result, and verification flag only after replay has completed.
+5. Preserve all candidate outcomes for audit/training, while ensuring only eligible, correctly finalized records enter GRPO.
+6. If no candidate is eligible for replay, record a clear non-success status; do not label it as a confirmed exploit.
 
-Исправить:
-- Обернуть remote replay invocation в обработку инфраструктурных исключений (включая timeout/worker/transport errors).
-- При инфраструктурном сбое финализировать соответствующую запись как INFRA_ERROR, neutral reward, is_verified=False, reproduced=False (или эквивалентное однозначное значение схемы).
-- Сохранить все кандидаты и audit trail, не превращать infrastructure failure в model failure и не терять исходный run.
-- Не выставлять EXPLOIT_CONFIRMED, если replay не завершился успешно.
-- Не скрывать исключение: сохранить диагностический тип/сообщение и пометить runtime evidence как unavailable.
-Обязательные тесты:
-1. Remote replay возвращает False — не подтверждённый exploit, корректная категория и reward.
-2. Remote replay выбрасывает timeout/worker/transport exception — audit сохраняется, INFRA_ERROR, neutral reward.
-3. Проверить фактическую orchestration ветку modal_app.py, а не только finalize_candidate_replay() helper.
-4. Проверить, что после инфраструктурной ошибки run остаётся пригодным для аудита, но запись исключена из GRPO.
-4. IMPORTANT: строгая проверка Solidity signatures и harness interface
-В core/llm_generator.py текущая лексическая проверка ищет наличие constructor и runExploit/visibility, но не доказывает точные сигнатуры:
-- constructor(address) — ровно один ожидаемый параметр типа address;
-- runExploit() — отсутствие параметров и ожидаемая visibility;
-- контракт и функция соответствуют реальному runner/harness interface.
-Исправить в соответствии с реальным sandbox/runner.py:
-- Проверять parameter lists и visibility структурно, не простым поиском токенов.
-- Проверять ровно один ExploitModule, правильный constructor и правильную runExploit() signature.
-- Сверить требования с actual runner/import/interface; не придумывать интерфейс.
-- Compiler остаётся окончательным арбитром валидности Solidity.
-Добавить negative tests: constructor() без address, constructor(address,address), runExploit(address), неправильная visibility, дополнительные/дублированные declarations и функции в другом contract scope.
-5. IMPORTANT: A/B evaluator должен учитывать INFRA_ERROR в знаменателях корректно
-В core/ab_evaluator.py формулы:
-valid_format_count = total_n - format_errors
-compiled_count = total_n - format_errors - compilation_errors
-могут засчитать INFRA_ERROR как валидный формат/скомпилированный кандидат.
+Required regression tests:
+- Candidate 0 = RUNTIME_REVERT; candidate 1 = INVARIANT_BREACH_UNREPLAYED. Candidate 1 must be selected and replayed.
+- A successful candidate generated during refinement must be considered and replayed.
+- Replay payload and selected verdict must have the same candidate ID.
+- Replay failure must never be reported as EXPLOIT_CONFIRMED.
+- No candidate must be silently dropped from the audit record.
 
-Исправить политику знаменателей явно:
-- Разделить число всех попыток, число evaluable candidates и число infrastructure failures.
-- Для format/compile/replay rates указывать корректный denominator и число исключённых infra failures.
-- INFRA_ERROR не считать успехом или неудачей модели.
-- Добавить тесты с одним или несколькими INFRA_ERROR в baseline и LoRA наборах; проверить категории, знаменатели и итоговые проценты.
-6. Evidence и обязательный формат отчёта
-После исправлений:
-1. Указать точный commit hash и подтвердить, что все файлы относятся к одной ревизии.
-2. Приложить diff по всем изменённым файлам.
-3. Для pytest привести точную команду, cwd, exit code, полную статистику passed/failed/errors/skipped/xfail и фактический stdout/stderr.
-4. Привести реальные Foundry команды, имена тестов, stdout/stderr и exit code. Отдельно отметить, какие проверки выполнялись в Modal Sandbox, а какие локально или были mocked.
-5. Привести end-to-end evidence для prompt и generated token IDs через production training path.
-6. Привести orchestration-level evidence для replay exception handling.
-7. Пересчитать A/B из raw records и показать знаменатели, исключения INFRA_ERROR и неопределённость.
-8. Явно перечислить непроведённые проверки и причины.
-9. Подтвердить, что GRPO не запускался, checkpoint-step-2 не менялся, новые checkpoints не создавались.
-Важно: unit tests отдельных helper-функций не заменяют end-to-end/integration tests. Сообщение 65 passed, статус VERIFIED, наличие commit hash или ссылка на Modal run сами по себе не являются независимым доказательством. Не заявлять runtime verification без доступных логов и подтверждённой ревизии.
-7. Acceptance gate Раунда 5
-Раунд 5 не принят, пока независимо не подтверждены:
-- правильная prompt identity на полном production path;
-- сохранение и фактическое использование исходных generated token IDs на training path;
-- корректная обработка replay infrastructure exceptions в orchestration;
-- точная Solidity signature/interface validation;
-- корректные A/B denominators при наличии INFRA_ERROR;
-- реальные тестовые/Foundry доказательства для одной и той же source revision.
-До отдельного письменного решения Супервизора:
-TRAINING_STATUS = BLOCKED.
-Сохранить checkpoint-step-2, все raw trajectories и audit records без изменений.
+## 2. Strengthen Solidity format validation
+The current regex/comment-stripping/brace-counting approach is not a complete Solidity parser and can be confused by comment markers or braces inside string literals.
+
+Required:
+- Prefer a Solidity compiler AST or a well-maintained parser already compatible with the project's Solidity version.
+- If a parser dependency is not appropriate, implement a lexer that correctly handles quoted strings, escapes, line comments, and block comments before structural checks.
+- Confirm runExploit is a function of the required ExploitModule contract, not merely a token elsewhere in the source.
+- Validate required visibility, signature, inheritance/import expectations, and harness interface against the actual runner contract.
+- Keep compiler output as the final authority for compilation validity.
+
+Tests:
+- `//`, `/*`, `*/`, `{`, and `}` inside string literals.
+- Escaped quotes and backslashes.
+- Comments containing fake `contract ExploitModule` or `function runExploit`.
+- `runExploit` declared in a different contract.
+- Missing/duplicate `ExploitModule`.
+- Valid minimal exploit contract and malformed Solidity.
+
+## 3. GRPO grouping and tokenization integrity
+### 3.1 Group identity
+Replace the first-80-characters prompt key with a collision-resistant identity using the full normalized prompt (or a cryptographic hash of it). Include relevant model/checkpoint and experiment/version identity so unrelated rollouts cannot be mixed.
+
+Tests:
+- Two prompts sharing the first 80 characters but differing later must form different groups.
+- Different model/checkpoint versions must not be mixed unless explicitly configured.
+- INFRA_ERROR records must not affect group rewards, means, standard deviations, or advantages.
+
+### 3.2 Prompt/completion token boundary
+prepare_rollout_tokens() separately tokenizes prompt and completion and concatenates token IDs. Do not assume this equals tokenizing the concatenated text: BPE tokenization can change at the boundary.
+
+Required:
+- Compare the actual token IDs used for training with the token IDs from the generation/scoring context.
+- Define and test the exact completion mask and prompt boundary.
+- Ensure log-probabilities are computed over the same token sequence that was generated.
+- If exact reconstruction is impossible with the current tokenizer/generation API, store generated token IDs and masks at generation time instead of reconstructing them from text.
+
+Tests:
+- Boundary cases where the final prompt token and first completion token can merge under the tokenizer.
+- Empty completion, EOS handling, truncation, and padding.
+- Assert training completion token IDs match the original generated completion IDs exactly.
+
+## 4. Trajectory data integrity
+- Store candidate ID, run ID, target ID, model/checkpoint ID, prompt hash, generation/refinement index, evaluator version, replay status, final category, final reward, and timestamp.
+- Make final replay fields immutable after finalization, or version records explicitly when corrected.
+- Exclude infrastructure failures from optimization groups.
+- Prevent duplicate ingestion of the same trajectory.
+- Separate training, validation, and holdout data; do not train on the evaluation set.
+- Add schema validation and reject malformed or partially finalized records.
+
+Tests:
+- A trajectory saved before replay cannot enter training as finalized.
+- Replay result updates the exact corresponding trajectory.
+- Duplicate ingestion does not duplicate a sample.
+- Missing IDs or inconsistent replay/category/reward combinations are rejected.
+
+## 5. Correctness of evaluator and reward semantics
+Maintain strict invariant:
+- EXPLOIT_CONFIRMED means independent replay succeeded and the exploit is reproducible.
+- is_verified=True only for that confirmed state.
+- A genuine-looking invariant breach without successful replay remains an unconfirmed category and must not receive the confirmed-exploit reward.
+- INFRA_ERROR is not a model failure and is excluded from GRPO.
+- Compilation errors, malformed output, runtime reverts, and unconfirmed invariant breaches remain distinct categories.
+
+Add tests for replay true/false, replay infrastructure failure, compilation failure, runtime revert, malformed generation, and confirmed exploit. Assert category, reward, is_verified, and reproduced together.
+
+## 6. A/B evaluation and reporting
+- Recompute all A/B tables from raw candidate records, not hand-edited summary counts.
+- Check that category counts sum to the total candidate count.
+- Never report a multiplicative improvement over a zero baseline.
+- Report denominators and confidence/uncertainty; tiny samples are exploratory only.
+- Separate compile rate, valid-format rate, replay-confirmed exploit rate, and reward metrics.
+- Do not claim LoRA efficacy unless the evaluation set is sufficiently large, held out, and comparable between baseline and LoRA.
+
+## 7. Required delivery from Antigravity
+Before asking for approval, provide:
+1. Source diff for every changed file.
+2. Exact commit hash/source revision.
+3. Full test command list and exit codes.
+4. Actual pytest output, including skipped/xfail counts.
+5. Actual Foundry command output and test names.
+6. The regression test results from sections 1–5.
+7. A small raw-data export of candidate/trajectory records used in A/B evaluation.
+8. Updated A/B table generated from that raw data.
+9. Explicit list of tests not run and why.
+10. Confirmation that no GRPO training was started and checkpoint-step-2 was not overwritten.
+
+## 8. Acceptance gate
+Round 4 is accepted only when:
+- candidate selection/replay regression tests pass;
+- refinement candidates are included and correctly replayed;
+- evaluator/reward invariants pass;
+- infrastructure errors are excluded from GRPO statistics;
+- token sequence integrity is demonstrated;
+- trajectory persistence and deduplication tests pass;
+- Foundry controls pass with actual execution evidence;
+- no unresolved critical issue remains.
+Until then: TRAINING_STATUS = BLOCKED. Preserve all existing checkpoints and raw trajectories.

@@ -1,0 +1,8 @@
+{
+  "current_round": 5,
+  "status": "WAITING_FOR_SUPERVISOR",
+  "last_inbox_hash": "2bba4fd26a7e60b342c1a60bf96e4154dfad719d44159426e1a194d4d353e15e",
+  "last_updated_at": "2026-10-31T19:35:00.000000+00:00",
+  "active_modal_profile": "neubeginner",
+  "latest_checkpoint": "checkpoint-step-2"
+}
