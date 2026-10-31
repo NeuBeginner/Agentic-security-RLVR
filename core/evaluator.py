@@ -182,9 +182,14 @@ def create_trajectory_record(
     target: TargetProgram,
     payload: ExploitPayload,
     verdict: VerificationVerdict,
-    prompt_used: str = ""
+    prompt_used: str = "",
+    dataset_split: str = "train",
+    dataset_partition: str = "production",
+    is_synthetic: bool = False,
+    token_provenance: str = "model_generate",
+    trainable: bool = True
 ) -> RLVRTrajectory:
-    """Packages the verified execution trajectory for GRPO fine-tuning (Round 4)."""
+    """Packages the verified execution trajectory for GRPO fine-tuning (Round 4/5.2)."""
     cand_id = payload.candidate_id or (verdict.candidate_id or str(uuid.uuid4())[:8])
     run_id = payload.run_id or (verdict.run_id or "run-default")
     p_text = prompt_used or target.source_code
@@ -193,6 +198,19 @@ def create_trajectory_record(
     rep_status = verdict.replay_status
     if verdict.category == ResultCategory.EXPLOIT_CONFIRMED and verdict.reproducible and rep_status == "NOT_ELIGIBLE":
         rep_status = "CONFIRMED"
+
+    # Enforce provenance invariants
+    tok_prov = token_provenance
+    if is_synthetic:
+        tok_prov = "synthetic"
+        trainable = False
+        if dataset_partition == "production":
+            dataset_partition = "synthetic_control"
+    elif payload.generated_token_ids is None or len(payload.generated_token_ids) == 0:
+        tok_prov = "external_text_only"
+
+    if verdict.category == ResultCategory.INFRA_ERROR:
+        trainable = False
 
     return RLVRTrajectory(
         trajectory_id=f"traj_{run_id}_{cand_id}",
@@ -209,11 +227,17 @@ def create_trajectory_record(
         slither_hints=target.slither_findings,
         prompt_used=prompt_used,
         hypothesis=payload.hypothesis,
+        full_completion_text=payload.raw_model_response or payload.test_code,
         generated_exploit=payload.test_code,
         reward=verdict.reward_score,
         category=verdict.category,
         is_verified=verdict.is_verified,
         reproduced=verdict.reproducible,
         feedback_trace=verdict.feedback,
+        dataset_split=dataset_split,
+        dataset_partition=dataset_partition,
+        is_synthetic=is_synthetic,
+        token_provenance=tok_prov,
+        trainable=trainable,
         generated_token_ids=payload.generated_token_ids
     )

@@ -403,6 +403,120 @@ def record_trajectory_remote(trajectory_dict: dict) -> str:
 
 
 @app.function(
+    image=gpu_image,
+    volumes={"/vol/models": model_volume},
+    timeout=60,
+)
+def audit_volume_trajectories_remote() -> dict:
+    """Read-only audit of stored trajectories in persistent Modal volume (Round 5.2)."""
+    from core.grpo_trainer import audit_trajectory_storage
+    return audit_trajectory_storage(config.TRAJECTORY_DIR)
+
+
+@app.function(
+    gpu=config.DEV_GPU_TYPE,
+    image=gpu_image,
+    volumes={"/vol/models": model_volume},
+    timeout=600,
+)
+def diagnostic_grpo_forward_remote(
+    model_id: str = config.DEV_GPU_MODEL,
+    batch_group_size: int = 4
+) -> dict:
+    """
+    Executes a read-only diagnostic GRPO forward and loss computation on Modal GPU (Round 5.2).
+    STRICT SAFETY GUARANTEES:
+    - NO optimizer step
+    - NO weight updates
+    - NO checkpoint modification or creation
+    - Strictly verifies tensor shapes, prompt/completion boundaries, completion masks, and loss value.
+    """
+    import os
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from core.grpo_trainer import (
+        load_trajectories_from_directory,
+        group_rollouts_by_prompt,
+        prepare_rollout_tokens,
+        compute_group_advantages,
+        get_token_logprobs
+    )
+
+    print(f"[Diagnostic Forward] Loading tokenizer and model: {model_id} on Modal GPU...")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        torch_dtype=torch.bfloat16,
+        device_map="cuda"
+    )
+    model.eval()
+
+    # Load trajectories with strict allowlist
+    traj_records = load_trajectories_from_directory(
+        config.TRAJECTORY_DIR,
+        target_split="train",
+        target_partition="production"
+    )
+    if not traj_records:
+        return {
+            "status": "NO_PRODUCTION_TRAJECTORIES",
+            "message": "Persistent volume contains 0 eligible production trajectories (all control/synthetic isolated).",
+            "eligible_count": 0
+        }
+
+    groups = group_rollouts_by_prompt(traj_records, group_size=batch_group_size)
+    if not groups:
+        return {
+            "status": "NO_VALID_GROUPS",
+            "message": "No complete groups formed from eligible trajectories.",
+            "eligible_count": len(traj_records)
+        }
+
+    test_group = groups[0]
+    rollout_tensors = []
+    for r in test_group.rollouts:
+        c_str = r.full_completion_text or r.exploit_code
+        inp_ids, att_mask, comp_mask = prepare_rollout_tokens(
+            test_group.prompt,
+            c_str,
+            tokenizer,
+            device="cuda",
+            stored_generated_token_ids=r.generated_token_ids
+        )
+        rollout_tensors.append((inp_ids, att_mask, comp_mask))
+
+    with torch.no_grad():
+        first_inp, first_att, first_comp = rollout_tensors[0]
+        outputs = model(first_inp, attention_mask=first_att)
+        logits = outputs.logits[:, :-1, :]
+        labels = first_inp[:, 1:]
+        mask = first_comp[:, 1:]
+
+        log_probs = torch.log_softmax(logits, dim=-1)
+        per_token_lp = torch.gather(log_probs, 2, labels.unsqueeze(2)).squeeze(2)
+        masked_lp = per_token_lp * mask
+        completion_token_count = mask.sum().item()
+        diagnostic_loss = -masked_lp.sum().item() / max(1.0, completion_token_count)
+
+    return {
+        "status": "SUCCESS",
+        "model_id": model_id,
+        "device": str(model.device),
+        "input_shape": list(first_inp.shape),
+        "mask_shape": list(first_comp.shape),
+        "prompt_tokens": int(first_inp.shape[1] - completion_token_count),
+        "completion_tokens": int(completion_token_count),
+        "diagnostic_loss": float(diagnostic_loss),
+        "optimizer_step_executed": False,
+        "weights_updated": False,
+        "checkpoints_created": False
+    }
+
+
+@app.function(
     gpu=config.DEV_GPU_TYPE,
     image=gpu_image,
     volumes={"/vol/models": model_volume},
@@ -622,11 +736,22 @@ contract ExploitModule {
     assert v2.reward_score == 1.0
     print("    [✓] Control Test 2 verified: Initial run gave INVARIANT_BREACH_UNREPLAYED (+0.50), post-replay gave EXPLOIT_CONFIRMED (+1.00).")
 
-    # Record this verified trajectory as BOOTSTRAP POSITIVE EXAMPLE for GRPO!
+    # Record this verified trajectory as SYNTHETIC CONTROL TRAJECTORY (Round 5.2)
+    # Strictly isolated from production GRPO training dataset!
     prompt_str = build_analysis_prompt(target)
-    t_rec = create_trajectory_record(target, p2, v2, prompt_used=prompt_str)
+    t_rec = create_trajectory_record(
+        target,
+        p2,
+        v2,
+        prompt_used=prompt_str,
+        dataset_split="control",
+        dataset_partition="synthetic_control",
+        is_synthetic=True,
+        token_provenance="synthetic",
+        trainable=False
+    )
     record_trajectory_remote.remote(t_rec.model_dump())
-    print("    [✓] Positive ground-truth trajectory committed to persistent volume for GRPO training!")
+    print("    [✓] Synthetic control trajectory recorded with dataset_partition='synthetic_control', is_synthetic=True (isolated from GRPO dataset)!")
 
     # 3. TEST 3: Malformed Contract Name (Formatting Error)
     print("\n[Control Test 3] Testing Malformed Contract Name (contract VaultAttack)...")
@@ -694,30 +819,34 @@ def main(
         run_control_foundry_tests(target_name)
         return
 
-    # Fast-path: Offline GRPO Policy Optimization on accumulated trajectories
-    if mode.lower() == "train":
-        print(f"\n[Phase Train] Dispatching GRPO LoRA Policy Optimization on Modal GPU...")
-        train_model_id = config.DEV_GPU_MODEL if generator.lower() == "dev" or target_name == "Vault" else config.AUDIT_GPU_MODEL
-        print(f"[*] Target Model : {train_model_id}")
-        print(f"[*] Steps        : {max_rounds}")
-        print(f"[*] Group Size   : {num_candidates}")
-
-        train_res = train_grpo_remote.remote(
-            model_id=train_model_id,
-            num_steps=max_rounds,
-            learning_rate=config.GRPO_LEARNING_RATE,
-            batch_group_size=num_candidates
-        )
+    # Fast-path: Read-only audit of persistent volume trajectories (Round 5.2)
+    if mode.lower() in ("audit-trajectories", "audit-volume", "audit-data"):
         print("\n" + "=" * 78)
-        print(f"🎯 GRPO TRAINING RESULT   : {train_res.get('status', 'unknown').upper()}")
-        print(f"📦 LoRA Checkpoint Path   : {train_res.get('checkpoint_path', 'None')}")
-        print(f"📈 Steps Completed        : {train_res.get('steps_completed', 0)}")
-        if train_res.get("logs"):
-            print("📊 Training Step Logs:")
-            for s_log in train_res["logs"]:
-                print(f"   - Step {s_log.get('step')}: Loss={s_log.get('loss', 0.0):.4f}, Mean Reward={s_log.get('mean_reward', 0.0):.2f}, KL={s_log.get('kl_divergence', 0.0):.6f}")
+        print("🔍 EXECUTING READ-ONLY AUDIT OF MODAL PERSISTENT VOLUME TRAJECTORIES")
+        print("=" * 78)
+        audit_res = audit_volume_trajectories_remote.remote()
+        print(json.dumps(audit_res, indent=2))
         print("=" * 78 + "\n")
         return
+
+    # Fast-path: Diagnostic forward/loss computation without weight updates (Round 5.2)
+    if mode.lower() in ("diagnostic-forward", "diagnostic-loss", "check-loss"):
+        print("\n" + "=" * 78)
+        print("🧪 EXECUTING DIAGNOSTIC GRPO FORWARD PASS (NO WEIGHT UPDATES / NO OPTIMIZER STEP)")
+        print("=" * 78)
+        diag_model_id = config.DEV_GPU_MODEL if generator.lower() == "dev" or target_name == "Vault" else config.AUDIT_GPU_MODEL
+        diag_res = diagnostic_grpo_forward_remote.remote(model_id=diag_model_id, batch_group_size=num_candidates)
+        print(json.dumps(diag_res, indent=2))
+        print("=" * 78 + "\n")
+        return
+
+    # Fast-path: Offline GRPO Policy Optimization on accumulated trajectories
+    if mode.lower() == "train":
+        # Supervisor Blocker: TRAINING_STATUS = BLOCKED
+        raise RuntimeError(
+            "TRAINING_STATUS = BLOCKED: GRPO training is strictly blocked by AI Supervisor until all Round 5.2 criteria are verified! "
+            "Optimizer step, checkpoint overwrite, and weight updates are prohibited."
+        )
 
     # 1. Resolve Solidity target contract and trusted verification harness
     benchmarks_dir = os.path.join(os.path.dirname(__file__), "benchmarks", "targets", "solidity")

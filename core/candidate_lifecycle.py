@@ -54,6 +54,10 @@ class CandidateRecord(BaseModel):
     timestamp: float = Field(default_factory=time.time)
     replay_eligible: bool = False
     reproduced: bool = False
+    dataset_partition: str = Field(default="production", description="production, synthetic_control, or test")
+    is_synthetic: bool = Field(default=False)
+    token_provenance: str = Field(default="model_generate", description="model_generate, external_text_only, or synthetic")
+    trainable: bool = Field(default=True)
 
 
 def compute_prompt_hash(prompt_str: str) -> str:
@@ -132,6 +136,7 @@ def finalize_candidate_replay(
         candidate.verdict.reproducible = False
         candidate.verdict.replay_status = "INFRA_ERROR"
         candidate.reproduced = False
+        candidate.trainable = False
     elif replay_success:
         # Replay confirmed 100% deterministic reproducibility
         candidate.verdict.category = ResultCategory.EXPLOIT_CONFIRMED
@@ -156,18 +161,45 @@ def create_finalized_trajectory(
     candidate: CandidateRecord,
     target: TargetProgram,
     evaluator_version: str = "v2.0",
-    dataset_split: str = "train"
+    dataset_split: str = "train",
+    dataset_partition: Optional[str] = None,
+    is_synthetic: Optional[bool] = None,
+    token_provenance: Optional[str] = None,
+    trainable: Optional[bool] = None
 ) -> RLVRTrajectory:
     """
     Constructs an immutable, schema-validated RLVRTrajectory from a finalized candidate record.
     Rejects candidates with INFRA_ERROR or unfinalized states from entering training groups.
     Ensures prompt_used strictly contains the original generation prompt, NOT model completion.
+    Enforces strict provenance attributes for synthetic control isolation (Round 5.2).
     """
     traj_id = f"traj_{candidate.run_id}_{candidate.candidate_id}"
     actual_prompt = candidate.prompt_text or candidate.payload.prompt_text or target.source_code
     actual_prompt_hash = compute_prompt_hash(actual_prompt)
     full_completion = candidate.payload.raw_model_response or candidate.payload.test_code
     
+    # Resolve provenance metadata
+    part = dataset_partition if dataset_partition is not None else candidate.dataset_partition
+    synth = is_synthetic if is_synthetic is not None else candidate.is_synthetic
+    
+    # Token provenance resolution
+    if token_provenance is not None:
+        tok_prov = token_provenance
+    elif synth:
+        tok_prov = "synthetic"
+    elif candidate.payload.generated_token_ids is not None and len(candidate.payload.generated_token_ids) > 0:
+        tok_prov = candidate.token_provenance or "model_generate"
+    else:
+        tok_prov = "external_text_only"
+        
+    # Trainable eligibility resolution
+    if trainable is not None:
+        is_trainable = trainable
+    elif synth or candidate.verdict.category == ResultCategory.INFRA_ERROR:
+        is_trainable = False
+    else:
+        is_trainable = candidate.trainable
+
     return RLVRTrajectory(
         trajectory_id=traj_id,
         candidate_id=candidate.candidate_id,
@@ -194,5 +226,9 @@ def create_finalized_trajectory(
         reproduced=candidate.verdict.reproducible,
         feedback_trace=candidate.verdict.feedback,
         dataset_split=dataset_split,
+        dataset_partition=part,
+        is_synthetic=synth,
+        token_provenance=tok_prov,
+        trainable=is_trainable,
         generated_token_ids=candidate.payload.generated_token_ids
     )

@@ -168,7 +168,15 @@ def prepare_rollout_tokens(
     Completion mask is 0.0 on prompt tokens and 1.0 on completion tokens.
     Empty completions yield an all-zero completion_mask.
     """
-    prompt_ids = tokenizer.encode(prompt_str, add_special_tokens=True)
+    # Guard against duplicate BOS or special tokens if chat template is already applied
+    has_chat_template = False
+    if "<|im_start|>" in prompt_str:
+        has_chat_template = True
+    elif getattr(tokenizer, "bos_token", None) and prompt_str.startswith(tokenizer.bos_token):
+        has_chat_template = True
+
+    add_spec = not has_chat_template
+    prompt_ids = tokenizer.encode(prompt_str, add_special_tokens=add_spec)
 
     if stored_generated_token_ids is not None:
         completion_ids = list(stored_generated_token_ids)
@@ -362,16 +370,27 @@ def group_rollouts_by_prompt(
 
 def load_trajectories_from_directory(
     trajectory_dir: str,
-    target_split: str = "train"
+    target_split: str = "train",
+    target_partition: str = "production",
+    require_exact_tokens: bool = False
 ) -> List[Dict[str, Any]]:
     """
     Loads, schema-validates, and deduplicates JSON trajectory files from the persistent volume.
     
-    CRITICAL POLICIES (ROUND 4):
-    1. Schema Validation: Validates records using RLVRTrajectory. Inconsistent or unfinalized records are rejected.
-    2. Deduplication: Tracks seen candidate_id and trajectory_id to guarantee no duplicate ingestion.
-    3. Split Isolation: Enforces dataset_split == target_split ('train') to prevent data leakage from val/holdout.
-    4. Infrastructure Exclusion: Rejects INFRA_ERROR from training datasets.
+    CRITICAL POLICIES (ROUND 4 & ROUND 5.2):
+    1. Schema & Invariant Validation: Validates records using RLVRTrajectory. Inconsistent or unfinalized records are rejected.
+    2. Strict Production Allowlist (Round 5.2 Blocker 3):
+       - Only records with dataset_partition == target_partition ('production')
+       - is_synthetic MUST be False
+       - trainable MUST be True
+       - category MUST NOT be INFRA_ERROR
+       - dataset_split MUST match target_split
+    3. Fail-Closed on Missing / Inconsistent Provenance:
+       - Records with unknown partition or synthetic origin are strictly excluded from production training.
+    4. Token Provenance Integrity (Round 5.2 Blocker 1 & 2):
+       - If require_exact_tokens is True, requires token_provenance == 'model_generate' and valid generated_token_ids.
+       - External API records marked 'external_text_only' cannot enter exact-lineage GRPO training.
+    5. Deduplication: Tracks seen candidate_id and trajectory_id to guarantee no duplicate ingestion.
     """
     records = []
     if not os.path.exists(trajectory_dir):
@@ -387,6 +406,10 @@ def load_trajectories_from_directory(
                 with open(fpath, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
+                # Fail-closed check for missing provenance fields in raw data
+                if "dataset_partition" not in data or "is_synthetic" not in data:
+                    continue
+
                 # 1. Schema and Invariant Validation
                 traj = RLVRTrajectory(**data)
 
@@ -394,15 +417,30 @@ def load_trajectories_from_directory(
                 if not traj.is_finalized:
                     continue
 
-                # 3. Dataset split isolation (train vs val/holdout)
+                # 3. Strict Partition Allowlist & Synthetic Isolation (Round 5.2)
+                if traj.dataset_partition != target_partition:
+                    continue
+                if traj.is_synthetic is True:
+                    continue
+                if traj.trainable is not True:
+                    continue
+
+                # 4. Dataset split isolation (train vs val/holdout)
                 if traj.dataset_split != target_split:
                     continue
 
-                # 4. Strictly exclude infrastructure errors
+                # 5. Strictly exclude infrastructure errors
                 if traj.category == ResultCategory.INFRA_ERROR:
                     continue
 
-                # 5. Deduplication check
+                # 6. Exact Token Lineage Check (Round 5.2 Blocker 1)
+                if require_exact_tokens:
+                    if traj.token_provenance != "model_generate":
+                        continue
+                    if not traj.generated_token_ids or len(traj.generated_token_ids) == 0:
+                        continue
+
+                # 7. Deduplication check
                 if traj.trajectory_id in seen_trajectory_ids:
                     continue
                 if traj.candidate_id and traj.candidate_id in seen_candidate_ids:
@@ -414,10 +452,87 @@ def load_trajectories_from_directory(
 
                 records.append(traj.model_dump())
             except Exception as e:
-                # Malformed or inconsistent trajectory rejected
+                # Malformed or inconsistent trajectory rejected (fail closed)
                 pass
 
     return records
+
+
+def audit_trajectory_storage(trajectory_dir: str) -> Dict[str, Any]:
+    """
+    Performs a strict read-only audit of existing trajectories in the specified directory (Round 5.2).
+    Does NOT alter, migrate, or delete any existing trajectory files.
+    """
+    report: Dict[str, Any] = {
+        "trajectory_dir": trajectory_dir,
+        "total_files": 0,
+        "valid_schema_count": 0,
+        "malformed_count": 0,
+        "by_partition": {"production": 0, "synthetic_control": 0, "test": 0, "missing_or_other": 0},
+        "by_synthetic": {"synthetic": 0, "non_synthetic": 0},
+        "by_trainable": {"trainable": 0, "non_trainable": 0},
+        "by_token_provenance": {"model_generate": 0, "external_text_only": 0, "synthetic": 0, "missing": 0},
+        "by_category": {},
+        "production_eligible_for_grpo": 0,
+        "audit_timestamp": time.time() if "time" in globals() else 0.0
+    }
+    import time
+    report["audit_timestamp"] = time.time()
+
+    if not os.path.exists(trajectory_dir):
+        return report
+
+    for fname in sorted(os.listdir(trajectory_dir)):
+        if fname.endswith(".json") and fname.startswith("traj_"):
+            report["total_files"] += 1
+            fpath = os.path.join(trajectory_dir, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    raw_data = json.load(f)
+
+                part = raw_data.get("dataset_partition", "missing_or_other")
+                if part in report["by_partition"]:
+                    report["by_partition"][part] += 1
+                else:
+                    report["by_partition"]["missing_or_other"] += 1
+
+                is_syn = raw_data.get("is_synthetic", False)
+                if is_syn:
+                    report["by_synthetic"]["synthetic"] += 1
+                else:
+                    report["by_synthetic"]["non_synthetic"] += 1
+
+                is_tr = raw_data.get("trainable", True)
+                if is_tr:
+                    report["by_trainable"]["trainable"] += 1
+                else:
+                    report["by_trainable"]["non_trainable"] += 1
+
+                tok_prov = raw_data.get("token_provenance", "missing")
+                if tok_prov in report["by_token_provenance"]:
+                    report["by_token_provenance"][tok_prov] += 1
+                else:
+                    report["by_token_provenance"]["missing"] += 1
+
+                cat_str = str(raw_data.get("category", "UNKNOWN"))
+                report["by_category"][cat_str] = report["by_category"].get(cat_str, 0) + 1
+
+                # Validate with schema
+                traj = RLVRTrajectory(**raw_data)
+                report["valid_schema_count"] += 1
+
+                # Check if would pass production loader
+                if (traj.dataset_partition == "production" and 
+                    not traj.is_synthetic and 
+                    traj.trainable and 
+                    traj.is_finalized and 
+                    traj.category != ResultCategory.INFRA_ERROR):
+                    report["production_eligible_for_grpo"] += 1
+
+            except Exception as e:
+                report["malformed_count"] += 1
+
+    return report
 
 
 # =============================================================================
@@ -513,6 +628,18 @@ def train_grpo_epochs(
                 max_seq_len=max_seq_len,
                 stored_generated_token_ids=r_item.generated_token_ids
             )
+            # Fail-closed invariant checks (Round 5.2 Blocker 2)
+            if input_ids.shape != attention_mask.shape or input_ids.shape != completion_mask.shape:
+                raise ValueError(
+                    f"Shape mismatch in GRPO tensors: input_ids {input_ids.shape}, "
+                    f"attention_mask {attention_mask.shape}, completion_mask {completion_mask.shape}"
+                )
+            if completion_mask.sum().item() == 0:
+                raise ValueError(
+                    f"Fail-closed: completion_mask has 0 active tokens for rollout '{r_item.candidate_id}'. "
+                    "Cannot optimize policy without completion tokens."
+                )
+
             old_logprobs, ref_logprobs = compute_rollout_baselines(model, input_ids, attention_mask)
             shift_mask = completion_mask[:, 1:].contiguous()
             group_items.append({
