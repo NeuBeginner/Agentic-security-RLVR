@@ -3,10 +3,10 @@ tests/test_runtime_oracle_and_harness_validation.py
 
 Comprehensive Verification Suite for Agentic Security RLVR:
 1. Runtime EVM State Oracle: raw logs, cryptographic topic matching, emitter verification, ABI decoding.
-2. 100% Coverage of 12 Vulnerability Classes (positive breach, zero-deficit edge cases, negative safe runs).
+2. Unit Event-Mapping Coverage of 12 Vulnerability Classes (positive breach, zero-deficit edge cases, negative safe runs).
 3. 4 Synthetic Safe Controls (SecureVault, SecureAccessControlVault, SecureERC4626Vault, SecureOraclePool).
-4. Anti-Spoofing and Fail-Closed Boundary Testing.
-5. Trusted Execution Sandbox & Immutable Harness Protection.
+4. Anti-Spoofing, OracleSnapshot, and Fail-Closed Boundary Testing.
+5. Reproducible Real Foundry Output Fixture & Immutable Harness Protection.
 6. Closed-Loop Agentic RLVR Pipeline & Provenance Lineage.
 """
 
@@ -18,6 +18,7 @@ from core.evm_oracle import (
     CANONICAL_HARNESS_ADDRESS,
     CANONICAL_HARNESS_ADDRESSES,
     TOPIC_SECURITY_INVARIANT_BREACHED,
+    TOPIC_ORACLE_SNAPSHOT,
     TrustedEVMStateOracle,
     trusted_oracle,
     _decode_abi_string_and_uint,
@@ -165,8 +166,8 @@ BENCHMARK_12_CLASSES = [
 
 
 @pytest.mark.parametrize("target_name,event_type,deficit,expected_inv_id", BENCHMARK_12_CLASSES)
-def test_all_12_classes_positive_breach_detection(target_name, event_type, deficit, expected_inv_id):
-    """Every one of the 12 benchmark targets confirms breach when its harness event is emitted."""
+def test_all_12_classes_unit_event_mapping_positive_breach(target_name, event_type, deficit, expected_inv_id):
+    """Unit event-mapping test: verifies topic signature, ABI decoding, typed flag setting, and invariant evaluation for all 12 classes."""
     raw_logs = [{
         "address": CANONICAL_HARNESS_ADDRESS,
         "topics": [TOPIC_SECURITY_INVARIANT_BREACHED],
@@ -192,8 +193,8 @@ def test_all_12_classes_positive_breach_detection(target_name, event_type, defic
 
 
 @pytest.mark.parametrize("target_name,event_type,_,expected_inv_id", BENCHMARK_12_CLASSES)
-def test_all_12_classes_zero_deficit_edge_case(target_name, event_type, _, expected_inv_id):
-    """A zero-deficit breach event must still trigger the invariant flag across all 12 classes."""
+def test_all_12_classes_unit_event_mapping_zero_deficit(target_name, event_type, _, expected_inv_id):
+    """Unit event-mapping test: verifies zero-deficit breach handling across all 12 classes."""
     raw_logs = [{
         "address": CANONICAL_HARNESS_ADDRESS,
         "topics": [TOPIC_SECURITY_INVARIANT_BREACHED],
@@ -218,8 +219,8 @@ def test_all_12_classes_zero_deficit_edge_case(target_name, event_type, _, expec
 
 
 @pytest.mark.parametrize("target_name,_,__,___", BENCHMARK_12_CLASSES)
-def test_all_12_classes_negative_no_breach(target_name, _, __, ___):
-    """When execution succeeds cleanly without breach event, Oracle returns UNVERIFIED (never false SAFE)."""
+def test_all_12_classes_unit_event_mapping_negative_no_breach(target_name, _, __, ___):
+    """Unit event-mapping test: verifies negative (no-breach) return returns UNVERIFIED across all 12 classes."""
     target = TargetProgram(name=target_name, source_code=f"contract {target_name} {{}}")
     res = trusted_oracle.verify_execution(
         target=target,
@@ -359,18 +360,38 @@ def test_extract_trusted_harness_evidence_from_structured_json():
 
 
 def test_oracle_handles_real_foundry_output_fixture():
-    """Verifies Oracle end-to-end against real Forge --offline --json -vvvv output."""
-    real_forge_json_path = Path("C:/Users/Telekom/.gemini/antigravity/brain/910f0fcf-c321-428c-b37e-cc80f7993b1e/scratch/real_forge_out.json")
-    if not real_forge_json_path.exists():
-        pytest.skip("Scratch file real_forge_out.json not available in environment")
+    """
+    Verifies Oracle end-to-end against an anonymized, reproducible Forge --offline --json -vvvv fixture.
+    Validates status, suite prefix, emitter address extraction, raw logs, topic0, ABI decoding,
+    and invariant evaluation without depending on local user disk paths.
+    """
+    fixture_path = Path(__file__).parent / "fixtures" / "forge" / "real_vault_execution.json"
+    assert fixture_path.is_file(), f"Fixture file {fixture_path} must exist in repository"
 
-    with open(real_forge_json_path, "r", encoding="utf-8") as f:
-        raw_text = f.read()
+    with open(fixture_path, "r", encoding="utf-8") as f:
+        structured_json = json.load(f)
 
-    s_idx = raw_text.find("{")
-    e_idx = raw_text.rfind("}")
-    structured_json = json.loads(raw_text[s_idx : e_idx + 1])
+    # 1. Verify runner evidence extraction from structured JSON
+    verdict, suite, status, reason, harness_addr, raw_logs = extract_trusted_harness_evidence(
+        structured_json, "Vault"
+    )
+    assert verdict == HarnessVerdict.BREACH.value
+    assert suite == "test/VaultHarness.t.sol"
+    assert status == "Success"
+    assert reason is None
+    assert harness_addr == "0x7fa9385be102ac3eac297483dd6233d62b3e1496"
+    assert len(raw_logs) > 0
 
+    # 2. Verify SecurityInvariantBreached event is present and ABI decodable
+    breach_logs = [log for log in raw_logs if log.get("topics") and str(log["topics"][0]).lower() == TOPIC_SECURITY_INVARIANT_BREACHED]
+    assert len(breach_logs) == 1
+    b_log = breach_logs[0]
+    assert b_log["address"].lower() == harness_addr.lower()
+    inv_type, deficit = _decode_abi_string_and_uint(b_log["data"])
+    assert inv_type == "DEPOSITOR_SOLVENCY_COLLAPSE"
+    assert deficit == 10 * 10**18
+
+    # 3. Verify Trusted Oracle verifies execution and confirms breach
     target = TargetProgram(name="Vault", source_code="contract Vault {}")
     res = trusted_oracle.verify_execution(
         target=target,
@@ -378,10 +399,11 @@ def test_oracle_handles_real_foundry_output_fixture():
         return_code=0,
         test_status="Success",
         decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
-        stdout_text=raw_text,
+        stdout_text=json.dumps(structured_json),
         stderr_text="",
         execution_time_sec=1.2,
-        structured_json=structured_json,
+        raw_logs=raw_logs,
+        trusted_harness_address=harness_addr,
     )
 
     assert res.execution_success is True
@@ -389,6 +411,151 @@ def test_oracle_handles_real_foundry_output_fixture():
     assert res.confidence_status == "PROVISIONAL_BREACH"
     assert "INV-VAULT-01-SOLVENCY" in res.breached_invariants
     assert res.failure_reason is None
+
+
+def test_oracle_snapshot_with_trusted_emitter():
+    """OracleSnapshot event emitted by trusted address updates state without NameError."""
+    oracle = TrustedEVMStateOracle()
+    harness_addr = list(CANONICAL_HARNESS_ADDRESSES)[0]
+    payload = json.dumps({
+        "initial": {"vault_balance": 100},
+        "final": {"vault_balance": 0},
+        "context": {"deficit": 100}
+    })
+    data_hex = "0x" + payload.encode("utf-8").hex()
+    raw_logs = [{
+        "address": harness_addr,
+        "topics": [TOPIC_ORACLE_SNAPSHOT],
+        "data": data_hex,
+    }]
+    init_state, fin_state, context, genuine, spoofed = oracle.parse_harness_evidence(
+        decoded_logs=[], stdout_text="", stderr_text="", raw_logs=raw_logs, trusted_harness_address=harness_addr
+    )
+    assert genuine is True
+    assert spoofed is False
+    assert init_state.get("vault_balance") == 100
+    assert fin_state.get("vault_balance") == 0
+    assert context.get("deficit") == 100
+
+
+def test_oracle_snapshot_with_foreign_emitter():
+    """OracleSnapshot event emitted by untrusted address flags spoof attempt without NameError."""
+    oracle = TrustedEVMStateOracle()
+    harness_addr = list(CANONICAL_HARNESS_ADDRESSES)[0]
+    raw_logs = [{
+        "address": "0x000000000000000000000000000000000000dead",
+        "topics": [TOPIC_ORACLE_SNAPSHOT],
+        "data": "0x",
+    }]
+    _, _, _, genuine, spoofed = oracle.parse_harness_evidence(
+        decoded_logs=[], stdout_text="", stderr_text="", raw_logs=raw_logs, trusted_harness_address=harness_addr
+    )
+    assert genuine is False
+    assert spoofed is True
+
+
+def test_oracle_snapshot_with_missing_emitter():
+    """OracleSnapshot event with missing emitter address flags spoof attempt without NameError."""
+    oracle = TrustedEVMStateOracle()
+    raw_logs = [{
+        "address": "",
+        "topics": [TOPIC_ORACLE_SNAPSHOT],
+        "data": "0x",
+    }]
+    _, _, _, genuine, spoofed = oracle.parse_harness_evidence(
+        decoded_logs=[], stdout_text="", stderr_text="", raw_logs=raw_logs
+    )
+    assert genuine is False
+    assert spoofed is True
+
+
+def test_oracle_rejects_malformed_abi_data():
+    """Malformed ABI data cannot confirm an invariant breach."""
+    oracle = TrustedEVMStateOracle()
+    harness_addr = list(CANONICAL_HARNESS_ADDRESSES)[0]
+    raw_logs = [{
+        "address": harness_addr,
+        "topics": [TOPIC_SECURITY_INVARIANT_BREACHED],
+        "data": "0x1234",  # truncated data (< 64 bytes)
+    }]
+    _, _, context, genuine, spoofed = oracle.parse_harness_evidence(
+        decoded_logs=[], stdout_text="", stderr_text="", raw_logs=raw_logs, trusted_harness_address=harness_addr
+    )
+    assert genuine is False
+    assert context.get("abi_decode_error") is True
+
+
+def test_oracle_rejects_arbitrary_trace_address():
+    """Addresses in arbitrary traces are never added to valid_emitters."""
+    oracle = TrustedEVMStateOracle()
+    arbitrary_addr = "0x1111111111111111111111111111111111111111"
+    structured_json = {
+        "test/OtherSuite.t.sol:OtherContract": {
+            "test_results": {
+                "testSomething()": {
+                    "status": "Success",
+                    "logs": [],
+                    "traces": [["Execution", {"arena": [{"trace": {"address": arbitrary_addr}}]}]]
+                }
+            }
+        }
+    }
+    raw_logs = [{
+        "address": arbitrary_addr,
+        "topics": [TOPIC_SECURITY_INVARIANT_BREACHED],
+        "data": _encode_event_data("DEPOSITOR_SOLVENCY_COLLAPSE", 100),
+    }]
+    # Even if structured_json is passed, arbitrary_addr must not be trusted
+    _, _, _, genuine, spoofed = oracle.parse_harness_evidence(
+        decoded_logs=[], stdout_text="", stderr_text="",
+        structured_json=structured_json, raw_logs=raw_logs
+    )
+    assert genuine is False
+    assert spoofed is True
+
+
+def test_extract_evidence_rejects_ambiguous_or_untrusted_suite():
+    """Duplicate, ambiguous, or untrusted harness suites fail closed with UNKNOWN."""
+    # Duplicate matching suite
+    dup_data = {
+        "test/VaultHarness.t.sol:VaultTrustedHarness": {
+            "test_results": {"testExploit()": {"status": "Success", "reason": None}}
+        },
+        "test/VaultHarness.t.sol:VaultTrustedHarness ": {
+            "test_results": {"testExploit()": {"status": "Success", "reason": None}}
+        }
+    }
+    verdict, suite, status, reason, addr, logs = extract_trusted_harness_evidence(dup_data, "Vault")
+    assert verdict == HarnessVerdict.UNKNOWN.value
+    assert suite == ""
+    assert logs == []
+
+    # Untrusted / spoofed contract name in trusted path
+    fake_data = {
+        "test/VaultHarness.t.sol:FakeAttackerHarness": {
+            "test_results": {"testExploit()": {"status": "Success", "reason": None}}
+        }
+    }
+    verdict_fake, suite_fake, _, _, _, logs_fake = extract_trusted_harness_evidence(fake_data, "Vault")
+    assert verdict_fake == HarnessVerdict.UNKNOWN.value
+    assert suite_fake == ""
+    assert logs_fake == []
+
+
+def test_12_class_coverage_matrix_and_boundaries():
+    """
+    Honest verification coverage matrix across all 12 benchmark vulnerability classes
+    and 4 safe control contracts:
+    - Unit event-mapping test: PASS for all 12 classes and 4 safe controls.
+    - Real Foundry fixture/execution: PASS for Vault (reproducible Forge JSON fixture)
+      and ERC4626Vault (contract structure verified in test_harness_contract.py).
+    - Production trusted harness allowlist: Strictly Vault and ERC4626Vault.
+      The remaining 10 classes are NOT in production allowlist (NOT_IMPLEMENTED/NOT_RUN).
+    """
+    assert len(BENCHMARK_12_CLASSES) == 12
+    assert len(SAFE_CONTROLS) == 4
+    # Production allowlist remains strictly bounded to 2 classes
+    assert set(TRUSTED_HARNESS_CONTRACTS.keys()) == {"Vault", "ERC4626Vault"}
 
 
 # =============================================================================
