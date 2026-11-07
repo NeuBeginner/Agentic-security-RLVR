@@ -1,0 +1,76 @@
+name: Aegis-RLVR CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-verify:
+    name: Test Suite & Security Invariant Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest pytest-cov
+
+      - name: Run Core Verification & Oracle Security Tests
+        env:
+          PYTHONPATH: "."
+        run: |
+          python -m pytest tests/test_verification_core_and_oracle.py -v
+          python -m pytest tests/test_hypothesis_pipeline.py -v
+          python -m pytest tests/test_data_leakage_and_splits.py -v
+
+      - name: Run Fail-Closed Security Gate Verification
+        env:
+          PYTHONPATH: "."
+        run: |
+          python -m pytest tests/test_round5_4_security_gates.py -v
+
+      - name: Run Full Test Suite
+        env:
+          PYTHONPATH: "."
+        run: |
+          python -m pytest -v --junitxml=test-results.xml
+
+      - name: Execute Multi-Baseline Benchmark Suite
+        env:
+          PYTHONPATH: "."
+        run: |
+          python benchmarks/benchmark_runner.py
+          python -m pytest tests/test_benchmark_framework.py -v
+
+      - name: Upload Benchmark Results Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-benchmark-results
+          path: benchmarks/benchmark_results.json
+          if-no-files-found: error
