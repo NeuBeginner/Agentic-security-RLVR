@@ -197,25 +197,55 @@ class SlitherBaselineAdapter(BaselineAdapter):
                 )
                 elapsed = round(time.time() - start_time, 3)
 
-                # Slither writes JSON output even when detectors report findings
+                stdout_text = proc.stdout or ""
+                stderr_text = proc.stderr or ""
+                stdout_sha256 = hashlib.sha256(stdout_text.encode("utf-8")).hexdigest()
+                stderr_sha256 = hashlib.sha256(stderr_text.encode("utf-8")).hexdigest()
+
+                base_tool_metadata = {
+                    "slither_version": slither_ver,
+                    "exit_code": proc.returncode,
+                    "command": " ".join(cmd),
+                    "timeout_sec": timeout_sec,
+                    "compiler_context": "@openzeppelin/=lib/openzeppelin-contracts/ forge-std/=lib/forge-std/src/",
+                    "project_context_cwd": cwd,
+                    "stdout_sha256": stdout_sha256,
+                    "stderr_sha256": stderr_sha256,
+                }
+
+                # P0 REQUIREMENT: Non-zero exit code MUST be classified as FAILED.
+                # The presence of valid JSON from partial execution must NEVER turn a non-zero exit into SUCCESS.
+                if proc.returncode != 0:
+                    err_msg = stderr_text.strip() or stdout_text.strip() or "Unknown non-zero exit"
+                    return TargetExecutionArtifact(
+                        baseline_id=self.baseline_id,
+                        target_id=target.contract_id,
+                        target_name=target.target_name,
+                        status=ExecutionStatus.FAILED,
+                        unavailable_reason=f"Slither failed (exit code {proc.returncode}): {err_msg[:300]}",
+                        duration_seconds=elapsed,
+                        cost_usd=None,
+                        tool_metadata=base_tool_metadata,
+                        raw_output={"stdout": stdout_text, "stderr": stderr_text},
+                        logs=[stderr_text[:1000]] if stderr_text else [stdout_text[:1000]],
+                    )
+
+                # Returncode is 0: verify JSON output exists
                 if not os.path.exists(json_out):
                     return TargetExecutionArtifact(
                         baseline_id=self.baseline_id,
                         target_id=target.contract_id,
                         target_name=target.target_name,
                         status=ExecutionStatus.FAILED,
-                        unavailable_reason=f"Slither failed (exit code {proc.returncode}) and produced no JSON output: {proc.stderr[:300]}",
+                        unavailable_reason="Slither exited with code 0 but produced no JSON output file",
                         duration_seconds=elapsed,
                         cost_usd=None,
-                        tool_metadata={
-                            "slither_version": slither_ver,
-                            "exit_code": proc.returncode,
-                            "command": " ".join(cmd),
-                        },
-                        raw_output={"stdout": proc.stdout, "stderr": proc.stderr},
-                        logs=[proc.stderr[:1000]] if proc.stderr else [],
+                        tool_metadata=base_tool_metadata,
+                        raw_output={"stdout": stdout_text, "stderr": stderr_text},
+                        logs=[stderr_text[:1000]] if stderr_text else [],
                     )
 
+                # Parse JSON
                 try:
                     with open(json_out, "r", encoding="utf-8") as jf:
                         data = json.load(jf)
@@ -228,27 +258,85 @@ class SlitherBaselineAdapter(BaselineAdapter):
                         unavailable_reason=f"Failed to parse Slither JSON output: {parse_err}",
                         duration_seconds=elapsed,
                         cost_usd=None,
-                        tool_metadata={
-                            "slither_version": slither_ver,
-                            "exit_code": proc.returncode,
-                        },
-                        raw_output={"stdout": proc.stdout, "stderr": proc.stderr},
-                        logs=[proc.stderr[:1000]] if proc.stderr else [],
+                        tool_metadata=base_tool_metadata,
+                        raw_output={"stdout": stdout_text, "stderr": stderr_text},
+                        logs=[stderr_text[:1000]] if stderr_text else [],
+                    )
+
+                # Validate JSON structure and expected fields
+                if not isinstance(data, dict):
+                    return TargetExecutionArtifact(
+                        baseline_id=self.baseline_id,
+                        target_id=target.contract_id,
+                        target_name=target.target_name,
+                        status=ExecutionStatus.FAILED,
+                        unavailable_reason="Slither JSON output is not a JSON object/dict",
+                        duration_seconds=elapsed,
+                        cost_usd=None,
+                        tool_metadata=base_tool_metadata,
+                        raw_output={"stdout": stdout_text, "stderr": stderr_text},
+                        logs=[stderr_text[:1000]] if stderr_text else [],
+                    )
+
+                if "success" in data and data["success"] is False:
+                    err_field = str(data.get("error", "unspecified internal error"))
+                    return TargetExecutionArtifact(
+                        baseline_id=self.baseline_id,
+                        target_id=target.contract_id,
+                        target_name=target.target_name,
+                        status=ExecutionStatus.FAILED,
+                        unavailable_reason=f"Slither reported internal failure in JSON: {err_field[:300]}",
+                        duration_seconds=elapsed,
+                        cost_usd=None,
+                        tool_metadata=base_tool_metadata,
+                        raw_output={"stdout": stdout_text, "stderr": stderr_text},
+                        logs=[stderr_text[:1000]] if stderr_text else [],
+                    )
+
+                if "results" not in data or not isinstance(data.get("results"), dict):
+                    return TargetExecutionArtifact(
+                        baseline_id=self.baseline_id,
+                        target_id=target.contract_id,
+                        target_name=target.target_name,
+                        status=ExecutionStatus.FAILED,
+                        unavailable_reason="Slither JSON output missing 'results' object",
+                        duration_seconds=elapsed,
+                        cost_usd=None,
+                        tool_metadata=base_tool_metadata,
+                        raw_output={"stdout": stdout_text, "stderr": stderr_text},
+                        logs=[stderr_text[:1000]] if stderr_text else [],
+                    )
+
+                results_obj = data["results"]
+                if "detectors" not in results_obj or not isinstance(results_obj.get("detectors"), list):
+                    return TargetExecutionArtifact(
+                        baseline_id=self.baseline_id,
+                        target_id=target.contract_id,
+                        target_name=target.target_name,
+                        status=ExecutionStatus.FAILED,
+                        unavailable_reason="Slither JSON output missing 'results.detectors' list",
+                        duration_seconds=elapsed,
+                        cost_usd=None,
+                        tool_metadata=base_tool_metadata,
+                        raw_output={"stdout": stdout_text, "stderr": stderr_text},
+                        logs=[stderr_text[:1000]] if stderr_text else [],
                     )
 
                 findings = []
-                detectors = data.get("results", {}).get("detectors", [])
-                for d in detectors:
+                for d in results_obj["detectors"]:
+                    if not isinstance(d, dict):
+                        continue
                     impact = str(d.get("impact", "")).capitalize()
                     if impact in ["High", "Medium"]:
                         findings.append({
                             "check": d.get("check"),
                             "impact": impact,
                             "confidence": d.get("confidence"),
-                            "description": d.get("description", "")[:200]
+                            "description": str(d.get("description", ""))[:200]
                         })
 
                 detected = len(findings) > 0
+                base_tool_metadata["detectors_count"] = len(findings)
 
                 return TargetExecutionArtifact(
                     baseline_id=self.baseline_id,
@@ -261,17 +349,13 @@ class SlitherBaselineAdapter(BaselineAdapter):
                     replayed_breaches=0,
                     duration_seconds=elapsed,
                     cost_usd=None,
-                    tool_metadata={
-                        "slither_version": slither_ver,
-                        "exit_code": proc.returncode,
-                        "detectors_count": len(findings),
-                    },
+                    tool_metadata=base_tool_metadata,
                     raw_output={
                         "findings": findings,
-                        "stdout": proc.stdout,
-                        "stderr": proc.stderr,
+                        "stdout": stdout_text,
+                        "stderr": stderr_text,
                     },
-                    logs=[proc.stdout[:1000]] if proc.stdout else []
+                    logs=[stdout_text[:1000]] if stdout_text else []
                 )
 
             except subprocess.TimeoutExpired:
@@ -524,8 +608,9 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
     """
     Baseline 4: LLM Auditor + Exploit Generation + Naive Foundry (Exit Code 0 / Text Marker).
     Compiles and executes candidate exploit in Foundry.
-    Considers test verified if forge returncode == 0 and 'PASS' or '[INVARIANT_BREACHED' is in output.
-    Does NOT use hardened state oracle or trusted harness anti-spoofing emitter checks.
+    Considers test passing if forge returncode == 0 and structured JSON test results indicate Success.
+    Does NOT use hardened EVM state oracle or trusted harness anti-spoofing emitter checks.
+    Separates naive test pass signal from verified invariant breach (verified_breaches is strictly 0).
     """
     def __init__(
         self,
@@ -545,6 +630,19 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
     def baseline_name(self) -> str:
         return "LLM + Naive Foundry (Exit Code 0 / Text Marker)"
 
+    def get_forge_version(self) -> str:
+        try:
+            res = subprocess.run(
+                ["forge", "--version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+            )
+            return res.stdout.strip() or res.stderr.strip() or "unknown"
+        except Exception:
+            return "unknown"
+
     def check_availability(self) -> Tuple[bool, Optional[str]]:
         forge_bin = shutil.which("forge")
         if not forge_bin:
@@ -552,6 +650,60 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
         if self.client_override is None:
             return check_llm_provider_availability(self.provider)
         return True, None
+
+    @staticmethod
+    def _parse_forge_json(stdout_text: str) -> Tuple[int, int, List[str], Dict[str, Any]]:
+        """
+        Parses structured Forge JSON output.
+        Returns:
+            (total_tests_run, passed_tests, suites_found, parsed_data)
+        """
+        total_tests = 0
+        passed_tests = 0
+        suites_found: List[str] = []
+        parsed: Dict[str, Any] = {}
+
+        if not stdout_text.strip():
+            return 0, 0, [], {}
+
+        # 1. Try direct JSON parse
+        try:
+            parsed = json.loads(stdout_text)
+        except Exception:
+            # 2. Try substring JSON extraction if output has preamble
+            start = stdout_text.find("{")
+            end = stdout_text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                try:
+                    parsed = json.loads(stdout_text[start:end + 1])
+                except Exception:
+                    parsed = {}
+
+        if not isinstance(parsed, dict):
+            return 0, 0, [], {}
+
+        # Structure A: direct {"test_results": {...}}
+        if "test_results" in parsed and isinstance(parsed["test_results"], dict):
+            suites_found.append("default")
+            for t_name, t_info in parsed["test_results"].items():
+                total_tests += 1
+                status = str(t_info.get("status", "")).lower() if isinstance(t_info, dict) else str(t_info).lower()
+                if status in ("success", "passed", "pass", "ok"):
+                    passed_tests += 1
+        else:
+            # Structure B: {"suite_file:ContractName": {"test_results": {...}}}
+            for suite_name, suite_data in parsed.items():
+                if isinstance(suite_data, dict) and "test_results" in suite_data:
+                    suites_found.append(str(suite_name))
+                    t_results = suite_data.get("test_results", {})
+                    if isinstance(t_results, dict):
+                        for t_name, t_info in t_results.items():
+                            total_tests += 1
+                            status = str(t_info.get("status", "")).lower() if isinstance(t_info, dict) else str(t_info).lower()
+                            if status in ("success", "passed", "pass", "ok"):
+                                passed_tests += 1
+
+        return total_tests, passed_tests, suites_found, parsed
 
     def execute_target(
         self,
@@ -570,13 +722,19 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
             )
 
         start_time = time.time()
+        forge_ver = self.get_forge_version()
+
         try:
             source_code = target.load_source_code(base_dir)
             prompt = f"Write exploit module for {target.target_name}:\n{source_code}"
+            prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
             if self.client_override:
                 candidate_code = self.client_override(prompt)
             else:
                 candidate_code = invoke_llm_provider(self.provider, self.model_id, prompt)
+
+            candidate_code_sha256 = hashlib.sha256(candidate_code.encode("utf-8")).hexdigest()
 
             # Execute in temp foundry environment with naive criteria
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -592,6 +750,8 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
 
                 # Run forge
                 cmd = ["forge", "test", "--offline", "--json"]
+                config_hash = hashlib.sha256(b"forge.profile.default.offline.json").hexdigest()
+
                 proc = subprocess.run(
                     cmd,
                     cwd=tmpdir,
@@ -602,30 +762,100 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 )
                 elapsed = round(time.time() - start_time, 3)
 
-                # Naive verdict: exit code 0 or "[INVARIANT_BREACHED" marker
-                naive_verified = (proc.returncode == 0) and (
-                    "PASS" in proc.stdout or "[INVARIANT_BREACHED" in proc.stdout
-                )
+                stdout_text = proc.stdout or ""
+                stderr_text = proc.stderr or ""
+                stdout_sha256 = hashlib.sha256(stdout_text.encode("utf-8")).hexdigest()
+                stderr_sha256 = hashlib.sha256(stderr_text.encode("utf-8")).hexdigest()
+
+                total_tests, passed_tests, suites_found, parsed_json = self._parse_forge_json(stdout_text)
+
+                base_tool_metadata = {
+                    "provider": self.provider,
+                    "model_id": self.model_id,
+                    "forge_version": forge_ver,
+                    "forge_exit_code": proc.returncode,
+                    "command": " ".join(cmd),
+                    "config_hash": config_hash,
+                    "timeout_sec": timeout_sec,
+                    "stdout_sha256": stdout_sha256,
+                    "stderr_sha256": stderr_sha256,
+                    "prompt_sha256": prompt_sha256,
+                    "candidate_code_sha256": candidate_code_sha256,
+                    "total_tests_run": total_tests,
+                    "passed_tests": passed_tests,
+                    "suites_found": suites_found,
+                    "cost_status": "unmeasured",
+                }
+
+                # Evaluate execution signals:
+                # 1. Non-zero exit code: compilation failure or test assertion failure
+                if proc.returncode != 0:
+                    err_msg = stderr_text.strip() or stdout_text.strip() or "Non-zero exit code"
+                    is_compile_failure = (total_tests == 0)
+                    base_tool_metadata["naive_signal"] = False
+                    base_tool_metadata["test_pass"] = False
+                    base_tool_metadata["is_compile_failure"] = is_compile_failure
+
+                    return TargetExecutionArtifact(
+                        baseline_id=self.baseline_id,
+                        target_id=target.contract_id,
+                        target_name=target.target_name,
+                        status=ExecutionStatus.FAILED if is_compile_failure else ExecutionStatus.SUCCESS,
+                        unavailable_reason=f"Forge compilation/execution failed (exit code {proc.returncode}): {err_msg[:300]}" if is_compile_failure else None,
+                        detected=False,
+                        candidates_generated=1,
+                        verified_breaches=0,
+                        replayed_breaches=0,
+                        duration_seconds=elapsed,
+                        cost_usd=None,
+                        tool_metadata=base_tool_metadata,
+                        raw_output={"stdout": stdout_text, "stderr": stderr_text},
+                        logs=[stderr_text[:500]] if stderr_text else [stdout_text[:500]],
+                    )
+
+                # 2. Exit code 0, but no tests were executed (e.g. empty test suite)
+                if total_tests == 0:
+                    base_tool_metadata["naive_signal"] = False
+                    base_tool_metadata["test_pass"] = False
+                    base_tool_metadata["is_empty_suite"] = True
+
+                    return TargetExecutionArtifact(
+                        baseline_id=self.baseline_id,
+                        target_id=target.contract_id,
+                        target_name=target.target_name,
+                        status=ExecutionStatus.FAILED,
+                        unavailable_reason="Forge exited with code 0 but executed 0 test cases (no tests run)",
+                        detected=False,
+                        candidates_generated=1,
+                        verified_breaches=0,
+                        replayed_breaches=0,
+                        duration_seconds=elapsed,
+                        cost_usd=None,
+                        tool_metadata=base_tool_metadata,
+                        raw_output={"stdout": stdout_text, "stderr": stderr_text},
+                        logs=[stdout_text[:500]] if stdout_text else [],
+                    )
+
+                # 3. Tests were executed and completed:
+                test_pass = (passed_tests > 0)
+                base_tool_metadata["test_pass"] = bool(test_pass)
+                base_tool_metadata["naive_signal"] = bool(test_pass)
 
                 return TargetExecutionArtifact(
                     baseline_id=self.baseline_id,
                     target_id=target.contract_id,
                     target_name=target.target_name,
                     status=ExecutionStatus.SUCCESS,
-                    detected=bool(naive_verified),
+                    detected=bool(test_pass),
                     candidates_generated=1,
-                    verified_breaches=1 if naive_verified else 0,
-                    replayed_breaches=0,  # Naive baseline does not perform replay
+                    # P0 INVARIANT: A naive test pass without invariant verification is NOT a verified breach
+                    verified_breaches=0,
+                    replayed_breaches=0,
                     duration_seconds=elapsed,
                     cost_usd=None,
-                    tool_metadata={
-                        "provider": self.provider,
-                        "model_id": self.model_id,
-                        "forge_exit_code": proc.returncode,
-                        "cost_status": "unmeasured",
-                    },
-                    raw_output={"stdout": proc.stdout, "stderr": proc.stderr},
-                    logs=[proc.stdout[:300]]
+                    tool_metadata=base_tool_metadata,
+                    raw_output={"stdout": stdout_text, "stderr": stderr_text},
+                    logs=[stdout_text[:500]] if stdout_text else [],
                 )
 
         except subprocess.TimeoutExpired:
@@ -637,6 +867,11 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 unavailable_reason=f"Naive Foundry execution timed out after {timeout_sec}s",
                 duration_seconds=float(timeout_sec),
                 cost_usd=None,
+                tool_metadata={
+                    "provider": self.provider,
+                    "model_id": self.model_id,
+                    "forge_version": forge_ver,
+                },
             )
         except Exception as e:
             return TargetExecutionArtifact(
@@ -647,6 +882,11 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 unavailable_reason=f"Naive Foundry execution failed: {e}",
                 duration_seconds=round(time.time() - start_time, 3),
                 cost_usd=None,
+                tool_metadata={
+                    "provider": self.provider,
+                    "model_id": self.model_id,
+                    "forge_version": forge_ver,
+                },
             )
 
 

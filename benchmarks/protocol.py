@@ -194,3 +194,80 @@ class BenchmarkDataset:
     def get_ground_truth(self) -> Dict[str, GroundTruth]:
         """Returns the private mapping of contract_id -> GroundTruth for evaluator use only."""
         return dict(self.ground_truth)
+
+
+@dataclass
+class ArtifactFileRecord:
+    """Provenance record for a persisted artifact file with cryptographic hash."""
+    relative_path: str
+    size_bytes: int
+    sha256: str
+
+
+@dataclass
+class EnvironmentManifest:
+    """Host execution environment metadata."""
+    python_version: str
+    os_platform: str
+    slither_version: Optional[str] = None
+    forge_version: Optional[str] = None
+    solc_version: Optional[str] = None
+    modal_version: Optional[str] = None
+    modal_authenticated: bool = False
+
+
+@dataclass
+class GitManifest:
+    """Git repository provenance metadata."""
+    commit_sha: str
+    is_dirty: bool
+    branch: str
+
+
+@dataclass
+class DatasetManifest:
+    """Evaluated benchmark dataset version and target integrity metadata."""
+    version: str
+    dataset_sha256: str
+    target_count: int
+    target_ids: List[str]
+
+
+@dataclass
+class AdapterRunManifest:
+    """Detailed execution provenance for a specific baseline adapter."""
+    baseline_id: str
+    baseline_name: str
+    availability_status: str
+    availability_reason: Optional[str] = None
+    command: Optional[str] = None
+    timeout_sec: int = 60
+    duration_seconds: float = 0.0
+    target_count: int = 0
+    completed_targets: int = 0
+    config_hash: Optional[str] = None
+    cost_status: str = "unmeasured"
+    cost_usd: Optional[float] = None
+    artifact_files: List[ArtifactFileRecord] = field(default_factory=list)
+
+
+@dataclass
+class RunReproducibilityManifest:
+    """
+    Run-level reproducibility manifest recording exact environment, git, dataset,
+    adapter commands, hashes, and artifact provenance for verifiable execution.
+    """
+    manifest_version: str = "1.0.0"
+    run_id: str = ""
+    timestamp_utc: str = ""
+    execution_mode: str = "REAL_EXPERIMENT"
+    is_synthetic_smoke: bool = False
+    git: GitManifest = field(default_factory=lambda: GitManifest("unknown", False, "unknown"))
+    environment: EnvironmentManifest = field(default_factory=lambda: EnvironmentManifest("unknown", "unknown"))
+    dataset: DatasetManifest = field(default_factory=lambda: DatasetManifest("1.0.0", "", 0, []))
+    adapters: Dict[str, AdapterRunManifest] = field(default_factory=dict)
+    total_duration_seconds: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+

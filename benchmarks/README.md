@@ -18,6 +18,18 @@ The Aegis-RLVR benchmark framework provides an empirical evaluation across 5 dis
   Baseline adapters receive only public `TargetSpecification` objects. Fields containing `is_vulnerable`, `vulnerable_functions`, or `ground_truth_invariant` are strictly sequestered in `GroundTruth` and only accessible post-execution by `evaluate_baseline_run` to compute confusion matrices.
 - **Fail-Closed Availability & Completeness Reporting:**
   If an external tool (`slither`, `forge`) or API credential is missing, or if any target fails during execution, the baseline is marked `UNAVAILABLE`, `FAILED`, or `INCOMPLETE`. The evaluator sets `precision`, `recall`, `f1_score`, `FPR`, `FNR`, `ESR`, `VFR`, `RRR` to `None`. **Failed or missing runs are NEVER treated as negative findings (`detected=False`), and fabricating fake 0% or 100% metrics on unexecuted runs is strictly prohibited.**
+- **Slither Strict Returncode Enforcement:**
+  `SlitherBaselineAdapter` requires `returncode == 0` before interpreting output. Any non-zero exit code (even if partial JSON was emitted) is classified as `FAILED`, never `SUCCESS`. Full stdout, stderr, SHA-256 hashes, command, and compiler remappings context are recorded.
+- **Naive Foundry Signal Separation:**
+  `LLMNaiveFoundryBaselineAdapter` parses structured Forge JSON and records a passing test as `naive_signal: True` / `detected: True`, but strictly maintains `verified_breaches == 0` and `replayed_breaches == 0`. Exit code 0 without executed tests or compilation errors are classified as unverified / failed.
+- **Run-Level Reproducibility Manifest (`reproducibility_manifest.json`):**
+  Every benchmark run records an immutable, machine-readable reproducibility manifest capturing:
+  * Git commit SHA, branch, and clean/dirty working tree status;
+  * Environment metadata: Python, Slither, Forge, Solc, and Modal versions and authentication state;
+  * Benchmark dataset version, dataset file SHA-256 hash, and target IDs;
+  * Per-adapter exact execution commands, timeout limits, durations, and config hashes;
+  * Provenance for all generated artifact files with byte size and cryptographic SHA-256 hash;
+  * Strictly repository-relative portable paths (no machine-local developer paths).
 - **Explicit Provider Routing:**
   LLM baselines require explicit provider configuration (`--provider gemini` or `--provider openai`). Credential verification checks only the requested provider, avoiding mismatched provider crashes.
 - **Unmeasured Cost Integrity:**

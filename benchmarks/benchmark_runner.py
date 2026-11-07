@@ -30,11 +30,15 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import argparse
+import hashlib
 import json
 import os
+import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, asdict, field
+from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 from core.schemas import TargetProgram
@@ -45,6 +49,12 @@ from benchmarks.protocol import (
     TargetExecutionArtifact,
     BaselineEvaluationResult,
     ExecutionStatus,
+    RunReproducibilityManifest,
+    GitManifest,
+    EnvironmentManifest,
+    DatasetManifest,
+    AdapterRunManifest,
+    ArtifactFileRecord,
 )
 from benchmarks.evaluator import evaluate_baseline_run
 from benchmarks.adapters import (
@@ -141,6 +151,74 @@ class AegisBenchmarkSuite:
         except Exception:
             return "unknown"
 
+    def _get_git_manifest(self) -> GitManifest:
+        commit_sha = self._get_git_commit_sha()
+        is_dirty = False
+        branch = "unknown"
+        try:
+            status_out = subprocess.check_output(
+                ["git", "status", "--porcelain"], text=True, cwd=str(self.dataset_path.parent)
+            ).strip()
+            is_dirty = bool(status_out)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True, cwd=str(self.dataset_path.parent)
+            ).strip()
+        except Exception:
+            pass
+        return GitManifest(commit_sha=commit_sha, is_dirty=is_dirty, branch=branch)
+
+    def _get_environment_manifest(self) -> EnvironmentManifest:
+        python_ver = sys.version.split()[0]
+        os_plat = sys.platform
+
+        slither_ver = None
+        if shutil.which("slither"):
+            slither_ver = SlitherBaselineAdapter().get_slither_version()
+
+        forge_ver = None
+        if shutil.which("forge"):
+            forge_ver = LLMNaiveFoundryBaselineAdapter().get_forge_version()
+
+        solc_ver = None
+        if shutil.which("solc"):
+            try:
+                res = subprocess.run(["solc", "--version"], stdout=subprocess.PIPE, text=True, timeout=5)
+                solc_ver = res.stdout.strip().split("\n")[-1] or None
+            except Exception:
+                pass
+
+        modal_ver = None
+        modal_auth = False
+        try:
+            import modal
+            modal_ver = getattr(modal, "__version__", None)
+            modal_auth = bool(modal.config.config.get("token_id"))
+        except Exception:
+            pass
+
+        return EnvironmentManifest(
+            python_version=python_ver,
+            os_platform=os_plat,
+            slither_version=slither_ver,
+            forge_version=forge_ver,
+            solc_version=solc_ver,
+            modal_version=modal_ver,
+            modal_authenticated=modal_auth,
+        )
+
+    def _get_dataset_manifest(self, public_targets: List[TargetSpecification]) -> DatasetManifest:
+        d_sha = ""
+        try:
+            d_sha = hashlib.sha256(self.dataset_path.read_bytes()).hexdigest()
+        except Exception:
+            pass
+        return DatasetManifest(
+            version=self.dataset.version,
+            dataset_sha256=d_sha,
+            target_count=len(public_targets),
+            target_ids=[t.contract_id for t in public_targets],
+        )
+
     def run_benchmark(
         self,
         mode: str = "smoke",
@@ -164,6 +242,7 @@ class AegisBenchmarkSuite:
         if mode not in ("smoke", "real"):
             raise ValueError("mode must be 'smoke' or 'real'")
 
+        suite_start_time = time.time()
         commit_sha = self._get_git_commit_sha()
         timestamp = time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime())
         run_id = f"run_{int(time.time())}_{commit_sha[:7]}"
@@ -200,10 +279,13 @@ class AegisBenchmarkSuite:
             run_artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         results: Dict[str, Dict[str, Any]] = {}
+        adapter_manifests: Dict[str, AdapterRunManifest] = {}
         base_dir = self.dataset_path.parent.parent
 
         for b_id, adapter in adapters.items():
+            baseline_start_time = time.time()
             baseline_artifacts: List[TargetExecutionArtifact] = []
+            adapter_artifact_files: List[ArtifactFileRecord] = []
 
             # Create baseline artifact directory
             if save_results:
@@ -218,8 +300,31 @@ class AegisBenchmarkSuite:
                 # Save per-target JSON artifact
                 if save_results:
                     art_file = run_artifacts_dir / b_id / f"{target.contract_id}.json"
+                    art_dict = artifact.to_dict()
                     with open(art_file, "w", encoding="utf-8") as f:
-                        json.dump(artifact.to_dict(), f, indent=2)
+                        json.dump(art_dict, f, indent=2)
+
+                    # Track file provenance with cryptographic hash and byte size
+                    try:
+                        art_bytes = art_file.read_bytes()
+                        art_sha = hashlib.sha256(art_bytes).hexdigest()
+                        try:
+                            rel_art_path = str(art_file.relative_to(base_dir)).replace("\\", "/")
+                        except ValueError:
+                            try:
+                                rel_art_path = str(art_file.relative_to(self.artifacts_base_dir)).replace("\\", "/")
+                            except ValueError:
+                                rel_art_path = f"{run_id}/{b_id}/{art_file.name}"
+
+                        adapter_artifact_files.append(
+                            ArtifactFileRecord(
+                                relative_path=rel_art_path,
+                                size_bytes=len(art_bytes),
+                                sha256=art_sha,
+                            )
+                        )
+                    except Exception as err:
+                        pass
 
             # Post-run evaluation consuming artifacts and private GroundTruth
             eval_result: BaselineEvaluationResult = evaluate_baseline_run(
@@ -230,12 +335,60 @@ class AegisBenchmarkSuite:
             )
             results[b_id] = eval_result.to_dict()
 
+            # Build per-adapter execution manifest
+            is_avail, avail_reason = adapter.check_availability()
+            adapter_duration = round(time.time() - baseline_start_time, 3)
+
+            cmd_map = {
+                "baseline_1": "slither <target_path> --json <out> --solc-remaps @openzeppelin/=lib/... forge-std/=lib/...",
+                "baseline_2": f"invoke_llm_provider('{provider}', '{model_id}', prompt)",
+                "baseline_3": f"invoke_llm_provider('{provider}', '{model_id}', prompt) -> ExploitModule",
+                "baseline_4": "forge test --offline --json",
+                "baseline_5": "HypothesisManager -> run_payload_in_sandbox -> verify_independent_replay",
+            }
+            config_hash_val = hashlib.sha256(f"{b_id}:{model_id}:{provider}".encode("utf-8")).hexdigest()
+
+            adapter_manifests[b_id] = AdapterRunManifest(
+                baseline_id=b_id,
+                baseline_name=adapter.baseline_name,
+                availability_status="AVAILABLE" if is_avail else "UNAVAILABLE",
+                availability_reason=avail_reason,
+                command=cmd_map.get(b_id, "unknown"),
+                timeout_sec=60,
+                duration_seconds=adapter_duration,
+                target_count=len(public_targets),
+                completed_targets=sum(1 for a in baseline_artifacts if a.status == ExecutionStatus.SUCCESS),
+                config_hash=config_hash_val,
+                cost_status="unmeasured",
+                cost_usd=None,
+                artifact_files=adapter_artifact_files,
+            )
+
         rel_artifacts_dir = None
         if save_results:
             try:
                 rel_artifacts_dir = str(run_artifacts_dir.relative_to(base_dir)).replace("\\", "/")
             except ValueError:
                 rel_artifacts_dir = str(run_artifacts_dir).replace("\\", "/")
+
+        # Build full reproducibility manifest
+        total_duration = round(time.time() - suite_start_time, 3)
+        repro_manifest = RunReproducibilityManifest(
+            manifest_version="1.0.0",
+            run_id=run_id,
+            timestamp_utc=timestamp,
+            execution_mode="SYNTHETIC_SMOKE_TEST" if mode == "smoke" else "REAL_EXPERIMENT",
+            is_synthetic_smoke=(mode == "smoke"),
+            git=self._get_git_manifest(),
+            environment=self._get_environment_manifest(),
+            dataset=self._get_dataset_manifest(public_targets),
+            adapters=adapter_manifests,
+            total_duration_seconds=total_duration,
+        )
+
+        rel_manifest_file = None
+        if save_results and rel_artifacts_dir:
+            rel_manifest_file = f"{rel_artifacts_dir}/reproducibility_manifest.json"
 
         report: Dict[str, Any] = {
             "benchmark_version": self.dataset.version,
@@ -249,6 +402,8 @@ class AegisBenchmarkSuite:
             "vulnerable_targets": sum(1 for gt in ground_truth_map.values() if gt.is_vulnerable),
             "synthetic_controls": sum(1 for gt in ground_truth_map.values() if not gt.is_vulnerable),
             "artifacts_directory": rel_artifacts_dir,
+            "reproducibility_manifest": rel_manifest_file,
+            "reproducibility_manifest_summary": repro_manifest.to_dict(),
             "baselines": results,
         }
 
@@ -263,7 +418,12 @@ class AegisBenchmarkSuite:
             with open(summary_file, "w", encoding="utf-8") as f:
                 json.dump(report, f, indent=2)
 
-            # 3. Latest summary pointer
+            # 3. Reproducibility manifest inside run directory
+            manifest_file = run_artifacts_dir / "reproducibility_manifest.json"
+            with open(manifest_file, "w", encoding="utf-8") as f:
+                json.dump(repro_manifest.to_dict(), f, indent=2)
+
+            # 4. Latest summary pointer
             latest_file = self.artifacts_base_dir / "latest_summary.json"
             with open(latest_file, "w", encoding="utf-8") as f:
                 json.dump(report, f, indent=2)
