@@ -256,7 +256,7 @@ def extract_trusted_harness_verdict(
     for suite_key, suite_val in structured_data.items():
         if not isinstance(suite_val, dict):
             continue
-        path = str(suite_key).split(":")[0].replace("\\\\", "/").strip()
+        path = str(suite_key).split(":")[0].strip()
         if path != expected_path:
             continue
         test_results = suite_val.get("test_results", {})

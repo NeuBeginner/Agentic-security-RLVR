@@ -18,6 +18,7 @@ NOT from the model-controlled log text. This suite proves that:
 """
 
 import json
+import os
 import re
 from pathlib import Path
 
