@@ -204,7 +204,7 @@ def run_subprocess_capped(
     def decode(key: str) -> str:
         output = bytes(buffers[key]).decode("utf-8", errors="replace")
         if truncated[key]:
-            output += "\\n[LOG_TRUNCATED: retained output capped at configured byte limit]"
+            output += "\n[LOG_TRUNCATED: retained output capped at configured byte limit]"
         return output
 
     return CappedProcessResult(
