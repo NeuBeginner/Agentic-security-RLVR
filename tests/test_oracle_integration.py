@@ -95,3 +95,19 @@ def test_success_without_trusted_event_is_not_a_safe_verdict():
     assert verdict.invariant_breach is False
     assert verdict.confidence_status == "UNVERIFIED"
     assert "absence of evidence" in (verdict.failure_reason or "")
+
+
+def test_trusted_erc4626_event_sets_share_inflation_flag():
+    oracle = TrustedEVMStateOracle()
+    raw_logs = [{
+        "address": CANONICAL_HARNESS_ADDRESS,
+        "topics": [TOPIC_SECURITY_INVARIANT_BREACHED],
+        "data": _event_data("SHARE_INFLATION_DEPOSITOR_DILUTION", 0),
+    }]
+    _, _, context, genuine, spoofed = oracle.parse_harness_evidence(
+        decoded_logs=[], stdout_text="", stderr_text="", raw_logs=raw_logs
+    )
+    assert genuine is True
+    assert spoofed is False
+    assert context["share_inflation_detected"] is True
+    assert context["deficit"] == 0

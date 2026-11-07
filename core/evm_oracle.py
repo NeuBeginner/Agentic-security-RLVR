@@ -797,6 +797,7 @@ class TrustedEVMStateOracle:
                     # cryptographically matched event emitted by the trusted harness.
                     typed_flags = {
                         "UNAUTHORIZED_ADMIN_DRAIN": ("unauthorized_admin", "owner_hijacked"),
+                        "SHARE_INFLATION_DEPOSITOR_DILUTION": ("share_inflation_detected",),
                         "ORACLE_PRICE_MANIPULATION": ("price_manipulated",),
                         "CROSS_CONTRACT_DESYNCHRONIZATION": ("cross_contract_desync",),
                         "STATE_ACCOUNTING_INCONSISTENCY": ("accounting_inconsistency",),
