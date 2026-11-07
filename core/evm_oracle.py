@@ -395,70 +395,14 @@ class TrustedEVMStateOracle:
         structured_json: Optional[Dict[str, Any]] = None
     ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], bool]:
         """
-        Parses initial state, final state, and trace context from trusted harness execution.
-        Distinguishes harness-emitted events from untrusted console.log.
-        Returns:
-            (initial_state, final_state, trace_context, has_genuine_harness_signal)
+        Fail-closed compatibility parser.
+
+        Foundry decoded log strings do not authenticate the emitting contract.
+        A candidate can emit an event with the same signature or print a
+        snapshot-looking string. Until the runner supplies state evidence through
+        an independently authenticated channel, no log-derived value is trusted.
         """
-        initial_state: Dict[str, Any] = {}
-        final_state: Dict[str, Any] = {}
-        trace_context: Dict[str, Any] = {}
-        has_genuine_harness_signal = False
-
-        combined_logs = list(decoded_logs)
-        combined_text = (stdout_text or "") + "\n" + (stderr_text or "")
-
-        # 1. Parse structured JSON from forge output if available
-        if structured_json and isinstance(structured_json, dict):
-            for suite_name, suite_data in structured_json.items():
-                if isinstance(suite_data, dict):
-                    test_results = suite_data.get("test_results", {})
-                    for test_name, test_data in test_results.items():
-                        if isinstance(test_data, dict):
-                            suite_logs = test_data.get("decoded_logs", [])
-                            combined_logs.extend(suite_logs)
-
-        # 2. Parse structured snapshot events/logs
-        # Patterns for structured harness logs
-        for log in combined_logs:
-            log_str = str(log)
-
-            # Check for genuine SecurityInvariantBreached event from trusted harness
-            if "SecurityInvariantBreached" in log_str:
-                has_genuine_harness_signal = True
-                trace_context["event_emitted"] = "SecurityInvariantBreached"
-                deficit_match = re.search(r"deficit:\s*(\d+)", log_str, re.IGNORECASE)
-                if deficit_match:
-                    trace_context["deficit"] = int(deficit_match.group(1))
-                if "DEPOSITOR_SOLVENCY" in log_str or "SOLVENCY" in log_str:
-                    trace_context["isInsolvent"] = True
-                if "SHARE_INFLATION" in log_str or "DILUTION" in log_str:
-                    trace_context["share_inflation_detected"] = True
-
-            # Check for trusted oracle snapshot marker
-            if "[ORACLE_SNAPSHOT:" in log_str:
-                has_genuine_harness_signal = True
-                try:
-                    payload = log_str.split("[ORACLE_SNAPSHOT:")[1].split("]")[0]
-                    parsed = json.loads(payload)
-                    initial_state.update(parsed.get("initial", {}))
-                    final_state.update(parsed.get("final", {}))
-                    trace_context.update(parsed.get("context", {}))
-                except Exception:
-                    pass
-
-        # 3. Fallback: Parse from combined text if decoded_logs were flat strings
-        if not has_genuine_harness_signal:
-            if "emit SecurityInvariantBreached" in combined_text or "SecurityInvariantBreached(" in combined_text:
-                has_genuine_harness_signal = True
-                if "DEPOSITOR_SOLVENCY" in combined_text:
-                    trace_context["isInsolvent"] = True
-                if "SHARE_INFLATION" in combined_text:
-                    trace_context["share_inflation_detected"] = True
-            elif "[ORACLE_SNAPSHOT:" in combined_text:
-                has_genuine_harness_signal = True
-
-        return initial_state, final_state, trace_context, has_genuine_harness_signal
+        return {}, {}, {}, False
 
     def verify_execution(
         self,
@@ -509,24 +453,22 @@ class TrustedEVMStateOracle:
             decoded_logs, stdout_text, stderr_text, structured_json
         )
 
-        # Default synthetic states if harness relies on event-based verification
-        if not init_state:
-            init_state = {
-                "vault_balance": 10 * 10**18,
-                "victim_deposit": 10 * 10**18 if "Vault" in target.name else 2 * 10**18,
-                "attacker_budget": 1 * 10**18 if "Vault" in target.name else 5 * 10**18
-            }
-        if not fin_state:
-            if trace_ctx.get("isInsolvent") or trace_ctx.get("share_inflation_detected") or genuine_signal:
-                fin_state = {
-                    "vault_balance": 0,
-                    "victim_owed_balance": init_state.get("victim_deposit", 0),
-                    "victim_shares": 0,
-                    "victim_redeemable": 0,
-                    "attacker_balance": init_state.get("victim_deposit", 0) + init_state.get("attacker_budget", 0)
-                }
-            else:
-                fin_state = dict(init_state)
+        # Never synthesize state from an event flag or candidate-controlled log.
+        # Missing authenticated pre/post-state snapshots are UNVERIFIED, not safe
+        # and not a breach. This intentionally fails closed until a trusted adapter
+        # is wired to the runner.
+        if not genuine_signal or not init_state or not fin_state:
+            return VerificationResult(
+                execution_success=execution_success,
+                invariant_breach=False,
+                replay_confirmed=False,
+                confidence_status="UNVERIFIED",
+                failure_reason=(
+                    "Authenticated EVM state evidence is unavailable. "
+                    "Decoded log strings and candidate-emitted events are not proof."
+                ),
+                breached_invariants=[]
+            )
 
         init_hash = compute_state_hash(init_state)
         fin_hash = compute_state_hash(fin_state)
