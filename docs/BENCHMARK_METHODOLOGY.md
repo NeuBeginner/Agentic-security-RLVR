@@ -1,4 +1,4 @@
-# Aegis-RLVR Benchmark Suite Methodology & Evaluation Report
+# Aegis-RLVR Benchmark Methodology and Adapter Contract
 
 **Dataset Version:** 1.0.0  
 **Target Architecture:** EVM / Solidity ^0.8.20 / Foundry  
@@ -7,6 +7,8 @@
 **Results Artifact:** `benchmarks/benchmark_results.json`
 
 ---
+
+> **Статус на 07 ноября 2026 года:** датасет из 16 целей подготовлен, но эмпирическое сравнение пяти baseline не выполнено. Предыдущий runner назначал результаты по заранее заданным спискам `contract_id`, фиксировал время, стоимость и количество кандидатов без фактического запуска Slither, LLM или Foundry. Эти значения не являлись результатами эксперимента и удалены. Новый runner возвращает `NOT_RUN`, пока не предоставлены реальные исполняемые adapters с evidence. Формулы ниже описывают методику, а не измеренные результаты.
 
 ## 1. Overview & Research Objective
 
@@ -54,7 +56,7 @@ The benchmark suite consists of 16 targets:
 
 ## 3. Evaluated Baseline Architectures
 
-We systematically benchmark 5 distinct security evaluation architectures:
+The research protocol defines 5 security evaluation architectures. They are **design targets**, not completed benchmark runs; each requires a real executable adapter before a metric may be reported:
 
 1. **Baseline 1: Static Analysis Only (`Slither`)**
    - AST heuristic pattern matching without execution.
