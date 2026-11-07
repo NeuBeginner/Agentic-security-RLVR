@@ -1,0 +1,16 @@
+{
+  "baseline_id": "baseline_1",
+  "target_id": "SAFE-02",
+  "target_name": "SecureAccessControlVault",
+  "status": "UNAVAILABLE",
+  "unavailable_reason": "slither executable not found on system PATH",
+  "detected": false,
+  "candidates_generated": 0,
+  "verified_breaches": 0,
+  "replayed_breaches": 0,
+  "duration_seconds": 0.0,
+  "cost_usd": 0.0,
+  "tool_metadata": {},
+  "raw_output": {},
+  "logs": []
+}

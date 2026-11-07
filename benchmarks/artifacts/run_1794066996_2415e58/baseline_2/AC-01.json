@@ -1,0 +1,16 @@
+{
+  "baseline_id": "baseline_2",
+  "target_id": "AC-01",
+  "target_name": "AccessControlVault",
+  "status": "UNAVAILABLE",
+  "unavailable_reason": "LLM credentials (GEMINI_API_KEY, GOOGLE_API_KEY, or OPENAI_API_KEY) not found in environment",
+  "detected": false,
+  "candidates_generated": 0,
+  "verified_breaches": 0,
+  "replayed_breaches": 0,
+  "duration_seconds": 0.0,
+  "cost_usd": 0.0,
+  "tool_metadata": {},
+  "raw_output": {},
+  "logs": []
+}

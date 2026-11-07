@@ -1,0 +1,16 @@
+{
+  "baseline_id": "baseline_5",
+  "target_id": "SAFE-02",
+  "target_name": "SecureAccessControlVault",
+  "status": "UNAVAILABLE",
+  "unavailable_reason": "Target SecureAccessControlVault is not in production trusted harness allowlist (['Vault', 'ERC4626Vault'])",
+  "detected": false,
+  "candidates_generated": 0,
+  "verified_breaches": 0,
+  "replayed_breaches": 0,
+  "duration_seconds": 0.0,
+  "cost_usd": 0.0,
+  "tool_metadata": {},
+  "raw_output": {},
+  "logs": []
+}
