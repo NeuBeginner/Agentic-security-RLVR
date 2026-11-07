@@ -6,7 +6,7 @@
 [![Research Stage](https://img.shields.io/badge/Status-Research%20Prototype-blue)](#research-status)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-**Aegis-RLVR** is an experimental research framework designed to eliminate False Positives in smart contract security auditing and automated vulnerability discovery. It bridges the gap between static LLM reasoning and empirical EVM execution by introducing **isolated execution sandboxes**, a **Trusted EVM State Oracle**, **independent replay verification**, and a **fail-closed Reinforcement Learning from Verifiable Rewards (RLVR)** data infrastructure for GRPO/LoRA policy training.
+**Aegis-RLVR** is an experimental research framework designed to eliminate False Positives in smart contract security auditing and automated vulnerability discovery. It connects static reasoning to EVM execution through ephemeral workers and a fail-closed verification gate. **Decoded log strings are not trusted as proof**; an independently authenticated EVM state-evidence adapter is still required before an exploit can be marked verified.
 
 ---
 
@@ -68,21 +68,15 @@ For deep architectural details, see [docs/EXECUTION_SECURITY.md](docs/EXECUTION_
 
 ---
 
-## 📈 Multi-Baseline Benchmark & Empirical Results
+## 📈 Benchmark Dataset & Current Results Status
 
-The framework includes a standardized benchmark of **12 vulnerability classes** alongside **4 synthetic safe controls** evaluated against 5 baseline architectures:
+The repository contains a 16-target benchmark dataset: 12 vulnerable targets and 4 synthetic safe controls. The benchmark runner calculates metrics only from executable adapters supplied by the caller.
 
-| Metric | Baseline 1 (Slither) | Baseline 2 (LLM Auditor) | Baseline 3 (LLM + Unverified PoC) | Baseline 4 (Naive Foundry) | Baseline 5 (Full Aegis-RLVR) |
-|---|---|---|---|---|---|
-| **Precision** | 60.0% | 75.0% | 75.0% | 83.3% | **100.0%** |
-| **Recall** | 25.0% | 50.0% | 25.0% | 41.7% | **91.7%** |
-| **F1 Score** | 0.3529 | 0.6000 | 0.3750 | 0.5556 | **0.9565** |
-| **False-Positive Rate** | 50.0% | 50.0% | 25.0% | 25.0% | **0.0%** |
-| **Verified Finding Rate** | 0.0% | 0.0% | 0.0% | 41.7% | **91.7%** |
-| **Replay Reproducibility**| N/A | N/A | N/A | 60.0% | **100.0%** |
-| **Candidates / Verified**| $\infty$ | $\infty$ | $\infty$ | 4.27 | **6.91** |
+**No empirical comparison results are currently available.** The previously displayed percentages, timings, candidate counts and replay rates were generated from hard-coded target-ID rules rather than executing Slither, LLM or Foundry baselines. They have been removed and must not be cited as measured performance.
 
-For complete methodology, target contracts, and analysis, see [docs/BENCHMARK_METHODOLOGY.md](docs/BENCHMARK_METHODOLOGY.md).
+Running `python benchmarks/benchmark_runner.py` without adapters returns `NOT_RUN`. An absent experiment is not a zero score and must not be replaced by simulated metrics.
+
+For dataset definitions, metric formulas and the executable adapter contract, see [docs/BENCHMARK_METHODOLOGY.md](docs/BENCHMARK_METHODOLOGY.md).
 
 ---
 

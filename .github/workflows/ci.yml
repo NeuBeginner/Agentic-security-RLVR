@@ -1,0 +1,78 @@
+name: Aegis-RLVR CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+      - 'audit/**'
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+      - 'feat/**'
+      - 'audit/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Python tests and security gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-cov
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Run oracle, hypothesis and data-integrity tests
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pytest -q tests/test_verification_core_and_oracle.py
+          python -m pytest -q tests/test_hypothesis_pipeline.py
+          python -m pytest -q tests/test_data_leakage_and_splits.py
+
+      - name: Run complete test suite
+        env:
+          PYTHONPATH: .
+        run: python -m pytest -q --junitxml=test-results.xml
+
+      - name: Run benchmark runner
+        env:
+          PYTHONPATH: .
+        run: |
+          python benchmarks/benchmark_runner.py
+          python -m pytest -q tests/test_benchmark_framework.py
+
+      - name: Upload test and benchmark reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-ci-reports
+          path: |
+            test-results.xml
+            benchmarks/benchmark_results.json
+          if-no-files-found: warn
