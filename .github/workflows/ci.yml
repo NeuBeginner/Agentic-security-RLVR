@@ -60,7 +60,8 @@ jobs:
           PYTHONPATH: .
           TOKENIZERS_PARALLELISM: "false"
         run: |
-          python -m pytest -q tests/test_grpo_training.py
+          python -m pytest -q tests/test_grpo.py
+          python -m pytest -q tests/test_grpo_integrity.py
           python -m pytest -q tests/test_trajectory_integrity.py
           python -m pytest -q tests/test_round5_regression.py
 

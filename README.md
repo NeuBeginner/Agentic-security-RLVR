@@ -49,6 +49,14 @@ flowchart TD
 
 ---
 
+## 📊 Benchmark Evidence Status
+
+The repository contains Solidity benchmark targets and trusted Foundry harnesses, but this branch does **not** publish a completed five-baseline empirical comparison. Precision, recall, runtime, cost, and replay-rate figures must only be reported after the corresponding baselines have actually run against the dataset with retained execution evidence.
+
+The trusted verification path uses the structured result of the repository-owned harness suite. Candidate-controlled log markers are diagnostic output only and never establish a breach.
+
+---
+
 ## ⚡ Specialized Division of Labor
 
 1. **Static Analysis Layer (Slither):** Runs on ephemeral Modal CPU workers to extract AST detector signals (`reentrancy-eth`, `divide-before-multiply`, `uninitialized-state`) to prime downstream LLMs with hard architectural facts.
