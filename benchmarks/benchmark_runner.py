@@ -32,19 +32,7 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-from core.schemas import (
-    TargetProgram,
-    ExploitPayload,
-    AttackHypothesis,
-    ResultCategory,
-)
-from sandbox.runner import (
-    run_slither_analysis,
-    run_payload_in_sandbox,
-    verify_independent_replay_structured,
-)
-from core.hypothesis_manager import HypothesisManager
-from core.evm_oracle import trusted_oracle
+from core.schemas import TargetProgram
 
 
 @dataclass
@@ -217,6 +205,7 @@ class AegisBenchmarkSuite:
         total_verified = 0
         total_replayed = 0
         total_duration = 0.0
+        total_cost = 0.0
 
         for target_info in targets:
             is_vuln = target_info["is_vulnerable"]
@@ -233,46 +222,46 @@ class AegisBenchmarkSuite:
             if mode != "smoke":
                 raise NotImplementedError("Only explicitly synthetic smoke mode is implemented.")
             # Mode: "smoke" (synthetic deterministic fixtures for CI plumbing)
-                if b_id == "baseline_1":
-                    # Slither: high recall on structural issues, false positives on safe patterns
-                    detected = target_id in ["REENT-01", "AC-01", "DOS-01", "SAFE-01", "SAFE-02"]
-                    candidates = 0
-                    verified = 0
-                    replayed = 0
-                    cost = 0.0
-                elif b_id == "baseline_2":
-                    # Raw LLM auditor: hallucinates on controls, 0 verified PoC
-                    detected = target_id in [
-                        "REENT-01", "ERC4626-01", "AC-01", "ORACLE-01", "FLASH-01",
-                        "STATE-01", "SAFE-01", "SAFE-03"
-                    ]
-                    candidates = 0
-                    verified = 0
-                    replayed = 0
-                    cost = 0.04
-                elif b_id == "baseline_3":
-                    # Unverified PoC synthesis: zero invariant verification
-                    detected = target_id in ["REENT-01", "AC-01", "DOS-01", "SAFE-01"]
-                    candidates = 4 if detected else 0
-                    verified = 0
-                    replayed = 0
-                    cost = 0.10
-                elif b_id == "baseline_4":
-                    # Naive Foundry: fooled by exit 0 / log marker on safe controls
-                    detected = target_id in [
-                        "REENT-01", "AC-01", "DOS-01", "SIG-01", "PREC-01", "SAFE-01"
-                    ]
-                    candidates = 8 if detected else 0
-                    verified = 5 if detected else 0
-                    replayed = 3 if detected else 0
-                    cost = 0.18
-                elif b_id == "baseline_5":
-                    # Full Aegis-RLVR: 0% False Positive Rate on safe controls, high verification
-                    detected = is_vuln and target_id not in ["BRIDGE-01"]
-                    candidates = 6 if detected else 2
-                    verified = 1 if detected else 0
-                    replayed = 1 if (detected and verified == 1) else 0
-                    cost = 0.18
+            if b_id == "baseline_1":
+                # Slither: high recall on structural issues, false positives on safe patterns
+                detected = target_id in ["REENT-01", "AC-01", "DOS-01", "SAFE-01", "SAFE-02"]
+                candidates = 0
+                verified = 0
+                replayed = 0
+                cost = 0.0
+            elif b_id == "baseline_2":
+                # Raw LLM auditor: hallucinates on controls, 0 verified PoC
+                detected = target_id in [
+                    "REENT-01", "ERC4626-01", "AC-01", "ORACLE-01", "FLASH-01",
+                    "STATE-01", "SAFE-01", "SAFE-03"
+                ]
+                candidates = 0
+                verified = 0
+                replayed = 0
+                cost = 0.04
+            elif b_id == "baseline_3":
+                # Unverified PoC synthesis: zero invariant verification
+                detected = target_id in ["REENT-01", "AC-01", "DOS-01", "SAFE-01"]
+                candidates = 4 if detected else 0
+                verified = 0
+                replayed = 0
+                cost = 0.10
+            elif b_id == "baseline_4":
+                # Naive Foundry: fooled by exit 0 / log marker on safe controls
+                detected = target_id in [
+                    "REENT-01", "AC-01", "DOS-01", "SIG-01", "PREC-01", "SAFE-01"
+                ]
+                candidates = 8 if detected else 0
+                verified = 5 if detected else 0
+                replayed = 3 if detected else 0
+                cost = 0.18
+            elif b_id == "baseline_5":
+                # Full Aegis-RLVR: 0% False Positive Rate on safe controls, high verification
+                detected = is_vuln and target_id not in ["BRIDGE-01"]
+                candidates = 6 if detected else 2
+                verified = 1 if detected else 0
+                replayed = 1 if (detected and verified == 1) else 0
+                cost = 0.18
 
             elapsed = time.time() - start_t
             if mode == "smoke":
@@ -282,6 +271,7 @@ class AegisBenchmarkSuite:
             total_verified += verified
             total_replayed += replayed
             total_duration += elapsed
+            total_cost += cost
 
             # Confusion matrix accumulation
             if is_vuln and detected:
@@ -305,7 +295,7 @@ class AegisBenchmarkSuite:
             })
 
         metrics.average_duration_seconds = round(total_duration / max(1, len(targets)), 3)
-        metrics.estimated_cost_usd_per_target = round(cost, 3)
+        metrics.estimated_cost_usd_per_target = round(total_cost / max(1, len(targets)), 3)
         metrics.calculate_derived_metrics(total_candidates, total_verified, total_replayed)
 
         return metrics
