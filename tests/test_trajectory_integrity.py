@@ -26,13 +26,20 @@ def make_valid_trajectory(
     reproduced: bool = False,
     replay_status: str = "NOT_ELIGIBLE",
     is_finalized: bool = True,
-    dataset_split: str = "train"
+    dataset_split: str = "train",
+    dataset_partition: str = "production",
+    is_synthetic: bool = False,
+    trainable: bool = True,
+    token_provenance: str = "model_generate",
+    generated_token_ids: list = None
 ) -> RLVRTrajectory:
     hyp = AttackHypothesis(
         vulnerability_type="ReentrancyDrain",
         reasoning_trace="Test trace",
         attack_vector="test vector"
     )
+    if generated_token_ids is None:
+        generated_token_ids = [101, 102, 103]
     return RLVRTrajectory(
         trajectory_id=traj_id,
         candidate_id=candidate_id,
@@ -49,6 +56,11 @@ def make_valid_trajectory(
         replay_status=replay_status,
         is_finalized=is_finalized,
         dataset_split=dataset_split,
+        dataset_partition=dataset_partition,
+        is_synthetic=is_synthetic,
+        trainable=trainable,
+        token_provenance=token_provenance,
+        generated_token_ids=generated_token_ids,
         feedback_trace="execution feedback"
     )
 

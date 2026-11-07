@@ -475,11 +475,11 @@ def diagnostic_grpo_forward_remote(
     )
     model.eval()
 
-    # Load trajectories with strict allowlist
-    traj_records = load_trajectories_from_directory(
+    # Load trajectories with strict production allowlist and exact token lineage (Round 5.4)
+    from core.grpo_trainer import load_production_trajectories
+    traj_records = load_production_trajectories(
         config.TRAJECTORY_DIR,
-        target_split="train",
-        target_partition="production"
+        target_split="train"
     )
     if not traj_records:
         return {
@@ -557,9 +557,20 @@ def train_grpo_remote(
     import os
     import torch
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+    # FAIL-CLOSED SECURITY GATE (Round 5.4)
+    # Strictly prevents direct remote invocation when TRAINING_STATUS = BLOCKED
+    training_status = os.environ.get("TRAINING_STATUS", "BLOCKED")
+    if training_status == "BLOCKED" or getattr(config, "TRAINING_BLOCKED", True):
+        raise RuntimeError(
+            "FAIL-CLOSED SECURITY GATE: TRAINING_STATUS = BLOCKED. "
+            "Direct remote invocation of train_grpo_remote is strictly prohibited by AI Supervisor. "
+            "Optimizer step, weight updates, and checkpoint writes are blocked."
+        )
+
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from core.grpo_trainer import (
-        load_trajectories_from_directory,
+        load_production_trajectories,
         group_rollouts_by_prompt,
         setup_lora_model,
         train_grpo_epochs,
@@ -567,8 +578,8 @@ def train_grpo_remote(
     )
 
     print(f"\n[*] Starting GRPO LoRA Policy Optimization on Modal GPU for: {model_id}")
-    trajectories = load_trajectories_from_directory(config.TRAJECTORY_DIR)
-    print(f"[*] Loaded {len(trajectories)} raw trajectory records from {config.TRAJECTORY_DIR}")
+    trajectories = load_production_trajectories(config.TRAJECTORY_DIR, target_split="train")
+    print(f"[*] Loaded {len(trajectories)} verified production trajectory records from {config.TRAJECTORY_DIR}")
 
     groups = group_rollouts_by_prompt(trajectories, group_size=batch_group_size)
     print(f"[*] Formed {len(groups)} GRPO candidate rollout groups with normalized advantages.")

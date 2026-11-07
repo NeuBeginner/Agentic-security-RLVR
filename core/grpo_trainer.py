@@ -3,6 +3,7 @@ import math
 import uuid
 import json
 import hashlib
+import time
 from typing import List, Dict, Any, Optional, Tuple
 import torch
 import torch.nn.functional as F
@@ -277,6 +278,14 @@ def group_rollouts_by_prompt(
         if "INFRA_ERROR" in cat:
             continue
 
+        # Defense-in-depth: exclude synthetic controls and non-trainable/unfinalized rollouts (Round 5.4)
+        if r.get("is_synthetic") is True:
+            continue
+        if r.get("trainable") is False:
+            continue
+        if r.get("is_finalized") is False:
+            continue
+
         target_name = r.get("target_name", "target")
         prompt_used = r.get("prompt_used", "")
         model_id = r.get("model_id", "default")
@@ -368,18 +377,178 @@ def group_rollouts_by_prompt(
     return groups
 
 
+def evaluate_trajectory_eligibility(
+    raw_data: Any,
+    seen_trajectory_ids: Optional[set] = None,
+    seen_candidate_ids: Optional[set] = None,
+    require_exact_tokens: bool = True,
+    target_partition: str = "production",
+    target_split: str = "train"
+) -> Dict[str, Any]:
+    """
+    Unified validation and eligibility evaluator for both the GRPO data loader
+    and the read-only storage audit (Round 5.4).
+    
+    CRITICAL POLICY:
+    Performs raw JSON inspection BEFORE schema instantiation to prevent Pydantic defaults
+    from fabricating eligibility on legacy or unprovenanced records.
+    """
+    if not isinstance(raw_data, dict):
+        return {
+            "is_eligible": False,
+            "rejection_reason": "raw_data_not_a_dict",
+            "schema_valid": False,
+            "schema_error": f"Expected dict, got {type(raw_data).__name__}",
+            "exact_token_eligible": False,
+            "raw_inspection": {},
+            "trajectory": None
+        }
+
+    raw_part = raw_data.get("dataset_partition")
+    raw_synth = raw_data.get("is_synthetic")
+    raw_train = raw_data.get("trainable")
+    raw_fin = raw_data.get("is_finalized")
+    raw_prov = raw_data.get("token_provenance")
+    raw_split = raw_data.get("dataset_split")
+    raw_cat = raw_data.get("category")
+    raw_tok_ids = raw_data.get("generated_token_ids")
+    raw_traj_id = raw_data.get("trajectory_id")
+    raw_cand_id = raw_data.get("candidate_id")
+
+    has_tok_ids = raw_tok_ids is not None and isinstance(raw_tok_ids, list)
+    tok_ids_len = len(raw_tok_ids) if has_tok_ids else 0
+    valid_tok_types = (
+        has_tok_ids and tok_ids_len > 0 and 
+        all(isinstance(t, int) and not isinstance(t, bool) and t >= 0 for t in raw_tok_ids)
+    )
+
+    prompt_text = raw_data.get("prompt_used", "")
+    prompt_hash = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest() if prompt_text else None
+    completion_text = raw_data.get("full_completion_text", raw_data.get("raw_model_response", ""))
+    exploit_text = raw_data.get("generated_exploit", "")
+    exploit_hash = hashlib.sha256(exploit_text.encode("utf-8")).hexdigest() if exploit_text else None
+
+    raw_inspection = {
+        "trajectory_id": raw_traj_id,
+        "candidate_id": raw_cand_id,
+        "raw_partition": raw_part,
+        "raw_synthetic": raw_synth,
+        "raw_trainable": raw_train,
+        "raw_finalized": raw_fin,
+        "raw_token_provenance": raw_prov,
+        "raw_dataset_split": raw_split,
+        "raw_category": str(raw_cat) if raw_cat is not None else None,
+        "token_ids_present": has_tok_ids,
+        "token_ids_len": tok_ids_len,
+        "token_ids_valid_types": valid_tok_types,
+        "prompt_sha256": prompt_hash,
+        "prompt_len": len(prompt_text) if prompt_text else 0,
+        "completion_len": len(completion_text) if completion_text else 0,
+        "exploit_sha256": exploit_hash,
+        "exploit_len": len(exploit_text) if exploit_text else 0
+    }
+
+    # Step 1: Check mandatory raw JSON fields presence BEFORE Pydantic schema
+    raw_missing_reason = None
+    if "trajectory_id" not in raw_data or not str(raw_traj_id or "").strip():
+        raw_missing_reason = "missing_raw_trajectory_id"
+    elif "candidate_id" not in raw_data or not str(raw_cand_id or "").strip():
+        raw_missing_reason = "missing_raw_candidate_id"
+    elif "dataset_partition" not in raw_data:
+        raw_missing_reason = "missing_raw_dataset_partition"
+    elif "is_synthetic" not in raw_data:
+        raw_missing_reason = "missing_raw_is_synthetic"
+    elif "trainable" not in raw_data:
+        raw_missing_reason = "missing_raw_trainable"
+    elif "is_finalized" not in raw_data:
+        raw_missing_reason = "missing_raw_is_finalized"
+    elif "token_provenance" not in raw_data:
+        raw_missing_reason = "missing_raw_token_provenance"
+    elif "generated_token_ids" not in raw_data:
+        raw_missing_reason = "missing_raw_generated_token_ids"
+    elif "dataset_split" not in raw_data:
+        raw_missing_reason = "missing_raw_dataset_split"
+    elif "category" not in raw_data:
+        raw_missing_reason = "missing_raw_category"
+
+    # Step 2: Validate Pydantic schema
+    schema_valid = False
+    schema_error = None
+    traj_obj = None
+    try:
+        traj_obj = RLVRTrajectory(**raw_data)
+        schema_valid = True
+    except Exception as exc:
+        schema_valid = False
+        schema_error = f"{type(exc).__name__}: {str(exc)}"
+
+    # Step 3: Determine training eligibility
+    rejection_reason = None
+    if raw_missing_reason is not None:
+        rejection_reason = raw_missing_reason
+    elif not schema_valid:
+        rejection_reason = f"schema_validation_error: {schema_error}"
+    else:
+        # Check domain eligibility criteria
+        if traj_obj.category == ResultCategory.INFRA_ERROR or str(raw_cat).endswith("INFRA_ERROR"):
+            rejection_reason = "infra_error_category"
+        elif raw_fin is not True or traj_obj.is_finalized is not True:
+            rejection_reason = "unfinalized_trajectory"
+        elif raw_synth is not False or traj_obj.is_synthetic is not False:
+            rejection_reason = "synthetic_trajectory"
+        elif raw_part != target_partition or traj_obj.dataset_partition != target_partition:
+            rejection_reason = f"partition_mismatch_{raw_part}"
+        elif raw_train is not True or traj_obj.trainable is not True:
+            rejection_reason = "non_trainable"
+        elif raw_split != target_split or traj_obj.dataset_split != target_split:
+            rejection_reason = f"split_mismatch_{raw_split}"
+        elif require_exact_tokens:
+            if raw_prov != "model_generate" or traj_obj.token_provenance != "model_generate":
+                rejection_reason = f"token_provenance_not_model_generate_{raw_prov}"
+            elif raw_tok_ids is None or traj_obj.generated_token_ids is None:
+                rejection_reason = "missing_generated_token_ids"
+            elif not isinstance(raw_tok_ids, list) or len(raw_tok_ids) == 0:
+                rejection_reason = "empty_generated_token_ids"
+            elif not valid_tok_types:
+                rejection_reason = "invalid_token_id_types"
+
+        # Check deduplication
+        if rejection_reason is None:
+            if seen_trajectory_ids is not None and traj_obj.trajectory_id in seen_trajectory_ids:
+                rejection_reason = "duplicate_trajectory_id"
+            elif seen_candidate_ids is not None and traj_obj.candidate_id and traj_obj.candidate_id in seen_candidate_ids:
+                rejection_reason = "duplicate_candidate_id"
+
+    is_eligible = (rejection_reason is None)
+    exact_token_eligible = (
+        is_eligible and 
+        raw_prov == "model_generate" and 
+        valid_tok_types
+    )
+
+    return {
+        "is_eligible": is_eligible,
+        "rejection_reason": rejection_reason,
+        "schema_valid": schema_valid,
+        "schema_error": schema_error,
+        "exact_token_eligible": exact_token_eligible,
+        "raw_inspection": raw_inspection,
+        "trajectory": traj_obj if schema_valid else None
+    }
+
+
 def load_trajectories_from_directory(
     trajectory_dir: str,
     target_split: str = "train",
     target_partition: str = "production",
-    require_exact_tokens: bool = False
+    require_exact_tokens: bool = True
 ) -> List[Dict[str, Any]]:
     """
     Loads, schema-validates, and deduplicates JSON trajectory files from the persistent volume.
     
-    CRITICAL POLICIES (ROUND 4 & ROUND 5.2):
+    CRITICAL POLICIES (ROUND 4 & ROUND 5.4):
     1. Schema & Invariant Validation: Validates records using RLVRTrajectory. Inconsistent or unfinalized records are rejected.
-    2. Strict Production Allowlist (Round 5.2 Blocker 3):
+    2. Strict Production Allowlist (Round 5.2 / Round 5.4):
        - Only records with dataset_partition == target_partition ('production')
        - is_synthetic MUST be False
        - trainable MUST be True
@@ -387,9 +556,10 @@ def load_trajectories_from_directory(
        - dataset_split MUST match target_split
     3. Fail-Closed on Missing / Inconsistent Provenance:
        - Records with unknown partition or synthetic origin are strictly excluded from production training.
-    4. Token Provenance Integrity (Round 5.2 Blocker 1 & 2):
-       - If require_exact_tokens is True, requires token_provenance == 'model_generate' and valid generated_token_ids.
-       - External API records marked 'external_text_only' cannot enter exact-lineage GRPO training.
+       - Missing fields in raw JSON are NEVER populated by schema defaults.
+    4. Exact Token Lineage is MANDATORY by default (Round 5.4):
+       - Default require_exact_tokens=True enforces token_provenance == 'model_generate' and valid generated_token_ids.
+       - External API records marked 'external_text_only' cannot enter GRPO training.
     5. Deduplication: Tracks seen candidate_id and trajectory_id to guarantee no duplicate ingestion.
     """
     records = []
@@ -406,132 +576,215 @@ def load_trajectories_from_directory(
                 with open(fpath, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                # Fail-closed check for missing provenance fields in raw data
-                if "dataset_partition" not in data or "is_synthetic" not in data:
-                    continue
+                eval_res = evaluate_trajectory_eligibility(
+                    raw_data=data,
+                    seen_trajectory_ids=seen_trajectory_ids,
+                    seen_candidate_ids=seen_candidate_ids,
+                    require_exact_tokens=require_exact_tokens,
+                    target_partition=target_partition,
+                    target_split=target_split
+                )
 
-                # 1. Schema and Invariant Validation
-                traj = RLVRTrajectory(**data)
-
-                # 2. Must be finalized before entering GRPO
-                if not traj.is_finalized:
-                    continue
-
-                # 3. Strict Partition Allowlist & Synthetic Isolation (Round 5.2)
-                if traj.dataset_partition != target_partition:
-                    continue
-                if traj.is_synthetic is True:
-                    continue
-                if traj.trainable is not True:
-                    continue
-
-                # 4. Dataset split isolation (train vs val/holdout)
-                if traj.dataset_split != target_split:
-                    continue
-
-                # 5. Strictly exclude infrastructure errors
-                if traj.category == ResultCategory.INFRA_ERROR:
-                    continue
-
-                # 6. Exact Token Lineage Check (Round 5.2 Blocker 1)
-                if require_exact_tokens:
-                    if traj.token_provenance != "model_generate":
-                        continue
-                    if not traj.generated_token_ids or len(traj.generated_token_ids) == 0:
-                        continue
-
-                # 7. Deduplication check
-                if traj.trajectory_id in seen_trajectory_ids:
-                    continue
-                if traj.candidate_id and traj.candidate_id in seen_candidate_ids:
-                    continue
-
-                seen_trajectory_ids.add(traj.trajectory_id)
-                if traj.candidate_id:
-                    seen_candidate_ids.add(traj.candidate_id)
-
-                records.append(traj.model_dump())
-            except Exception as e:
+                if eval_res["is_eligible"] and eval_res["trajectory"] is not None:
+                    seen_trajectory_ids.add(eval_res["trajectory"].trajectory_id)
+                    if eval_res["trajectory"].candidate_id:
+                        seen_candidate_ids.add(eval_res["trajectory"].candidate_id)
+                    records.append(eval_res["trajectory"].model_dump())
+            except Exception:
                 # Malformed or inconsistent trajectory rejected (fail closed)
                 pass
 
     return records
 
 
+def load_production_trajectories(
+    trajectory_dir: str,
+    target_split: str = "train"
+) -> List[Dict[str, Any]]:
+    """
+    Strict production entrypoint for GRPO training (Round 5.4).
+    Enforces target_partition='production' and require_exact_tokens=True fail-closed.
+    """
+    return load_trajectories_from_directory(
+        trajectory_dir=trajectory_dir,
+        target_split=target_split,
+        target_partition="production",
+        require_exact_tokens=True
+    )
+
+
+def legacy_load_trajectories_for_inspection(
+    trajectory_dir: str,
+    target_split: str = "train",
+    target_partition: str = "production"
+) -> List[Dict[str, Any]]:
+    """
+    LEGACY READ-ONLY INSPECTION LOADER (Round 5.4).
+    STRICTLY PROHIBITED FROM USE IN GRPO TRAINING PATHWAY.
+    Use only for post-mortem analysis, historical comparison, or legacy data exploration.
+    """
+    return load_trajectories_from_directory(
+        trajectory_dir=trajectory_dir,
+        target_split=target_split,
+        target_partition=target_partition,
+        require_exact_tokens=False
+    )
+
+
 def audit_trajectory_storage(trajectory_dir: str) -> Dict[str, Any]:
     """
-    Performs a strict read-only audit of existing trajectories in the specified directory (Round 5.2).
+    Performs a strict read-only audit of existing trajectories in the specified directory (Round 5.4).
+    Inspects raw JSON before schema validation to prevent schema default fabrication.
     Does NOT alter, migrate, or delete any existing trajectory files.
     """
     report: Dict[str, Any] = {
         "trajectory_dir": trajectory_dir,
         "total_files": 0,
-        "valid_schema_count": 0,
+        "json_parse_valid_count": 0,
+        "json_parse_error_count": 0,
+        "schema_valid_count": 0,
         "malformed_count": 0,
+        "loader_eligible_count": 0,
+        "exact_token_eligible_count": 0,
+        "production_eligible_for_grpo": 0,
+        "rejected_count": 0,
+        "rejection_reasons": {},
         "by_partition": {"production": 0, "synthetic_control": 0, "test": 0, "missing_or_other": 0},
-        "by_synthetic": {"synthetic": 0, "non_synthetic": 0},
-        "by_trainable": {"trainable": 0, "non_trainable": 0},
+        "by_synthetic": {"synthetic": 0, "non_synthetic": 0, "missing": 0},
+        "by_trainable": {"trainable": 0, "non_trainable": 0, "missing": 0},
         "by_token_provenance": {"model_generate": 0, "external_text_only": 0, "synthetic": 0, "missing": 0},
         "by_category": {},
-        "production_eligible_for_grpo": 0,
-        "audit_timestamp": time.time() if "time" in globals() else 0.0
+        "file_records": [],
+        "audit_timestamp": time.time()
     }
-    import time
-    report["audit_timestamp"] = time.time()
 
     if not os.path.exists(trajectory_dir):
         return report
+
+    audit_seen_trajs = set()
+    audit_seen_cands = set()
 
     for fname in sorted(os.listdir(trajectory_dir)):
         if fname.endswith(".json") and fname.startswith("traj_"):
             report["total_files"] += 1
             fpath = os.path.join(trajectory_dir, fname)
+            raw_data = None
             try:
                 with open(fpath, "r", encoding="utf-8") as f:
                     raw_data = json.load(f)
-
-                part = raw_data.get("dataset_partition", "missing_or_other")
-                if part in report["by_partition"]:
-                    report["by_partition"][part] += 1
-                else:
-                    report["by_partition"]["missing_or_other"] += 1
-
-                is_syn = raw_data.get("is_synthetic", False)
-                if is_syn:
-                    report["by_synthetic"]["synthetic"] += 1
-                else:
-                    report["by_synthetic"]["non_synthetic"] += 1
-
-                is_tr = raw_data.get("trainable", True)
-                if is_tr:
-                    report["by_trainable"]["trainable"] += 1
-                else:
-                    report["by_trainable"]["non_trainable"] += 1
-
-                tok_prov = raw_data.get("token_provenance", "missing")
-                if tok_prov in report["by_token_provenance"]:
-                    report["by_token_provenance"][tok_prov] += 1
-                else:
-                    report["by_token_provenance"]["missing"] += 1
-
-                cat_str = str(raw_data.get("category", "UNKNOWN"))
-                report["by_category"][cat_str] = report["by_category"].get(cat_str, 0) + 1
-
-                # Validate with schema
-                traj = RLVRTrajectory(**raw_data)
-                report["valid_schema_count"] += 1
-
-                # Check if would pass production loader
-                if (traj.dataset_partition == "production" and 
-                    not traj.is_synthetic and 
-                    traj.trainable and 
-                    traj.is_finalized and 
-                    traj.category != ResultCategory.INFRA_ERROR):
-                    report["production_eligible_for_grpo"] += 1
-
+                report["json_parse_valid_count"] += 1
             except Exception as e:
+                report["json_parse_error_count"] += 1
+                report["malformed_count"] += 1
+                report["rejected_count"] += 1
+                report["by_partition"]["missing_or_other"] += 1
+                report["by_synthetic"]["missing"] += 1
+                report["by_trainable"]["missing"] += 1
+                report["by_token_provenance"]["missing"] += 1
+                cat_str = "MALFORMED_JSON"
+                report["by_category"][cat_str] = report["by_category"].get(cat_str, 0) + 1
+                reason = f"json_parse_error: {type(e).__name__}"
+                report["rejection_reasons"][reason] = report["rejection_reasons"].get(reason, 0) + 1
+                report["file_records"].append({
+                    "filename": fname,
+                    "trajectory_id": None,
+                    "candidate_id": None,
+                    "json_parse_valid": False,
+                    "schema_valid": False,
+                    "is_eligible": False,
+                    "exact_token_eligible": False,
+                    "rejection_reason": reason
+                })
+                continue
+
+            # RAW stats aggregation
+            raw_part = raw_data.get("dataset_partition") if isinstance(raw_data, dict) else None
+            if raw_part in ("production", "synthetic_control", "test"):
+                report["by_partition"][raw_part] += 1
+            else:
+                report["by_partition"]["missing_or_other"] += 1
+
+            raw_synth = raw_data.get("is_synthetic") if isinstance(raw_data, dict) else None
+            if raw_synth is True:
+                report["by_synthetic"]["synthetic"] += 1
+            elif raw_synth is False:
+                report["by_synthetic"]["non_synthetic"] += 1
+            else:
+                report["by_synthetic"]["missing"] += 1
+
+            raw_train = raw_data.get("trainable") if isinstance(raw_data, dict) else None
+            if raw_train is True:
+                report["by_trainable"]["trainable"] += 1
+            elif raw_train is False:
+                report["by_trainable"]["non_trainable"] += 1
+            else:
+                report["by_trainable"]["missing"] += 1
+
+            raw_prov = raw_data.get("token_provenance") if isinstance(raw_data, dict) else None
+            if raw_prov in ("model_generate", "external_text_only", "synthetic"):
+                report["by_token_provenance"][raw_prov] += 1
+            else:
+                report["by_token_provenance"]["missing"] += 1
+
+            cat_str = str(raw_data.get("category", "UNKNOWN")) if isinstance(raw_data, dict) else "UNKNOWN"
+            report["by_category"][cat_str] = report["by_category"].get(cat_str, 0) + 1
+
+            # Unified eligibility evaluation (Round 5.4)
+            eval_res = evaluate_trajectory_eligibility(
+                raw_data=raw_data,
+                seen_trajectory_ids=audit_seen_trajs,
+                seen_candidate_ids=audit_seen_cands,
+                require_exact_tokens=True,
+                target_partition="production",
+                target_split="train"
+            )
+
+            if eval_res["schema_valid"]:
+                report["schema_valid_count"] += 1
+            else:
                 report["malformed_count"] += 1
 
+            if eval_res["is_eligible"]:
+                report["loader_eligible_count"] += 1
+                if eval_res["trajectory"] is not None:
+                    audit_seen_trajs.add(eval_res["trajectory"].trajectory_id)
+                    if eval_res["trajectory"].candidate_id:
+                        audit_seen_cands.add(eval_res["trajectory"].candidate_id)
+            else:
+                report["rejected_count"] += 1
+                rej_reason = eval_res["rejection_reason"] or "unknown_rejection"
+                report["rejection_reasons"][rej_reason] = report["rejection_reasons"].get(rej_reason, 0) + 1
+
+            if eval_res["exact_token_eligible"]:
+                report["exact_token_eligible_count"] += 1
+
+            # Safe file record (NO raw prompts, completions, or exploit code)
+            safe_rec = {
+                "filename": fname,
+                "trajectory_id": eval_res["raw_inspection"].get("trajectory_id"),
+                "candidate_id": eval_res["raw_inspection"].get("candidate_id"),
+                "json_parse_valid": True,
+                "schema_valid": eval_res["schema_valid"],
+                "is_eligible": eval_res["is_eligible"],
+                "exact_token_eligible": eval_res["exact_token_eligible"],
+                "rejection_reason": eval_res["rejection_reason"],
+                "raw_partition": eval_res["raw_inspection"].get("raw_partition"),
+                "raw_synthetic": eval_res["raw_inspection"].get("raw_synthetic"),
+                "raw_trainable": eval_res["raw_inspection"].get("raw_trainable"),
+                "raw_finalized": eval_res["raw_inspection"].get("raw_finalized"),
+                "raw_token_provenance": eval_res["raw_inspection"].get("raw_token_provenance"),
+                "token_ids_present": eval_res["raw_inspection"].get("token_ids_present"),
+                "token_ids_len": eval_res["raw_inspection"].get("token_ids_len"),
+                "prompt_sha256": eval_res["raw_inspection"].get("prompt_sha256"),
+                "prompt_len": eval_res["raw_inspection"].get("prompt_len"),
+                "completion_len": eval_res["raw_inspection"].get("completion_len"),
+                "exploit_sha256": eval_res["raw_inspection"].get("exploit_sha256"),
+                "exploit_len": eval_res["raw_inspection"].get("exploit_len")
+            }
+            report["file_records"].append(safe_rec)
+
+    report["valid_schema_count"] = report["schema_valid_count"]
+    report["production_eligible_for_grpo"] = report["loader_eligible_count"]
     return report
 
 
@@ -607,6 +860,16 @@ def train_grpo_epochs(
        activating PPO clipping and reference KL regularization.
     3. Accumulates gradients with micro-batching across each candidate in the group.
     """
+    # FAIL-CLOSED SECURITY GATE (Round 5.4)
+    # Strictly prevents execution if training status is BLOCKED
+    training_status = os.environ.get("TRAINING_STATUS", "BLOCKED")
+    if training_status == "BLOCKED" or getattr(config, "TRAINING_BLOCKED", True):
+        raise RuntimeError(
+            "FAIL-CLOSED SECURITY GATE: TRAINING_STATUS = BLOCKED. "
+            "GRPO policy gradient updates and optimizer.step() are strictly prohibited by AI Supervisor. "
+            "Execution aborted fail-closed."
+        )
+
     all_step_stats: List[GRPOTrainingStepStats] = []
     if not groups:
         return all_step_stats

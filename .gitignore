@@ -1,9 +1,12 @@
-__pycache__/
+﻿__pycache__/
 *.py[cod]
-*$py.class
+*.class
 .pytest_cache/
 .env
 .venv
 env/
 venv/
 *.log
+checkpoints_local/
+*.safetensors
+*.paper
