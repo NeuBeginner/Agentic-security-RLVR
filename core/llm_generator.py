@@ -13,7 +13,7 @@ import json
 from typing import List, Optional, Dict, Any, Tuple
 from enum import Enum
 from dataclasses import dataclass
-from core.schemas import TargetProgram, AttackHypothesis, ExploitPayload
+from core.schemas import TargetProgram, AttackHypothesis, ExploitPayload, VulnerabilityHypothesis
 from core.config import config
 
 
@@ -75,10 +75,16 @@ Output your findings as a valid JSON array of objects.
 """
 
 
-def build_analysis_prompt(target: TargetProgram, hypothesis: Optional[AttackHypothesis] = None) -> str:
+def build_analysis_prompt(
+    target: TargetProgram,
+    hypothesis: Optional[Any] = None,
+    previous_failures: Optional[List[Dict[str, Any]]] = None
+) -> str:
     """
     Target-agnostic prompt for exploit synthesis.
-    Integrates Slither static analysis findings and formal invariants without hardcoded contract names.
+    Integrates Slither static analysis findings, formal invariants, and structured
+    hypotheses from the HypothesisManager without hardcoded contract names.
+    Includes failure feedback from previous candidate rounds to guide strategy mutation.
     """
     invariants_text = "\n".join(f"- {inv}" for inv in target.invariants) if target.invariants else "- Depositor equity & solvency"
     
@@ -92,12 +98,41 @@ def build_analysis_prompt(target: TargetProgram, hypothesis: Optional[AttackHypo
 
     hypothesis_context = ""
     if hypothesis:
-        hypothesis_context = f"""
+        if isinstance(hypothesis, VulnerabilityHypothesis):
+            seq_str = "\n".join(f"  {i+1}. {step}" for i, step in enumerate(hypothesis.attack_sequence))
+            pre_str = ", ".join(hypothesis.attack_preconditions) if hypothesis.attack_preconditions else "None"
+            hypothesis_context = f"""
+Auditor Finding Hypothesis ({hypothesis.vulnerability_class} - {hypothesis.severity} Severity):
+- Vulnerability Class : {hypothesis.vulnerability_class}
+- Affected Contract   : {hypothesis.affected_contract}
+- Affected Function   : {hypothesis.affected_function or 'Not specified'}
+- Preconditions       : {pre_str}
+- Attack Strategy Steps:
+{seq_str}
+- Expected Invariant  : {hypothesis.expected_invariant}
+"""
+        elif isinstance(hypothesis, AttackHypothesis):
+            hypothesis_context = f"""
 Auditor Finding Hypothesis:
 - Vulnerability Type: {hypothesis.vulnerability_type}
 - Attack Vector     : {hypothesis.attack_vector}
 - Analysis Trace    : {hypothesis.reasoning_trace}
 """
+        elif isinstance(hypothesis, dict):
+            hypothesis_context = f"""
+Auditor Finding Hypothesis:
+- Vulnerability Type: {hypothesis.get('vulnerability_type') or hypothesis.get('vulnerability_class', 'Unknown')}
+- Attack Vector     : {hypothesis.get('attack_vector', '')}
+- Analysis Trace    : {hypothesis.get('reasoning_trace', '')}
+"""
+
+    failure_context = ""
+    if previous_failures:
+        failure_lines = [
+            f"- Candidate {f.get('candidate_id', 'unknown')}: [{f.get('category')}] {f.get('feedback', '')[:150]}"
+            for f in previous_failures[:3]
+        ]
+        failure_context = "\nPREVIOUS FAILED CANDIDATES (DO NOT REPEAT THESE MISTAKES):\n" + "\n".join(failure_lines) + "\n"
 
     return f"""Target Contract File: src/{target.name}.sol
 Target Contract Name: {target.name}
@@ -105,7 +140,7 @@ Language: Solidity 0.8.20
 
 Security Invariants Being Tested:
 {invariants_text}
-{slither_context}{hypothesis_context}
+{slither_context}{hypothesis_context}{failure_context}
 Target Contract Source Code:
 ```solidity
 {target.source_code}
@@ -710,19 +745,20 @@ def parse_model_response(
 
 def synthesize_exploit_gemini(
     target: TargetProgram,
-    hypothesis: Optional[AttackHypothesis] = None,
-    api_key: Optional[str] = None
+    hypothesis: Optional[Any] = None,
+    api_key: Optional[str] = None,
+    previous_failures: Optional[List[Dict[str, Any]]] = None
 ) -> ExploitPayload:
     """
     Synthesizes candidate ExploitModule using Gemini Flash frontier reasoning API.
-    Direct integration via google-genai SDK.
+    Direct integration via google-genai SDK with structured hypothesis priming.
     """
     from google import genai
     
     key = api_key or config.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY", "")
     client = genai.Client(api_key=key) if key else genai.Client()
     
-    prompt = build_analysis_prompt(target, hypothesis)
+    prompt = build_analysis_prompt(target, hypothesis=hypothesis, previous_failures=previous_failures)
     response = client.models.generate_content(
         model=config.GEMINI_MODEL,
         contents=prompt,
@@ -730,4 +766,12 @@ def synthesize_exploit_gemini(
     )
     payload = parse_model_response(target, response.text or "", prompt_text=prompt)
     payload.generator_engine = "gemini-flash"
+    if isinstance(hypothesis, VulnerabilityHypothesis):
+        payload.hypothesis = AttackHypothesis(
+            vulnerability_type=hypothesis.vulnerability_class,
+            reasoning_trace=f"Target: {hypothesis.affected_contract}, Function: {hypothesis.affected_function or 'all'}. Preconditions: {hypothesis.attack_preconditions}",
+            attack_vector=" -> ".join(hypothesis.attack_sequence) if hypothesis.attack_sequence else "Standard exploit sequence",
+            affected_functions=[hypothesis.affected_function] if hypothesis.affected_function else [],
+            confidence_score=hypothesis.confidence
+        )
     return payload

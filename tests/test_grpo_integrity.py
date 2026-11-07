@@ -171,3 +171,63 @@ def test_empty_completion_and_truncation():
         max_seq_len=10
     )
     assert input_ids_tr.shape[1] <= 10
+
+
+# =============================================================================
+# STAGE 4: GRPO GROUP INTEGRITY & HYPERPARAMETER ISOLATION TESTS
+# =============================================================================
+
+def test_group_key_temperature_and_top_p_isolation():
+    """Different sampling temperatures and top-p values must yield distinct GRPO keys."""
+    prompt = "Verify Vault solvency"
+    key_t07 = make_group_key("Vault", prompt, temperature=0.7, top_p=0.95)
+    key_t10 = make_group_key("Vault", prompt, temperature=1.0, top_p=0.95)
+    key_p90 = make_group_key("Vault", prompt, temperature=0.7, top_p=0.90)
+
+    assert key_t07 != key_t10
+    assert key_t07 != key_p90
+    assert "t_0.700" in key_t07
+    assert "t_1.000" in key_t10
+
+
+def test_group_key_system_prompt_isolation():
+    """Different system prompts must yield distinct GRPO keys."""
+    prompt = "Verify Vault solvency"
+    key_sys1 = make_group_key("Vault", prompt, system_prompt="You are an expert security auditor.")
+    key_sys2 = make_group_key("Vault", prompt, system_prompt="You are an aggressive white-hat exploiter.")
+    key_nosys = make_group_key("Vault", prompt, system_prompt=None)
+
+    assert key_sys1 != key_sys2
+    assert key_sys1 != key_nosys
+    assert key_sys2 != key_nosys
+
+
+def test_group_key_generation_params_and_reward_version_isolation():
+    """Distinct generation parameters and reward specification versions must not be grouped together."""
+    prompt = "Verify Vault solvency"
+    key_v1 = make_group_key("Vault", prompt, reward_spec_version="v1")
+    key_v2 = make_group_key("Vault", prompt, reward_spec_version="v2")
+    assert key_v1 != key_v2
+    assert "v1" in key_v1
+    assert "v2" in key_v2
+
+    key_gen1 = make_group_key("Vault", prompt, generation_params={"seed": 42, "max_tokens": 512})
+    key_gen2 = make_group_key("Vault", prompt, generation_params={"seed": 999, "max_tokens": 512})
+    assert key_gen1 != key_gen2
+
+
+def test_group_rollouts_isolates_incompatible_generation_conditions():
+    """Rollouts generated under different temperatures must never be merged into the same GRPOGroup."""
+    prompt = "Shared audit prompt"
+    rollouts = [
+        # 2 rollouts at temperature 0.7
+        {"target_name": "Vault", "prompt_used": prompt, "reward": 0.5, "category": "RUNTIME_REVERT", "temperature": 0.7},
+        {"target_name": "Vault", "prompt_used": prompt, "reward": -0.2, "category": "RUNTIME_REVERT", "temperature": 0.7},
+        # 2 rollouts at temperature 1.0
+        {"target_name": "Vault", "prompt_used": prompt, "reward": 0.8, "category": "RUNTIME_REVERT", "temperature": 1.0},
+        {"target_name": "Vault", "prompt_used": prompt, "reward": -0.5, "category": "RUNTIME_REVERT", "temperature": 1.0},
+    ]
+    groups = group_rollouts_by_prompt(rollouts, group_size=2)
+    assert len(groups) == 2
+    # Verify the two groups are separate
+    assert groups[0].group_id != groups[1].group_id

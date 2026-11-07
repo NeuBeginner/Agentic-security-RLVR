@@ -1,0 +1,254 @@
+{
+  "benchmark_version": "1.0.0",
+  "total_targets": 16,
+  "vulnerable_targets_count": 12,
+  "synthetic_controls_count": 4,
+  "classes": [
+    {
+      "class_id": 1,
+      "class_name": "Reentrancy",
+      "targets": [
+        {
+          "contract_id": "REENT-01",
+          "target_name": "Vault",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["withdrawAll"],
+          "ground_truth_invariant": "DEPOSITOR_SOLVENCY_COLLAPSE",
+          "source_file": "benchmarks/targets/solidity/Vault.sol",
+          "harness_file": "benchmarks/targets/solidity/VaultHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Classic reentrancy in withdrawAll due to state update occurring after external call."
+        }
+      ]
+    },
+    {
+      "class_id": 2,
+      "class_name": "ERC4626Inflation",
+      "targets": [
+        {
+          "contract_id": "ERC4626-01",
+          "target_name": "ERC4626Vault",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["deposit", "withdraw"],
+          "ground_truth_invariant": "ERC4626_SHARE_DILUTION_OR_INFLATION",
+          "source_file": "benchmarks/targets/solidity/ERC4626Vault.sol",
+          "harness_file": "benchmarks/targets/solidity/ERC4626VaultHarness.t.sol",
+          "difficulty": "high",
+          "description": "First depositor inflation donation attack exploiting zero share rounding."
+        }
+      ]
+    },
+    {
+      "class_id": 3,
+      "class_name": "AccessControlBypass",
+      "targets": [
+        {
+          "contract_id": "AC-01",
+          "target_name": "AccessControlVault",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["setOwner"],
+          "ground_truth_invariant": "UNAUTHORIZED_ADMIN_DRAIN",
+          "source_file": "benchmarks/targets/solidity/AccessControlVault.sol",
+          "harness_file": "benchmarks/targets/solidity/AccessControlVaultHarness.t.sol",
+          "difficulty": "low",
+          "description": "Missing access control modifier in setOwner allows arbitrary caller privilege escalation."
+        }
+      ]
+    },
+    {
+      "class_id": 4,
+      "class_name": "OracleManipulation",
+      "targets": [
+        {
+          "contract_id": "ORACLE-01",
+          "target_name": "OracleLendingPool",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["borrow"],
+          "ground_truth_invariant": "ORACLE_PRICE_MANIPULATION",
+          "source_file": "benchmarks/targets/solidity/OracleLendingPool.sol",
+          "harness_file": "benchmarks/targets/solidity/OracleLendingPoolHarness.t.sol",
+          "difficulty": "high",
+          "description": "Spot price oracle without TWAP smoothing enables single-tx borrow drainage."
+        }
+      ]
+    },
+    {
+      "class_id": 5,
+      "class_name": "FlashLoanDistortion",
+      "targets": [
+        {
+          "contract_id": "FLASH-01",
+          "target_name": "FlashLoanRewardPool",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["claimReward"],
+          "ground_truth_invariant": "FLASH_LOAN_REWARD_DISTORTION",
+          "source_file": "benchmarks/targets/solidity/FlashLoanRewardPool.sol",
+          "harness_file": "benchmarks/targets/solidity/FlashLoanRewardPoolHarness.t.sol",
+          "difficulty": "high",
+          "description": "Instantaneous staking balance used for reward calculation enables flash-loan capital drain."
+        }
+      ]
+    },
+    {
+      "class_id": 6,
+      "class_name": "SignatureReplay",
+      "targets": [
+        {
+          "contract_id": "SIG-01",
+          "target_name": "SignatureReplayWallet",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["executeWithSignature"],
+          "ground_truth_invariant": "SIGNATURE_REPLAY_DRAIN",
+          "source_file": "benchmarks/targets/solidity/SignatureReplayWallet.sol",
+          "harness_file": "benchmarks/targets/solidity/SignatureReplayWalletHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Missing nonce or digest invalidation allows same signature replay across multiple transactions."
+        }
+      ]
+    },
+    {
+      "class_id": 7,
+      "class_name": "StateInconsistency",
+      "targets": [
+        {
+          "contract_id": "STATE-01",
+          "target_name": "RewardDistributorLogic",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["claimPointsReward"],
+          "ground_truth_invariant": "STATE_ACCOUNTING_INCONSISTENCY",
+          "source_file": "benchmarks/targets/solidity/RewardDistributorLogic.sol",
+          "harness_file": "benchmarks/targets/solidity/RewardDistributorLogicHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Points reward claim logic reads balance but does not decrement user balance."
+        }
+      ]
+    },
+    {
+      "class_id": 8,
+      "class_name": "BusinessLogicFlaw",
+      "targets": [
+        {
+          "contract_id": "BIZ-01",
+          "target_name": "FeeShareYieldVault",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["harvestPerformanceFee"],
+          "ground_truth_invariant": "BUSINESS_LOGIC_FEE_DRAIN",
+          "source_file": "benchmarks/targets/solidity/FeeShareYieldVault.sol",
+          "harness_file": "benchmarks/targets/solidity/FeeShareYieldVaultHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Arbitrary caller basis point fee input drains protocol yield without restriction."
+        }
+      ]
+    },
+    {
+      "class_id": 9,
+      "class_name": "LiquidationAccounting",
+      "targets": [
+        {
+          "contract_id": "LIQ-01",
+          "target_name": "LendingLiquidation",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["liquidateDefective"],
+          "ground_truth_invariant": "LIQUIDATION_ACCOUNTING_DEFECT",
+          "source_file": "benchmarks/targets/solidity/LendingLiquidation.sol",
+          "harness_file": "benchmarks/targets/solidity/LendingLiquidationHarness.t.sol",
+          "difficulty": "high",
+          "description": "Collateral seized without debt repayment during liquidation flow."
+        }
+      ]
+    },
+    {
+      "class_id": 10,
+      "class_name": "CrossContractDesync",
+      "targets": [
+        {
+          "contract_id": "BRIDGE-01",
+          "target_name": "CrossContractBridge",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["releaseBridgedTokens"],
+          "ground_truth_invariant": "CROSS_CONTRACT_DESYNCHRONIZATION",
+          "source_file": "benchmarks/targets/solidity/CrossContractBridge.sol",
+          "harness_file": "benchmarks/targets/solidity/CrossContractBridgeHarness.t.sol",
+          "difficulty": "high",
+          "description": "Bridge token release fails to sync with external credit ledger contract."
+        }
+      ]
+    },
+    {
+      "class_id": 11,
+      "class_name": "DenialOfService",
+      "targets": [
+        {
+          "contract_id": "DOS-01",
+          "target_name": "AuctionDoS",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["bid"],
+          "ground_truth_invariant": "DENIAL_OF_SERVICE_LIVENESS",
+          "source_file": "benchmarks/targets/solidity/AuctionDoS.sol",
+          "harness_file": "benchmarks/targets/solidity/AuctionDoSHarness.t.sol",
+          "difficulty": "low",
+          "description": "Push payment to previous bidder allows malicious contract to permanently stall auction."
+        }
+      ]
+    },
+    {
+      "class_id": 12,
+      "class_name": "PrecisionLoss",
+      "targets": [
+        {
+          "contract_id": "PREC-01",
+          "target_name": "PrecisionStakingPool",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["depositWithFee"],
+          "ground_truth_invariant": "PRECISION_LOSS_FEE_BYPASS",
+          "source_file": "benchmarks/targets/solidity/PrecisionStakingPool.sol",
+          "harness_file": "benchmarks/targets/solidity/PrecisionStakingPoolHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Division before multiplication rounds small fee deductions down to zero."
+        }
+      ]
+    }
+  ],
+  "synthetic_controls": [
+    {
+      "contract_id": "SAFE-01",
+      "target_name": "SecureVault",
+      "is_vulnerable": false,
+      "vulnerable_functions": [],
+      "ground_truth_invariant": "NONE",
+      "source_file": "benchmarks/targets/solidity/controls/SecureVault.sol",
+      "difficulty": "medium",
+      "description": "Safe vault protected by CEI pattern and nonReentrant modifier."
+    },
+    {
+      "contract_id": "SAFE-02",
+      "target_name": "SecureAccessControlVault",
+      "is_vulnerable": false,
+      "vulnerable_functions": [],
+      "ground_truth_invariant": "NONE",
+      "source_file": "benchmarks/targets/solidity/controls/SecureAccessControlVault.sol",
+      "difficulty": "low",
+      "description": "Safe access-controlled vault protected by onlyOwner modifier."
+    },
+    {
+      "contract_id": "SAFE-03",
+      "target_name": "SecureERC4626Vault",
+      "is_vulnerable": false,
+      "vulnerable_functions": [],
+      "ground_truth_invariant": "NONE",
+      "source_file": "benchmarks/targets/solidity/controls/SecureERC4626Vault.sol",
+      "difficulty": "high",
+      "description": "Safe ERC4626 implementation using virtual shares offset mitigation."
+    },
+    {
+      "contract_id": "SAFE-04",
+      "target_name": "SecureOraclePool",
+      "is_vulnerable": false,
+      "vulnerable_functions": [],
+      "ground_truth_invariant": "NONE",
+      "source_file": "benchmarks/targets/solidity/controls/SecureOraclePool.sol",
+      "difficulty": "high",
+      "description": "Safe lending pool using TWAP oracle and volatility guards."
+    }
+  ]
+}

@@ -22,15 +22,40 @@ def make_group_key(
     target_name: str,
     prompt_str: str,
     model_id: str = "default",
-    checkpoint_id: str = "base"
+    checkpoint_id: str = "base",
+    system_prompt: Optional[str] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    generation_params: Optional[Dict[str, Any]] = None,
+    reward_spec_version: str = "v1"
 ) -> str:
     """
-    Creates a collision-resistant, version-aware group identity (Round 4).
-    Guarantees that prompts differing after character 80 and different model/checkpoint
-    configurations are never erroneously merged into the same GRPO advantage group.
+    Creates a collision-resistant, version-aware, hyperparameter-isolated group identity (Stage 4).
+    Guarantees that incompatible generation and evaluation conditions are NEVER merged into the same GRPO group:
+    - Target contract
+    - Prompt text hash (SHA-256)
+    - System prompt hash (SHA-256)
+    - Model ID
+    - Checkpoint ID
+    - Temperature
+    - Top-P
+    - Generation hyperparameters (max_tokens, seed, etc.)
+    - Reward specification version
     """
     p_hash = compute_prompt_hash(prompt_str)
-    return f"{target_name}___{p_hash}___{model_id}___{checkpoint_id}"
+    sys_hash = compute_prompt_hash(system_prompt) if system_prompt else "no_sys"
+    temp_str = f"t_{float(temperature):.3f}" if temperature is not None else "t_default"
+    top_p_str = f"p_{float(top_p):.3f}" if top_p is not None else "p_default"
+    
+    gen_hash = "no_extra_gen"
+    if generation_params and isinstance(generation_params, dict):
+        norm_params = {str(k): v for k, v in sorted(generation_params.items()) if k not in ("temperature", "top_p")}
+        if norm_params:
+            param_json = json.dumps(norm_params, sort_keys=True, separators=(",", ":"))
+            gen_hash = hashlib.sha256(param_json.encode("utf-8")).hexdigest()[:12]
+            
+    rew_version = str(reward_spec_version or "v1").strip().lower()
+    return f"{target_name}___{p_hash}___{sys_hash}___{model_id}___{checkpoint_id}___{temp_str}___{top_p_str}___{gen_hash}___{rew_version}"
 
 
 # =============================================================================
@@ -290,8 +315,23 @@ def group_rollouts_by_prompt(
         prompt_used = r.get("prompt_used", "")
         model_id = r.get("model_id", "default")
         checkpoint_id = r.get("checkpoint_id", "base")
+        system_prompt = r.get("system_prompt")
+        temperature = r.get("temperature")
+        top_p = r.get("top_p")
+        generation_params = r.get("generation_params")
+        reward_spec_version = r.get("reward_spec_version", "v1")
 
-        key = make_group_key(target_name, prompt_used, model_id, checkpoint_id)
+        key = make_group_key(
+            target_name=target_name,
+            prompt_str=prompt_used,
+            model_id=model_id,
+            checkpoint_id=checkpoint_id,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            top_p=top_p,
+            generation_params=generation_params,
+            reward_spec_version=reward_spec_version
+        )
         if key not in buckets:
             buckets[key] = []
         buckets[key].append(r)
@@ -1002,6 +1042,135 @@ def save_lora_checkpoint(model: Any, tokenizer: Any, output_dir: str, step: int 
 # =============================================================================
 # 6. HUGGING FACE TRL INTEGRATION (Optional high-level GRPOTrainer wrapper)
 # =============================================================================
+
+class DataLeakageError(ValueError):
+    """Raised when data leakage or split isolation violation is detected."""
+    pass
+
+
+def validate_data_leakage_and_splits(
+    trajectories: List[Any],
+    raise_on_error: bool = False
+) -> Dict[str, Any]:
+    """
+    Comprehensive Data Leakage and Split Isolation Verification (Stage 3).
+    Verifies:
+    1. Protocol/Target Disjointness: Targets in 'test' and 'holdout' MUST NOT appear in 'train'.
+    2. Exploit Hash Disjointness: Exact exploit code SHA-256 must not leak across train and test.
+    3. Synthetic Control Isolation: is_synthetic=True must NEVER be in production partition or trainable.
+    4. Exact Grounding: EXPLOIT_CONFIRMED requires is_verified=True, reproduced=True, replay_status='CONFIRMED'.
+    5. Deduplication: Flags duplicate candidate/prompt pairs.
+    """
+    targets_by_split: Dict[str, Set[str]] = {"train": set(), "val": set(), "test": set(), "holdout": set(), "control": set()}
+    exploits_by_split: Dict[str, Set[str]] = {"train": set(), "val": set(), "test": set(), "holdout": set(), "control": set()}
+    violations: List[str] = []
+    seen_traj_ids: Set[str] = set()
+
+    total_records = len(trajectories)
+    synthetic_count = 0
+    trainable_count = 0
+    production_count = 0
+
+    for idx, item in enumerate(trajectories):
+        if isinstance(item, dict):
+            traj_id = item.get("trajectory_id", f"idx_{idx}")
+            target_name = item.get("target_name", "")
+            split = item.get("dataset_split", "train") or "train"
+            partition = item.get("dataset_partition")
+            is_synth = item.get("is_synthetic", False)
+            trainable = item.get("trainable", False)
+            category = item.get("category")
+            exploit_code = item.get("generated_exploit", "")
+            is_verified = item.get("is_verified", False)
+            reproduced = item.get("reproduced", False)
+            replay_status = item.get("replay_status", "NOT_ELIGIBLE")
+        else:
+            traj_id = item.trajectory_id
+            target_name = item.target_name
+            split = item.dataset_split or "train"
+            partition = item.dataset_partition
+            is_synth = item.is_synthetic
+            trainable = item.trainable
+            category = item.category
+            exploit_code = item.generated_exploit
+            is_verified = item.is_verified
+            reproduced = item.reproduced
+            replay_status = item.replay_status
+
+        # Deduplication check
+        if traj_id in seen_traj_ids:
+            violations.append(f"Duplicate trajectory_id detected: '{traj_id}'")
+        seen_traj_ids.add(traj_id)
+
+        # Track partition/synthetic
+        if is_synth:
+            synthetic_count += 1
+            if partition == "production":
+                violations.append(f"Synthetic trajectory '{traj_id}' masquerading with dataset_partition='production'")
+            if trainable is True:
+                violations.append(f"Synthetic trajectory '{traj_id}' has trainable=True")
+        if trainable:
+            trainable_count += 1
+        if partition == "production":
+            production_count += 1
+
+        # Track splits
+        split_norm = str(split).lower()
+        if split_norm not in targets_by_split:
+            targets_by_split[split_norm] = set()
+            exploits_by_split[split_norm] = set()
+
+        if target_name:
+            targets_by_split[split_norm].add(target_name)
+
+        if exploit_code and exploit_code.strip():
+            exp_hash = hashlib.sha256(exploit_code.strip().encode("utf-8")).hexdigest()
+            exploits_by_split[split_norm].add(exp_hash)
+
+        # Grounding check for confirmed exploits
+        cat_str = str(category).replace("ResultCategory.", "")
+        if cat_str == "EXPLOIT_CONFIRMED":
+            if not is_verified or not reproduced or replay_status != "CONFIRMED":
+                violations.append(
+                    f"Trajectory '{traj_id}' has EXPLOIT_CONFIRMED but failed grounding: "
+                    f"is_verified={is_verified}, reproduced={reproduced}, replay_status='{replay_status}'"
+                )
+
+    # 1. Target disjointness: train vs test/holdout
+    train_targets = targets_by_split.get("train", set())
+    test_targets = targets_by_split.get("test", set())
+    holdout_targets = targets_by_split.get("holdout", set())
+
+    test_overlap = train_targets.intersection(test_targets)
+    if test_overlap:
+        violations.append(f"Data leakage detected! Target contracts present in both 'train' and 'test': {test_overlap}")
+
+    holdout_overlap = train_targets.intersection(holdout_targets)
+    if holdout_overlap:
+        violations.append(f"Data leakage detected! Target contracts present in both 'train' and 'holdout': {holdout_overlap}")
+
+    # 2. Exploit hash disjointness: train vs test/holdout
+    train_exploits = exploits_by_split.get("train", set())
+    test_exploits = exploits_by_split.get("test", set())
+    exploit_leak = train_exploits.intersection(test_exploits)
+    if exploit_leak:
+        violations.append(f"Data leakage detected! Exploit payloads duplicated across 'train' and 'test' (hashes: {exploit_leak})")
+
+    report = {
+        "valid": len(violations) == 0,
+        "total_records": total_records,
+        "production_count": production_count,
+        "synthetic_count": synthetic_count,
+        "trainable_count": trainable_count,
+        "targets_by_split": {k: list(v) for k, v in targets_by_split.items()},
+        "violations": violations
+    }
+
+    if raise_on_error and violations:
+        raise DataLeakageError(f"Data leakage validation failed with {len(violations)} violation(s): {violations[:3]}")
+
+    return report
+
 
 def create_trl_grpo_config(
     output_dir: str = "/vol/models/checkpoints",

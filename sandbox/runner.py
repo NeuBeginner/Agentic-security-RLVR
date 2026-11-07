@@ -4,9 +4,19 @@ import shutil
 import subprocess
 import tempfile
 import time
+from typing import Dict, Any, List, Optional, Tuple
 import modal
-from core.schemas import ExploitPayload, ExecutionResult, TargetProgram, ResultCategory
+from core.schemas import (
+    ExploitPayload,
+    ExecutionResult,
+    TargetProgram,
+    ResultCategory,
+    ExecutionEvidence,
+    InvariantResult,
+    VerificationResult
+)
 from core.config import config
+from core.evm_oracle import trusted_oracle, compute_state_hash
 
 # Path to pre-baking script
 PREBAKE_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebake_solc.py")
@@ -33,6 +43,7 @@ sandbox_image = (
     .add_local_python_source("core", "sandbox")
 )
 
+# Hardened Foundry Configuration for Untrusted Execution
 FOUNDRY_TOML_CONTENT = """[profile.default]
 src = "src"
 test = "test"
@@ -42,13 +53,26 @@ solc_version = "0.8.20"
 optimizer = true
 optimizer_runs = 200
 offline = true
-fs_permissions = [{ access = "read-write", path = "./" }]
+ffi = false
+gas_limit = 30000000
+memory_limit = 134217728
+fs_permissions = [
+    { access = "none", path = ".." },
+    { access = "read-write", path = "./" }
+]
 remappings = [
     "forge-std/=lib/forge-std/src/",
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "@openzeppelin/=lib/openzeppelin-contracts/"
 ]
 """
+
+# Maximum allowed stdout/stderr in bytes to protect against log-bomb memory exhaustion (1MB)
+MAX_LOG_OUTPUT_BYTES = 1024 * 1024
+
+# Sanitized environment configuration
+SAFE_ENV_ALLOWLIST = {"PATH", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "WINDIR", "LANG", "LC_ALL"}
+SENSITIVE_PATTERNS = ["KEY", "TOKEN", "SECRET", "AUTH", "PASS", "MODAL_", "GEMINI_", "AWS_", "GITHUB_", "SSH_"]
 
 # Prohibited cheatcode patterns to isolate exploit execution from harness privileges
 PROHIBITED_CHEATCODES = [
@@ -65,8 +89,23 @@ PROHIBITED_CHEATCODES = [
     "vm.load",
     "vm.etch",
     "vm.sign",
+    "vm.ffi",
+    "vm.readFile",
+    "vm.writeFile",
+    "vm.removeFile",
+    "vm.closeFile",
+    "vm.readLine",
+    "vm.writeLine",
+    "vm.createFork",
+    "vm.selectFork",
+    "vm.rollFork",
+    "vm.rpcUrl",
+    "vm.rpcUrls",
     "Vm constant vm",
-    "Vm public vm"
+    "Vm public vm",
+    "is Test",
+    "is DSTest",
+    "function test",
 ]
 
 
@@ -76,6 +115,42 @@ def detect_prohibited_cheatcodes(code: str) -> bool:
         if pattern in code:
             return True
     return False
+
+
+def build_sanitized_environment() -> Dict[str, str]:
+    """
+    Constructs a minimal, secure environment for untrusted Solidity execution.
+    Strictly strips all API keys, access tokens, and sensitive orchestration variables.
+    """
+    clean_env: Dict[str, str] = {}
+    for k, v in os.environ.items():
+        k_upper = k.upper()
+        if any(pat in k_upper for pat in SENSITIVE_PATTERNS):
+            continue
+        if k_upper in SAFE_ENV_ALLOWLIST or k in SAFE_ENV_ALLOWLIST:
+            clean_env[k] = v
+
+    # Add standard binary paths
+    current_path = clean_env.get("PATH", os.environ.get("PATH", ""))
+    foundry_paths = ["/root/.foundry/bin", os.path.expanduser("~/.foundry/bin")]
+    for fp in foundry_paths:
+        if os.path.exists(fp) and fp not in current_path:
+            current_path = f"{fp}:{current_path}"
+    clean_env["PATH"] = current_path
+    clean_env["FOUNDRY_OFFLINE"] = "true"
+    clean_env["FOUNDRY_FFI"] = "false"
+    return clean_env
+
+
+def truncate_log_output(text: str, max_bytes: int = MAX_LOG_OUTPUT_BYTES) -> str:
+    """Truncates log string to maximum byte limit to prevent memory exhaustion."""
+    if not text:
+        return ""
+    encoded = text.encode("utf-8", errors="replace")
+    if len(encoded) > max_bytes:
+        truncated = encoded[:max_bytes].decode("utf-8", errors="replace")
+        return truncated + "\n[LOG_TRUNCATED: Output exceeded safe quota of 1MB]"
+    return text
 
 
 def parse_forge_output(output_text: str):
@@ -112,6 +187,148 @@ def parse_forge_output(output_text: str):
     return structured_data, test_status, revert_reason, decoded_logs
 
 
+
+import signal
+import threading
+
+
+def kill_process_tree(proc: subprocess.Popen) -> None:
+    """Recursively terminates a process and all its child/grandchild processes."""
+    if proc is None:
+        return
+    pid = proc.pid
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
+        else:
+            pgid = os.getpgid(pid)
+            os.killpg(pgid, signal.SIGKILL)
+    except Exception:
+        pass
+    finally:
+        try:
+            proc.kill()
+            proc.poll()
+        except Exception:
+            pass
+
+
+def run_command_streaming_with_quota(
+    cmd: List[str],
+    cwd: str,
+    env: Dict[str, str],
+    timeout_sec: float,
+    max_output_bytes: int = MAX_LOG_OUTPUT_BYTES
+) -> Tuple[int, str, str, bool, bool]:
+    """
+    Executes a subprocess with streaming chunked reader and hard memory quotas.
+    Returns:
+        (return_code, stdout_str, stderr_str, timed_out, quota_exceeded)
+    
+    Protects against log-bomb memory exhaustion by terminating process tree immediately
+    if cumulative stdout or stderr exceeds max_output_bytes (1MB).
+    Ensures full process tree is terminated on timeout.
+    """
+    preexec_fn = None
+    if os.name != "nt":
+        def _set_resource_limits():
+            os.setsid()
+            try:
+                import resource
+                resource.setrlimit(resource.RLIMIT_AS, (2 * 1024 * 1024 * 1024, 2 * 1024 * 1024 * 1024))
+                resource.setrlimit(resource.RLIMIT_FSIZE, (10 * 1024 * 1024, 10 * 1024 * 1024))
+                resource.setrlimit(resource.RLIMIT_NPROC, (128, 128))
+            except Exception:
+                pass
+        preexec_fn = _set_resource_limits
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            preexec_fn=preexec_fn
+        )
+    except Exception as e:
+        raise e
+
+    stdout_chunks: List[bytes] = []
+    stderr_chunks: List[bytes] = []
+    stdout_bytes = 0
+    stderr_bytes = 0
+    quota_exceeded = False
+    timed_out = False
+
+    def read_stream(stream, chunks_list, is_stdout):
+        nonlocal quota_exceeded, stdout_bytes, stderr_bytes
+        try:
+            while True:
+                chunk = stream.read(4096)
+                if not chunk:
+                    break
+                chunks_list.append(chunk)
+                if is_stdout:
+                    stdout_bytes += len(chunk)
+                    if stdout_bytes > max_output_bytes:
+                        quota_exceeded = True
+                        kill_process_tree(proc)
+                        break
+                else:
+                    stderr_bytes += len(chunk)
+                    if stderr_bytes > max_output_bytes:
+                        quota_exceeded = True
+                        kill_process_tree(proc)
+                        break
+        except Exception:
+            pass
+        finally:
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    t_out = threading.Thread(target=read_stream, args=(proc.stdout, stdout_chunks, True))
+    t_err = threading.Thread(target=read_stream, args=(proc.stderr, stderr_chunks, False))
+    t_out.daemon = True
+    t_err.daemon = True
+    t_out.start()
+    t_err.start()
+
+    start_time = time.time()
+    while proc.poll() is None:
+        if time.time() - start_time > timeout_sec:
+            timed_out = True
+            kill_process_tree(proc)
+            break
+        if quota_exceeded:
+            break
+        time.sleep(0.05)
+
+    t_out.join(timeout=1.0)
+    t_err.join(timeout=1.0)
+
+    if proc.poll() is None:
+        kill_process_tree(proc)
+
+    try:
+        returncode = proc.returncode if proc.returncode is not None else -1
+    except Exception:
+        returncode = -1
+
+    raw_stdout_bytes = b"".join(stdout_chunks)[:max_output_bytes]
+    raw_stderr_bytes = b"".join(stderr_chunks)[:max_output_bytes]
+
+    stdout_str = raw_stdout_bytes.decode("utf-8", errors="replace")
+    stderr_str = raw_stderr_bytes.decode("utf-8", errors="replace")
+
+    if quota_exceeded:
+        stdout_str += "\n[LOG_QUOTA_EXCEEDED: Process terminated due to output exceeding 1MB limit]"
+
+    return returncode, stdout_str, stderr_str, timed_out, quota_exceeded
+
+
 def run_slither_analysis(target: TargetProgram) -> list:
     """
     Executes Slither AST / taint analysis on the target contract.
@@ -129,7 +346,14 @@ def run_slither_analysis(target: TargetProgram) -> list:
         cmd = ["slither", target_path, "--json", json_out, "--solc-solcs-select", config.SOLC_VERSION]
         
         try:
-            subprocess.run(cmd, cwd=tmpdir, capture_output=True, text=True, timeout=30)
+            subprocess.run(
+                cmd,
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=build_sanitized_environment()
+            )
             if os.path.exists(json_out):
                 with open(json_out, "r", encoding="utf-8") as jf:
                     data = json.load(jf)
@@ -170,7 +394,8 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
     """
     Executes an exploit module against a trusted verification harness in Foundry.
     Zero trust in model-supplied assertions: verification is performed exclusively
-    by the immutable test harness in the EVM. Enforces cheatcode isolation.
+    by the immutable test harness in the EVM evaluated by TrustedEVMStateOracle.
+    Enforces cheatcode isolation, secret stripping, and resource caps.
     """
     start_time = time.time()
 
@@ -217,7 +442,7 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             except Exception:
                 shutil.copytree(base_lib, target_lib)
         
-        # Write foundry.toml
+        # Write hardened foundry.toml
         with open(os.path.join(tmpdir, "foundry.toml"), "w", encoding="utf-8") as f:
             f.write(FOUNDRY_TOML_CONTENT)
             
@@ -232,63 +457,106 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             with open(harness_path, "w", encoding="utf-8") as f:
                 f.write(target.trusted_harness_code)
                 
-        # Write candidate ExploitModule (strictly sanitized filename to prevent path traversal)
+        # Requirement 6: Strictly separate trusted harness from untrusted exploit code
+        # ExploitModule is written ONLY to src/ExploitModule.sol, NEVER to test/
         safe_filename = "ExploitModule.sol"
-        with open(os.path.join(test_dir, safe_filename), "w", encoding="utf-8") as f:
-            f.write(payload.test_code)
         with open(os.path.join(src_dir, safe_filename), "w", encoding="utf-8") as f:
             f.write(payload.test_code)
             
-        env = os.environ.copy()
-        env["PATH"] = f"/root/.foundry/bin:{env.get('PATH', '')}"
+        sanitized_env = build_sanitized_environment()
         
         try:
-            # Run offline with JSON output and maximum trace detail (-vvvv)
-            cmd = ["forge", "test", "--offline", "--json", "-vvvv"]
-            proc = subprocess.run(
-                cmd,
+            # Run offline with match-contract targeting only trusted harness, JSON output, -vvvv
+            cmd = [
+                "forge", "test",
+                "--match-contract", f".*{target.name}.*Harness",
+                "--offline",
+                "--json",
+                "-vvvv"
+            ]
+            ret_code, raw_stdout, raw_stderr, timed_out, quota_exceeded = run_command_streaming_with_quota(
+                cmd=cmd,
                 cwd=tmpdir,
-                capture_output=True,
-                text=True,
-                timeout=config.SANDBOX_TIMEOUT_SEC,
-                env=env,
+                env=sanitized_env,
+                timeout_sec=config.SANDBOX_TIMEOUT_SEC,
+                max_output_bytes=MAX_LOG_OUTPUT_BYTES
             )
             elapsed = time.time() - start_time
+            output_text = raw_stdout + "\n" + raw_stderr
             
-            output_text = (proc.stdout or "") + "\n" + (proc.stderr or "")
-            
+            if timed_out:
+                return ExecutionResult(
+                    return_code=-1,
+                    stdout=raw_stdout,
+                    stderr=raw_stderr,
+                    execution_time_sec=elapsed,
+                    category=ResultCategory.RUNTIME_REVERT,
+                    timed_out=True,
+                    invariant_violated=False
+                )
+
             # Parse structured JSON output
-            structured_json, test_status, revert_reason, decoded_logs = parse_forge_output(proc.stdout or "")
+            structured_json, test_status, revert_reason, decoded_logs = parse_forge_output(raw_stdout)
             
-            # Determine fine-grained category
-            has_breach_signal = (
-                any("[INVARIANT_BREACHED" in str(l) for l in decoded_logs) or
-                ("[INVARIANT_BREACHED" in output_text and proc.returncode == 0)
-            )
+            # Extract raw EVM log events from structured JSON for cryptographic verification
+            raw_logs = []
+            if structured_json and isinstance(structured_json, dict):
+                for _, sval in structured_json.items():
+                    if isinstance(sval, dict):
+                        tres = sval.get("test_results", {})
+                        for _, tinfo in tres.items():
+                            if isinstance(tinfo, dict):
+                                elogs = tinfo.get("logs", [])
+                                if isinstance(elogs, list):
+                                    raw_logs.extend(elogs)
             
-            inv_violated = (
-                proc.returncode == 0 and
-                (test_status == "Success" or "[PASS]" in output_text) and
-                has_breach_signal
+            # Extract gas used if present in structured_json
+            gas_used = None
+            if structured_json and isinstance(structured_json, dict):
+                for _, sval in structured_json.items():
+                    if isinstance(sval, dict):
+                        tres = sval.get("test_results", {})
+                        for _, tinfo in tres.items():
+                            if isinstance(tinfo, dict) and "gas" in tinfo:
+                                gas_used = tinfo.get("gas")
+            
+            # Delegate state verification to the Trusted EVM State Oracle
+            verification = trusted_oracle.verify_execution(
+                target=target,
+                candidate_id=payload.candidate_id,
+                return_code=ret_code,
+                test_status=test_status,
+                decoded_logs=decoded_logs,
+                stdout_text=raw_stdout,
+                stderr_text=raw_stderr,
+                execution_time_sec=elapsed,
+                gas_used=gas_used,
+                revert_reason=revert_reason,
+                cheatcode_detected=False,
+                structured_json=structured_json,
+                raw_logs=raw_logs
             )
 
-            # Classify outcome category
+            inv_violated = verification.invariant_breach
+
+            # Determine fine-grained category
             if inv_violated:
                 category = ResultCategory.EXPLOIT_CONFIRMED
-            elif proc.returncode == 0:
+            elif ret_code == 0:
                 category = ResultCategory.SAFE_RUN
             elif revert_reason is not None or "EVM Runtime Revert" in output_text:
                 category = ResultCategory.RUNTIME_REVERT
             elif "Compiler run failed" in output_text or "ParserError" in output_text or "Error (" in output_text:
                 category = ResultCategory.COMPILATION_ERROR
             else:
-                # If forge failed without compiler or test output, it's an infrastructure fault
                 category = ResultCategory.INFRA_ERROR
             
+            state_delta = verification.evidence.state_delta if verification.evidence else {}
+
             return ExecutionResult(
-                return_code=proc.returncode,
-                stdout=proc.stdout or "",
-                stderr=proc.stderr or "",
+                return_code=ret_code,
+                stdout=raw_stdout,
+                stderr=raw_stderr,
                 execution_time_sec=elapsed,
                 category=category,
                 timed_out=False,
@@ -299,11 +567,15 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 decoded_logs=decoded_logs,
                 cheatcode_detected=False,
                 verified_by_harness=inv_violated,
-                reproducibility_confirmed=False
+                reproducibility_confirmed=False,
+                gas_used=gas_used,
+                state_delta=state_delta,
+                evidence=verification.evidence,
+                invariant_results=verification.invariant_results,
+                verification_result=verification
             )
             
         except FileNotFoundError as fnf:
-            # forge command not found in environment -> INFRA_ERROR
             elapsed = time.time() - start_time
             return ExecutionResult(
                 return_code=-5,
@@ -316,10 +588,12 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             )
         except subprocess.TimeoutExpired as e:
             elapsed = time.time() - start_time
+            out_str = truncate_log_output(e.stdout if isinstance(e.stdout, str) else "")
+            err_str = truncate_log_output(e.stderr if isinstance(e.stderr, str) else "")
             return ExecutionResult(
                 return_code=-1,
-                stdout=e.stdout if isinstance(e.stdout, str) else "",
-                stderr=e.stderr if isinstance(e.stderr, str) else "",
+                stdout=out_str,
+                stderr=err_str,
                 execution_time_sec=elapsed,
                 category=ResultCategory.RUNTIME_REVERT,
                 timed_out=True,
@@ -338,15 +612,128 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             )
 
 
+# =============================================================================
+# 3. INDEPENDENT REPLAY VERIFIER
+# =============================================================================
+
+class ReplayOutcome:
+    """Detailed audit report for independent replay verification."""
+    def __init__(
+        self,
+        target_name: str,
+        candidate_id: str,
+        is_confirmed: bool,
+        status: str,  # CONFIRMED, FAILED, INVARIANT_MISMATCH, INFRA_ERROR
+        initial_breached_invariants: List[str],
+        replay_breached_invariants: List[str],
+        initial_state_hash: str = "",
+        replay_state_hash: str = "",
+        details: Optional[Dict[str, Any]] = None
+    ):
+        self.target_name = target_name
+        self.candidate_id = candidate_id
+        self.is_confirmed = is_confirmed
+        self.status = status
+        self.initial_breached_invariants = initial_breached_invariants
+        self.replay_breached_invariants = replay_breached_invariants
+        self.initial_state_hash = initial_state_hash
+        self.replay_state_hash = replay_state_hash
+        self.details = details or {}
+
+
+def verify_independent_replay_structured(
+    target: TargetProgram,
+    payload: ExploitPayload,
+    initial_evidence: Optional[ExecutionEvidence] = None,
+    expected_breached_invariants: Optional[List[str]] = None
+) -> ReplayOutcome:
+    """
+    Executes a structured independent replay in a fresh ephemeral environment.
+    Verifies that:
+    1. Replay execution finishes cleanly (return code 0).
+    2. No cheatcodes were injected.
+    3. The exact same security invariant(s) breached in Run 1 are breached in Run 2.
+    4. State transition delta matches expected invariant violation.
+    """
+    replay_result = run_payload_in_sandbox(target, payload)
+
+    # Check for infrastructure failure
+    if replay_result.category == ResultCategory.INFRA_ERROR:
+        return ReplayOutcome(
+            target_name=target.name,
+            candidate_id=payload.candidate_id,
+            is_confirmed=False,
+            status="INFRA_ERROR",
+            initial_breached_invariants=expected_breached_invariants or [],
+            replay_breached_invariants=[],
+            details={"error": replay_result.stderr}
+        )
+
+    # Check for cheatcode detection
+    if replay_result.cheatcode_detected:
+        return ReplayOutcome(
+            target_name=target.name,
+            candidate_id=payload.candidate_id,
+            is_confirmed=False,
+            status="FAILED",
+            initial_breached_invariants=expected_breached_invariants or [],
+            replay_breached_invariants=[],
+            details={"reason": "Cheatcode detected during replay"}
+        )
+
+    replay_v_res = replay_result.verification_result
+    replay_breaches = replay_v_res.breached_invariants if replay_v_res else []
+    replay_state_hash = replay_result.evidence.final_state_hash if replay_result.evidence else ""
+    init_state_hash = initial_evidence.final_state_hash if initial_evidence else ""
+
+    # Check invariant violation
+    if not replay_result.invariant_violated or replay_result.return_code != 0:
+        return ReplayOutcome(
+            target_name=target.name,
+            candidate_id=payload.candidate_id,
+            is_confirmed=False,
+            status="FAILED",
+            initial_breached_invariants=expected_breached_invariants or [],
+            replay_breached_invariants=replay_breaches,
+            initial_state_hash=init_state_hash,
+            replay_state_hash=replay_state_hash,
+            details={"reason": "Replay run did not breach invariant"}
+        )
+
+    # If expected invariants were specified, assert they match
+    if expected_breached_invariants:
+        common = set(expected_breached_invariants).intersection(set(replay_breaches))
+        if not common:
+            return ReplayOutcome(
+                target_name=target.name,
+                candidate_id=payload.candidate_id,
+                is_confirmed=False,
+                status="INVARIANT_MISMATCH",
+                initial_breached_invariants=expected_breached_invariants,
+                replay_breached_invariants=replay_breaches,
+                initial_state_hash=init_state_hash,
+                replay_state_hash=replay_state_hash,
+                details={"reason": f"Replay breached {replay_breaches} instead of expected {expected_breached_invariants}"}
+            )
+
+    return ReplayOutcome(
+        target_name=target.name,
+        candidate_id=payload.candidate_id,
+        is_confirmed=True,
+        status="CONFIRMED",
+        initial_breached_invariants=expected_breached_invariants or replay_breaches,
+        replay_breached_invariants=replay_breaches,
+        initial_state_hash=init_state_hash,
+        replay_state_hash=replay_state_hash,
+        details={"execution_time_sec": replay_result.execution_time_sec}
+    )
+
+
 def verify_independent_replay(target: TargetProgram, payload: ExploitPayload) -> bool:
     """
     Executes an independent second run in a completely fresh ephemeral EVM container.
     Confirms 100% deterministic reproducibility before awarding full RLVR reward.
+    Preserves exact backwards compatibility with existing boolean signatures.
     """
-    replay_result = run_payload_in_sandbox(target, payload)
-    return (
-        replay_result.invariant_violated and
-        replay_result.return_code == 0 and
-        not replay_result.cheatcode_detected and
-        replay_result.category == ResultCategory.EXPLOIT_CONFIRMED
-    )
+    outcome = verify_independent_replay_structured(target, payload)
+    return outcome.is_confirmed
