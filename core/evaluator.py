@@ -53,9 +53,9 @@ def _build_verdict(
     is_verified: bool,
     reproducible: bool,
     state_delta_verified: bool = False,
-    evidence=None,
-    invariant_results=None,
-    verification_result=None,
+    execution_evidence=None,
+    oracle_invariant_results=None,
+    oracle_verification_result=None,
 ) -> VerificationVerdict:
     """
     Assembles a verdict from a category and the proven evidence.
@@ -79,9 +79,9 @@ def _build_verdict(
         reward_components=dict(breakdown.components),
         reward_penalty=breakdown.penalty,
         reward_spec_version=breakdown.spec_version,
-        evidence=evidence,
-        invariant_results=list(invariant_results or []),
-        verification_result=verification_result,
+        evidence=execution_evidence,
+        invariant_results=list(oracle_invariant_results or []),
+        verification_result=oracle_verification_result,
     )
 
 
@@ -93,9 +93,9 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
     """
     def build_verdict_from_result(*args, **kwargs):
         """Carry Oracle evidence forward without changing the trusted reward decision."""
-        kwargs.setdefault("evidence", result.evidence)
-        kwargs.setdefault("invariant_results", result.invariant_results)
-        kwargs.setdefault("verification_result", result.verification_result)
+        kwargs.setdefault("execution_evidence", result.evidence)
+        kwargs.setdefault("oracle_invariant_results", result.invariant_results)
+        kwargs.setdefault("oracle_verification_result", result.verification_result)
         return _build_verdict(*args, **kwargs)
 
     # 0. Check for structural/format failure in model output (Format validation)
