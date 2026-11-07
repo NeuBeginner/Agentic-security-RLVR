@@ -33,6 +33,8 @@ from core.evidence import (
 from sandbox.runner import (
     detect_prohibited_cheatcodes,
     extract_trusted_harness_verdict,
+    is_safe_target_name,
+    run_subprocess_capped,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -336,3 +338,56 @@ def test_forged_marker_alone_is_not_evidence():
     verdict_fail, _, _, _ = extract_trusted_harness_verdict(structured_fail, "Vault")
     assert verdict_fail == HarnessVerdict.NO_BREACH.value
     assert is_trusted_breach_verdict(verdict_fail) is False
+
+
+def test_target_name_must_be_a_bounded_solidity_identifier():
+    assert is_safe_target_name("Vault")
+    assert is_safe_target_name("ERC4626Vault")
+    assert not is_safe_target_name("../Vault")
+    assert not is_safe_target_name(r"..\\Vault")
+    assert not is_safe_target_name("Vault.sol")
+
+
+def test_trusted_harness_path_must_match_exactly():
+    structured = _forge_json(
+        "test/VaultHarness.t.sol.backup:VaultTrustedHarness",
+        "Success",
+    )
+    verdict, suite, _, _ = extract_trusted_harness_verdict(structured, "Vault")
+    assert verdict == HarnessVerdict.UNKNOWN.value
+    assert suite == ""
+
+
+def test_duplicate_trusted_suites_are_fail_closed():
+    structured = {
+        "test/VaultHarness.t.sol:VaultTrustedHarness": {
+            "test_results": {"testExploit()": {"status": "Success", "reason": None}}
+        },
+        "test/VaultHarness.t.sol:AnotherHarness": {
+            "test_results": {"testExploit()": {"status": "Success", "reason": None}}
+        },
+    }
+    verdict, suite, _, _ = extract_trusted_harness_verdict(structured, "Vault")
+    assert verdict == HarnessVerdict.UNKNOWN.value
+    assert suite == ""
+
+
+def test_subprocess_output_is_bounded_during_execution():
+    import sys
+
+    result = run_subprocess_capped(
+        [
+            sys.executable, "-c",
+            "import sys; sys.stdout.write('A'*2000000); sys.stderr.write('B'*2000000)",
+        ],
+        cwd=".",
+        env=dict(os.environ),
+        timeout=10,
+        max_output_bytes=1024,
+    )
+    assert result.returncode == 0
+    assert not result.timed_out
+    assert len(result.stdout.encode("utf-8")) < 1200
+    assert len(result.stderr.encode("utf-8")) < 1200
+    assert "LOG_TRUNCATED" in result.stdout
+    assert "LOG_TRUNCATED" in result.stderr
