@@ -271,7 +271,7 @@ def test_path_traversal_sanitization():
         "nested/sub/exploit.sol"
     ]
     for bad_name in malicious_names:
-        safe_name = os.path.basename(bad_name)
+        safe_name = os.path.basename(bad_name.replace("\\", "/"))
         assert "/" not in safe_name
         assert "\\" not in safe_name
         assert ".." not in safe_name
