@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -26,8 +27,11 @@ from typing import Any, Dict, List, Optional, Tuple
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("DropboxBridge")
 
-LOCAL_WORKSPACE = Path(r"D:\AI\agentic-security-rlvr")
-DROPBOX_WORKSPACE = Path(r"D:\Install\I\Dropbox\Coding\GitHub\Agentic-security-RLVR")
+# Configurable workspace paths for Windows, Linux, and Modal workers.
+_DEFAULT_LOCAL_WORKSPACE = Path(__file__).resolve().parent.parent
+_DEFAULT_DROPBOX_WORKSPACE = Path(r"D:\\Install\\I\\Dropbox\\Coding\\GitHub\\Agentic-security-RLVR")
+LOCAL_WORKSPACE = Path(os.environ.get("AEGIS_LOCAL_WORKSPACE", str(_DEFAULT_LOCAL_WORKSPACE)))
+DROPBOX_WORKSPACE = Path(os.environ.get("AEGIS_DROPBOX_WORKSPACE", str(_DEFAULT_DROPBOX_WORKSPACE)))
 
 INBOX_FILENAME = "AI_SUPERVISOR_INBOX.md"
 OUTBOX_FILENAME = "AI_AGENT_OUTBOX.md"
