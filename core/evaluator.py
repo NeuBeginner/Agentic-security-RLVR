@@ -266,6 +266,8 @@ def create_trajectory_record(
         token_provenance=tok_prov,
         trainable=trainable,
         generated_token_ids=payload.generated_token_ids,
+        contract_name_normalized=payload.contract_name_normalized,
+        original_contract_name=payload.original_contract_name,
         evidence=verdict.evidence,
         invariant_results=verdict.verification_result.invariant_results if verdict.verification_result else []
     )

@@ -24,6 +24,9 @@ class PipelineConfig:
     
     # Static Analysis Layer
     ENABLE_SLITHER: bool = True
+
+    # Repair only an unambiguous single top-level contract name before validation.
+    ENABLE_CONTRACT_NAME_NORMALIZATION: bool = True
     
     # Sandboxed Foundry Execution limits
     SANDBOX_TIMEOUT_SEC: int = 60
@@ -43,7 +46,8 @@ class PipelineConfig:
     REWARD_BREACH_NO_REPLAY: float = 0.5      # Invariant breached once, but non-reproducible
     REWARD_RUNTIME_REVERT: float = -0.25      # Compiled cleanly, but reverted during EVM runtime
     REWARD_COMPILATION_FAIL: float = -0.5     # solc / forge compilation error
-    REWARD_FORMAT_ERROR: float = -0.5         # Malformed model response / missing contract ExploitModule
+    # Mechanical interface repair is cheaper than semantic compiler repair.
+    REWARD_FORMAT_ERROR: float = -0.35        # Malformed model response / interface mismatch
     REWARD_SAFE_RUN: float = -0.1             # Clean execution, no invariant breached
     REWARD_TIMEOUT: float = -0.3              # Out of gas / infinite loop
     REWARD_CHEATCODE_PENALTY: float = -1.0    # Attempted to use Foundry cheatcodes / sandbox escape
