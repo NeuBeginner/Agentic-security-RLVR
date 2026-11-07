@@ -503,3 +503,14 @@ def test_trusted_harness_contract_name_must_match_allowlist():
     verdict, suite, _, _ = extract_trusted_harness_verdict(structured, "Vault")
     assert verdict == HarnessVerdict.UNKNOWN.value
     assert suite == ""
+
+
+def test_unknown_target_harness_verdict_is_unknown_not_exception():
+    verdict, suite, status, reason = extract_trusted_harness_verdict(
+        {"test/UnknownContractHarness.t.sol:UnknownTrustedHarness": {
+            "test_results": {"testExploit()": {"status": "Success", "reason": None}}
+        }},
+        "UnknownContract",
+    )
+    assert verdict == HarnessVerdict.UNKNOWN.value
+    assert suite == ""

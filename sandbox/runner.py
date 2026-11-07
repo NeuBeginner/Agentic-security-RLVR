@@ -282,7 +282,11 @@ def extract_trusted_harness_verdict(
     target_name: str
 ):
     """Read exactly one immutable repository harness and exact testExploit() result."""
-    if not is_safe_target_name(target_name) or not isinstance(structured_data, dict):
+    if (
+        not is_safe_target_name(target_name)
+        or target_name not in TRUSTED_HARNESS_CONTRACTS
+        or not isinstance(structured_data, dict)
+    ):
         return HARNESS_VERDICT_UNKNOWN, "", None, None
 
     expected_path = trusted_harness_suite_prefix(target_name)
