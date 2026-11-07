@@ -75,7 +75,7 @@ Output your findings as a valid JSON array of objects.
 """
 
 
-def build_analysis_prompt(target: TargetProgram, hypothesis: Optional[AttackHypothesis] = None) -> str:
+def build_analysis_prompt(target: TargetProgram, hypothesis: Optional[Any] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> str:
     """
     Target-agnostic prompt for exploit synthesis.
     Integrates Slither static analysis findings and formal invariants without hardcoded contract names.
@@ -92,12 +92,33 @@ def build_analysis_prompt(target: TargetProgram, hypothesis: Optional[AttackHypo
 
     hypothesis_context = ""
     if hypothesis:
+        vulnerability_type = getattr(hypothesis, "vulnerability_type", None) or getattr(hypothesis, "vulnerability_class", "Unknown")
+        severity = getattr(hypothesis, "severity", None) or "Unspecified"
+        attack_vector = getattr(hypothesis, "attack_vector", None)
+        if not attack_vector:
+            attack_vector = " -> ".join(getattr(hypothesis, "attack_sequence", []) or [])
+        reasoning_trace = getattr(hypothesis, "reasoning_trace", None)
+        if not reasoning_trace:
+            reasoning_trace = f"Preconditions: {getattr(hypothesis, 'attack_preconditions', [])}"
         hypothesis_context = f"""
-Auditor Finding Hypothesis:
-- Vulnerability Type: {hypothesis.vulnerability_type}
-- Attack Vector     : {hypothesis.attack_vector}
-- Analysis Trace    : {hypothesis.reasoning_trace}
+Auditor Finding Hypothesis ({vulnerability_type} - {severity} Severity):
+- Vulnerability Type: {vulnerability_type}
+- Attack Vector     : {attack_vector}
+- Analysis Trace    : {reasoning_trace}
 """
+
+    failure_context = ""
+    if previous_failures:
+        failure_lines = []
+        for failure in previous_failures[:10]:
+            if not isinstance(failure, dict):
+                continue
+            candidate_id = failure.get("candidate_id", "unknown")
+            category = failure.get("category", "unknown")
+            feedback = failure.get("feedback", failure.get("error", ""))
+            failure_lines.append(f"- {candidate_id} [{category}]: {str(feedback)[:500]}")
+        if failure_lines:
+            failure_context = "\nPREVIOUS FAILED CANDIDATES:\n" + "\n".join(failure_lines) + "\n"
 
     return f"""Target Contract File: src/{target.name}.sol
 Target Contract Name: {target.name}
@@ -105,7 +126,7 @@ Language: Solidity 0.8.20
 
 Security Invariants Being Tested:
 {invariants_text}
-{slither_context}{hypothesis_context}
+{slither_context}{hypothesis_context}{failure_context}
 Target Contract Source Code:
 ```solidity
 {target.source_code}

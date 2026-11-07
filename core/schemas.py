@@ -74,6 +74,65 @@ class ExploitPayload(BaseModel):
     generated_token_ids: Optional[List[int]] = Field(default=None, description="Exact token IDs from LLM generation")
 
 
+
+class ExecutionEvidence(BaseModel):
+    """Execution provenance captured by the trusted EVM verification layer."""
+    execution_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    candidate_id: str = Field(default="")
+    target_id: str = Field(default="")
+    initial_state_hash: str = Field(default="")
+    final_state_hash: str = Field(default="")
+    execution_status: str = Field(default="SUCCESS")
+    execution_success: bool = Field(default=False)
+    gas_used: Optional[int] = None
+    revert_reason: Optional[str] = None
+    logs_reference: List[str] = Field(default_factory=list)
+    environment_fingerprint: Dict[str, Any] = Field(default_factory=dict)
+    state_delta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class InvariantResult(BaseModel):
+    """Result of evaluating one registered security invariant."""
+    invariant_id: str
+    invariant_name: str
+    passed: bool
+    observed_value: Any = None
+    expected_condition: str = ""
+    evidence_reference: Optional[str] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class VerificationResult(BaseModel):
+    """Oracle result kept separate from the Reward Spec 2.0.0 scoring contract."""
+    execution_success: bool
+    invariant_breach: bool
+    replay_confirmed: bool = False
+    confidence_status: str = "UNVERIFIED"
+    evidence: Optional[ExecutionEvidence] = None
+    invariant_results: List[InvariantResult] = Field(default_factory=list)
+    breached_invariants: List[str] = Field(default_factory=list)
+    failure_reason: Optional[str] = None
+
+
+class VulnerabilityHypothesis(BaseModel):
+    """Structured, provenance-bearing finding passed from auditor/static tools to synthesis."""
+    hypothesis_id: str = Field(default_factory=lambda: f"hyp_{uuid.uuid4().hex[:8]}")
+    target_id: str
+    source_finding_id: Optional[str] = None
+    vulnerability_class: str
+    affected_contract: str
+    affected_function: Optional[str] = None
+    attack_preconditions: List[str] = Field(default_factory=list)
+    attack_sequence: List[str] = Field(default_factory=list)
+    expected_invariant: str = ""
+    severity: str = "Medium"
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    validation_status: str = "proposed"
+    evidence: Optional[Dict[str, Any]] = None
+    attempt_count: int = 0
+    last_error: Optional[str] = None
+
+
 class ExecutionResult(BaseModel):
     """Structured result collected from the isolated Modal sandbox container."""
     return_code: int
@@ -92,6 +151,9 @@ class ExecutionResult(BaseModel):
     reproducibility_confirmed: bool = False
     gas_used: Optional[int] = None
     state_delta: Dict[str, Any] = Field(default_factory=dict)
+    evidence: Optional[ExecutionEvidence] = None
+    invariant_results: List[InvariantResult] = Field(default_factory=list)
+    verification_result: Optional[VerificationResult] = None
     # Trusted evidence channel (Reward Specification 2.0.0).
     # `harness_verdict` is the verdict of the IMMUTABLE repository-owned harness,
     # extracted from forge's structured test result of the trusted suite only.
@@ -125,6 +187,8 @@ class VerificationVerdict(BaseModel):
     generation_iteration: int = Field(default=0)
     candidate_index: int = Field(default=0)
     replay_status: str = Field(default="NOT_ELIGIBLE", description="CONFIRMED, FAILED, or NOT_ELIGIBLE")
+    evidence: Optional[ExecutionEvidence] = None
+    verification_result: Optional[VerificationResult] = None
 
     # Reward attribution (Reward Specification 2.0.0).
     # `reward_components` holds the evidence-scoped credit of every component,
@@ -188,6 +252,9 @@ class RLVRTrajectory(BaseModel):
     reward_components: Dict[str, float] = Field(default_factory=dict)
     reward_penalty: float = Field(default=0.0)
     reward_spec_version: str = Field(default="1.0.0-legacy", description="Version of the reward specification that produced this reward")
+    evidence: Optional[ExecutionEvidence] = None
+    invariant_results: List[InvariantResult] = Field(default_factory=list)
+    hypothesis_id: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_trajectory_invariants(self) -> "RLVRTrajectory":
