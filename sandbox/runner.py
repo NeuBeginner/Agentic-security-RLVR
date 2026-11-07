@@ -4,6 +4,8 @@ import shutil
 import subprocess
 import tempfile
 import time
+import signal
+import threading
 from typing import Dict, Any, List, Optional, Tuple
 import modal
 from core.schemas import (
@@ -138,6 +140,89 @@ def truncate_log_output(text: str, max_bytes: int = MAX_LOG_OUTPUT_BYTES) -> str
     return text
 
 
+class CappedProcessResult:
+    def __init__(self, returncode: int, stdout: str, stderr: str, timed_out: bool = False):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+        self.timed_out = timed_out
+
+
+def run_subprocess_capped(
+    cmd: List[str],
+    *,
+    cwd: str,
+    env: Dict[str, str],
+    timeout: int,
+    max_output_bytes: int = MAX_LOG_OUTPUT_BYTES
+) -> CappedProcessResult:
+    """Drain both pipes while retaining at most max_output_bytes per stream."""
+    limit = max(1, int(max_output_bytes))
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    truncated = {"stdout": False, "stderr": False}
+    proc = subprocess.Popen(
+        cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL, env=env, text=False, bufsize=0,
+        start_new_session=(os.name == "posix")
+    )
+
+    def drain(pipe, key: str) -> None:
+        while True:
+            chunk = pipe.read(64 * 1024)
+            if not chunk:
+                break
+            remaining = limit - len(buffers[key])
+            if remaining > 0:
+                buffers[key].extend(chunk[:remaining])
+            if len(chunk) > max(0, remaining):
+                truncated[key] = True
+
+    readers = [
+        threading.Thread(target=drain, args=(proc.stdout, "stdout"), daemon=True),
+        threading.Thread(target=drain, args=(proc.stderr, "stderr"), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+
+    timed_out = False
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        if os.name == "posix":
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            proc.kill()
+        proc.wait()
+    finally:
+        if os.name == "posix":
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        for reader in readers:
+            reader.join(timeout=2.0)
+        for pipe in (proc.stdout, proc.stderr):
+            try:
+                pipe.close()
+            except Exception:
+                pass
+
+    def decode(key: str) -> str:
+        output = bytes(buffers[key]).decode("utf-8", errors="replace")
+        if truncated[key]:
+            output += "\n[LOG_TRUNCATED: retained output capped at configured byte limit]"
+        return output
+
+    return CappedProcessResult(
+        returncode=proc.returncode if proc.returncode is not None else -1,
+        stdout=decode("stdout"), stderr=decode("stderr"), timed_out=timed_out
+    )
+
+
 def parse_forge_output(output_text: str):
     """Parses forge test --json structured output for status, revert reason, and logs."""
     structured_data = None
@@ -189,13 +274,8 @@ def run_slither_analysis(target: TargetProgram) -> list:
         cmd = ["slither", target_path, "--json", json_out, "--solc-solcs-select", config.SOLC_VERSION]
         
         try:
-            subprocess.run(
-                cmd,
-                cwd=tmpdir,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env=build_sanitized_environment()
+            run_subprocess_capped(
+                cmd, cwd=tmpdir, timeout=30, env=build_sanitized_environment()
             )
             if os.path.exists(json_out):
                 with open(json_out, "r", encoding="utf-8") as jf:
@@ -312,20 +392,20 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
         try:
             # Run offline with JSON output and maximum trace detail (-vvvv)
             cmd = ["forge", "test", "--offline", "--json", "-vvvv"]
-            proc = subprocess.run(
-                cmd,
-                cwd=tmpdir,
-                capture_output=True,
-                text=True,
-                timeout=config.SANDBOX_TIMEOUT_SEC,
-                env=sanitized_env,
+            proc = run_subprocess_capped(
+                cmd, cwd=tmpdir, timeout=config.SANDBOX_TIMEOUT_SEC, env=sanitized_env
             )
             elapsed = time.time() - start_time
-            
-            raw_stdout = truncate_log_output(proc.stdout or "")
-            raw_stderr = truncate_log_output(proc.stderr or "")
+            raw_stdout, raw_stderr = proc.stdout, proc.stderr
             output_text = raw_stdout + "\n" + raw_stderr
-            
+
+            if proc.timed_out:
+                return ExecutionResult(
+                    return_code=proc.returncode, stdout=raw_stdout, stderr=raw_stderr,
+                    execution_time_sec=elapsed, category=ResultCategory.RUNTIME_REVERT,
+                    timed_out=True, invariant_violated=False, verified_by_harness=False
+                )
+
             # Parse structured JSON output
             structured_json, test_status, revert_reason, decoded_logs = parse_forge_output(proc.stdout or "")
             
@@ -360,6 +440,8 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             # Determine fine-grained category
             if inv_violated:
                 category = ResultCategory.EXPLOIT_CONFIRMED
+            elif verification.confidence_status == "UNVERIFIED":
+                category = ResultCategory.INFRA_ERROR
             elif proc.returncode == 0:
                 category = ResultCategory.SAFE_RUN
             elif revert_reason is not None or "EVM Runtime Revert" in output_text:

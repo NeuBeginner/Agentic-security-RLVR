@@ -98,16 +98,38 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
         )
 
     # 4. Multi-Factor Invariant Verification
-    has_valid_breach_log = any("[INVARIANT_BREACHED" in str(log) for log in result.decoded_logs) or (
-        result.verification_result is not None and result.verification_result.invariant_breach
+    verification = result.verification_result
+    has_trusted_breach_evidence = (
+        verification is not None
+        and verification.invariant_breach is True
+        and verification.confidence_status in {"PROVISIONAL_BREACH", "REPLAY_CONFIRMED"}
+        and bool(verification.breached_invariants)
+        and verification.evidence is not None
+        and bool(verification.evidence.initial_state_hash)
+        and bool(verification.evidence.final_state_hash)
+        and any(not item.passed for item in verification.invariant_results)
     )
     is_genuine_breach = (
-        result.invariant_violated and
-        result.return_code == 0 and
-        (result.test_status in ("Success", None)) and
-        has_valid_breach_log and
-        not result.cheatcode_detected
+        result.invariant_violated and result.return_code == 0
+        and (result.test_status in ("Success", None))
+        and has_trusted_breach_evidence and not result.cheatcode_detected
     )
+    claimed_breach_without_evidence = (
+        (result.invariant_violated or result.reproducibility_confirmed
+         or result.category in {
+             ResultCategory.INVARIANT_BREACH_UNREPLAYED,
+             ResultCategory.EXPLOIT_CONFIRMED
+         }) and not is_genuine_breach
+    )
+    if claimed_breach_without_evidence:
+        return VerificationVerdict(
+            target_name=payload.target_name, is_verified=False,
+            reward_score=config.REWARD_INFRA_ERROR, category=ResultCategory.INFRA_ERROR,
+            vulnerability_type=payload.hypothesis.vulnerability_type, poc_code=payload.test_code,
+            feedback="UNVERIFIED: breach claim has no authenticated state evidence; log strings are not proof.",
+            state_delta_verified=False, reproducible=False,
+            refinement_iteration=payload.attempt_number
+        )
 
     if is_genuine_breach:
         logs_detail = f" Logs: {result.decoded_logs}" if result.decoded_logs else ""
