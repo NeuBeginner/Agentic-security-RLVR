@@ -436,6 +436,20 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             verified_by_harness=False
         )
 
+    # Pre-execution check 2: reject attempts to import or execute Foundry cheatcodes.
+    if detect_prohibited_cheatcodes(payload.test_code):
+        return ExecutionResult(
+            return_code=-3,
+            stdout="",
+            stderr="Security Violation: ExploitModule attempted to import or execute Foundry cheatcodes (vm.*).",
+            execution_time_sec=0.01,
+            category=ResultCategory.CHEATCODE_DETECTED,
+            timed_out=False,
+            invariant_violated=False,
+            cheatcode_detected=True,
+            verified_by_harness=False,
+        )
+
     # Trusted harness source is loaded from the image-bundled repository directory.
     # TargetProgram.trusted_harness_code is a deprecated untrusted input and is ignored.
     try:
