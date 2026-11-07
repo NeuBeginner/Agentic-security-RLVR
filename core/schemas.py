@@ -53,6 +53,8 @@ class ExploitPayload(BaseModel):
     raw_model_response: str = Field(default="", description="Preserved unedited text output from LLM for post-mortem")
     format_valid: bool = Field(default=True, description="Whether payload satisfies mandatory contract specifications")
     format_error_reason: str = Field(default="", description="Diagnostic reason if format_valid is False")
+    contract_name_normalized: bool = Field(default=False, description="Whether the executable contract name was mechanically repaired")
+    original_contract_name: str = Field(default="", description="Contract name before mechanical normalization")
     
     # Candidate lifecycle & exact token lineage tracking (Round 4/5)
     candidate_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
@@ -210,6 +212,8 @@ class RLVRTrajectory(BaseModel):
     token_provenance: Optional[str] = Field(default=None, description="model_generate, external_text_only, or synthetic")
     trainable: Optional[bool] = Field(default=None, description="True if eligible for GRPO optimization")
     generated_token_ids: Optional[List[int]] = Field(default=None)
+    contract_name_normalized: bool = Field(default=False)
+    original_contract_name: str = Field(default="")
     evidence: Optional[ExecutionEvidence] = None
     invariant_results: List[InvariantResult] = Field(default_factory=list)
     hypothesis_id: Optional[str] = None
