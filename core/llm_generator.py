@@ -384,6 +384,124 @@ def extract_contract_body(clean_code: str, contract_name: str = "ExploitModule")
     return None
 
 
+def normalize_exploit_contract_name(
+    code: str,
+    contract_name: str = "ExploitModule"
+) -> Tuple[str, bool, str]:
+    """
+    Renames a single top-level `contract <OtherName>` declaration to the mandatory
+    `contract ExploitModule` name required by the verification harness.
+
+    This is a purely mechanical, semantics-preserving repair: it fixes the single
+    most common failure mode where the model emits a descriptively named contract
+    (`VaultAttack`, `ReentrancyDrain`, ...) instead of the harness-mandated name.
+    Without it, such candidates are rejected before Foundry ever runs and can never
+    produce a verifiable reward signal.
+
+    Safety rules (fail-closed, never rewrite when uncertain):
+    - Only IDENT tokens are rewritten, so string literals and comments are untouched.
+    - The rename is applied ONLY when exactly ONE top-level contract is declared
+      and its name differs from the mandatory name. Multiple contracts mean the
+      intent is ambiguous, so the code is left untouched.
+    - Every occurrence of the old identifier is renamed consistently, so internal
+      self-references (e.g. `new VaultAttack(...)`) keep compiling.
+    - Identifiers that appear inside `import` statements are NEVER renamed, so an
+      imported symbol can never be silently aliased into the target contract.
+    - If `contract ExploitModule` is already present, the code is left untouched.
+
+    Returns:
+        (normalized_code, was_renamed, original_contract_name)
+    """
+    if not code or not code.strip():
+        return code, False, ""
+
+    tokens, lex_err = tokenize_solidity(code)
+    if lex_err or not tokens:
+        return code, False, ""
+
+    # Collect top-level contract declarations and their body token ranges.
+    declared_contracts: List[str] = []
+    contract_token_ranges: Dict[str, List[SolidityToken]] = {}
+    current_contract_name: Optional[str] = None
+    current_contract_tokens: List[SolidityToken] = []
+    brace_depth = 0
+
+    idx = 0
+    n = len(tokens)
+    while idx < n:
+        tok = tokens[idx]
+        if tok.type == SolidityTokenType.LBRACE:
+            brace_depth += 1
+            if current_contract_name:
+                current_contract_tokens.append(tok)
+            idx += 1
+            continue
+        if tok.type == SolidityTokenType.RBRACE:
+            brace_depth -= 1
+            if current_contract_name:
+                current_contract_tokens.append(tok)
+                if brace_depth == 0:
+                    contract_token_ranges[current_contract_name] = current_contract_tokens
+                    current_contract_name = None
+                    current_contract_tokens = []
+            idx += 1
+            continue
+        if brace_depth == 0 and tok.value == "contract" and idx + 1 < n:
+            name_tok = tokens[idx + 1]
+            if name_tok.type in (SolidityTokenType.IDENT, SolidityTokenType.KEYWORD):
+                cname = name_tok.value
+                declared_contracts.append(cname)
+                current_contract_name = cname
+                current_contract_tokens = []
+                idx += 2
+                continue
+        if current_contract_name and brace_depth > 0:
+            current_contract_tokens.append(tok)
+        idx += 1
+
+    # Ambiguity -> do not touch. An already-correct name -> nothing to do.
+    if len(declared_contracts) != 1:
+        return code, False, ""
+    old_name = declared_contracts[0]
+    if old_name == contract_name:
+        return code, False, ""
+
+    # Collect identifier positions that belong to `import` statements.
+    # Renaming those would silently alias an imported symbol into the target
+    # contract and break compilation in a way the model could not have intended.
+    import_positions: set = set()
+    in_import = False
+    for tok in tokens:
+        if tok.type == SolidityTokenType.KEYWORD and tok.value == "import":
+            in_import = True
+            continue
+        if in_import:
+            if tok.type == SolidityTokenType.SEMICOLON:
+                in_import = False
+                continue
+            import_positions.add(tok.pos)
+
+    # Rewrite every IDENT occurrence of the old name (declaration + self-references).
+    pieces: List[str] = []
+    cursor = 0
+    renamed = False
+    for tok in tokens:
+        if tok.type != SolidityTokenType.IDENT or tok.value != old_name:
+            continue
+        if tok.pos in import_positions:
+            continue
+        pieces.append(code[cursor:tok.pos])
+        pieces.append(contract_name)
+        cursor = tok.pos + len(old_name)
+        renamed = True
+
+    if not renamed:
+        return code, False, old_name
+
+    pieces.append(code[cursor:])
+    return "".join(pieces), True, old_name
+
+
 def validate_exploit_format(code: str) -> Tuple[bool, str]:
     """
     Validates that synthesized code strictly satisfies ExploitModule requirements
@@ -668,7 +786,23 @@ def parse_model_response(
     Preserves exact generated token IDs and prompt text for training lineage.
     """
     code = extract_solidity_code(raw_text)
+
+    # Mechanical repair: rename a single descriptively-named top-level contract to the
+    # harness-mandated `ExploitModule`. Without this, candidates that are otherwise
+    # valid never reach Foundry and can never yield a verifiable reward.
+    if config.ENABLE_CONTRACT_NAME_NORMALIZATION:
+        normalized_code, was_renamed, original_name = normalize_exploit_contract_name(code)
+        code = normalized_code
+    else:
+        was_renamed, original_name = False, ""
+
     is_valid, format_reason = validate_exploit_format(code)
+    if was_renamed:
+        # The rename is a mechanical repair, not a validation failure: after it the
+        # candidate satisfies the harness contract. The format error reason stays
+        # reserved for genuine validation failures; the repair event is recorded
+        # separately on the payload so it remains auditable.
+        format_reason = "" if is_valid else format_reason
 
     parts = raw_text.split("```")
     reasoning = parts[0].strip() if parts else raw_text[:300]
@@ -703,6 +837,8 @@ def parse_model_response(
         raw_model_response=raw_text,
         format_valid=is_valid,
         format_error_reason=format_reason,
+        contract_name_normalized=was_renamed,
+        original_contract_name=original_name if was_renamed else "",
         prompt_text=prompt_text,
         generated_token_ids=generated_token_ids
     )
