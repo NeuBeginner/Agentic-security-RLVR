@@ -6,7 +6,17 @@ from core.evm_oracle import (
     TrustedEVMStateOracle,
     trusted_oracle,
 )
-from core.schemas import TargetProgram
+from core.schemas import (
+    AttackHypothesis,
+    ExecutionEvidence,
+    ExecutionResult,
+    ExploitPayload,
+    TargetProgram,
+    VerificationResult,
+)
+from core.evaluator import evaluate_execution_trace
+from core.evidence import HarnessVerdict
+from core.schemas import ResultCategory
 
 
 def _event_data(invariant_type: str, deficit: int) -> str:
@@ -111,3 +121,46 @@ def test_trusted_erc4626_event_sets_share_inflation_flag():
     assert spoofed is False
     assert context["share_inflation_detected"] is True
     assert context["deficit"] == 0
+
+
+def test_oracle_shadow_result_is_persisted_but_does_not_override_trusted_reward():
+    payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(
+            vulnerability_type="Reentrancy",
+            reasoning_trace="External call before balance update",
+            attack_vector="Reenter withdrawAll",
+        ),
+        test_code="contract ExploitModule {}",
+    )
+    shadow = VerificationResult(
+        execution_success=True,
+        invariant_breach=False,
+        confidence_status="UNVERIFIED",
+        failure_reason="Raw event payload unavailable to secondary Oracle",
+    )
+    shadow_evidence = ExecutionEvidence(
+        candidate_id=payload.candidate_id,
+        target_id="Vault",
+        execution_status="SUCCESS",
+        execution_success=True,
+        logs_reference=[],
+    )
+    raw = ExecutionResult(
+        return_code=0,
+        stdout="",
+        stderr="",
+        execution_time_sec=0.1,
+        category=ResultCategory.EXPLOIT_CONFIRMED,
+        invariant_violated=True,
+        test_status="Success",
+        harness_verdict=HarnessVerdict.BREACH.value,
+        harness_suite="test/VaultHarness.t.sol",
+        evidence=shadow_evidence,
+        verification_result=shadow,
+    )
+    verdict = evaluate_execution_trace(payload, raw)
+    assert verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED
+    assert verdict.reward_score == 0.5
+    assert verdict.verification_result.confidence_status == "UNVERIFIED"
+    assert verdict.evidence.candidate_id == payload.candidate_id

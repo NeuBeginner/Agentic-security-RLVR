@@ -188,6 +188,7 @@ class VerificationVerdict(BaseModel):
     candidate_index: int = Field(default=0)
     replay_status: str = Field(default="NOT_ELIGIBLE", description="CONFIRMED, FAILED, or NOT_ELIGIBLE")
     evidence: Optional[ExecutionEvidence] = None
+    invariant_results: List[InvariantResult] = Field(default_factory=list)
     verification_result: Optional[VerificationResult] = None
 
     # Reward attribution (Reward Specification 2.0.0).
@@ -254,6 +255,7 @@ class RLVRTrajectory(BaseModel):
     reward_spec_version: str = Field(default="1.0.0-legacy", description="Version of the reward specification that produced this reward")
     evidence: Optional[ExecutionEvidence] = None
     invariant_results: List[InvariantResult] = Field(default_factory=list)
+    verification_result: Optional[VerificationResult] = None
     hypothesis_id: Optional[str] = None
 
     @model_validator(mode="after")

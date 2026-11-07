@@ -16,6 +16,8 @@ adapter. It is not itself an LLM auditor. The benchmark's smoke mode is syntheti
 real comparative mode stays disabled until executable adapters exist for each baseline.
 
 Unknown target names, malformed event payloads, and untrusted log text fail closed.
+The EVM State Oracle is invoked as a secondary diagnostic over raw Foundry evidence and its typed invariant results are persisted with verdicts/trajectories. The MiniMax immutable structured-harness verdict remains the sole authority for Reward Spec 2.0.0 scoring; an Oracle diagnostic alone can never award reward.
+
 The benchmark Solidity harnesses are dataset fixtures, not production trusted-runner
 allowlist entries. PR #4's runtime allowlist remains limited to Vault and ERC4626Vault;
 new targets must pass a separate harness review and adversarial verification before

@@ -53,6 +53,9 @@ def _build_verdict(
     is_verified: bool,
     reproducible: bool,
     state_delta_verified: bool = False,
+    evidence=None,
+    invariant_results=None,
+    verification_result=None,
 ) -> VerificationVerdict:
     """
     Assembles a verdict from a category and the proven evidence.
@@ -76,6 +79,9 @@ def _build_verdict(
         reward_components=dict(breakdown.components),
         reward_penalty=breakdown.penalty,
         reward_spec_version=breakdown.spec_version,
+        evidence=evidence,
+        invariant_results=list(invariant_results or []),
+        verification_result=verification_result,
     )
 
 
@@ -85,9 +91,16 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
     Categorizes errors cleanly into Infra, Format, Compilation, Runtime Revert, Unreplayed Breach, and Confirmed Exploit.
     Serves as the RLVR ground-truth signal for GRPO training.
     """
+    def build_verdict_from_result(*args, **kwargs):
+        """Carry Oracle evidence forward without changing the trusted reward decision."""
+        kwargs.setdefault("evidence", result.evidence)
+        kwargs.setdefault("invariant_results", result.invariant_results)
+        kwargs.setdefault("verification_result", result.verification_result)
+        return _build_verdict(*args, **kwargs)
+
     # 0. Check for structural/format failure in model output (Format validation)
     if not payload.format_valid:
-        return _build_verdict(
+        return build_verdict_from_result(
             payload,
             ResultCategory.GENERATION_FORMAT_ERROR,
             RewardEvidence(),
@@ -98,7 +111,7 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
 
     # 1. Immediate rejection and severe penalty for cheatcode/sandbox tampering
     if result.cheatcode_detected or result.category == ResultCategory.CHEATCODE_DETECTED:
-        return _build_verdict(
+        return build_verdict_from_result(
             payload,
             ResultCategory.CHEATCODE_DETECTED,
             RewardEvidence(),
@@ -111,7 +124,7 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
     # Infrastructure failures MUST NOT penalize the model (reward = 0.0)
     if result.category == ResultCategory.INFRA_ERROR:
         raw_infra_err = result.stderr if result.stderr.strip() else result.stdout
-        return _build_verdict(
+        return build_verdict_from_result(
             payload,
             ResultCategory.INFRA_ERROR,
             RewardEvidence(),
@@ -122,7 +135,7 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
 
     # 3. Check for execution timeout (DoS / out-of-gas / infinite loop)
     if result.timed_out:
-        return _build_verdict(
+        return build_verdict_from_result(
             payload,
             ResultCategory.RUNTIME_REVERT,
             RewardEvidence(
@@ -139,7 +152,7 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
     # The harness intentionally reverts when the invariant held. That Forge
     # Failure status is a trusted no-breach result, not a candidate runtime crash.
     if result.harness_verdict == HarnessVerdict.NO_BREACH.value:
-        return _build_verdict(
+        return build_verdict_from_result(
             payload,
             ResultCategory.SAFE_RUN,
             RewardEvidence(format_valid=True, compiled=True, executed=True),
@@ -149,7 +162,7 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
         )
 
     if result.harness_verdict == HarnessVerdict.EXEC_REVERT.value:
-        return _build_verdict(
+        return build_verdict_from_result(
             payload,
             ResultCategory.RUNTIME_REVERT,
             RewardEvidence(format_valid=True, compiled=True, executed=False),
@@ -177,7 +190,7 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
 
         # Award full reward (+1.0) and is_verified=True ONLY if reproducibility was confirmed in independent replay
         if result.reproducibility_confirmed:
-            return _build_verdict(
+            return build_verdict_from_result(
                 payload,
                 ResultCategory.EXPLOIT_CONFIRMED,
                 RewardEvidence(
@@ -193,7 +206,7 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
                 state_delta_verified=True,
             )
 
-        return _build_verdict(
+        return build_verdict_from_result(
             payload,
             ResultCategory.INVARIANT_BREACH_UNREPLAYED,
             RewardEvidence(
@@ -221,7 +234,7 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
 
         logs_detail = f" | Logs: {result.decoded_logs}" if result.decoded_logs else ""
         compiled = category == ResultCategory.RUNTIME_REVERT
-        return _build_verdict(
+        return build_verdict_from_result(
             payload,
             category,
             RewardEvidence(
@@ -235,7 +248,7 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
         )
 
     # 6. Clean execution, but invariant was NOT breached (Safe run / No-op)
-    return _build_verdict(
+    return build_verdict_from_result(
         payload,
         ResultCategory.SAFE_RUN,
         RewardEvidence(
