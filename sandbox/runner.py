@@ -621,7 +621,7 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                         execution_time_sec=elapsed,
                         revert_reason=effective_revert_reason,
                         cheatcode_detected=False,
-                        structured_json=structured_json,
+                        structured_json=None,
                         raw_logs=trusted_raw_logs,
                         trusted_harness_address=harness_addr,
                     )
