@@ -109,12 +109,9 @@ class AegisBenchmarkSuite:
             with open(src_path, "r", encoding="utf-8") as f:
                 source_code = f.read()
 
+        # Do not inject harness source through TargetProgram. The production
+        # runner loads its allowlisted harnesses from repository-owned image paths.
         harness_code = None
-        if "harness_file" in target_dict:
-            h_path = Path(target_dict["harness_file"])
-            if h_path.exists():
-                with open(h_path, "r", encoding="utf-8") as f:
-                    harness_code = f.read()
 
         invariants = []
         if target_dict.get("ground_truth_invariant") and target_dict["ground_truth_invariant"] != "NONE":
@@ -134,11 +131,11 @@ class AegisBenchmarkSuite:
         save_results: bool = True
     ) -> Dict[str, Any]:
         """
-        Executes benchmark comparison across 5 baseline architectures against all targets.
+        Executes deterministic synthetic smoke fixtures. Real experiments are disabled
+        until every baseline has its own executable adapter and evidence capture.
         
         Args:
-            mode: "smoke" for deterministic fast verification without external API/GPU calls;
-                  "real" for live experimental pipeline execution (Slither, Foundry, Oracle, Replay).
+            mode: "smoke" for synthetic CI plumbing only. "real" raises NotImplementedError.
             model_id: Identifier of model evaluated.
             save_results: Whether to persist benchmark_results.json.
         """
