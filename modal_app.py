@@ -26,6 +26,7 @@ from core.candidate_lifecycle import (
     create_finalized_trajectory,
     compute_prompt_hash
 )
+from core.hypothesis_manager import HypothesisManager
 from core.evaluator import evaluate_execution_trace, create_trajectory_record
 from sandbox.runner import (
     sandbox_image,
@@ -146,13 +147,20 @@ class ProductionAuditAgent:
         return [{"title": "Detected Vulnerability", "category": "LogicFlaw", "description": response_text[:300]}]
 
     @modal.method()
-    def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3) -> dict:
+    def generate_solidity_exploit(
+        self,
+        target_dict: dict,
+        temperature: float = 0.3,
+        hypothesis_dict: dict = None,
+        previous_failures: list = None
+    ) -> dict:
         import torch
-        from core.schemas import TargetProgram
+        from core.schemas import TargetProgram, VulnerabilityHypothesis, AttackHypothesis
         from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_analysis_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
-        user_prompt = build_analysis_prompt(target)
+        hyp = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
+        user_prompt = build_analysis_prompt(target, hypothesis=hyp, previous_failures=previous_failures)
         messages = [
             {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
@@ -171,13 +179,22 @@ class ProductionAuditAgent:
         generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, outputs)]
         response_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
         token_ids_list = generated_ids[0].tolist()
-        return parse_model_response(
+        payload = parse_model_response(
             target,
             response_text,
             attempt_idx=1,
             generated_token_ids=token_ids_list,
             prompt_text=text
-        ).model_dump()
+        )
+        if hyp:
+            payload.hypothesis = AttackHypothesis(
+                vulnerability_type=hyp.vulnerability_class,
+                reasoning_trace=f"Target: {hyp.affected_contract}, Function: {hyp.affected_function or 'all'}. Preconditions: {hyp.attack_preconditions}",
+                attack_vector=" -> ".join(hyp.attack_sequence) if hyp.attack_sequence else "Standard exploit sequence",
+                affected_functions=[hyp.affected_function] if hyp.affected_function else [],
+                confidence_score=hyp.confidence
+            )
+        return payload.model_dump()
 
     @modal.method()
     def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str) -> dict:
@@ -269,13 +286,20 @@ class DevReasoningAgent:
             pass
 
     @modal.method()
-    def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3) -> dict:
+    def generate_solidity_exploit(
+        self,
+        target_dict: dict,
+        temperature: float = 0.3,
+        hypothesis_dict: dict = None,
+        previous_failures: list = None
+    ) -> dict:
         import torch
-        from core.schemas import TargetProgram
+        from core.schemas import TargetProgram, VulnerabilityHypothesis, AttackHypothesis
         from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_analysis_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
-        user_prompt = build_analysis_prompt(target)
+        hyp = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
+        user_prompt = build_analysis_prompt(target, hypothesis=hyp, previous_failures=previous_failures)
         messages = [
             {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
@@ -294,13 +318,22 @@ class DevReasoningAgent:
         generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, outputs)]
         response_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
         token_ids_list = generated_ids[0].tolist()
-        return parse_model_response(
+        payload = parse_model_response(
             target,
             response_text,
             attempt_idx=1,
             generated_token_ids=token_ids_list,
             prompt_text=text
-        ).model_dump()
+        )
+        if hyp:
+            payload.hypothesis = AttackHypothesis(
+                vulnerability_type=hyp.vulnerability_class,
+                reasoning_trace=f"Target: {hyp.affected_contract}, Function: {hyp.affected_function or 'all'}. Preconditions: {hyp.attack_preconditions}",
+                attack_vector=" -> ".join(hyp.attack_sequence) if hyp.attack_sequence else "Standard exploit sequence",
+                affected_functions=[hyp.affected_function] if hyp.affected_function else [],
+                confidence_score=hyp.confidence
+            )
+        return payload.model_dump()
 
     @modal.method()
     def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str) -> dict:
@@ -1033,22 +1066,12 @@ def main(
     model_id = config.DEV_GPU_MODEL if generator.lower() == "dev" or target_name == "Vault" else config.AUDIT_GPU_MODEL
     checkpoint_id = "checkpoint-step-2" if use_lora else "base"
 
-    print(f"\n[Phase 2] Synthesizing {num_candidates} parallel exploit hypotheses (Run ID: {run_id})...")
-    all_candidate_records: List[CandidateRecord] = []
-    initial_payloads: List[ExploitPayload] = []
+    hypothesis_mgr = HypothesisManager(target)
+    if config.ENABLE_SLITHER and target.slither_findings:
+        hypothesis_mgr.ingest_slither_findings()
 
-    if generator.lower() == "gemini":
-        print("[+] Generator: Gemini 2.5 Flash (Frontier Reasoning API)")
-        for i in range(1, num_candidates + 1):
-            p = synthesize_exploit_gemini(target)
-            p.candidate_id = f"{run_id}_c{i}_r0"
-            p.run_id = run_id
-            p.generation_iteration = 0
-            p.candidate_index = i
-            p.attempt_number = i
-            initial_payloads.append(p)
-            print(f"    [Candidate #{i} | ID: {p.candidate_id}] Hypothesis: {p.hypothesis.vulnerability_type} (Gemini API)")
-    else:
+    llm_agent = None
+    if generator.lower() != "gemini":
         if mode.lower() == "audit":
             print(f"[+] Generator: Production Tier ({config.AUDIT_GPU_MODEL} on Modal H100)")
             llm_agent = ProductionAuditAgent()
@@ -1057,6 +1080,8 @@ def main(
                 print(f"[+] Qwen-Audit detected {len(findings)} vulnerability finding(s):")
                 for f_item in findings[:3]:
                     print(f"    - [{f_item.get('severity', 'Med')}] {f_item.get('title')}")
+                if findings:
+                    hypothesis_mgr.ingest_auditor_findings(findings, source_label="qwen-audit")
             except Exception as e:
                 print(f"[!] Audit scan notice: {e}")
         else:
@@ -1064,19 +1089,41 @@ def main(
             print(f"[+] Generator: Dev Tier ({config.DEV_GPU_MODEL}{lora_note} on Modal T4)")
             llm_agent = DevReasoningAgent(use_lora=use_lora)
 
-        temperatures = [0.2 + (i * 0.2) for i in range(num_candidates)]
-        for i, temp in enumerate(temperatures, 1):
-            p_dict = llm_agent.generate_solidity_exploit.remote(target.model_dump(), temperature=temp)
+    top_hypotheses = hypothesis_mgr.get_top_hypotheses(limit=num_candidates)
+    if top_hypotheses:
+        print(f"[+] Active Prioritized Hypotheses ({len(top_hypotheses)}):")
+        for h in top_hypotheses:
+            print(f"    - [{h.severity}] {h.vulnerability_class} on {h.affected_contract} (Status: {h.validation_status})")
+
+    print(f"\n[Phase 2] Synthesizing {num_candidates} parallel exploit hypotheses (Run ID: {run_id})...")
+    all_candidate_records: List[CandidateRecord] = []
+    initial_payloads: List[ExploitPayload] = []
+
+    for i in range(1, num_candidates + 1):
+        temp = 0.2 + (i * 0.2)
+        selected_hyp = top_hypotheses[(i - 1) % len(top_hypotheses)] if top_hypotheses else None
+        hyp_dict = selected_hyp.model_dump() if selected_hyp else None
+
+        if generator.lower() == "gemini":
+            p = synthesize_exploit_gemini(target, hypothesis=selected_hyp)
+        else:
+            p_dict = llm_agent.generate_solidity_exploit.remote(
+                target.model_dump(),
+                temperature=temp,
+                hypothesis_dict=hyp_dict
+            )
             p = ExploitPayload(**p_dict)
-            p.candidate_id = f"{run_id}_c{i}_r0"
-            p.run_id = run_id
-            p.generation_iteration = 0
-            p.candidate_index = i
-            p.attempt_number = i
-            if not p.prompt_text:
-                p.prompt_text = target_prompt
-            initial_payloads.append(p)
-            print(f"    [Candidate #{i} | ID: {p.candidate_id}] Hypothesis: {p.hypothesis.vulnerability_type} (t={temp:.2f})")
+
+        p.candidate_id = f"{run_id}_c{i}_r0"
+        p.run_id = run_id
+        p.generation_iteration = 0
+        p.candidate_index = i
+        p.attempt_number = i
+        if not p.prompt_text:
+            p.prompt_text = build_analysis_prompt(target, hypothesis=selected_hyp)
+        initial_payloads.append(p)
+        hyp_label = p.hypothesis.vulnerability_type if p.hypothesis else "General"
+        print(f"    [Candidate #{i} | ID: {p.candidate_id}] Hypothesis: {hyp_label} (t={temp:.2f})")
 
     # 4. Phase 3: Distributed Execution in Parallel Foundry Sandboxes (.map)
     print(f"\n[Phase 3] Dispatching {len(initial_payloads)} concurrent Foundry sandboxes via Modal .map()...")
@@ -1091,6 +1138,12 @@ def main(
         v.run_id = run_id
         v.generation_iteration = 0
         v.candidate_index = idx
+
+        # Feedback loop: update hypothesis manager
+        if top_hypotheses:
+            corr_hyp = top_hypotheses[(idx - 1) % len(top_hypotheses)]
+            hypothesis_mgr.update_hypothesis_outcome(corr_hyp.hypothesis_id, v, p.candidate_id)
+            v.hypothesis_id = corr_hyp.hypothesis_id
 
         status_icon = "✅ BREACHED" if v.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED else "❌ REJECTED"
         print(f"    [Worker #{idx} | {p.candidate_id}] {status_icon} [{v.category.value}] | Reward: {v.reward_score:+.2f} | {v.feedback[:75]}...")
@@ -1218,6 +1271,13 @@ def main(
             finalize_candidate_replay(replay_candidate, replay_success=False, replay_infra_error=True)
             replay_candidate.verdict.feedback = f"Replay Infrastructure Error ({type(exc).__name__}): {exc}"
 
+        if replay_candidate.verdict.hypothesis_id:
+            hypothesis_mgr.update_hypothesis_outcome(
+                replay_candidate.verdict.hypothesis_id,
+                replay_candidate.verdict,
+                replay_candidate.candidate_id
+            )
+
         primary_record = replay_candidate
     else:
         print("[-] No candidate breached the security invariant. Replay NOT ELIGIBLE.")
@@ -1249,6 +1309,10 @@ def main(
     print(f"Final RLVR Ground-Truth Reward: {primary_record.verdict.reward_score:+.2f}")
     print(f"Independent EVM Replay        : {'CONFIRMED (100% Deterministic)' if primary_record.verdict.reproducible else 'FAILED / NOT_ELIGIBLE'}")
     print(f"Total Candidates Evaluated    : {len(all_candidate_records)}")
+    if hypothesis_mgr.hypotheses:
+        print("\nHypothesis Lifecycle Summary:")
+        for hid, hyp in hypothesis_mgr.hypotheses.items():
+            print(f"  - [{hyp.validation_status.upper()}] {hyp.vulnerability_class} ({hyp.severity}) | Attempts: {hyp.attempt_count}")
     print("=" * 78 + "\n")
 
 
