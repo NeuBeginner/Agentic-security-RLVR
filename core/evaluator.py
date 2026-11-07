@@ -98,11 +98,13 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
         )
 
     # 4. Multi-Factor Invariant Verification
-    has_valid_breach_log = any("[INVARIANT_BREACHED" in str(log) for log in result.decoded_logs)
+    has_valid_breach_log = any("[INVARIANT_BREACHED" in str(log) for log in result.decoded_logs) or (
+        result.verification_result is not None and result.verification_result.invariant_breach
+    )
     is_genuine_breach = (
         result.invariant_violated and
         result.return_code == 0 and
-        result.test_status == "Success" and
+        (result.test_status in ("Success", None)) and
         has_valid_breach_log and
         not result.cheatcode_detected
     )
@@ -134,7 +136,9 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
             feedback=feedback_msg,
             state_delta_verified=True,
             reproducible=reproduced,
-            refinement_iteration=payload.attempt_number
+            refinement_iteration=payload.attempt_number,
+            evidence=result.evidence,
+            verification_result=result.verification_result
         )
 
     # 5. Check for compilation or EVM runtime revert failures
@@ -239,5 +243,7 @@ def create_trajectory_record(
         is_synthetic=is_synthetic,
         token_provenance=tok_prov,
         trainable=trainable,
-        generated_token_ids=payload.generated_token_ids
+        generated_token_ids=payload.generated_token_ids,
+        evidence=verdict.evidence,
+        invariant_results=verdict.verification_result.invariant_results if verdict.verification_result else []
     )

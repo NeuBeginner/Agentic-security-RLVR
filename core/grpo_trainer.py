@@ -1003,6 +1003,135 @@ def save_lora_checkpoint(model: Any, tokenizer: Any, output_dir: str, step: int 
 # 6. HUGGING FACE TRL INTEGRATION (Optional high-level GRPOTrainer wrapper)
 # =============================================================================
 
+class DataLeakageError(ValueError):
+    """Raised when data leakage or split isolation violation is detected."""
+    pass
+
+
+def validate_data_leakage_and_splits(
+    trajectories: List[Any],
+    raise_on_error: bool = False
+) -> Dict[str, Any]:
+    """
+    Comprehensive Data Leakage and Split Isolation Verification (Stage 3).
+    Verifies:
+    1. Protocol/Target Disjointness: Targets in 'test' and 'holdout' MUST NOT appear in 'train'.
+    2. Exploit Hash Disjointness: Exact exploit code SHA-256 must not leak across train and test.
+    3. Synthetic Control Isolation: is_synthetic=True must NEVER be in production partition or trainable.
+    4. Exact Grounding: EXPLOIT_CONFIRMED requires is_verified=True, reproduced=True, replay_status='CONFIRMED'.
+    5. Deduplication: Flags duplicate candidate/prompt pairs.
+    """
+    targets_by_split: Dict[str, Set[str]] = {"train": set(), "val": set(), "test": set(), "holdout": set(), "control": set()}
+    exploits_by_split: Dict[str, Set[str]] = {"train": set(), "val": set(), "test": set(), "holdout": set(), "control": set()}
+    violations: List[str] = []
+    seen_traj_ids: Set[str] = set()
+
+    total_records = len(trajectories)
+    synthetic_count = 0
+    trainable_count = 0
+    production_count = 0
+
+    for idx, item in enumerate(trajectories):
+        if isinstance(item, dict):
+            traj_id = item.get("trajectory_id", f"idx_{idx}")
+            target_name = item.get("target_name", "")
+            split = item.get("dataset_split", "train") or "train"
+            partition = item.get("dataset_partition")
+            is_synth = item.get("is_synthetic", False)
+            trainable = item.get("trainable", False)
+            category = item.get("category")
+            exploit_code = item.get("generated_exploit", "")
+            is_verified = item.get("is_verified", False)
+            reproduced = item.get("reproduced", False)
+            replay_status = item.get("replay_status", "NOT_ELIGIBLE")
+        else:
+            traj_id = item.trajectory_id
+            target_name = item.target_name
+            split = item.dataset_split or "train"
+            partition = item.dataset_partition
+            is_synth = item.is_synthetic
+            trainable = item.trainable
+            category = item.category
+            exploit_code = item.generated_exploit
+            is_verified = item.is_verified
+            reproduced = item.reproduced
+            replay_status = item.replay_status
+
+        # Deduplication check
+        if traj_id in seen_traj_ids:
+            violations.append(f"Duplicate trajectory_id detected: '{traj_id}'")
+        seen_traj_ids.add(traj_id)
+
+        # Track partition/synthetic
+        if is_synth:
+            synthetic_count += 1
+            if partition == "production":
+                violations.append(f"Synthetic trajectory '{traj_id}' masquerading with dataset_partition='production'")
+            if trainable is True:
+                violations.append(f"Synthetic trajectory '{traj_id}' has trainable=True")
+        if trainable:
+            trainable_count += 1
+        if partition == "production":
+            production_count += 1
+
+        # Track splits
+        split_norm = str(split).lower()
+        if split_norm not in targets_by_split:
+            targets_by_split[split_norm] = set()
+            exploits_by_split[split_norm] = set()
+
+        if target_name:
+            targets_by_split[split_norm].add(target_name)
+
+        if exploit_code and exploit_code.strip():
+            exp_hash = hashlib.sha256(exploit_code.strip().encode("utf-8")).hexdigest()
+            exploits_by_split[split_norm].add(exp_hash)
+
+        # Grounding check for confirmed exploits
+        cat_str = str(category).replace("ResultCategory.", "")
+        if cat_str == "EXPLOIT_CONFIRMED":
+            if not is_verified or not reproduced or replay_status != "CONFIRMED":
+                violations.append(
+                    f"Trajectory '{traj_id}' has EXPLOIT_CONFIRMED but failed grounding: "
+                    f"is_verified={is_verified}, reproduced={reproduced}, replay_status='{replay_status}'"
+                )
+
+    # 1. Target disjointness: train vs test/holdout
+    train_targets = targets_by_split.get("train", set())
+    test_targets = targets_by_split.get("test", set())
+    holdout_targets = targets_by_split.get("holdout", set())
+
+    test_overlap = train_targets.intersection(test_targets)
+    if test_overlap:
+        violations.append(f"Data leakage detected! Target contracts present in both 'train' and 'test': {test_overlap}")
+
+    holdout_overlap = train_targets.intersection(holdout_targets)
+    if holdout_overlap:
+        violations.append(f"Data leakage detected! Target contracts present in both 'train' and 'holdout': {holdout_overlap}")
+
+    # 2. Exploit hash disjointness: train vs test/holdout
+    train_exploits = exploits_by_split.get("train", set())
+    test_exploits = exploits_by_split.get("test", set())
+    exploit_leak = train_exploits.intersection(test_exploits)
+    if exploit_leak:
+        violations.append(f"Data leakage detected! Exploit payloads duplicated across 'train' and 'test' (hashes: {exploit_leak})")
+
+    report = {
+        "valid": len(violations) == 0,
+        "total_records": total_records,
+        "production_count": production_count,
+        "synthetic_count": synthetic_count,
+        "trainable_count": trainable_count,
+        "targets_by_split": {k: list(v) for k, v in targets_by_split.items()},
+        "violations": violations
+    }
+
+    if raise_on_error and violations:
+        raise DataLeakageError(f"Data leakage validation failed with {len(violations)} violation(s): {violations[:3]}")
+
+    return report
+
+
 def create_trl_grpo_config(
     output_dir: str = "/vol/models/checkpoints",
     learning_rate: float = 5e-6,
