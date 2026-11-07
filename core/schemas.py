@@ -25,7 +25,10 @@ class TargetProgram(BaseModel):
     invariants: List[str] = Field(default_factory=list, description="Formal security properties/invariants")
     trusted_harness_code: Optional[str] = Field(
         default=None,
-        description="Immutable, trusted Foundry test harness for EVM state verification"
+        description=(
+            "DEPRECATED untrusted compatibility field. Runtime verifiers ignore this value "
+            "and load repository-owned harness source from the Modal image."
+        )
     )
     slither_findings: List[Dict[str, Any]] = Field(
         default_factory=list,

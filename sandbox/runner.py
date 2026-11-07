@@ -20,6 +20,13 @@ from core.evidence import (
 # Path to pre-baking script
 PREBAKE_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebake_solc.py")
 
+# This directory is copied into the Modal image from the repository at deploy time.
+# Runtime request payloads are never allowed to supply trusted harness source.
+LOCAL_TRUSTED_HARNESSES_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "benchmarks", "targets", "solidity")
+)
+TRUSTED_HARNESSES_DIR = "/opt/aegis/trusted_harnesses"
+
 # Optimized, Pinned Foundry + Solc + OpenZeppelin + Slither Execution Image for Modal
 sandbox_image = (
     modal.Image.debian_slim(python_version="3.10")
@@ -39,6 +46,7 @@ sandbox_image = (
     )
     .env({"PATH": "/root/.foundry/bin:$PATH"})
     .pip_install("pydantic>=2.0.0", "slither-analyzer", "solc-select")
+    .add_local_dir(LOCAL_TRUSTED_HARNESSES_DIR, remote_path=TRUSTED_HARNESSES_DIR, copy=False)
     .add_local_python_source("core", "sandbox")
 )
 
@@ -114,6 +122,26 @@ _TARGET_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 def is_safe_target_name(name: str) -> bool:
     """Accept only a bounded Solidity identifier before it is used in a path."""
     return isinstance(name, str) and bool(_TARGET_NAME_RE.fullmatch(name))
+
+
+def load_trusted_harness_code(target_name: str, harness_dir=None) -> str:
+    """
+    Load the immutable repository harness, never the value from TargetProgram.
+
+    The optional harness_dir exists for hermetic tests only. Production callers
+    use the fixed directory mounted into the Modal image at deploy time.
+    """
+    if not is_safe_target_name(target_name):
+        raise ValueError("target name is not a safe Solidity identifier")
+
+    root = os.path.realpath(harness_dir or TRUSTED_HARNESSES_DIR)
+    harness_path = os.path.realpath(os.path.join(root, f"{target_name}Harness.t.sol"))
+    if os.path.dirname(harness_path) != root:
+        raise ValueError("trusted harness path escaped its immutable directory")
+    if not os.path.isfile(harness_path):
+        raise FileNotFoundError(f"No repository-owned trusted harness for target {target_name}")
+    with open(harness_path, "r", encoding="utf-8") as source:
+        return source.read()
 
 
 class CappedProcessResult:
@@ -324,6 +352,20 @@ def run_slither_analysis(target: TargetProgram) -> list:
     """
     if not is_safe_target_name(target.name):
         return []
+    try:
+        trusted_harness_source = load_trusted_harness_code(target.name)
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        return ExecutionResult(
+            return_code=-7,
+            stdout="",
+            stderr=f"INFRA_ERROR: trusted repository harness unavailable: {exc}",
+            execution_time_sec=time.time() - start_time,
+            category=ResultCategory.INFRA_ERROR,
+            timed_out=False,
+            invariant_violated=False,
+            verified_by_harness=False,
+        )
+
     with tempfile.TemporaryDirectory() as tmpdir:
         src_dir = os.path.join(tmpdir, "src")
         os.makedirs(src_dir, exist_ok=True)
@@ -446,11 +488,10 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
         with open(target_path, "w", encoding="utf-8") as f:
             f.write(target.source_code)
             
-        # Write trusted invariant test harness: test/{target.name}Harness.t.sol
-        if target.trusted_harness_code:
-            harness_path = os.path.join(test_dir, f"{target.name}Harness.t.sol")
-            with open(harness_path, "w", encoding="utf-8") as f:
-                f.write(target.trusted_harness_code)
+        # Write only the repository-owned harness loaded from the immutable Modal image.
+        harness_path = os.path.join(test_dir, f"{target.name}Harness.t.sol")
+        with open(harness_path, "w", encoding="utf-8") as f:
+            f.write(trusted_harness_source)
                 
         # Write candidate ExploitModule (strictly sanitized filename to prevent path traversal)
         safe_filename = "ExploitModule.sol"

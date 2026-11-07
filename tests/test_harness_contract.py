@@ -35,6 +35,7 @@ from sandbox.runner import (
     detect_prohibited_cheatcodes,
     extract_trusted_harness_verdict,
     is_safe_target_name,
+    load_trusted_harness_code,
     run_subprocess_capped,
 )
 
@@ -392,3 +393,30 @@ def test_subprocess_output_is_bounded_during_execution():
     assert len(result.stderr.encode("utf-8")) < 1200
     assert "LOG_TRUNCATED" in result.stdout
     assert "LOG_TRUNCATED" in result.stderr
+
+
+def test_trusted_harness_is_loaded_from_repository_not_request_payload(tmp_path):
+    """A caller-supplied TargetProgram.trusted_harness_code is never an input to loader."""
+    repository_harness_dir = Path(__file__).resolve().parents[1] / "benchmarks" / "targets" / "solidity"
+    trusted_path = repository_harness_dir / "VaultHarness.t.sol"
+    assert trusted_path.is_file()
+    trusted_source = load_trusted_harness_code("Vault", harness_dir=repository_harness_dir)
+
+    # An attacker-controlled alternate file must not replace the repository file
+    # selected by the production path. This fixture is isolated from the repository.
+    attacker_dir = tmp_path / "untrusted"
+    attacker_dir.mkdir()
+    (attacker_dir / "VaultHarness.t.sol").write_text(
+        "contract VaultHarness { function testExploit() public {} }",
+        encoding="utf-8",
+    )
+    assert "testExploit" in trusted_source
+    assert "contract VaultHarness { function testExploit()" not in trusted_source
+    assert load_trusted_harness_code("Vault", harness_dir=repository_harness_dir) == trusted_source
+
+
+def test_trusted_harness_loader_fails_closed_for_unknown_targets(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        load_trusted_harness_code("UnknownContract", harness_dir=tmp_path)
+    with pytest.raises(ValueError):
+        load_trusted_harness_code("../Vault", harness_dir=tmp_path)
