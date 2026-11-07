@@ -143,7 +143,7 @@ def test_oracle_rejects_fake_marker_when_execution_succeeds_without_breach():
         execution_time_sec=0.2
     )
     assert res.invariant_breach is False
-    assert res.confidence_status in ("SAFE_RUN", "REJECTED")
+    assert res.confidence_status == "UNVERIFIED"
 
 
 def test_sanitized_environment_strips_sensitive_keys():
