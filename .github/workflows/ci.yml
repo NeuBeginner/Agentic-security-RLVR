@@ -44,8 +44,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m pip install pytest pytest-cov
+          python -m pip install pytest pytest-cov numpy
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install "transformers>=4.44,<5"
 
       - name: Run oracle, hypothesis and data-integrity tests
         env:
