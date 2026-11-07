@@ -136,6 +136,28 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
             reproducible=False,
         )
 
+    # The harness intentionally reverts when the invariant held. That Forge
+    # Failure status is a trusted no-breach result, not a candidate runtime crash.
+    if result.harness_verdict == HarnessVerdict.NO_BREACH.value:
+        return _build_verdict(
+            payload,
+            ResultCategory.SAFE_RUN,
+            RewardEvidence(format_valid=True, compiled=True, executed=True),
+            "Safe Execution: trusted harness completed its no-breach assertion.",
+            is_verified=False,
+            reproducible=True,
+        )
+
+    if result.harness_verdict == HarnessVerdict.EXEC_REVERT.value:
+        return _build_verdict(
+            payload,
+            ResultCategory.RUNTIME_REVERT,
+            RewardEvidence(format_valid=True, compiled=True, executed=False),
+            f"Execution Reverted: {result.revert_reason or 'trusted harness reported an exploit revert.'}",
+            is_verified=False,
+            reproducible=False,
+        )
+
     # 4. Multi-Factor Invariant Verification (TRUSTED EVIDENCE ONLY)
     # The breach is confirmed ONLY by the structured verdict of the immutable,
     # repository-owned harness. The log marker is deliberately NOT consulted:

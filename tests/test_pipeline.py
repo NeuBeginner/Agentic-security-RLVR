@@ -17,7 +17,7 @@ from core.schemas import (
     ResultCategory
 )
 from core.evaluator import evaluate_execution_trace
-from sandbox.runner import parse_forge_output
+from sandbox.runner import parse_forge_output, is_safe_target_name
 
 
 # =============================================================================
@@ -265,20 +265,23 @@ def test_timeout_handling():
 # 5. TEST PATH TRAVERSAL SANITIZATION (POINT 4)
 # =============================================================================
 def test_path_traversal_sanitization():
-    """
-    Ensures filenames like ../../evil.sol are safely stripped to a single local filename.
-    """
-    malicious_names = [
+    """Filesystem targets must be Solidity identifiers, never caller-supplied paths."""
+    valid_names = ["Vault", "ERC4626Vault", "_Target2", "VaultV2"]
+    unsafe_names = [
         "../../etc/passwd",
-        "..\\..\\windows\\system32.sol",
-        "/absolute/root.sol",
-        "nested/sub/exploit.sol"
+        r"..\\..\\windows\\system32",
+        "/absolute/root",
+        r"nested/sub/exploit",
+        ".",
+        "..",
+        "",
+        "Vault.sol",
+        "Vault;rm -rf",
     ]
-    for bad_name in malicious_names:
-        safe_name = os.path.basename(bad_name)
-        assert "/" not in safe_name
-        assert "\\" not in safe_name
-        assert ".." not in safe_name
+    for name in valid_names:
+        assert is_safe_target_name(name)
+    for name in unsafe_names:
+        assert not is_safe_target_name(name)
 
 
 # =============================================================================

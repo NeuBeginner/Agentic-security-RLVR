@@ -1,6 +1,8 @@
 import os
 import json
 import re
+import signal
+import threading
 import shutil
 import subprocess
 import tempfile
@@ -17,6 +19,17 @@ from core.evidence import (
 
 # Path to pre-baking script
 PREBAKE_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebake_solc.py")
+
+# This directory is copied into the Modal image from the repository at deploy time.
+# Runtime request payloads are never allowed to supply trusted harness source.
+LOCAL_TRUSTED_HARNESSES_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "benchmarks", "targets", "solidity")
+)
+TRUSTED_HARNESSES_DIR = "/opt/aegis/trusted_harnesses"
+TRUSTED_HARNESS_CONTRACTS = {
+    "Vault": "VaultTrustedHarness",
+    "ERC4626Vault": "ERC4626TrustedHarness",
+}
 
 # Optimized, Pinned Foundry + Solc + OpenZeppelin + Slither Execution Image for Modal
 sandbox_image = (
@@ -37,6 +50,7 @@ sandbox_image = (
     )
     .env({"PATH": "/root/.foundry/bin:$PATH"})
     .pip_install("pydantic>=2.0.0", "slither-analyzer", "solc-select")
+    .add_local_dir(LOCAL_TRUSTED_HARNESSES_DIR, remote_path=TRUSTED_HARNESSES_DIR, copy=False)
     .add_local_python_source("core", "sandbox")
 )
 
@@ -105,6 +119,136 @@ HARNESS_VERDICT_NO_BREACH = HarnessVerdict.NO_BREACH.value
 HARNESS_VERDICT_EXEC_REVERT = HarnessVerdict.EXEC_REVERT.value
 HARNESS_VERDICT_UNKNOWN = HarnessVerdict.UNKNOWN.value
 
+MAX_LOG_OUTPUT_BYTES = 1_000_000
+_TARGET_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+
+def is_safe_target_name(name: str) -> bool:
+    """Accept only a bounded Solidity identifier before it is used in a path."""
+    return isinstance(name, str) and bool(_TARGET_NAME_RE.fullmatch(name))
+
+
+def load_trusted_harness_code(target_name: str, harness_dir=None) -> str:
+    """
+    Load the immutable repository harness, never the value from TargetProgram.
+
+    The optional harness_dir exists for hermetic tests only. Production callers
+    use the fixed directory mounted into the Modal image at deploy time.
+    """
+    if not is_safe_target_name(target_name):
+        raise ValueError("target name is not a safe Solidity identifier")
+    if target_name not in TRUSTED_HARNESS_CONTRACTS:
+        raise FileNotFoundError(f"No allowlisted repository harness for target {target_name}")
+
+    root = os.path.realpath(harness_dir or TRUSTED_HARNESSES_DIR)
+    harness_path = os.path.realpath(os.path.join(root, f"{target_name}Harness.t.sol"))
+    if os.path.dirname(harness_path) != root:
+        raise ValueError("trusted harness path escaped its immutable directory")
+    if not os.path.isfile(harness_path):
+        raise FileNotFoundError(f"No repository-owned trusted harness for target {target_name}")
+    with open(harness_path, "r", encoding="utf-8") as source:
+        return source.read()
+
+
+class CappedProcessResult:
+    def __init__(self, returncode: int, stdout: str, stderr: str, timed_out: bool = False):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+        self.timed_out = timed_out
+
+
+def run_subprocess_capped(
+    cmd: list,
+    *,
+    cwd: str,
+    env: dict,
+    timeout: int,
+    max_output_bytes: int = MAX_LOG_OUTPUT_BYTES,
+) -> CappedProcessResult:
+    """Drain both pipes continuously, retaining at most max_output_bytes per stream."""
+    limit = max(1, int(max_output_bytes))
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    truncated = {"stdout": False, "stderr": False}
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+        env=env,
+        text=False,
+        bufsize=0,
+        start_new_session=(os.name == "posix"),
+    )
+
+    def drain(pipe, key: str) -> None:
+        while True:
+            chunk = pipe.read(64 * 1024)
+            if not chunk:
+                break
+            remaining = limit - len(buffers[key])
+            if remaining > 0:
+                buffers[key].extend(chunk[:remaining])
+            if len(chunk) > max(0, remaining):
+                truncated[key] = True
+
+    readers = [
+        threading.Thread(target=drain, args=(proc.stdout, "stdout"), daemon=True),
+        threading.Thread(target=drain, args=(proc.stderr, "stderr"), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+
+    timed_out = False
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        if os.name == "posix":
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            proc.kill()
+        proc.wait()
+
+    for reader in readers:
+        reader.join(timeout=0.5)
+
+    # A descendant may keep inherited pipes open after its parent exits.
+    if any(reader.is_alive() for reader in readers):
+        if os.name == "posix":
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            proc.kill()
+        for reader in readers:
+            reader.join(timeout=2.0)
+
+    for pipe in (proc.stdout, proc.stderr):
+        try:
+            pipe.close()
+        except Exception:
+            pass
+
+    def decode(key: str) -> str:
+        output = bytes(buffers[key]).decode("utf-8", errors="replace")
+        if truncated[key]:
+            output += "\n[LOG_TRUNCATED: retained output capped at configured byte limit]"
+        return output
+
+    return CappedProcessResult(
+        returncode=proc.returncode if proc.returncode is not None else -1,
+        stdout=decode("stdout"),
+        stderr=decode("stderr"),
+        timed_out=timed_out,
+    )
+
+
 
 def detect_prohibited_cheatcodes(code: str) -> bool:
     """
@@ -137,70 +281,48 @@ def extract_trusted_harness_verdict(
     structured_data,
     target_name: str
 ):
-    """
-    Extracts the verdict of the immutable harness suite from forge's structured
-    output.
+    """Read exactly one immutable repository harness and exact testExploit() result."""
+    if (
+        not is_safe_target_name(target_name)
+        or target_name not in TRUSTED_HARNESS_CONTRACTS
+        or not isinstance(structured_data, dict)
+    ):
+        return HARNESS_VERDICT_UNKNOWN, "", None, None
 
-    Only suites that belong to the repository-owned harness file are inspected.
-    A suite injected by the candidate (for example `test/ExploitModule.sol`)
-    can therefore never produce a verdict.
-
-    The verdict is derived from forge's structured test STATUS and REASON:
-      * status == "Success"                     -> BREACH
-        (harness contract: the test returns normally only on the breach path)
-      * status == "Failure" and the reason is the harness' own EXPLOIT_FAILED
-        rejection                                       -> NO_BREACH
-      * status == "Failure" with any other reason      -> EXEC_REVERT
-      * anything else / missing suite                   -> UNKNOWN (fail-closed)
-
-    Returns: (verdict, suite_path, status, reason)
-    """
-    verdict = HARNESS_VERDICT_UNKNOWN
-    suite_path = ""
-    status = None
-    reason = None
-
-    if not isinstance(structured_data, dict):
-        return verdict, suite_path, status, reason
-
-    prefix = trusted_harness_suite_prefix(target_name)
-
+    expected_path = trusted_harness_suite_prefix(target_name)
+    matches = []
     for suite_key, suite_val in structured_data.items():
         if not isinstance(suite_val, dict):
             continue
-
-        path = str(suite_key).split(":")[0].replace("\\", "/").strip()
-        if not path.startswith(prefix):
+        suite_path, separator, contract_name = str(suite_key).partition(":")
+        path = suite_path.strip()
+        if (
+            not separator
+            or path != expected_path
+            or contract_name.strip() != TRUSTED_HARNESS_CONTRACTS[target_name]
+        ):
             continue
-        # Defensive: never accept a suite that carries the candidate's filename.
-        if "ExploitModule" in path:
-            continue
-
         test_results = suite_val.get("test_results", {})
         if not isinstance(test_results, dict):
             continue
-
         for test_sig, test_info in test_results.items():
-            if not isinstance(test_info, dict):
-                continue
-            if HARNESS_TEST_NAME not in str(test_sig):
-                continue
-            suite_path = path
-            status = test_info.get("status")
-            reason = test_info.get("reason")
-            break
+            if str(test_sig).strip() == f"{HARNESS_TEST_NAME}()" and isinstance(test_info, dict):
+                matches.append((path, test_info.get("status"), test_info.get("reason")))
 
-        if suite_path:
-            break
+    if len(matches) != 1:
+        return HARNESS_VERDICT_UNKNOWN, "", None, None
 
-    if suite_path and status == "Success":
+    suite_path, status, reason = matches[0]
+    if status == "Success":
         verdict = HARNESS_VERDICT_BREACH
-    elif suite_path and status == "Failure":
-        if reason and str(reason).startswith(HARNESS_NO_BREACH_REASON_PREFIX):
-            verdict = HARNESS_VERDICT_NO_BREACH
-        else:
-            verdict = HARNESS_VERDICT_EXEC_REVERT
-
+    elif status == "Failure":
+        verdict = (
+            HARNESS_VERDICT_NO_BREACH
+            if reason and str(reason).startswith(HARNESS_NO_BREACH_REASON_PREFIX)
+            else HARNESS_VERDICT_EXEC_REVERT
+        )
+    else:
+        verdict = HARNESS_VERDICT_UNKNOWN
     return verdict, suite_path, status, reason
 
 
@@ -243,6 +365,8 @@ def run_slither_analysis(target: TargetProgram) -> list:
     Executes Slither AST / taint analysis on the target contract.
     Returns structured list of static vulnerability warnings to prime reasoning models.
     """
+    if not is_safe_target_name(target.name):
+        return []
     with tempfile.TemporaryDirectory() as tmpdir:
         src_dir = os.path.join(tmpdir, "src")
         os.makedirs(src_dir, exist_ok=True)
@@ -255,7 +379,7 @@ def run_slither_analysis(target: TargetProgram) -> list:
         cmd = ["slither", target_path, "--json", json_out, "--solc-solcs-select", config.SOLC_VERSION]
         
         try:
-            subprocess.run(cmd, cwd=tmpdir, capture_output=True, text=True, timeout=30)
+            run_subprocess_capped(cmd, cwd=tmpdir, env=os.environ.copy(), timeout=30)
             if os.path.exists(json_out):
                 with open(json_out, "r", encoding="utf-8") as jf:
                     data = json.load(jf)
@@ -300,6 +424,19 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
     """
     start_time = time.time()
 
+    # Target names become filesystem paths; only Solidity identifiers are allowed.
+    if not is_safe_target_name(target.name):
+        return ExecutionResult(
+            return_code=-6,
+            stdout="",
+            stderr="INFRA_ERROR: target name is not a safe Solidity identifier",
+            execution_time_sec=0.0,
+            category=ResultCategory.INFRA_ERROR,
+            timed_out=False,
+            invariant_violated=False,
+            verified_by_harness=False,
+        )
+
     # Pre-execution check 1: Reject malformed generation without running Foundry
     if not payload.format_valid:
         return ExecutionResult(
@@ -314,7 +451,7 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             verified_by_harness=False
         )
 
-    # Pre-execution check 2: Block any exploit attempting to hijack Foundry cheatcodes
+    # Pre-execution check 2: reject attempts to import or execute Foundry cheatcodes.
     if detect_prohibited_cheatcodes(payload.test_code):
         return ExecutionResult(
             return_code=-3,
@@ -325,9 +462,26 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             timed_out=False,
             invariant_violated=False,
             cheatcode_detected=True,
-            verified_by_harness=False
+            verified_by_harness=False,
         )
-    
+
+    # Trusted harness source is loaded from the image-bundled repository directory.
+    # TargetProgram.trusted_harness_code is a deprecated untrusted input and is ignored.
+    try:
+        trusted_harness_source = load_trusted_harness_code(target.name)
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        return ExecutionResult(
+            return_code=-7,
+            stdout="",
+            stderr=f"INFRA_ERROR: trusted repository harness unavailable: {exc}",
+            execution_time_sec=time.time() - start_time,
+            category=ResultCategory.INFRA_ERROR,
+            timed_out=False,
+            invariant_violated=False,
+            verified_by_harness=False,
+        )
+
+    # Candidate execution begins only after trusted harness resolution succeeds.
     with tempfile.TemporaryDirectory() as tmpdir:
         src_dir = os.path.join(tmpdir, "src")
         test_dir = os.path.join(tmpdir, "test")
@@ -352,11 +506,10 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
         with open(target_path, "w", encoding="utf-8") as f:
             f.write(target.source_code)
             
-        # Write trusted invariant test harness: test/{target.name}Harness.t.sol
-        if target.trusted_harness_code:
-            harness_path = os.path.join(test_dir, f"{target.name}Harness.t.sol")
-            with open(harness_path, "w", encoding="utf-8") as f:
-                f.write(target.trusted_harness_code)
+        # Write only the repository-owned harness loaded from the immutable Modal image.
+        harness_path = os.path.join(test_dir, f"{target.name}Harness.t.sol")
+        with open(harness_path, "w", encoding="utf-8") as f:
+            f.write(trusted_harness_source)
                 
         # Write candidate ExploitModule (strictly sanitized filename to prevent path traversal)
         safe_filename = "ExploitModule.sol"
@@ -371,20 +524,29 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
         try:
             # Run offline with JSON output and maximum trace detail (-vvvv)
             cmd = ["forge", "test", "--offline", "--json", "-vvvv"]
-            proc = subprocess.run(
+            proc = run_subprocess_capped(
                 cmd,
                 cwd=tmpdir,
-                capture_output=True,
-                text=True,
                 timeout=config.SANDBOX_TIMEOUT_SEC,
                 env=env,
             )
             elapsed = time.time() - start_time
-            
-            output_text = (proc.stdout or "") + "\n" + (proc.stderr or "")
-            
-            # Parse structured JSON output
-            structured_json, test_status, revert_reason, decoded_logs = parse_forge_output(proc.stdout or "")
+            raw_stdout, raw_stderr = proc.stdout, proc.stderr
+            output_text = raw_stdout + "\\n" + raw_stderr
+
+            if proc.timed_out:
+                return ExecutionResult(
+                    return_code=proc.returncode,
+                    stdout=raw_stdout,
+                    stderr=raw_stderr,
+                    execution_time_sec=elapsed,
+                    category=ResultCategory.RUNTIME_REVERT,
+                    timed_out=True,
+                    invariant_violated=False,
+                    verified_by_harness=False,
+                )
+
+            structured_json, test_status, revert_reason, decoded_logs = parse_forge_output(raw_stdout)
 
             # ------------------------------------------------------------------
             # TRUSTED EVIDENCE (Reward Specification 2.0.0)
@@ -419,22 +581,20 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             # Classify outcome category
             if inv_violated:
                 category = ResultCategory.EXPLOIT_CONFIRMED
-            elif harness_verdict in (HARNESS_VERDICT_NO_BREACH, HARNESS_VERDICT_EXEC_REVERT):
-                category = ResultCategory.RUNTIME_REVERT
-            elif proc.returncode == 0:
+            elif harness_verdict == HARNESS_VERDICT_NO_BREACH:
                 category = ResultCategory.SAFE_RUN
+            elif harness_verdict == HARNESS_VERDICT_EXEC_REVERT:
+                category = ResultCategory.RUNTIME_REVERT
             elif "Compiler run failed" in output_text or "ParserError" in output_text or "Error (" in output_text:
                 category = ResultCategory.COMPILATION_ERROR
-            elif effective_revert_reason is not None or "EVM Runtime Revert" in output_text:
-                category = ResultCategory.RUNTIME_REVERT
             else:
-                # If forge failed without compiler or test output, it's an infrastructure fault
+                # Missing trusted harness evidence is an infrastructure error, not SAFE_RUN.
                 category = ResultCategory.INFRA_ERROR
 
             return ExecutionResult(
                 return_code=proc.returncode,
-                stdout=proc.stdout or "",
-                stderr=proc.stderr or "",
+                stdout=raw_stdout,
+                stderr=raw_stderr,
                 execution_time_sec=elapsed,
                 category=category,
                 timed_out=False,
@@ -506,7 +666,7 @@ def verify_independent_replay_result(target: TargetProgram, payload: ExploitPayl
 
 def verify_independent_replay(target: TargetProgram, payload: ExploitPayload) -> bool:
     """
-    Confirms 100% deterministic reproducibility before awarding full RLVR reward.
+    Checks whether a second independent run reproduces the trusted harness breach.
 
     The replay is only accepted when the TRUSTED harness verdict of the second,
     independent execution is a breach. Log text is never consulted.

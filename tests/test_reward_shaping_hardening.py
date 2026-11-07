@@ -612,3 +612,26 @@ def test_real_recorded_outcomes_carry_no_confirmed_exploit():
         )
         assert breakdown.components[RewardComponent.INVARIANT.value] == 0.0
         assert breakdown.components[RewardComponent.REPLAY.value] == 0.0
+
+
+
+def test_trusted_harness_no_breach_is_a_safe_run_not_a_runtime_failure():
+    """The harness intentionally reverts on no-breach; that is a trusted SAFE_RUN."""
+    result = ExecutionResult(
+        return_code=1,
+        stdout="",
+        stderr="EXPLOIT_FAILED: Vault remains solvent, victim funds are secure",
+        execution_time_sec=0.2,
+        category=ResultCategory.RUNTIME_REVERT,
+        test_status="Failure",
+        revert_reason="EXPLOIT_FAILED: Vault remains solvent",
+        harness_verdict="NO_BREACH",
+        harness_suite="test/VaultHarness.t.sol",
+    )
+
+    verdict = evaluate_execution_trace(make_payload(), result)
+
+    assert verdict.category == ResultCategory.SAFE_RUN
+    assert verdict.reward_score == config.REWARD_SAFE_RUN
+    assert verdict.is_verified is False
+    assert verdict.reproducible is True

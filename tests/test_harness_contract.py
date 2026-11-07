@@ -18,11 +18,14 @@ NOT from the model-controlled log text. This suite proves that:
 """
 
 import json
+import io
+import os
 import re
 from pathlib import Path
 
 import pytest
 
+from core.schemas import AttackHypothesis, ExploitPayload, TargetProgram
 from core.evidence import (
     HarnessVerdict,
     HARNESS_NO_BREACH_REASON_PREFIX,
@@ -33,6 +36,10 @@ from core.evidence import (
 from sandbox.runner import (
     detect_prohibited_cheatcodes,
     extract_trusted_harness_verdict,
+    is_safe_target_name,
+    load_trusted_harness_code,
+    run_payload_in_sandbox,
+    run_subprocess_capped,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -336,3 +343,174 @@ def test_forged_marker_alone_is_not_evidence():
     verdict_fail, _, _, _ = extract_trusted_harness_verdict(structured_fail, "Vault")
     assert verdict_fail == HarnessVerdict.NO_BREACH.value
     assert is_trusted_breach_verdict(verdict_fail) is False
+
+
+def test_target_name_must_be_a_bounded_solidity_identifier():
+    assert is_safe_target_name("Vault")
+    assert is_safe_target_name("ERC4626Vault")
+    assert not is_safe_target_name("../Vault")
+    assert not is_safe_target_name(r"..\\Vault")
+    assert not is_safe_target_name("Vault.sol")
+
+
+def test_trusted_harness_path_must_match_exactly():
+    structured = _forge_json(
+        "test/VaultHarness.t.sol.backup:VaultTrustedHarness",
+        "Success",
+    )
+    verdict, suite, _, _ = extract_trusted_harness_verdict(structured, "Vault")
+    assert verdict == HarnessVerdict.UNKNOWN.value
+    assert suite == ""
+
+
+def test_duplicate_trusted_suites_are_fail_closed():
+    structured = {
+        "test/VaultHarness.t.sol:VaultTrustedHarness": {
+            "test_results": {"testExploit()": {"status": "Success", "reason": None}}
+        },
+        "test/VaultHarness.t.sol:VaultTrustedHarness ": {
+            "test_results": {"testExploit()": {"status": "Success", "reason": None}}
+        },
+    }
+    verdict, suite, _, _ = extract_trusted_harness_verdict(structured, "Vault")
+    assert verdict == HarnessVerdict.UNKNOWN.value
+    assert suite == ""
+
+
+def test_subprocess_output_is_bounded_during_execution():
+    import sys
+
+    result = run_subprocess_capped(
+        [
+            sys.executable, "-c",
+            "import sys; sys.stdout.write('A'*2000000); sys.stderr.write('B'*2000000)",
+        ],
+        cwd=".",
+        env=dict(os.environ),
+        timeout=10,
+        max_output_bytes=1024,
+    )
+    assert result.returncode == 0
+    assert not result.timed_out
+    assert len(result.stdout.encode("utf-8")) < 1200
+    assert len(result.stderr.encode("utf-8")) < 1200
+    assert "LOG_TRUNCATED" in result.stdout
+    assert "LOG_TRUNCATED" in result.stderr
+
+
+def test_trusted_harness_is_loaded_from_repository_not_request_payload(tmp_path):
+    """A caller-supplied TargetProgram.trusted_harness_code is never an input to loader."""
+    repository_harness_dir = Path(__file__).resolve().parents[1] / "benchmarks" / "targets" / "solidity"
+    trusted_path = repository_harness_dir / "VaultHarness.t.sol"
+    assert trusted_path.is_file()
+    trusted_source = load_trusted_harness_code("Vault", harness_dir=repository_harness_dir)
+
+    # An attacker-controlled alternate file must not replace the repository file
+    # selected by the production path. This fixture is isolated from the repository.
+    attacker_dir = tmp_path / "untrusted"
+    attacker_dir.mkdir()
+    (attacker_dir / "VaultHarness.t.sol").write_text(
+        "contract VaultHarness { function testExploit() public {} }",
+        encoding="utf-8",
+    )
+    assert "testExploit" in trusted_source
+    assert "contract VaultHarness { function testExploit()" not in trusted_source
+    assert load_trusted_harness_code("Vault", harness_dir=repository_harness_dir) == trusted_source
+
+
+def test_trusted_harness_loader_fails_closed_for_unknown_targets(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        load_trusted_harness_code("UnknownContract", harness_dir=tmp_path)
+    with pytest.raises(ValueError):
+        load_trusted_harness_code("../Vault", harness_dir=tmp_path)
+
+
+def test_sandbox_execution_ignores_request_supplied_harness_code(tmp_path, monkeypatch):
+    """End-to-end runner preflight writes only the image/repository harness."""
+    import sandbox.runner as runner
+
+    trusted_source = "// repository-owned test harness fixture"
+    (tmp_path / "VaultHarness.t.sol").write_text(trusted_source, encoding="utf-8")
+    monkeypatch.setattr(runner, "TRUSTED_HARNESSES_DIR", str(tmp_path))
+
+    structured = {
+        "test/VaultHarness.t.sol:VaultTrustedHarness": {
+            "test_results": {
+                "testExploit()": {
+                    "status": "Success",
+                    "reason": None,
+                    "decoded_logs": [],
+                }
+            }
+        }
+    }
+
+    observed_harnesses = []
+
+    class FakePopen:
+        def __init__(self, cmd, *, cwd, **kwargs):
+            harness_path = Path(cwd) / "test" / "VaultHarness.t.sol"
+            self.written_harness = harness_path.read_text(encoding="utf-8")
+            observed_harnesses.append(self.written_harness)
+            self.returncode = 0
+            self.pid = 99999999
+            self.stdout = io.BytesIO(json.dumps(structured).encode("utf-8"))
+            self.stderr = io.BytesIO(b"")
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(runner.subprocess, "Popen", FakePopen)
+
+    target = TargetProgram(
+        name="Vault",
+        source_code="pragma solidity ^0.8.20; contract Vault {}",
+        trusted_harness_code="ATTACKER-CONTROLLED HARNESS MUST BE IGNORED",
+    )
+    payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(
+            vulnerability_type="Test",
+            reasoning_trace="Test",
+            attack_vector="Test",
+        ),
+        test_code=(
+            "pragma solidity ^0.8.20; contract ExploitModule { "
+            "constructor(address _target) payable {} "
+            "function runExploit() external payable {} }"
+        ),
+        format_valid=True,
+    )
+
+    result = run_payload_in_sandbox(target, payload)
+
+    assert result.harness_verdict == HarnessVerdict.BREACH.value
+    assert result.harness_suite == "test/VaultHarness.t.sol"
+    assert result.verified_by_harness is True
+    assert observed_harnesses == [trusted_source]
+    assert "ATTACKER-CONTROLLED" not in observed_harnesses[0]
+
+
+def test_trusted_harness_contract_name_must_match_allowlist():
+    structured = {
+        "test/VaultHarness.t.sol:AttackerControlledHarness": {
+            "test_results": {"testExploit()": {"status": "Success", "reason": None}}
+        }
+    }
+    verdict, suite, _, _ = extract_trusted_harness_verdict(structured, "Vault")
+    assert verdict == HarnessVerdict.UNKNOWN.value
+    assert suite == ""
+
+
+def test_unknown_target_harness_verdict_is_unknown_not_exception():
+    verdict, suite, status, reason = extract_trusted_harness_verdict(
+        {"test/UnknownContractHarness.t.sol:UnknownTrustedHarness": {
+            "test_results": {"testExploit()": {"status": "Success", "reason": None}}
+        }},
+        "UnknownContract",
+    )
+    assert verdict == HarnessVerdict.UNKNOWN.value
+    assert suite == ""

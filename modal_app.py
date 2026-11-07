@@ -379,7 +379,7 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     memory=config.SANDBOX_MEMORY_MB,
 )
 def verify_replay_remote(target_dict: dict, payload_dict: dict) -> bool:
-    """Independent second run in a fresh ephemeral EVM container to guarantee reproducibility."""
+    """Runs the candidate independently in a fresh EVM worker and checks the trusted verdict."""
     target = TargetProgram(**target_dict)
     payload = ExploitPayload(**payload_dict)
     return verify_independent_replay(target, payload)
@@ -781,7 +781,7 @@ contract ExploitModule {
     print(f"    Post-Replay Category: {v2.category.value} | Reward: {v2.reward_score:+.2f} | is_verified={v2.is_verified}")
     print(f"    Reward Attribution: {_breakdown.describe()}")
     print(f"    Feedback: {v2.feedback[:120]}...")
-    print(f"    Independent Replay: {'CONFIRMED (100% Deterministic)' if replay_confirmed else 'FAILED'}")
+    print(f"    Independent Replay: {'CONFIRMED (independent replay passed)' if replay_confirmed else 'FAILED'}")
     assert v2.is_verified, "Confirmed working exploit must be verified after successful replay"
     assert v2.category == ResultCategory.EXPLOIT_CONFIRMED
     assert v2.reward_score == 1.0
@@ -986,7 +986,7 @@ def run_modal_replay_infra_error_integration_test(target_name: str = "Vault"):
     assert recorded_count == 0, "INFRA_ERROR record must strictly NOT be saved to Modal Volume for GRPO!"
     print(f"[✓] Persistence check passed: Candidate excluded from persistent GRPO trajectories (recorded={recorded_count})")
     print("=" * 78)
-    print("🎉 REAL MODAL INFRA ERROR INTEGRATION TEST PASSED (100% VERIFIED)")
+    print("🎉 REAL MODAL INFRA ERROR INTEGRATION TEST PASSED")
     print("=" * 78 + "\n")
 
 
@@ -1298,7 +1298,7 @@ def main(
             reproduced = verify_replay_remote.remote(target.model_dump(), replay_candidate.payload.model_dump())
             finalize_candidate_replay(replay_candidate, replay_success=reproduced, replay_infra_error=False)
             if reproduced:
-                print(f"[✓] EXPLOIT CONFIRMED: Candidate {replay_candidate.candidate_id} 100% reproduced in independent replay!")
+                print(f"[✓] EXPLOIT CONFIRMED: Candidate {replay_candidate.candidate_id} reproduced in independent replay.")
             else:
                 print(f"[!] Replay failed for candidate {replay_candidate.candidate_id}: marked as unconfirmed breach.")
         except Exception as exc:
@@ -1335,7 +1335,7 @@ def main(
     print(f"Outcome Category              : {primary_record.verdict.category.value}")
     print(f"Vulnerability Type            : {primary_record.verdict.vulnerability_type}")
     print(f"Final RLVR Ground-Truth Reward: {primary_record.verdict.reward_score:+.2f}")
-    print(f"Independent EVM Replay        : {'CONFIRMED (100% Deterministic)' if primary_record.verdict.reproducible else 'FAILED / NOT_ELIGIBLE'}")
+    print(f"Independent EVM Replay        : {'CONFIRMED (independent replay passed)' if primary_record.verdict.reproducible else 'FAILED / NOT_ELIGIBLE'}")
     print(f"Total Candidates Evaluated    : {len(all_candidate_records)}")
     print("=" * 78 + "\n")
 
