@@ -26,6 +26,10 @@ LOCAL_TRUSTED_HARNESSES_DIR = os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "benchmarks", "targets", "solidity")
 )
 TRUSTED_HARNESSES_DIR = "/opt/aegis/trusted_harnesses"
+TRUSTED_HARNESS_CONTRACTS = {
+    "Vault": "VaultTrustedHarness",
+    "ERC4626Vault": "ERC4626TrustedHarness",
+}
 
 # Optimized, Pinned Foundry + Solc + OpenZeppelin + Slither Execution Image for Modal
 sandbox_image = (
@@ -133,6 +137,8 @@ def load_trusted_harness_code(target_name: str, harness_dir=None) -> str:
     """
     if not is_safe_target_name(target_name):
         raise ValueError("target name is not a safe Solidity identifier")
+    if target_name not in TRUSTED_HARNESS_CONTRACTS:
+        raise FileNotFoundError(f"No allowlisted repository harness for target {target_name}")
 
     root = os.path.realpath(harness_dir or TRUSTED_HARNESSES_DIR)
     harness_path = os.path.realpath(os.path.join(root, f"{target_name}Harness.t.sol"))
@@ -284,8 +290,13 @@ def extract_trusted_harness_verdict(
     for suite_key, suite_val in structured_data.items():
         if not isinstance(suite_val, dict):
             continue
-        path = str(suite_key).split(":")[0].strip()
-        if path != expected_path:
+        suite_path, separator, contract_name = str(suite_key).partition(":")
+        path = suite_path.strip()
+        if (
+            not separator
+            or path != expected_path
+            or contract_name.strip() != TRUSTED_HARNESS_CONTRACTS[target_name]
+        ):
             continue
         test_results = suite_val.get("test_results", {})
         if not isinstance(test_results, dict):

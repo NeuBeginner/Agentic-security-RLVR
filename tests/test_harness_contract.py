@@ -368,7 +368,7 @@ def test_duplicate_trusted_suites_are_fail_closed():
         "test/VaultHarness.t.sol:VaultTrustedHarness": {
             "test_results": {"testExploit()": {"status": "Success", "reason": None}}
         },
-        "test/VaultHarness.t.sol:AnotherHarness": {
+        "test/VaultHarness.t.sol:VaultTrustedHarness ": {
             "test_results": {"testExploit()": {"status": "Success", "reason": None}}
         },
     }
@@ -492,3 +492,14 @@ def test_sandbox_execution_ignores_request_supplied_harness_code(tmp_path, monke
     assert result.verified_by_harness is True
     assert observed_harnesses == [trusted_source]
     assert "ATTACKER-CONTROLLED" not in observed_harnesses[0]
+
+
+def test_trusted_harness_contract_name_must_match_allowlist():
+    structured = {
+        "test/VaultHarness.t.sol:AttackerControlledHarness": {
+            "test_results": {"testExploit()": {"status": "Success", "reason": None}}
+        }
+    }
+    verdict, suite, _, _ = extract_trusted_harness_verdict(structured, "Vault")
+    assert verdict == HarnessVerdict.UNKNOWN.value
+    assert suite == ""
