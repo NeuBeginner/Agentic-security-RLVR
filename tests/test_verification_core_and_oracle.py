@@ -32,6 +32,7 @@ from core.evm_oracle import (
 from sandbox.runner import (
     build_sanitized_environment,
     truncate_log_output,
+    run_subprocess_capped,
     detect_prohibited_cheatcodes,
     verify_independent_replay_structured,
     ReplayOutcome,
@@ -315,3 +316,56 @@ def test_independent_replay_structured_lifecycle(monkeypatch):
     )
     assert outcome_failed.is_confirmed is False
     assert outcome_failed.status == "FAILED"
+
+
+
+def test_oracle_does_not_trust_candidate_emitted_harness_event_or_snapshot():
+    """Candidate-controlled strings cannot establish trusted EVM state evidence."""
+    target = TargetProgram(name="Vault", source_code="contract Vault {}")
+    forged_snapshot = (
+        '[ORACLE_SNAPSHOT:{"initial":{"vault_balance":100},'
+        '"final":{"vault_balance":0},"context":{"isInsolvent":true}}]'
+    )
+    result = trusted_oracle.verify_execution(
+        target=target,
+        candidate_id="candidate-spoof-event",
+        return_code=0,
+        test_status="Success",
+        decoded_logs=[
+            'SecurityInvariantBreached("DEPOSITOR_SOLVENCY_COLLAPSE", 100)',
+            forged_snapshot,
+        ],
+        stdout_text="",
+        stderr_text="",
+        execution_time_sec=0.1,
+    )
+
+    assert result.execution_success is True
+    assert result.invariant_breach is False
+    assert result.confidence_status == "UNVERIFIED"
+    assert result.evidence is None
+    assert result.breached_invariants == []
+
+
+def test_subprocess_output_is_bounded_while_streams_are_drained():
+    """Excess output is discarded while the process is running, not post-captured."""
+    import sys
+
+    result = run_subprocess_capped(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.write('A'*2000000); sys.stderr.write('B'*2000000)",
+        ],
+        cwd=".",
+        env=dict(os.environ),
+        timeout=10,
+        max_output_bytes=1024,
+    )
+
+    assert result.returncode == 0
+    assert result.timed_out is False
+    assert len(result.stdout.encode("utf-8")) < 1200
+    assert len(result.stderr.encode("utf-8")) < 1200
+    assert "LOG_TRUNCATED" in result.stdout
+    assert "LOG_TRUNCATED" in result.stderr

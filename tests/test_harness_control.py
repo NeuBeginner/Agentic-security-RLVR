@@ -13,6 +13,9 @@ from core.schemas import (
     ExploitPayload,
     ExecutionResult,
     VerificationVerdict,
+    VerificationResult,
+    ExecutionEvidence,
+    InvariantResult,
     ResultCategory,
 )
 from core.config import config
@@ -44,6 +47,31 @@ contract Vault {
     }
 }
 """
+
+
+def _typed_breach_evidence():
+    evidence = ExecutionEvidence(
+        candidate_id="candidate-typed",
+        target_id="Vault",
+        initial_state_hash="a" * 64,
+        final_state_hash="b" * 64,
+        execution_success=True,
+    )
+    invariant = InvariantResult(
+        invariant_id="INV-VAULT-01-SOLVENCY",
+        invariant_name="Depositor solvency",
+        passed=False,
+        observed_value={"deficit": 1},
+        expected_condition="vault_balance >= liabilities",
+    )
+    return VerificationResult(
+        execution_success=True,
+        invariant_breach=True,
+        confidence_status="PROVISIONAL_BREACH",
+        evidence=evidence,
+        invariant_results=[invariant],
+        breached_invariants=["INV-VAULT-01-SOLVENCY"],
+    )
 
 
 def test_control_1_malformed_contract_name_triggers_format_error():
@@ -174,7 +202,8 @@ def test_control_4a_unreplayed_breach_receives_partial_reward_only():
         test_status="Success",
         decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
         invariant_violated=True,
-        reproducibility_confirmed=False  # NOT confirmed in replay!
+        reproducibility_confirmed=False,  # NOT confirmed in replay!
+        verification_result=_typed_breach_evidence(),
     )
     verdict = evaluate_execution_trace(payload, result)
 
@@ -210,7 +239,8 @@ def test_control_4b_replayed_breach_receives_confirmed_exploit():
         test_status="Success",
         decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
         invariant_violated=True,
-        reproducibility_confirmed=True  # Confirmed!
+        reproducibility_confirmed=True,  # Confirmed!
+        verification_result=_typed_breach_evidence(),
     )
     verdict = evaluate_execution_trace(payload, result)
 
@@ -219,6 +249,36 @@ def test_control_4b_replayed_breach_receives_confirmed_exploit():
     assert verdict.reward_score == 1.00
     assert verdict.is_verified
     assert verdict.reproducible
+
+
+
+
+def test_control_fake_marker_cannot_award_positive_reward_without_typed_evidence():
+    payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(
+            vulnerability_type="ReentrancyDrain",
+            reasoning_trace="Test trace",
+            attack_vector="Test vector",
+        ),
+        test_code="contract ExploitModule { ... }",
+    )
+    result = ExecutionResult(
+        return_code=0,
+        stdout="[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]",
+        stderr="",
+        execution_time_sec=0.1,
+        category=ResultCategory.EXPLOIT_CONFIRMED,
+        decoded_logs=['SecurityInvariantBreached("DEPOSITOR_SOLVENCY_COLLAPSE", 1)'],
+        invariant_violated=True,
+        reproducibility_confirmed=True,
+    )
+
+    verdict = evaluate_execution_trace(payload, result)
+
+    assert verdict.category == ResultCategory.INFRA_ERROR
+    assert verdict.reward_score == config.REWARD_INFRA_ERROR
+    assert verdict.is_verified is False
 
 
 def test_control_5_infra_error_does_not_penalize_model():
