@@ -637,7 +637,7 @@ def verify_independent_replay_result(target: TargetProgram, payload: ExploitPayl
 
 def verify_independent_replay(target: TargetProgram, payload: ExploitPayload) -> bool:
     """
-    Confirms 100% deterministic reproducibility before awarding full RLVR reward.
+    Checks whether a second independent run reproduces the trusted harness breach.
 
     The replay is only accepted when the TRUSTED harness verdict of the second,
     independent execution is a breach. Log text is never consulted.

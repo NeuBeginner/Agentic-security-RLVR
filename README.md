@@ -38,7 +38,7 @@ flowchart TD
         Forge2 --> Evaluator
         ForgeN --> Evaluator
         
-        Evaluator -->|Breached| Replay["Phase 5: Independent Replay Verification<br/>(Clean second container for 100% determinism)"]
+        Evaluator -->|Breached| Replay["Phase 5: Independent Replay Verification<br/>(Clean second EVM worker checks reproducibility)"]
         Evaluator -->|Failed| Refine["Phase 4: Closed-Loop Multi-Round Refinement"]
         Refine -.-> Generator
     end
