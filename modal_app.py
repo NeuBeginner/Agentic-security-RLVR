@@ -27,6 +27,7 @@ from core.candidate_lifecycle import (
     compute_prompt_hash
 )
 from core.evaluator import evaluate_execution_trace, create_trajectory_record
+from core.reward_shaping import RewardEvidence, compute_reward_breakdown
 from sandbox.runner import (
     sandbox_image,
     run_payload_in_sandbox,
@@ -652,7 +653,8 @@ def run_control_foundry_tests(target_name: str = "Vault"):
     Executes mandatory control verification tests for the Foundry Harness and Category Reward logic:
     1. Minimal benign ExploitModule (no-op) -> Compiles, links, reverts in harness (reward -0.25, RUNTIME_REVERT)
     2. Working Reentrancy ExploitModule -> Drains vault, breaches invariant, confirmed replay (reward +1.0, EXPLOIT_CONFIRMED)
-    3. Malformed contract name -> Rejected upfront before Foundry (reward -0.50, GENERATION_FORMAT_ERROR)
+    3. Structurally broken contract -> Rejected upfront before Foundry (GENERATION_FORMAT_ERROR)
+    4. Wrongly-named contract -> Mechanically renamed to ExploitModule, reaches Foundry, real EVM verdict
     """
     print("\n" + "=" * 78)
     print("🧪 EXECUTING MANDATORY FOUNDRY HARNESS CONTROL TEST SUITE (ROUND 5)")
@@ -756,16 +758,34 @@ contract ExploitModule {
     if replay_confirmed:
         v2.category = ResultCategory.EXPLOIT_CONFIRMED
         v2.is_verified = True
-        v2.reward_score = config.REWARD_INVARIANT_BREACH
         v2.replay_status = "CONFIRMED"
+
+    # The reward is recomputed with the shared reward specification, so the
+    # confirmed replay contributes its own `replay` component.
+    _breakdown = compute_reward_breakdown(
+        v2.category,
+        RewardEvidence(
+            format_valid=True,
+            compiled=True,
+            executed=True,
+            invariant_confirmed=True,
+            replay_confirmed=bool(replay_confirmed),
+        ),
+    )
+    v2.reward_score = _breakdown.total
+    v2.reward_components = dict(_breakdown.components)
+    v2.reward_penalty = _breakdown.penalty
+    v2.reward_spec_version = _breakdown.spec_version
 
     print(f"    Status: {'✅ PASS' if v2.is_verified and replay_confirmed else '❌ FAIL'}")
     print(f"    Post-Replay Category: {v2.category.value} | Reward: {v2.reward_score:+.2f} | is_verified={v2.is_verified}")
+    print(f"    Reward Attribution: {_breakdown.describe()}")
     print(f"    Feedback: {v2.feedback[:120]}...")
     print(f"    Independent Replay: {'CONFIRMED (100% Deterministic)' if replay_confirmed else 'FAILED'}")
     assert v2.is_verified, "Confirmed working exploit must be verified after successful replay"
     assert v2.category == ResultCategory.EXPLOIT_CONFIRMED
     assert v2.reward_score == 1.0
+    assert v2.reward_components.get("replay", 0.0) == config.REWARD_COMPONENT_REPLAY
     print("    [✓] Control Test 2 verified: Initial run gave INVARIANT_BREACH_UNREPLAYED (+0.50), post-replay gave EXPLOIT_CONFIRMED (+1.00).")
 
     # Record this verified trajectory as SYNTHETIC CONTROL TRAJECTORY (Round 5.2)
@@ -785,17 +805,21 @@ contract ExploitModule {
     record_trajectory_remote.remote(t_rec.model_dump())
     print("    [✓] Synthetic control trajectory recorded with dataset_partition='synthetic_control', is_synthetic=True (isolated from GRPO dataset)!")
 
-    # 3. TEST 3: Malformed Contract Name (Formatting Error)
-    print("\n[Control Test 3] Testing Malformed Contract Name (contract VaultAttack)...")
+    # 3. TEST 3: Structurally broken contract that mechanical normalization cannot repair
+    #    (the wrongly-named-but-otherwise-valid case is now repaired and reaches Foundry;
+    #     this control keeps proving that a genuinely malformed exploit is still
+    #     rejected upfront, before Foundry is invoked)
+    print("\n[Control Test 3] Testing Structurally Broken Contract (missing runExploit entrypoint)...")
     malformed_code = """// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
 contract VaultAttack {
     constructor(address _target) payable {}
-    function runExploit() external payable {}
+    // Missing mandatory runExploit() entrypoint
 }
 """
     p3 = parse_model_response(target, f"```solidity\n{malformed_code}\n```")
+    assert not p3.format_valid, "Structurally broken exploit must be rejected before Foundry"
     v3_dict = verify_exploit_remote.remote(target.model_dump(), p3.model_dump())
     v3 = VerificationVerdict(**v3_dict)
     print(f"    Status: {'✅ PASS' if v3.category == ResultCategory.GENERATION_FORMAT_ERROR else '❌ FAIL'}")
@@ -804,6 +828,70 @@ contract VaultAttack {
     assert v3.category == ResultCategory.GENERATION_FORMAT_ERROR
     assert v3.reward_score == config.REWARD_FORMAT_ERROR
     print("    [✓] Control Test 3 verified: Format error caught before invoking Foundry.")
+
+    # 4. TEST 4: Wrongly-named but otherwise valid contract is mechanically repaired
+    print("\n[Control Test 4] Testing Mechanical Contract Name Normalization (contract VaultAttack)...")
+    renamable_code = """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Vault} from "../src/Vault.sol";
+
+contract VaultAttack {
+    Vault public targetContract;
+
+    constructor(address _target) payable {
+        targetContract = Vault(payable(_target));
+    }
+
+    function runExploit() external payable {}
+
+    receive() external payable {}
+}
+"""
+    p4 = parse_model_response(target, f"```solidity\n{renamable_code}\n```")
+    assert p4.contract_name_normalized, "Expected mechanical contract-name normalization"
+    assert p4.original_contract_name == "VaultAttack"
+    assert p4.format_valid, "Renamed exploit must pass the format gate"
+    v4_dict = verify_exploit_remote.remote(target.model_dump(), p4.model_dump())
+    v4 = VerificationVerdict(**v4_dict)
+    print(f"    Renamed: 'VaultAttack' -> 'ExploitModule' | format_valid={p4.format_valid}")
+    print(f"    Status: {'✅ PASS' if v4.category != ResultCategory.GENERATION_FORMAT_ERROR else '❌ FAIL'}")
+    print(f"    Category: {v4.category.value} | Reward: {v4.reward_score:+.2f}")
+    assert v4.category != ResultCategory.GENERATION_FORMAT_ERROR, (
+        "Mechanically repaired exploit must reach the EVM harness instead of being rejected"
+    )
+    print("    [✓] Control Test 4 verified: repaired exploit reaches Foundry and yields a real EVM verdict.")
+
+    # 5. TEST 5: Verification-channel hijack must be rejected before Foundry
+    print("\n[Control Test 5] Testing Verification-Channel Hijack Rejection (forged breach marker)...")
+    forged_marker_code = """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {console} from "forge-std/console.sol";
+
+contract ExploitModule {
+    constructor(address _target) payable {}
+
+    function runExploit() external payable {
+        // Forges the breach marker in the logs without breaching anything.
+        console.log("[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]");
+    }
+
+    receive() external payable {}
+}
+"""
+    p5 = parse_model_response(target, f"```solidity\n{forged_marker_code}\n```")
+    v5_dict = verify_exploit_remote.remote(target.model_dump(), p5.model_dump())
+    v5 = VerificationVerdict(**v5_dict)
+    print(f"    Category: {v5.category.value} | Reward: {v5.reward_score:+.2f}")
+    print(f"    Feedback: {v5.feedback[:160]}...")
+    assert v5.category == ResultCategory.CHEATCODE_DETECTED, (
+        f"A candidate that hijacks the verification channel must be rejected, got {v5.category}"
+    )
+    assert v5.reward_score == config.REWARD_CHEATCODE_PENALTY
+    assert not v5.is_verified
+    assert v5.reward_components.get("invariant", 0.0) == 0.0
+    print("    [✓] Control Test 5 verified: forged marker rejected as security violation, no breach credit.")
 
     print("\n" + "=" * 78)
     print("🎉 ALL FOUNDRY HARNESS CONTROL TESTS PASSED (0 ERRORS)")

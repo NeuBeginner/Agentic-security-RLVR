@@ -384,6 +384,320 @@ def extract_contract_body(clean_code: str, contract_name: str = "ExploitModule")
     return None
 
 
+@dataclass
+class ContractNormalizationOutcome:
+    """Full, auditable result of the mechanical contract-name repair."""
+
+    code: str
+    renamed: bool = False
+    original_name: str = ""
+    reason: str = ""
+    renamed_declarations: int = 0
+    renamed_references: int = 0
+
+
+# Keywords that introduce a NEW declaration. An identifier in such a position is
+# a declaration name, NOT a reference to the contract type - rewriting it would
+# silently rename an unrelated declaration.
+_DECLARATION_KEYWORDS = {
+    "contract", "interface", "library", "struct", "enum", "event", "error",
+    "modifier", "function", "constructor", "type",
+}
+
+# Keywords after which the identifier denotes the contract TYPE.
+_TYPE_CONTEXT_KEYWORDS = {"new", "is", "using"}
+
+# Keywords that make the preceding identifier a type followed by a modifier
+# (`VaultAttack payable x;` -> the identifier is the type).
+_MODIFIER_KEYWORDS = {
+    "public", "private", "internal", "memory", "storage", "calldata",
+    "immutable", "constant", "payable", "indexed", "override", "virtual",
+}
+
+# Keywords after which an identifier denotes an event or a custom error.
+_EVENT_ERROR_KEYWORDS = {"emit", "revert"}
+
+# Tokens that can precede a type inside a declaration head.
+_TYPE_TOKENS = {
+    "address", "uint", "uint256", "int", "bool", "string", "bytes", "mapping",
+}
+
+# Tokens that terminate a declared NAME (`uint256 VaultAttack = 1;`).
+_NAME_TERMINATORS = {"=", ";", ",", ")", "["}
+
+
+def _is_type_ish_token(tok: Optional[SolidityToken]) -> bool:
+    """True when the token can be the type part of a declaration head."""
+    if tok is None:
+        return False
+    if tok.type == SolidityTokenType.IDENT:
+        return True
+    if tok.type == SolidityTokenType.KEYWORD and tok.value in _TYPE_TOKENS:
+        return True
+    if tok.type == SolidityTokenType.RPAREN:
+        return True
+    if tok.value == "]":
+        return True
+    return False
+
+
+def analyze_contract_normalization(
+    code: str,
+    contract_name: str = "ExploitModule"
+) -> ContractNormalizationOutcome:
+    """
+    Analyzes whether the exploit contract can be renamed mechanically and, if so,
+    performs the rename.
+
+    RENAME POLICY (proof based, fail-closed)
+    ----------------------------------------
+    Only TWO kinds of tokens are rewritten:
+
+    1. the declaration itself (`contract <OldName>` -> `contract ExploitModule`);
+    2. PROVEN references to that very contract - an identifier that cannot be
+       anything else than a reference to the top-level contract type.
+
+    Everything else is either left untouched or causes the whole repair to be
+    declined:
+
+    * identifiers inside `import` statements are NEVER rewritten (an imported
+      symbol must not be aliased into the target contract);
+    * member names (`x.OldName`) are NEVER rewritten (different namespace);
+    * an identifier that DECLARES another symbol with the same name (an
+      `interface`, `library`, `struct`, `enum`, `event`, `error`, `modifier`,
+      `function`, state variable or parameter of that name) makes the name
+      ambiguous - the repair is declined instead of corrupting the file;
+    * an identifier that shadows the contract in an inner scope is likewise
+      ambiguous and declines the repair.
+
+    Comments and string literals are never touched: the lexer does not emit
+    tokens for them at all.
+    """
+    outcome = ContractNormalizationOutcome(code=code)
+
+    if not code or not code.strip():
+        outcome.reason = "empty_code"
+        return outcome
+
+    tokens, lex_err = tokenize_solidity(code)
+    if lex_err:
+        outcome.reason = f"lexer_error: {lex_err}"
+        return outcome
+    if not tokens:
+        outcome.reason = "no_tokens"
+        return outcome
+
+    # ------------------------------------------------------------------
+    # 1. Import statements: their identifiers are never rewritten.
+    # ------------------------------------------------------------------
+    import_ranges: List[Tuple[int, int]] = []
+    imported_symbols: List[str] = []
+    idx = 0
+    n = len(tokens)
+    while idx < n:
+        tok = tokens[idx]
+        if tok.type == SolidityTokenType.KEYWORD and tok.value == "import":
+            start = idx
+            cursor = idx + 1
+            paren_depth = 0
+            while cursor < n:
+                t = tokens[cursor]
+                if t.type == SolidityTokenType.LPAREN:
+                    paren_depth += 1
+                elif t.type == SolidityTokenType.RPAREN:
+                    paren_depth -= 1
+                elif t.type == SolidityTokenType.SEMICOLON and paren_depth == 0:
+                    break
+                cursor += 1
+            if cursor < n:
+                import_ranges.append((start, cursor + 1))
+                for k in range(start, cursor + 1):
+                    t = tokens[k]
+                    if t.type == SolidityTokenType.IDENT and t.value not in ("from", "as"):
+                        imported_symbols.append(t.value)
+                idx = cursor + 1
+                continue
+        idx += 1
+
+    def _in_import(token_index: int) -> bool:
+        for start, end in import_ranges:
+            if start <= token_index < end:
+                return True
+        return False
+
+    # ------------------------------------------------------------------
+    # 2. Top-level contract declarations.
+    # ------------------------------------------------------------------
+    top_level_contracts: List[Tuple[str, int]] = []
+    brace_depth = 0
+    idx = 0
+    while idx < n:
+        tok = tokens[idx]
+        if tok.type == SolidityTokenType.LBRACE:
+            brace_depth += 1
+        elif tok.type == SolidityTokenType.RBRACE:
+            brace_depth -= 1
+        elif (
+            brace_depth == 0
+            and tok.type == SolidityTokenType.KEYWORD
+            and tok.value == "contract"
+            and idx + 1 < n
+            and tokens[idx + 1].type == SolidityTokenType.IDENT
+        ):
+            top_level_contracts.append((tokens[idx + 1].value, idx + 1))
+        idx += 1
+
+    if not top_level_contracts:
+        outcome.reason = "no_top_level_contract"
+        return outcome
+    if len(top_level_contracts) > 1:
+        outcome.reason = "ambiguous_multiple_top_level_contracts"
+        return outcome
+
+    old_name, declaration_index = top_level_contracts[0]
+
+    if old_name == contract_name:
+        outcome.reason = "already_canonical"
+        return outcome
+
+    if old_name in imported_symbols:
+        # An imported symbol shares the name: the reference cannot be resolved.
+        outcome.reason = "ambiguous_import_name_collision"
+        outcome.original_name = old_name
+        return outcome
+
+    # ------------------------------------------------------------------
+    # 3. Classify every occurrence of the old name.
+    # ------------------------------------------------------------------
+    rename_positions: List[int] = []
+    for i, tok in enumerate(tokens):
+        if tok.type != SolidityTokenType.IDENT or tok.value != old_name:
+            continue
+
+        if i == declaration_index:
+            rename_positions.append(i)
+            continue
+
+        if _in_import(i):
+            # Import statements are never rewritten.
+            continue
+
+        prev = tokens[i - 1] if i > 0 else None
+        nxt = tokens[i + 1] if i + 1 < n else None
+
+        if prev is None:
+            outcome.reason = "ambiguous_bare_identifier"
+            outcome.original_name = old_name
+            return outcome
+
+        # Member access target: `x.OldName` is a member, not the type.
+        if prev.value == ".":
+            continue
+
+        if prev.type == SolidityTokenType.KEYWORD:
+            if prev.value in _DECLARATION_KEYWORDS:
+                # Another declaration with the same name: the identifier is a
+                # declaration name, not a reference to the contract type.
+                outcome.reason = "ambiguous_declaration_collision"
+                outcome.original_name = old_name
+                return outcome
+            if prev.value in _EVENT_ERROR_KEYWORDS:
+                outcome.reason = "ambiguous_event_or_error_reference"
+                outcome.original_name = old_name
+                return outcome
+            if prev.value in _TYPE_CONTEXT_KEYWORDS:
+                # `new OldName(...)`, `contract X is OldName`, `using OldName for Y`
+                rename_positions.append(i)
+                continue
+
+        # `<type> OldName <modifier>` -> the identifier is the TYPE.
+        if (
+            nxt is not None
+            and nxt.type == SolidityTokenType.KEYWORD
+            and nxt.value in _MODIFIER_KEYWORDS
+        ):
+            rename_positions.append(i)
+            continue
+
+        # `OldName.member` -> static access on the type.
+        if nxt is not None and nxt.value == ".":
+            rename_positions.append(i)
+            continue
+
+        # `<type> OldName ...` where the identifier DECLARES a name -> the
+        # contract type is shadowed in this scope, the rename is ambiguous.
+        if _is_type_ish_token(prev) and nxt is not None and nxt.value in _NAME_TERMINATORS:
+            outcome.reason = "ambiguous_shadowed_declaration"
+            outcome.original_name = old_name
+            return outcome
+
+        # Everything else is a proven reference to the contract type.
+        rename_positions.append(i)
+
+    if not rename_positions:
+        outcome.reason = "no_reference_to_rename"
+        outcome.original_name = old_name
+        return outcome
+
+    # ------------------------------------------------------------------
+    # 4. Apply the rename (identifiers only - comments/strings untouched).
+    # ------------------------------------------------------------------
+    pieces: List[str] = []
+    cursor = 0
+    for i in rename_positions:
+        tok = tokens[i]
+        pieces.append(code[cursor:tok.pos])
+        pieces.append(contract_name)
+        cursor = tok.pos + len(old_name)
+
+    pieces.append(code[cursor:])
+    outcome.code = "".join(pieces)
+    outcome.renamed = True
+    outcome.original_name = old_name
+    outcome.reason = "normalized"
+    outcome.renamed_declarations = 1
+    outcome.renamed_references = max(0, len(rename_positions) - 1)
+    return outcome
+
+
+def normalize_exploit_contract_name(
+    code: str,
+    contract_name: str = "ExploitModule"
+) -> Tuple[str, bool, str]:
+    """
+    Renames a single top-level `contract <OtherName>` declaration to the mandatory
+    `contract ExploitModule` name required by the verification harness.
+
+    This is a purely mechanical, semantics-preserving repair: it fixes the single
+    most common failure mode where the model emits a descriptively named contract
+    (`VaultAttack`, `ReentrancyDrain`, ...) instead of the harness-mandated name.
+    Without it, such candidates are rejected before Foundry ever runs and can never
+    produce a verifiable reward signal.
+
+    Safety rules (fail-closed, never rewrite when uncertain):
+    - Only the declaration and PROVEN references to it are rewritten; same-named
+      interfaces, libraries, structs, events, functions, state variables and
+      parameters are never touched - the repair is declined instead.
+    - String literals and comments are untouched (the lexer emits no tokens for
+      them).
+    - Identifiers inside `import` statements are NEVER rewritten, so an imported
+      symbol can never be silently aliased into the target contract.
+    - The rename is applied ONLY when exactly ONE top-level contract is declared.
+      Multiple contracts mean the intent is ambiguous, so the code is left
+      untouched.
+    - If `contract ExploitModule` is already present, the code is left untouched.
+    - The operation is idempotent: running it on already normalized code is a
+      no-op.
+
+    Returns:
+        (normalized_code, was_renamed, original_contract_name)
+    """
+    outcome = analyze_contract_normalization(code, contract_name)
+    if outcome.renamed:
+        return outcome.code, True, outcome.original_name
+    return code, False, ""
+
+
 def validate_exploit_format(code: str) -> Tuple[bool, str]:
     """
     Validates that synthesized code strictly satisfies ExploitModule requirements
@@ -668,7 +982,28 @@ def parse_model_response(
     Preserves exact generated token IDs and prompt text for training lineage.
     """
     code = extract_solidity_code(raw_text)
+
+    # Mechanical repair: rename a single descriptively-named top-level contract to the
+    # harness-mandated `ExploitModule`. Without this, candidates that are otherwise
+    # valid never reach Foundry and can never yield a verifiable reward.
+    normalization_reason = ""
+    if config.ENABLE_CONTRACT_NAME_NORMALIZATION:
+        outcome = analyze_contract_normalization(code)
+        code = outcome.code
+        was_renamed = outcome.renamed
+        original_name = outcome.original_name if outcome.renamed else ""
+        normalization_reason = outcome.reason
+    else:
+        was_renamed, original_name = False, ""
+        normalization_reason = "disabled_by_configuration"
+
     is_valid, format_reason = validate_exploit_format(code)
+    if was_renamed:
+        # The rename is a mechanical repair, not a validation failure: after it the
+        # candidate satisfies the harness contract. The format error reason stays
+        # reserved for genuine validation failures; the repair event is recorded
+        # separately on the payload so it remains auditable.
+        format_reason = "" if is_valid else format_reason
 
     parts = raw_text.split("```")
     reasoning = parts[0].strip() if parts else raw_text[:300]
@@ -703,6 +1038,9 @@ def parse_model_response(
         raw_model_response=raw_text,
         format_valid=is_valid,
         format_error_reason=format_reason,
+        contract_name_normalized=was_renamed,
+        original_contract_name=original_name if was_renamed else "",
+        contract_normalization_reason=normalization_reason,
         prompt_text=prompt_text,
         generated_token_ids=generated_token_ids
     )
