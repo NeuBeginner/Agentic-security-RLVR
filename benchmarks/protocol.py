@@ -75,7 +75,7 @@ class TargetExecutionArtifact:
     verified_breaches: int = 0
     replayed_breaches: int = 0
     duration_seconds: float = 0.0
-    cost_usd: float = 0.0
+    cost_usd: Optional[float] = None
     tool_metadata: Dict[str, Any] = field(default_factory=dict)
     raw_output: Dict[str, Any] = field(default_factory=dict)
     logs: List[str] = field(default_factory=list)
@@ -112,7 +112,7 @@ class BaselineEvaluationResult:
     replay_reproducibility_rate: Optional[float] = None
     candidates_per_verified_finding: Optional[float] = None
     average_duration_seconds: float = 0.0
-    estimated_cost_usd_per_target: float = 0.0
+    estimated_cost_usd_per_target: Optional[float] = None
     target_artifacts: List[Dict[str, Any]] = field(default_factory=list)
     details: List[Dict[str, Any]] = field(default_factory=list)
 

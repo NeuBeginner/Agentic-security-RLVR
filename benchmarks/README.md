@@ -4,9 +4,9 @@
 
 The Aegis-RLVR benchmark framework provides an empirical evaluation across 5 distinct smart contract vulnerability detection and exploit verification paradigms:
 
-1. **Baseline 1 — Static Analysis Only (`baseline_1`):** Slither AST and taint analysis execution on target contracts.
+1. **Baseline 1 — Static Analysis Only (`baseline_1`):** Slither AST and taint analysis execution on target contracts with full project context and remappings.
 2. **Baseline 2 — LLM Auditor Only (`baseline_2`):** Zero-shot auditor LLM producing structured findings without exploit generation or verification.
-3. **Baseline 3 — LLM Auditor + Unverified PoC (`baseline_3`):** LLM synthesized exploit code without execution verification (`verified_breaches` is strictly 0).
+3. **Baseline 3 — LLM Auditor + Unverified PoC (`baseline_3`):** LLM synthesized exploit code with dynamic candidate sizing; verification is strictly 0 (`verified_breaches == 0`).
 4. **Baseline 4 — LLM + Naive Foundry (`baseline_4`):** LLM exploit synthesis executed in standard Foundry, considering a finding verified if returncode == 0 or text markers appear in logs (no anti-spoofing or hardened oracle).
 5. **Baseline 5 — Full Aegis-RLVR (`baseline_5`):** Complete hypothesis-driven RLVR pipeline: `HypothesisManager` -> isolated sandbox execution with repository-owned trusted harness -> EVM State Oracle event/topic validation -> independent replay verification in an ephemeral container.
 
@@ -16,8 +16,12 @@ The Aegis-RLVR benchmark framework provides an empirical evaluation across 5 dis
 
 - **Zero Ground-Truth Leakage:**
   Baseline adapters receive only public `TargetSpecification` objects. Fields containing `is_vulnerable`, `vulnerable_functions`, or `ground_truth_invariant` are strictly sequestered in `GroundTruth` and only accessible post-execution by `evaluate_baseline_run` to compute confusion matrices.
-- **Fail-Closed Availability Reporting:**
-  If an external tool (`slither`, `forge`) or API credential (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`) is missing, the adapter returns `ExecutionStatus.UNAVAILABLE` with an explanatory reason. The evaluator reports `status = UNAVAILABLE` and sets `precision`, `recall`, `f1_score`, `FPR`, `FNR` to `None`. **Fabricating fake 0% or 100% metrics on unexecuted runs is strictly prohibited.**
+- **Fail-Closed Availability & Completeness Reporting:**
+  If an external tool (`slither`, `forge`) or API credential is missing, or if any target fails during execution, the baseline is marked `UNAVAILABLE`, `FAILED`, or `INCOMPLETE`. The evaluator sets `precision`, `recall`, `f1_score`, `FPR`, `FNR`, `ESR`, `VFR`, `RRR` to `None`. **Failed or missing runs are NEVER treated as negative findings (`detected=False`), and fabricating fake 0% or 100% metrics on unexecuted runs is strictly prohibited.**
+- **Explicit Provider Routing:**
+  LLM baselines require explicit provider configuration (`--provider gemini` or `--provider openai`). Credential verification checks only the requested provider, avoiding mismatched provider crashes.
+- **Unmeasured Cost Integrity:**
+  Unless actual token usage and a versioned pricing schedule are provided, `cost_usd` is stored as `null` (`None`). Hardcoded constant dollar amounts are strictly excluded from empirical reports.
 - **Dynamic Candidate Sizing:**
   Exploit candidate counts are extracted from real generator outputs, never hardcoded constants.
 - **Production Allowlist Isolation:**
@@ -36,17 +40,17 @@ python benchmarks/benchmark_runner.py --mode smoke
 ### Real Empirical Mode (Live Tools & Credentials)
 Executes live toolchains against the 16 target benchmark dataset (12 vulnerability classes + 4 synthetic safe controls).
 ```bash
-python benchmarks/benchmark_runner.py --mode real --model-id gemini-1.5-pro
+python benchmarks/benchmark_runner.py --mode real --model-id gemini-1.5-pro --provider gemini
+```
+
+### With OpenAI Provider
+```bash
+python benchmarks/benchmark_runner.py --mode real --model-id gpt-4o --provider openai
 ```
 
 ### Filter Specific Baselines
 ```bash
 python benchmarks/benchmark_runner.py --mode real --baselines baseline_1 baseline_5
-```
-
-### Custom Artifacts Directory
-```bash
-python benchmarks/benchmark_runner.py --mode real --artifacts-dir benchmarks/artifacts/my_experiment_run
 ```
 
 ---
@@ -58,21 +62,21 @@ To execute live experiments for each baseline, the host environment must supply:
 | Baseline | Required Executable | Required Credentials | Allowlist Requirement |
 |---|---|---|---|
 | **Baseline 1** | `slither` (Python 3.10+) | None | None |
-| **Baseline 2** | Python | `GEMINI_API_KEY` / `GOOGLE_API_KEY` / `OPENAI_API_KEY` | None |
-| **Baseline 3** | Python | `GEMINI_API_KEY` / `GOOGLE_API_KEY` / `OPENAI_API_KEY` | None |
-| **Baseline 4** | `forge` (Foundry) | `GEMINI_API_KEY` / `GOOGLE_API_KEY` / `OPENAI_API_KEY` | None |
-| **Baseline 5** | `forge` or Modal | `GEMINI_API_KEY` / `GOOGLE_API_KEY` / `OPENAI_API_KEY` | Trusted harness allowlist (`Vault`, `ERC4626Vault`) |
+| **Baseline 2** | Python | `GEMINI_API_KEY`/`GOOGLE_API_KEY` (Gemini) or `OPENAI_API_KEY` (OpenAI) | None |
+| **Baseline 3** | Python | `GEMINI_API_KEY`/`GOOGLE_API_KEY` (Gemini) or `OPENAI_API_KEY` (OpenAI) | None |
+| **Baseline 4** | `forge` (Foundry) | `GEMINI_API_KEY`/`GOOGLE_API_KEY` (Gemini) or `OPENAI_API_KEY` (OpenAI) | None |
+| **Baseline 5** | `forge` (local) or Modal (`~/.modal.toml` / `MODAL_TOKEN_ID`) | `GEMINI_API_KEY`/`GOOGLE_API_KEY` (Gemini) or `OPENAI_API_KEY` (OpenAI) | Trusted harness allowlist (`Vault`, `ERC4626Vault`) |
 
 ---
 
 ## 5. Machine-Readable Artifacts
 
-When running with `save_results=True` (the default), execution records are structured as:
+When executing with `save_results=True`, execution records are written to:
 
 ```
 benchmarks/
-├── benchmark_results.json               # Main benchmark summary report
-└── artifacts/
+├── benchmark_results.json               # Main benchmark summary report (gitignored)
+└── artifacts/                           # Gitignored run artifacts directory
     ├── latest_summary.json              # Symlink/copy of the most recent summary
     └── run_<timestamp>_<git_sha>/       # Unique run directory
         ├── summary.json                 # Run metadata and evaluation metrics
@@ -99,14 +103,16 @@ benchmarks/
   "verified_breaches": 0,
   "replayed_breaches": 0,
   "duration_seconds": 1.45,
-  "cost_usd": 0.0,
+  "cost_usd": null,
   "tool_metadata": {
-    "slither_version": "available",
+    "slither_version": "0.10.4",
     "exit_code": 0,
     "detectors_count": 3
   },
   "raw_output": {
-    "findings": [...]
+    "findings": [...],
+    "stdout": "...",
+    "stderr": "..."
   },
   "logs": [...]
 }

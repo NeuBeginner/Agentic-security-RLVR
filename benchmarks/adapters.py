@@ -10,10 +10,13 @@ Implements real toolchains for all 5 baselines:
 5. Baseline 5: Full Aegis-RLVR (Hypothesis Pipeline + Isolated Runner + Trusted State Oracle + Independent Replay)
 
 All adapters strictly enforce:
-- Zero ground truth leakage (adapters only receive TargetSpecification).
+- Zero ground truth leakage (adapters only receive public TargetSpecification).
 - Incomplete / unavailable detection when external binaries or API credentials are absent.
+- Explicit provider routing: checks and invokes only credentials matching the configured provider.
+- Full output preservation (complete stdout/stderr, actual versions, exit codes, config hashes).
 - Dynamic candidate counts from actual generator outputs, never hardcoded numbers.
-- Verified breach status requires authenticated execution evidence.
+- Verified breach status requires authenticated EVM execution evidence.
+- No hardcoded cost estimates: unmeasured runs report cost_usd as None.
 """
 
 from __future__ import annotations
@@ -34,7 +37,43 @@ from benchmarks.protocol import (
     TargetExecutionArtifact,
     ExecutionStatus,
 )
-from core.schemas import TargetProgram, ExploitPayload, AttackHypothesis, ResultCategory
+
+
+def check_llm_provider_availability(provider: str) -> Tuple[bool, Optional[str]]:
+    """Validates presence of API credentials for the requested provider."""
+    prov = provider.lower()
+    if prov in ("gemini", "google"):
+        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not key:
+            return False, f"Gemini API credentials (GEMINI_API_KEY or GOOGLE_API_KEY) not found for provider '{provider}'"
+        return True, None
+    elif prov == "openai":
+        key = os.environ.get("OPENAI_API_KEY")
+        if not key:
+            return False, f"OpenAI API credentials (OPENAI_API_KEY) not found for provider '{provider}'"
+        return True, None
+    else:
+        return False, f"Unsupported LLM provider '{provider}'. Supported providers: 'gemini', 'openai'"
+
+
+def invoke_llm_provider(provider: str, model_id: str, prompt: str) -> str:
+    """Invokes configured LLM provider directly."""
+    prov = provider.lower()
+    if prov in ("gemini", "google"):
+        from google import genai
+        client = genai.Client()
+        resp = client.models.generate_content(model=model_id, contents=prompt)
+        return resp.text or ""
+    elif prov == "openai":
+        from openai import OpenAI
+        client = OpenAI()
+        resp = client.chat.completions.create(
+            model=model_id,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return resp.choices[0].message.content or ""
+    else:
+        raise ValueError(f"Unsupported LLM provider: '{provider}'")
 
 
 class BaselineAdapter(ABC):
@@ -69,8 +108,9 @@ class BaselineAdapter(ABC):
 class SlitherBaselineAdapter(BaselineAdapter):
     """
     Baseline 1: Static Analysis Only (Slither AST / taint analysis).
-    Runs real slither binary on target source.
-    If slither binary is unavailable, reports explicit ExecutionStatus.UNAVAILABLE.
+    Runs real slither binary on target source in project context with remappings.
+    Captures complete stdout/stderr, actual binary version, and exit codes.
+    Reports FAILED/INCOMPLETE if execution fails or output is unparseable.
     """
     @property
     def baseline_id(self) -> str:
@@ -79,6 +119,19 @@ class SlitherBaselineAdapter(BaselineAdapter):
     @property
     def baseline_name(self) -> str:
         return "Static Analysis Only (Slither)"
+
+    def get_slither_version(self) -> str:
+        try:
+            res = subprocess.run(
+                ["slither", "--version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+            )
+            return res.stdout.strip() or res.stderr.strip() or "unknown"
+        except Exception:
+            return "unknown"
 
     def check_availability(self) -> Tuple[bool, Optional[str]]:
         bin_path = shutil.which("slither")
@@ -103,20 +156,40 @@ class SlitherBaselineAdapter(BaselineAdapter):
             )
 
         start_time = time.time()
-        source_code = target.load_source_code(base_dir)
+        slither_ver = self.get_slither_version()
+
+        # Resolve target source file path
+        target_path = Path(target.source_file)
+        if not target_path.is_absolute() and base_dir:
+            target_path = base_dir / target_path
+
+        if not target_path.exists():
+            return TargetExecutionArtifact(
+                baseline_id=self.baseline_id,
+                target_id=target.contract_id,
+                target_name=target.target_name,
+                status=ExecutionStatus.FAILED,
+                unavailable_reason=f"Target source file {target_path} not found",
+                duration_seconds=0.0,
+            )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            src_file = os.path.join(tmpdir, f"{target.target_name}.sol")
-            with open(src_file, "w", encoding="utf-8") as f:
-                f.write(source_code)
-
             json_out = os.path.join(tmpdir, "slither_out.json")
-            cmd = ["slither", src_file, "--json", json_out]
+            cmd = [
+                "slither",
+                str(target_path),
+                "--json",
+                json_out,
+                "--solc-remaps",
+                "@openzeppelin/=lib/openzeppelin-contracts/ forge-std/=lib/forge-std/src/"
+            ]
+
+            cwd = str(base_dir) if base_dir and base_dir.exists() else None
 
             try:
                 proc = subprocess.run(
                     cmd,
-                    cwd=tmpdir,
+                    cwd=cwd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
@@ -124,23 +197,56 @@ class SlitherBaselineAdapter(BaselineAdapter):
                 )
                 elapsed = round(time.time() - start_time, 3)
 
+                # Slither writes JSON output even when detectors report findings
+                if not os.path.exists(json_out):
+                    return TargetExecutionArtifact(
+                        baseline_id=self.baseline_id,
+                        target_id=target.contract_id,
+                        target_name=target.target_name,
+                        status=ExecutionStatus.FAILED,
+                        unavailable_reason=f"Slither failed (exit code {proc.returncode}) and produced no JSON output: {proc.stderr[:300]}",
+                        duration_seconds=elapsed,
+                        cost_usd=None,
+                        tool_metadata={
+                            "slither_version": slither_ver,
+                            "exit_code": proc.returncode,
+                            "command": " ".join(cmd),
+                        },
+                        raw_output={"stdout": proc.stdout, "stderr": proc.stderr},
+                        logs=[proc.stderr[:1000]] if proc.stderr else [],
+                    )
+
+                try:
+                    with open(json_out, "r", encoding="utf-8") as jf:
+                        data = json.load(jf)
+                except Exception as parse_err:
+                    return TargetExecutionArtifact(
+                        baseline_id=self.baseline_id,
+                        target_id=target.contract_id,
+                        target_name=target.target_name,
+                        status=ExecutionStatus.FAILED,
+                        unavailable_reason=f"Failed to parse Slither JSON output: {parse_err}",
+                        duration_seconds=elapsed,
+                        cost_usd=None,
+                        tool_metadata={
+                            "slither_version": slither_ver,
+                            "exit_code": proc.returncode,
+                        },
+                        raw_output={"stdout": proc.stdout, "stderr": proc.stderr},
+                        logs=[proc.stderr[:1000]] if proc.stderr else [],
+                    )
+
                 findings = []
-                if os.path.exists(json_out):
-                    try:
-                        with open(json_out, "r", encoding="utf-8") as jf:
-                            data = json.load(jf)
-                            detectors = data.get("results", {}).get("detectors", [])
-                            for d in detectors:
-                                impact = str(d.get("impact", "")).capitalize()
-                                if impact in ["High", "Medium"]:
-                                    findings.append({
-                                        "check": d.get("check"),
-                                        "impact": impact,
-                                        "confidence": d.get("confidence"),
-                                        "description": d.get("description", "")[:200]
-                                    })
-                    except Exception as parse_err:
-                        proc_stderr = f"{proc.stderr}\nFailed to parse JSON: {parse_err}"
+                detectors = data.get("results", {}).get("detectors", [])
+                for d in detectors:
+                    impact = str(d.get("impact", "")).capitalize()
+                    if impact in ["High", "Medium"]:
+                        findings.append({
+                            "check": d.get("check"),
+                            "impact": impact,
+                            "confidence": d.get("confidence"),
+                            "description": d.get("description", "")[:200]
+                        })
 
                 detected = len(findings) > 0
 
@@ -154,13 +260,17 @@ class SlitherBaselineAdapter(BaselineAdapter):
                     verified_breaches=0,
                     replayed_breaches=0,
                     duration_seconds=elapsed,
-                    cost_usd=0.0,
+                    cost_usd=None,
                     tool_metadata={
-                        "slither_version": "available",
+                        "slither_version": slither_ver,
                         "exit_code": proc.returncode,
                         "detectors_count": len(findings),
                     },
-                    raw_output={"findings": findings},
+                    raw_output={
+                        "findings": findings,
+                        "stdout": proc.stdout,
+                        "stderr": proc.stderr,
+                    },
                     logs=[proc.stdout[:1000]] if proc.stdout else []
                 )
 
@@ -172,6 +282,8 @@ class SlitherBaselineAdapter(BaselineAdapter):
                     status=ExecutionStatus.FAILED,
                     unavailable_reason=f"Slither timed out after {timeout_sec}s",
                     duration_seconds=float(timeout_sec),
+                    cost_usd=None,
+                    tool_metadata={"slither_version": slither_ver},
                 )
             except Exception as e:
                 return TargetExecutionArtifact(
@@ -181,6 +293,8 @@ class SlitherBaselineAdapter(BaselineAdapter):
                     status=ExecutionStatus.FAILED,
                     unavailable_reason=f"Slither execution exception: {e}",
                     duration_seconds=round(time.time() - start_time, 3),
+                    cost_usd=None,
+                    tool_metadata={"slither_version": slither_ver},
                 )
 
 
@@ -190,8 +304,14 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
     Queries configured LLM model without generating code or verifying in Foundry.
     If LLM API credentials or model provider are missing, reports UNAVAILABLE.
     """
-    def __init__(self, model_id: str = "gemini-1.5-pro", client_override: Any = None):
+    def __init__(
+        self,
+        model_id: str = "gemini-1.5-pro",
+        provider: str = "gemini",
+        client_override: Any = None
+    ):
         self.model_id = model_id
+        self.provider = provider
         self.client_override = client_override
 
     @property
@@ -205,14 +325,7 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
     def check_availability(self) -> Tuple[bool, Optional[str]]:
         if self.client_override is not None:
             return True, None
-        api_key = (
-            os.environ.get("GEMINI_API_KEY")
-            or os.environ.get("GOOGLE_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
-        )
-        if not api_key:
-            return False, "LLM credentials (GEMINI_API_KEY, GOOGLE_API_KEY, or OPENAI_API_KEY) not found in environment"
-        return True, None
+        return check_llm_provider_availability(self.provider)
 
     def execute_target(
         self,
@@ -244,14 +357,7 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
             if self.client_override:
                 response_text = self.client_override(prompt)
             else:
-                # Real LLM call
-                from google import genai
-                client = genai.Client()
-                resp = client.models.generate_content(
-                    model=self.model_id,
-                    contents=prompt,
-                )
-                response_text = resp.text
+                response_text = invoke_llm_provider(self.provider, self.model_id, prompt)
 
             elapsed = round(time.time() - start_time, 3)
             # Parse structured finding
@@ -270,9 +376,6 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
             except Exception:
                 detected = "vulnerability" in response_text.lower() and "high" in response_text.lower()
 
-            # Cost estimation: roughly $0.002 per target on typical prompt
-            estimated_cost = 0.002
-
             return TargetExecutionArtifact(
                 baseline_id=self.baseline_id,
                 target_id=target.contract_id,
@@ -283,14 +386,16 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
                 verified_breaches=0,
                 replayed_breaches=0,
                 duration_seconds=elapsed,
-                cost_usd=estimated_cost,
+                cost_usd=None,  # Unmeasured empirical cost
                 tool_metadata={
+                    "provider": self.provider,
                     "model_id": self.model_id,
                     "prompt_hash": prompt_hash,
                     "confidence": confidence,
                     "vulnerability_type": vuln_type,
+                    "cost_status": "unmeasured",
                 },
-                raw_output={"response": response_text[:500]},
+                raw_output={"response": response_text},
                 logs=[response_text[:300]]
             )
 
@@ -302,6 +407,11 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
                 status=ExecutionStatus.FAILED,
                 unavailable_reason=f"LLM auditor invocation failed: {e}",
                 duration_seconds=round(time.time() - start_time, 3),
+                cost_usd=None,
+                tool_metadata={
+                    "provider": self.provider,
+                    "model_id": self.model_id,
+                },
             )
 
 
@@ -312,8 +422,14 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
     Candidate count is taken directly from actual generator output.
     verified_breaches and replayed_breaches are strictly 0.
     """
-    def __init__(self, model_id: str = "gemini-1.5-pro", client_override: Any = None):
+    def __init__(
+        self,
+        model_id: str = "gemini-1.5-pro",
+        provider: str = "gemini",
+        client_override: Any = None
+    ):
         self.model_id = model_id
+        self.provider = provider
         self.client_override = client_override
 
     @property
@@ -327,14 +443,7 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
     def check_availability(self) -> Tuple[bool, Optional[str]]:
         if self.client_override is not None:
             return True, None
-        api_key = (
-            os.environ.get("GEMINI_API_KEY")
-            or os.environ.get("GOOGLE_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
-        )
-        if not api_key:
-            return False, "LLM credentials not found in environment"
-        return True, None
+        return check_llm_provider_availability(self.provider)
 
     def execute_target(
         self,
@@ -365,14 +474,11 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
             if self.client_override:
                 response_text = self.client_override(prompt)
             else:
-                from google import genai
-                client = genai.Client()
-                resp = client.models.generate_content(model=self.model_id, contents=prompt)
-                response_text = resp.text
+                response_text = invoke_llm_provider(self.provider, self.model_id, prompt)
 
             elapsed = round(time.time() - start_time, 3)
 
-            # Extract generated exploit candidate
+            # Extract generated exploit candidate dynamically
             has_code = "contract ExploitModule" in response_text or "function runExploit" in response_text
             candidates_generated = 1 if has_code else 0
             detected = bool(candidates_generated > 0)
@@ -387,12 +493,14 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
                 verified_breaches=0,  # Unverified!
                 replayed_breaches=0,  # Unverified!
                 duration_seconds=elapsed,
-                cost_usd=0.005,
+                cost_usd=None,  # Unmeasured empirical cost
                 tool_metadata={
+                    "provider": self.provider,
                     "model_id": self.model_id,
                     "prompt_hash": prompt_hash,
+                    "cost_status": "unmeasured",
                 },
-                raw_output={"generated_code_present": has_code},
+                raw_output={"response": response_text, "generated_code_present": has_code},
                 logs=[response_text[:300]]
             )
 
@@ -404,6 +512,11 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
                 status=ExecutionStatus.FAILED,
                 unavailable_reason=f"PoC generation failed: {e}",
                 duration_seconds=round(time.time() - start_time, 3),
+                cost_usd=None,
+                tool_metadata={
+                    "provider": self.provider,
+                    "model_id": self.model_id,
+                },
             )
 
 
@@ -414,8 +527,14 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
     Considers test verified if forge returncode == 0 and 'PASS' or '[INVARIANT_BREACHED' is in output.
     Does NOT use hardened state oracle or trusted harness anti-spoofing emitter checks.
     """
-    def __init__(self, model_id: str = "gemini-1.5-pro", client_override: Any = None):
+    def __init__(
+        self,
+        model_id: str = "gemini-1.5-pro",
+        provider: str = "gemini",
+        client_override: Any = None
+    ):
         self.model_id = model_id
+        self.provider = provider
         self.client_override = client_override
 
     @property
@@ -431,13 +550,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
         if not forge_bin:
             return False, "forge executable not found on system PATH"
         if self.client_override is None:
-            api_key = (
-                os.environ.get("GEMINI_API_KEY")
-                or os.environ.get("GOOGLE_API_KEY")
-                or os.environ.get("OPENAI_API_KEY")
-            )
-            if not api_key:
-                return False, "LLM credentials not found in environment"
+            return check_llm_provider_availability(self.provider)
         return True, None
 
     def execute_target(
@@ -457,23 +570,16 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
             )
 
         start_time = time.time()
-        # Synthesis + Naive Foundry execution
         try:
-            # Generate candidate code
             source_code = target.load_source_code(base_dir)
             prompt = f"Write exploit module for {target.target_name}:\n{source_code}"
             if self.client_override:
                 candidate_code = self.client_override(prompt)
             else:
-                from google import genai
-                client = genai.Client()
-                resp = client.models.generate_content(model=self.model_id, contents=prompt)
-                candidate_code = resp.text
+                candidate_code = invoke_llm_provider(self.provider, self.model_id, prompt)
 
             # Execute in temp foundry environment with naive criteria
-            # Naive Foundry check: returncode == 0 and no revert
             with tempfile.TemporaryDirectory() as tmpdir:
-                # Setup minimal forge project
                 src_dir = os.path.join(tmpdir, "src")
                 test_dir = os.path.join(tmpdir, "test")
                 os.makedirs(src_dir, exist_ok=True)
@@ -511,9 +617,14 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     verified_breaches=1 if naive_verified else 0,
                     replayed_breaches=0,  # Naive baseline does not perform replay
                     duration_seconds=elapsed,
-                    cost_usd=0.01,
-                    tool_metadata={"forge_exit_code": proc.returncode},
-                    raw_output={"stdout": proc.stdout[:1000]},
+                    cost_usd=None,
+                    tool_metadata={
+                        "provider": self.provider,
+                        "model_id": self.model_id,
+                        "forge_exit_code": proc.returncode,
+                        "cost_status": "unmeasured",
+                    },
+                    raw_output={"stdout": proc.stdout, "stderr": proc.stderr},
                     logs=[proc.stdout[:300]]
                 )
 
@@ -525,6 +636,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 status=ExecutionStatus.FAILED,
                 unavailable_reason=f"Naive Foundry execution timed out after {timeout_sec}s",
                 duration_seconds=float(timeout_sec),
+                cost_usd=None,
             )
         except Exception as e:
             return TargetExecutionArtifact(
@@ -534,6 +646,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 status=ExecutionStatus.FAILED,
                 unavailable_reason=f"Naive Foundry execution failed: {e}",
                 duration_seconds=round(time.time() - start_time, 3),
+                cost_usd=None,
             )
 
 
@@ -549,8 +662,14 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
     - Zero ground truth leakage: verified_breaches is strictly derived from harness verdict
       and state oracle evaluation.
     """
-    def __init__(self, model_id: str = "gemini-1.5-pro", candidate_generator: Any = None):
+    def __init__(
+        self,
+        model_id: str = "gemini-1.5-pro",
+        provider: str = "gemini",
+        candidate_generator: Any = None
+    ):
         self.model_id = model_id
+        self.provider = provider
         self.candidate_generator = candidate_generator
 
     @property
@@ -563,17 +682,16 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
 
     def check_availability(self) -> Tuple[bool, Optional[str]]:
         forge_bin = shutil.which("forge")
-        has_modal = bool(os.environ.get("MODAL_TOKEN_ID"))
+        has_modal = False
+        try:
+            import modal
+            has_modal = bool(modal.config.config.get("token_id"))
+        except Exception:
+            has_modal = bool(os.environ.get("MODAL_TOKEN_ID"))
         if not forge_bin and not has_modal:
-            return False, "Neither forge executable nor MODAL_TOKEN_ID found on system PATH/environment"
+            return False, "Neither forge executable nor Modal authentication found on system PATH/environment"
         if self.candidate_generator is None:
-            api_key = (
-                os.environ.get("GEMINI_API_KEY")
-                or os.environ.get("GOOGLE_API_KEY")
-                or os.environ.get("OPENAI_API_KEY")
-            )
-            if not api_key:
-                return False, "LLM credentials not found in environment for hypothesis/exploit generation"
+            return check_llm_provider_availability(self.provider)
         return True, None
 
     def execute_target(
@@ -623,7 +741,6 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 payload = self.candidate_generator(target_prog)
             else:
                 from core.hypothesis import HypothesisManager
-                from google import genai
                 hyp_mgr = HypothesisManager()
                 hypotheses = hyp_mgr.generate_hypotheses(target_prog)
                 selected_hyp = hypotheses[0] if hypotheses else AttackHypothesis(
@@ -631,15 +748,13 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     reasoning_trace="Automated hypothesis generation",
                     attack_vector="direct",
                 )
-                client = genai.Client()
                 prompt = (
                     f"Synthesize an ExploitModule for target {target_prog.name}.\n"
                     f"Hypothesis: {selected_hyp.vulnerability_type} ({selected_hyp.reasoning_trace})\n"
                     f"Target Source:\n{source_code}\n\n"
                     f"Respond with Solidity code containing contract ExploitModule {{ ... }}"
                 )
-                resp = client.models.generate_content(model=self.model_id, contents=prompt)
-                test_code = resp.text
+                test_code = invoke_llm_provider(self.provider, self.model_id, prompt)
                 payload = ExploitPayload(
                     target_name=target_prog.name,
                     hypothesis=selected_hyp,
@@ -674,11 +789,14 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 verified_breaches=1 if is_verified else 0,
                 replayed_breaches=1 if is_replayed else 0,
                 duration_seconds=elapsed,
-                cost_usd=0.015,
+                cost_usd=None,
                 tool_metadata={
+                    "provider": self.provider,
+                    "model_id": self.model_id,
                     "harness_verdict": exec_res.harness_verdict,
                     "harness_suite": exec_res.harness_suite,
                     "reproduced": is_replayed,
+                    "cost_status": "unmeasured",
                 },
                 raw_output={"exit_code": exec_res.return_code, "category": exec_res.category.value if exec_res.category else None},
                 logs=[exec_res.stdout[:300]]
@@ -692,6 +810,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 status=ExecutionStatus.FAILED,
                 unavailable_reason=f"Full Aegis-RLVR execution exception: {e}",
                 duration_seconds=round(time.time() - start_time, 3),
+                cost_usd=None,
             )
 
 
@@ -729,29 +848,24 @@ class SyntheticSmokeAdapter(BaselineAdapter):
         candidates = 0
         verified = 0
         replayed = 0
-        cost = 0.0
 
         if self._b_id == "baseline_1":
             detected = tid in ["REENT-01", "AC-01", "DOS-01", "SAFE-01", "SAFE-02"]
         elif self._b_id == "baseline_2":
             detected = tid in ["REENT-01", "ERC4626-01", "AC-01", "ORACLE-01", "FLASH-01", "STATE-01", "SAFE-01", "SAFE-03"]
-            cost = 0.04
         elif self._b_id == "baseline_3":
             detected = tid in ["REENT-01", "AC-01", "DOS-01", "SAFE-01"]
             candidates = 4 if detected else 0
-            cost = 0.10
         elif self._b_id == "baseline_4":
             detected = tid in ["REENT-01", "AC-01", "DOS-01", "SIG-01", "PREC-01", "SAFE-01"]
             candidates = 8 if detected else 0
             verified = 5 if detected else 0
             replayed = 3 if detected else 0
-            cost = 0.18
         elif self._b_id == "baseline_5":
             detected = not is_ctrl and tid not in ["BRIDGE-01"]
             candidates = 6 if detected else 2
             verified = 1 if detected else 0
             replayed = 1 if (detected and verified == 1) else 0
-            cost = 0.18
 
         return TargetExecutionArtifact(
             baseline_id=self._b_id,
@@ -763,7 +877,7 @@ class SyntheticSmokeAdapter(BaselineAdapter):
             verified_breaches=verified,
             replayed_breaches=replayed,
             duration_seconds=0.01,
-            cost_usd=cost,
+            cost_usd=None,  # No synthetic fabricated dollar amounts
             tool_metadata={"is_synthetic_smoke": True},
             raw_output={"mock_run": True},
             logs=["[SYNTHETIC_SMOKE_FIXTURE]"]

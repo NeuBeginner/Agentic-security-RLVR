@@ -5,9 +5,11 @@ Independent Post-Execution Evaluator for Aegis-RLVR Benchmarks.
 Consumes execution artifacts and private GroundTruth to calculate empirical confusion matrices.
 Guarantees:
 - Ground truth is strictly inaccessible during execution.
-- If a baseline was UNAVAILABLE or INCOMPLETE, metrics are NOT computed (set to None),
-  prohibiting the presentation of synthetic or misleading 0% / 100% metrics.
+- Fail-Closed Semantics: If ANY target is UNAVAILABLE or FAILED or INCOMPLETE,
+  metrics are NOT computed (all set to None), prohibiting synthetic/misleading 0% or 100% metrics.
+- Incomplete/failed runs are NEVER treated as negative detections (detected=False).
 - Mathematical consistency across TP, FP, TN, FN, Precision, Recall, F1, FPR, and FNR.
+- Cost metrics are only reported when real measured token usage/pricing is present.
 """
 
 from __future__ import annotations
@@ -29,6 +31,11 @@ def evaluate_baseline_run(
 ) -> BaselineEvaluationResult:
     """
     Evaluates a completed set of target execution artifacts against authoritative ground truth.
+    Strict fail-closed semantics:
+    - If any target is UNAVAILABLE or FAILED or INCOMPLETE, the baseline cannot be scored.
+    - Precision, recall, F1, FPR, FNR, VFR, ESR, RRR, and confusion matrix are strictly None.
+    - Failed/unavailable targets are NEVER counted as negative detections.
+    - Cost metrics are only computed when every artifact provides real cost_usd.
     """
     total_targets = len(artifacts)
     completed_artifacts = [a for a in artifacts if a.status == ExecutionStatus.SUCCESS]
@@ -43,43 +50,46 @@ def evaluate_baseline_run(
         details.append({
             "target_id": a.target_id,
             "is_vulnerable": is_vuln,
-            "detected": a.detected,
+            "detected": a.detected if a.status == ExecutionStatus.SUCCESS else None,
             "candidates_generated": a.candidates_generated,
             "verified_breaches": a.verified_breaches,
             "replayed_breaches": a.replayed_breaches,
             "duration_seconds": round(a.duration_seconds, 3),
             "cost_usd": a.cost_usd,
+            "status": a.status.value,
         })
 
-    # If any artifact was unavailable, the baseline cannot be scored empirically
-    if unavailable_artifacts:
-        reasons = list(dict.fromkeys(a.unavailable_reason or "Tool unavailable" for a in unavailable_artifacts))
-        reason_str = "; ".join(reasons)
-        status = ExecutionStatus.UNAVAILABLE if len(completed_artifacts) == 0 else ExecutionStatus.INCOMPLETE
+    # Fail-closed check: if NOT ALL targets succeeded, baseline is non-scorable
+    if len(completed_artifacts) != total_targets:
+        if len(unavailable_artifacts) == total_targets:
+            reasons = list(dict.fromkeys(a.unavailable_reason or "Tool unavailable" for a in unavailable_artifacts))
+            status = ExecutionStatus.UNAVAILABLE
+            reason_str = f"All {total_targets} targets unavailable: {'; '.join(reasons)}"
+        elif len(failed_artifacts) == total_targets:
+            reasons = list(dict.fromkeys(a.unavailable_reason or "Execution failed" for a in failed_artifacts))
+            status = ExecutionStatus.FAILED
+            reason_str = f"All {total_targets} target runs encountered execution failures: {'; '.join(reasons)}"
+        else:
+            status = ExecutionStatus.INCOMPLETE
+            reasons = []
+            if unavailable_artifacts:
+                reasons.append(f"{len(unavailable_artifacts)} unavailable")
+            if failed_artifacts:
+                reasons.append(f"{len(failed_artifacts)} failed")
+            reason_str = f"Baseline execution incomplete: {len(completed_artifacts)}/{total_targets} succeeded ({', '.join(reasons)})"
+
         return BaselineEvaluationResult(
             baseline_id=baseline_id,
             baseline_name=baseline_name,
             status=status,
-            status_reason=f"Baseline execution incomplete: {len(unavailable_artifacts)}/{total_targets} targets unavailable ({reason_str})",
+            status_reason=reason_str,
             total_targets=total_targets,
             completed_targets=len(completed_artifacts),
             target_artifacts=[a.to_dict() for a in artifacts],
             details=details,
         )
 
-    if failed_artifacts and not completed_artifacts:
-        return BaselineEvaluationResult(
-            baseline_id=baseline_id,
-            baseline_name=baseline_name,
-            status=ExecutionStatus.FAILED,
-            status_reason=f"All {len(failed_artifacts)} target runs encountered execution failures.",
-            total_targets=total_targets,
-            completed_targets=0,
-            target_artifacts=[a.to_dict() for a in artifacts],
-            details=details,
-        )
-
-    # Accumulate confusion matrix strictly from actual results against ground truth
+    # All targets succeeded! Calculate confusion matrix and metrics strictly from actual results against ground truth
     tp = 0
     fp = 0
     tn = 0
@@ -88,6 +98,7 @@ def evaluate_baseline_run(
     total_verified = 0
     total_replayed = 0
     total_duration = 0.0
+    all_costs_present = True
     total_cost = 0.0
 
     for art in artifacts:
@@ -111,7 +122,10 @@ def evaluate_baseline_run(
         total_verified += art.verified_breaches
         total_replayed += art.replayed_breaches
         total_duration += art.duration_seconds
-        total_cost += art.cost_usd
+        if art.cost_usd is not None:
+            total_cost += art.cost_usd
+        else:
+            all_costs_present = False
 
     total_actual_p = tp + fn
     total_actual_n = tn + fp
@@ -134,7 +148,7 @@ def evaluate_baseline_run(
         candidates_per_verified = float("inf")
 
     avg_duration = round(total_duration / max(1, total_targets), 3)
-    avg_cost = round(total_cost / max(1, total_targets), 4)
+    avg_cost = round(total_cost / max(1, total_targets), 4) if all_costs_present else None
 
     return BaselineEvaluationResult(
         baseline_id=baseline_id,

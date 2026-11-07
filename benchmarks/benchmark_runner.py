@@ -145,6 +145,7 @@ class AegisBenchmarkSuite:
         self,
         mode: str = "smoke",
         model_id: str = "gemini-1.5-pro",
+        provider: str = "gemini",
         save_results: bool = True,
         baselines_to_run: Optional[List[str]] = None,
         custom_adapters: Optional[Dict[str, BaselineAdapter]] = None,
@@ -155,6 +156,7 @@ class AegisBenchmarkSuite:
         Args:
             mode: "smoke" for fast synthetic CI verification; "real" for live tool execution.
             model_id: Model identifier for LLM-based baselines.
+            provider: LLM provider name ("gemini" or "openai").
             save_results: Whether to persist benchmark_results.json and per-target JSON artifacts.
             baselines_to_run: Optional list of baseline_ids to filter (e.g. ["baseline_1", "baseline_5"]).
             custom_adapters: Optional dictionary of adapter overrides (useful for testing).
@@ -184,10 +186,10 @@ class AegisBenchmarkSuite:
         else:  # mode == "real"
             adapters = {
                 "baseline_1": SlitherBaselineAdapter(),
-                "baseline_2": LLMAuditorBaselineAdapter(model_id=model_id),
-                "baseline_3": LLMUnverifiedPoCBaselineAdapter(model_id=model_id),
-                "baseline_4": LLMNaiveFoundryBaselineAdapter(model_id=model_id),
-                "baseline_5": FullAegisRLVRBaselineAdapter(model_id=model_id),
+                "baseline_2": LLMAuditorBaselineAdapter(model_id=model_id, provider=provider),
+                "baseline_3": LLMUnverifiedPoCBaselineAdapter(model_id=model_id, provider=provider),
+                "baseline_4": LLMNaiveFoundryBaselineAdapter(model_id=model_id, provider=provider),
+                "baseline_5": FullAegisRLVRBaselineAdapter(model_id=model_id, provider=provider),
             }
 
         if baselines_to_run:
@@ -228,17 +230,25 @@ class AegisBenchmarkSuite:
             )
             results[b_id] = eval_result.to_dict()
 
+        rel_artifacts_dir = None
+        if save_results:
+            try:
+                rel_artifacts_dir = str(run_artifacts_dir.relative_to(base_dir)).replace("\\", "/")
+            except ValueError:
+                rel_artifacts_dir = str(run_artifacts_dir).replace("\\", "/")
+
         report: Dict[str, Any] = {
             "benchmark_version": self.dataset.version,
             "execution_mode": "SYNTHETIC_SMOKE_TEST" if mode == "smoke" else "REAL_EXPERIMENT",
             "is_synthetic_smoke": (mode == "smoke"),
             "model_id": model_id,
+            "provider": provider if mode == "real" else "synthetic_smoke",
             "git_commit_sha": commit_sha,
             "evaluated_at": timestamp,
             "total_targets_evaluated": len(public_targets),
             "vulnerable_targets": sum(1 for gt in ground_truth_map.values() if gt.is_vulnerable),
             "synthetic_controls": sum(1 for gt in ground_truth_map.values() if not gt.is_vulnerable),
-            "artifacts_directory": str(run_artifacts_dir) if save_results else None,
+            "artifacts_directory": rel_artifacts_dir,
             "baselines": results,
         }
 
@@ -267,6 +277,8 @@ def main():
                         help="Execution mode: smoke (fast simulation for CI) or real (live tools)")
     parser.add_argument("--model-id", type=str, default="gemini-1.5-pro",
                         help="Model ID under evaluation")
+    parser.add_argument("--provider", type=str, default="gemini", choices=["gemini", "openai"],
+                        help="LLM provider for auditor/exploit baselines")
     parser.add_argument("--baselines", nargs="*", default=None,
                         help="Filter specific baseline IDs to run (e.g. baseline_1 baseline_5)")
     parser.add_argument("--artifacts-dir", type=str, default=None,
@@ -281,6 +293,7 @@ def main():
     report = suite.run_benchmark(
         mode=args.mode,
         model_id=args.model_id,
+        provider=args.provider,
         save_results=not args.no_save,
         baselines_to_run=args.baselines,
     )
