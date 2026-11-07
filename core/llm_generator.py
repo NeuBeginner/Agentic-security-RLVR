@@ -1012,7 +1012,9 @@ def parse_model_response(
     raw_text: str,
     attempt_idx: int = 1,
     generated_token_ids: Optional[List[int]] = None,
-    prompt_text: str = ""
+    prompt_text: str = "",
+    hypothesis: Optional[Any] = None,
+    candidate_id: Optional[str] = None,
 ) -> ExploitPayload:
     """
     Parses raw LLM text into a structured ExploitPayload.
@@ -1062,27 +1064,65 @@ def parse_model_response(
     elif "logic" in lower_r or "invariant" in lower_r:
         vuln_type = "LogicFlawInvariantBreach"
 
-    hypothesis = AttackHypothesis(
-        vulnerability_type=vuln_type,
-        reasoning_trace=reasoning,
-        attack_vector="Synthesized EVM interaction sequence against trusted verification harness."
-    )
+    # Resolve and preserve hypothesis provenance
+    from core.schemas import VulnerabilityHypothesis
+    hypothesis_id = None
+    if hypothesis is not None:
+        hypothesis_id = getattr(hypothesis, "hypothesis_id", None)
+        if isinstance(hypothesis, dict):
+            hypothesis_id = hypothesis.get("hypothesis_id")
+        if not hypothesis_id and hasattr(hypothesis, "source_finding_id"):
+            hypothesis_id = hypothesis.source_finding_id
 
-    return ExploitPayload(
-        target_name=target.name,
-        hypothesis=hypothesis,
-        test_code=code if code else "// Error: No valid Solidity code generated\n",
-        test_filename="ExploitModule.sol",
-        attempt_number=attempt_idx,
-        raw_model_response=raw_text,
-        format_valid=is_valid,
-        format_error_reason=format_reason,
-        contract_name_normalized=was_renamed,
-        original_contract_name=original_name if was_renamed else "",
-        contract_normalization_reason=normalization_reason,
-        prompt_text=prompt_text,
-        generated_token_ids=generated_token_ids
-    )
+    if isinstance(hypothesis, AttackHypothesis):
+        attack_hyp = hypothesis
+        if hypothesis_id and not attack_hyp.hypothesis_id:
+            attack_hyp.hypothesis_id = hypothesis_id
+    elif isinstance(hypothesis, VulnerabilityHypothesis):
+        attack_hyp = AttackHypothesis(
+            vulnerability_type=hypothesis.vulnerability_class,
+            reasoning_trace=f"Target: {hypothesis.affected_contract}.{hypothesis.affected_function or 'target'}. Preconditions: {hypothesis.attack_preconditions}",
+            attack_vector=" -> ".join(hypothesis.attack_sequence) if hypothesis.attack_sequence else "Synthesized EVM interaction sequence against trusted verification harness.",
+            affected_functions=[hypothesis.affected_function] if hypothesis.affected_function else [],
+            confidence_score=hypothesis.confidence,
+            hypothesis_id=hypothesis.hypothesis_id,
+        )
+    elif isinstance(hypothesis, dict):
+        attack_hyp = AttackHypothesis(
+            vulnerability_type=hypothesis.get("vulnerability_class") or hypothesis.get("vulnerability_type") or vuln_type,
+            reasoning_trace=str(hypothesis.get("reasoning_trace", reasoning)),
+            attack_vector=str(hypothesis.get("attack_vector", "Synthesized EVM interaction sequence against trusted verification harness.")),
+            confidence_score=float(hypothesis.get("confidence", 1.0)),
+            hypothesis_id=hypothesis.get("hypothesis_id"),
+        )
+    else:
+        attack_hyp = AttackHypothesis(
+            vulnerability_type=vuln_type,
+            reasoning_trace=reasoning,
+            attack_vector="Synthesized EVM interaction sequence against trusted verification harness.",
+            hypothesis_id=hypothesis_id
+        )
+
+    payload_kwargs = {
+        "target_name": target.name,
+        "hypothesis": attack_hyp,
+        "test_code": code if code else "// Error: No valid Solidity code generated\n",
+        "test_filename": "ExploitModule.sol",
+        "attempt_number": attempt_idx,
+        "raw_model_response": raw_text,
+        "format_valid": is_valid,
+        "format_error_reason": format_reason,
+        "contract_name_normalized": was_renamed,
+        "original_contract_name": original_name if was_renamed else "",
+        "contract_normalization_reason": normalization_reason,
+        "prompt_text": prompt_text,
+        "generated_token_ids": generated_token_ids,
+        "hypothesis_id": hypothesis_id,
+    }
+    if candidate_id:
+        payload_kwargs["candidate_id"] = candidate_id
+
+    return ExploitPayload(**payload_kwargs)
 
 
 def synthesize_exploit_gemini(
@@ -1105,6 +1145,6 @@ def synthesize_exploit_gemini(
         contents=prompt,
         config={"system_instruction": EXPLOIT_ENGINEER_SYSTEM_PROMPT, "temperature": 0.3}
     )
-    payload = parse_model_response(target, response.text or "", prompt_text=prompt)
+    payload = parse_model_response(target, response.text or "", prompt_text=prompt, hypothesis=hypothesis)
     payload.generator_engine = "gemini-flash"
     return payload

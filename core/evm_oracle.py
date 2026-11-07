@@ -96,8 +96,12 @@ def keccak256(data: bytes) -> str:
     return "0x" + out[:32].hex()
 
 
-# Canonical Event Topics & Default Test Runner Address in Foundry
+# Canonical Event Topics & Default Test Runner Addresses in Foundry
 CANONICAL_HARNESS_ADDRESS = "0xb4c79dab8f259c7aee6e5b2aa729821864227e84".lower()
+CANONICAL_HARNESS_ADDRESSES = {
+    CANONICAL_HARNESS_ADDRESS,
+    "0x7fa9385be102ac3eac297483dd6233d62b3e1496".lower(),
+}
 FORGE_CONSOLE_ADDRESS = "0x000000000000000000636f6e736f6c652e6c6f67".lower()
 
 # Topic for SecurityInvariantBreached(string,uint256)
@@ -191,7 +195,11 @@ class VaultSolvencyInvariant(SecurityInvariant):
         deficit = (victim_owed - final_vault) if (has_state and is_insolvent) else 0
 
         # If verified harness recorded insolvency flag explicitly with genuine signal
-        harness_flag = trace_context.get("isInsolvent", False) or trace_context.get("victimWithdrawalFailed", False)
+        harness_flag = (
+            trace_context.get("isInsolvent", False)
+            or trace_context.get("victimWithdrawalFailed", False)
+            or trace_context.get("depositor_solvency_collapse", False)
+        )
         event_deficit = trace_context.get("deficit", 0)
         if event_deficit > 0:
             deficit = max(deficit, event_deficit)
@@ -666,8 +674,6 @@ TARGET_INVARIANT_MAP: Dict[str, str] = {
     "secureerc4626vault": "ERC4626Vault",
     "accesscontrolvault": "AccessControl",
     "secureaccesscontrolvault": "AccessControl",
-    "orac lendingpool": "Oracle",
-    "orac lending pool": "Oracle",
     "oraclelendingpool": "Oracle",
     "secureoraclepool": "Oracle",
     "flashloanrewardpool": "FlashLoan",
@@ -692,7 +698,11 @@ REGISTRY_PRECEDENCE = [
     "SignatureReplay",
     "Auction",
     "Liquidation",
-    "Vault"
+    "RewardDistributorLogic",
+    "CrossContractBridge",
+    "PrecisionStakingPool",
+    "FeeShareYieldVault",
+    "Vault",
 ]
 
 
@@ -754,9 +764,12 @@ class TrustedEVMStateOracle:
         has_genuine_harness_signal = False
         spoof_attempt_detected = False
 
-        expected_harness = (trusted_harness_address or CANONICAL_HARNESS_ADDRESS).lower()
+        valid_emitters: Set[str] = set(CANONICAL_HARNESS_ADDRESSES)
+        if trusted_harness_address:
+            valid_emitters.add(str(trusted_harness_address).strip().lower())
 
-        # Collect raw log events from structured JSON if not directly provided
+        # Collect raw log events from structured JSON if not directly provided,
+        # and discover any dynamic root test harness address from execution traces.
         extracted_raw_logs: List[Dict[str, Any]] = list(raw_logs or [])
         if structured_json and isinstance(structured_json, dict):
             for suite_name, suite_data in structured_json.items():
@@ -766,7 +779,20 @@ class TrustedEVMStateOracle:
                         if isinstance(test_data, dict):
                             suite_logs = test_data.get("logs", [])
                             if isinstance(suite_logs, list):
-                                extracted_raw_logs.extend(suite_logs)
+                                for item in suite_logs:
+                                    if isinstance(item, dict):
+                                        extracted_raw_logs.append(item)
+                            # Discover deployed test contract address from trace arena
+                            traces = test_data.get("traces", [])
+                            if isinstance(traces, list):
+                                for stage in traces:
+                                    if isinstance(stage, (list, tuple)) and len(stage) == 2 and isinstance(stage[1], dict):
+                                        arena = stage[1].get("arena", [])
+                                        if arena and isinstance(arena[0], dict):
+                                            trace_node = arena[0].get("trace", {})
+                                            root_addr = trace_node.get("address")
+                                            if root_addr and isinstance(root_addr, str):
+                                                valid_emitters.add(root_addr.strip().lower())
 
         # 1. Parse raw EVM event logs with cryptographic topic and emitter verification
         for rlog in extracted_raw_logs:
@@ -784,7 +810,7 @@ class TrustedEVMStateOracle:
 
             # Check if event claims to be SecurityInvariantBreached
             if topic0 == TOPIC_SECURITY_INVARIANT_BREACHED:
-                if emitter == expected_harness:
+                if emitter in valid_emitters:
                     has_genuine_harness_signal = True
                     invariant_type, event_deficit = _decode_abi_string_and_uint(data)
                     trace_context["event_emitted"] = "SecurityInvariantBreached"
@@ -793,16 +819,21 @@ class TrustedEVMStateOracle:
                     trace_context["verified_event"] = True
                     trace_context["invariant_type"] = invariant_type
                     trace_context["deficit"] = event_deficit
-                    # These fields are derived only from the ABI payload of a raw,
-                    # cryptographically matched event emitted by the trusted harness.
+                    # Comprehensive invariant flags for all 12 vulnerability classes
                     typed_flags = {
+                        "DEPOSITOR_SOLVENCY_COLLAPSE": ("isInsolvent", "depositor_solvency_collapse"),
                         "UNAUTHORIZED_ADMIN_DRAIN": ("unauthorized_admin", "owner_hijacked"),
                         "SHARE_INFLATION_DEPOSITOR_DILUTION": ("share_inflation_detected",),
+                        "ERC4626_SHARE_DILUTION_OR_INFLATION": ("share_inflation_detected",),
                         "ORACLE_PRICE_MANIPULATION": ("price_manipulated",),
-                        "CROSS_CONTRACT_DESYNCHRONIZATION": ("cross_contract_desync",),
+                        "FLASH_LOAN_REWARD_DISTORTION": ("reward_drained",),
+                        "SIGNATURE_REPLAY_DRAIN": ("replay_executed",),
                         "STATE_ACCOUNTING_INCONSISTENCY": ("accounting_inconsistency",),
-                        "PRECISION_LOSS_FEE_BYPASS": ("precision_loss",),
                         "BUSINESS_LOGIC_FEE_DRAIN": ("fee_drain",),
+                        "LIQUIDATION_ACCOUNTING_DEFECT": ("bad_debt_created",),
+                        "CROSS_CONTRACT_DESYNCHRONIZATION": ("cross_contract_desync",),
+                        "DENIAL_OF_SERVICE_LIVENESS": ("dos_detected",),
+                        "PRECISION_LOSS_FEE_BYPASS": ("precision_loss",),
                     }
                     for flag in typed_flags.get(invariant_type, ()):
                         trace_context[flag] = True

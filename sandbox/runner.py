@@ -50,7 +50,7 @@ sandbox_image = (
     )
     .env({"PATH": "/root/.foundry/bin:$PATH"})
     .pip_install("pydantic>=2.0.0", "slither-analyzer", "solc-select")
-    .add_local_dir(LOCAL_TRUSTED_HARNESSES_DIR, remote_path=TRUSTED_HARNESSES_DIR, copy=False)
+    .add_local_dir(LOCAL_TRUSTED_HARNESSES_DIR, remote_path=TRUSTED_HARNESSES_DIR, copy=True)
     .add_local_python_source("core", "sandbox")
 )
 
@@ -277,17 +277,20 @@ def detect_prohibited_cheatcodes(code: str) -> bool:
     return False
 
 
-def extract_trusted_harness_verdict(
+def extract_trusted_harness_evidence(
     structured_data,
     target_name: str
 ):
-    """Read exactly one immutable repository harness and exact testExploit() result."""
+    """
+    Extract structured verdict, status, reason, deployed harness address,
+    and raw EVM logs for exactly one repository-owned trusted harness suite.
+    """
     if (
         not is_safe_target_name(target_name)
         or target_name not in TRUSTED_HARNESS_CONTRACTS
         or not isinstance(structured_data, dict)
     ):
-        return HARNESS_VERDICT_UNKNOWN, "", None, None
+        return HARNESS_VERDICT_UNKNOWN, "", None, None, None, []
 
     expected_path = trusted_harness_suite_prefix(target_name)
     matches = []
@@ -307,12 +310,26 @@ def extract_trusted_harness_verdict(
             continue
         for test_sig, test_info in test_results.items():
             if str(test_sig).strip() == f"{HARNESS_TEST_NAME}()" and isinstance(test_info, dict):
-                matches.append((path, test_info.get("status"), test_info.get("reason")))
+                status = test_info.get("status")
+                reason = test_info.get("reason")
+                logs = [log for log in test_info.get("logs", []) if isinstance(log, dict)]
+                harness_addr = None
+                traces = test_info.get("traces", [])
+                if isinstance(traces, list):
+                    for stage in traces:
+                        if isinstance(stage, (list, tuple)) and len(stage) == 2 and isinstance(stage[1], dict):
+                            arena = stage[1].get("arena", [])
+                            if arena and isinstance(arena[0], dict):
+                                addr = arena[0].get("trace", {}).get("address")
+                                if addr and isinstance(addr, str):
+                                    harness_addr = addr.strip().lower()
+                                    break
+                matches.append((path, status, reason, harness_addr, logs))
 
     if len(matches) != 1:
-        return HARNESS_VERDICT_UNKNOWN, "", None, None
+        return HARNESS_VERDICT_UNKNOWN, "", None, None, None, []
 
-    suite_path, status, reason = matches[0]
+    suite_path, status, reason, harness_addr, raw_logs = matches[0]
     if status == "Success":
         verdict = HARNESS_VERDICT_BREACH
     elif status == "Failure":
@@ -323,6 +340,17 @@ def extract_trusted_harness_verdict(
         )
     else:
         verdict = HARNESS_VERDICT_UNKNOWN
+    return verdict, suite_path, status, reason, harness_addr, raw_logs
+
+
+def extract_trusted_harness_verdict(
+    structured_data,
+    target_name: str
+):
+    """Read exactly one immutable repository harness and exact testExploit() result."""
+    verdict, suite_path, status, reason, _, _ = extract_trusted_harness_evidence(
+        structured_data, target_name
+    )
     return verdict, suite_path, status, reason
 
 
@@ -555,7 +583,7 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             # repository-owned harness suite. Log text is model-controllable and
             # is therefore never used to decide whether an exploit succeeded -
             # `decoded_logs` is kept for diagnostics only.
-            harness_verdict, harness_suite, verdict_status, verdict_reason = extract_trusted_harness_verdict(
+            harness_verdict, harness_suite, verdict_status, verdict_reason, harness_addr, trusted_raw_logs = extract_trusted_harness_evidence(
                 structured_json, target.name
             )
 
@@ -594,6 +622,8 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                         revert_reason=effective_revert_reason,
                         cheatcode_detected=False,
                         structured_json=structured_json,
+                        raw_logs=trusted_raw_logs,
+                        trusted_harness_address=harness_addr,
                     )
                 except Exception as oracle_exc:
                     # The authoritative harness result remains intact; preserve a

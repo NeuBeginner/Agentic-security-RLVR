@@ -183,7 +183,8 @@ class ProductionAuditAgent:
             response_text,
             attempt_idx=1,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
     @modal.method()
@@ -221,7 +222,8 @@ class ProductionAuditAgent:
             response_text,
             attempt_idx=99,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
 
@@ -313,7 +315,8 @@ class DevReasoningAgent:
             response_text,
             attempt_idx=1,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
     @modal.method()
@@ -351,7 +354,8 @@ class DevReasoningAgent:
             response_text,
             attempt_idx=99,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
 
