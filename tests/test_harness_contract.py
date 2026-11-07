@@ -18,12 +18,14 @@ NOT from the model-controlled log text. This suite proves that:
 """
 
 import json
+import io
 import os
 import re
 from pathlib import Path
 
 import pytest
 
+from core.schemas import AttackHypothesis, ExploitPayload, TargetProgram
 from core.evidence import (
     HarnessVerdict,
     HARNESS_NO_BREACH_REASON_PREFIX,
@@ -36,6 +38,7 @@ from sandbox.runner import (
     extract_trusted_harness_verdict,
     is_safe_target_name,
     load_trusted_harness_code,
+    run_payload_in_sandbox,
     run_subprocess_capped,
 )
 
@@ -420,3 +423,69 @@ def test_trusted_harness_loader_fails_closed_for_unknown_targets(tmp_path):
         load_trusted_harness_code("UnknownContract", harness_dir=tmp_path)
     with pytest.raises(ValueError):
         load_trusted_harness_code("../Vault", harness_dir=tmp_path)
+
+
+def test_sandbox_execution_ignores_request_supplied_harness_code(tmp_path, monkeypatch):
+    """End-to-end runner preflight writes only the image/repository harness."""
+    import sandbox.runner as runner
+
+    trusted_source = "// repository-owned test harness fixture"
+    (tmp_path / "VaultHarness.t.sol").write_text(trusted_source, encoding="utf-8")
+    monkeypatch.setattr(runner, "TRUSTED_HARNESSES_DIR", str(tmp_path))
+
+    structured = {
+        "test/VaultHarness.t.sol:VaultTrustedHarness": {
+            "test_results": {
+                "testExploit()": {
+                    "status": "Success",
+                    "reason": None,
+                    "decoded_logs": [],
+                }
+            }
+        }
+    }
+
+    class FakePopen:
+        def __init__(self, cmd, *, cwd, **kwargs):
+            harness_path = Path(cwd) / "test" / "VaultHarness.t.sol"
+            self.written_harness = harness_path.read_text(encoding="utf-8")
+            self.returncode = 0
+            self.pid = 99999999
+            self.stdout = io.BytesIO(json.dumps(structured).encode("utf-8"))
+            self.stderr = io.BytesIO(b"")
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(runner.subprocess, "Popen", FakePopen)
+
+    target = TargetProgram(
+        name="Vault",
+        source_code="pragma solidity ^0.8.20; contract Vault {}",
+        trusted_harness_code="ATTACKER-CONTROLLED HARNESS MUST BE IGNORED",
+    )
+    payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(
+            vulnerability_type="Test",
+            reasoning_trace="Test",
+            attack_vector="Test",
+        ),
+        test_code=(
+            "pragma solidity ^0.8.20; contract ExploitModule { "
+            "constructor(address _target) payable {} "
+            "function runExploit() external payable {} }"
+        ),
+        format_valid=True,
+    )
+
+    result = run_payload_in_sandbox(target, payload)
+
+    assert FakePopen
+    assert result.harness_verdict == HarnessVerdict.BREACH.value
+    assert result.harness_suite == "test/VaultHarness.t.sol"
+    assert trusted_source in result.stdout or result.verified_by_harness
+    assert "ATTACKER-CONTROLLED" not in FakePopen.__dict__.get("written_harness", "")
