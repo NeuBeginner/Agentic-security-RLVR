@@ -255,7 +255,7 @@ def test_feedback_loop_provenance_preservation():
     Auditor -> Hypothesis Manager -> Exploit Generator -> Verification -> Replay -> Hypothesis Manager.
     Verifies that final replay result updates hypothesis status and preserves complete provenance lineage.
     """
-    from sandbox.runner import ReplayOutcome
+    from types import SimpleNamespace
 
     target = TargetProgram(
         name="Vault",
@@ -301,7 +301,9 @@ def test_feedback_loop_provenance_preservation():
     assert hyp.evidence.get("provisional_candidate_id") == cand_id
 
     # 4. Independent Replay succeeds
-    replay_outcome = ReplayOutcome(
+    # Keep the manager contract independent of the sandbox runner's concrete
+    # replay result class; it only consumes these documented attributes.
+    replay_outcome = SimpleNamespace(
         target_name="Vault",
         candidate_id=cand_id,
         is_confirmed=True,
