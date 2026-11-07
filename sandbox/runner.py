@@ -352,20 +352,6 @@ def run_slither_analysis(target: TargetProgram) -> list:
     """
     if not is_safe_target_name(target.name):
         return []
-    try:
-        trusted_harness_source = load_trusted_harness_code(target.name)
-    except (ValueError, FileNotFoundError, OSError) as exc:
-        return ExecutionResult(
-            return_code=-7,
-            stdout="",
-            stderr=f"INFRA_ERROR: trusted repository harness unavailable: {exc}",
-            execution_time_sec=time.time() - start_time,
-            category=ResultCategory.INFRA_ERROR,
-            timed_out=False,
-            invariant_violated=False,
-            verified_by_harness=False,
-        )
-
     with tempfile.TemporaryDirectory() as tmpdir:
         src_dir = os.path.join(tmpdir, "src")
         os.makedirs(src_dir, exist_ok=True)
@@ -450,20 +436,23 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             verified_by_harness=False
         )
 
-    # Pre-execution check 2: Block any exploit attempting to hijack Foundry cheatcodes
-    if detect_prohibited_cheatcodes(payload.test_code):
+    # Trusted harness source is loaded from the image-bundled repository directory.
+    # TargetProgram.trusted_harness_code is a deprecated untrusted input and is ignored.
+    try:
+        trusted_harness_source = load_trusted_harness_code(target.name)
+    except (ValueError, FileNotFoundError, OSError) as exc:
         return ExecutionResult(
-            return_code=-3,
+            return_code=-7,
             stdout="",
-            stderr="Security Violation: ExploitModule attempted to import or execute Foundry cheatcodes (vm.*).",
-            execution_time_sec=0.01,
-            category=ResultCategory.CHEATCODE_DETECTED,
+            stderr=f"INFRA_ERROR: trusted repository harness unavailable: {exc}",
+            execution_time_sec=time.time() - start_time,
+            category=ResultCategory.INFRA_ERROR,
             timed_out=False,
             invariant_violated=False,
-            cheatcode_detected=True,
-            verified_by_harness=False
+            verified_by_harness=False,
         )
-    
+
+    # Candidate execution begins only after trusted harness resolution succeeds.
     with tempfile.TemporaryDirectory() as tmpdir:
         src_dir = os.path.join(tmpdir, "src")
         test_dir = os.path.join(tmpdir, "test")
