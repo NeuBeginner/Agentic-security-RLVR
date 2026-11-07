@@ -239,5 +239,7 @@ def create_trajectory_record(
         is_synthetic=is_synthetic,
         token_provenance=tok_prov,
         trainable=trainable,
-        generated_token_ids=payload.generated_token_ids
+        generated_token_ids=payload.generated_token_ids,
+        contract_name_normalized=payload.contract_name_normalized,
+        original_contract_name=payload.original_contract_name
     )

@@ -53,6 +53,13 @@ class ExploitPayload(BaseModel):
     raw_model_response: str = Field(default="", description="Preserved unedited text output from LLM for post-mortem")
     format_valid: bool = Field(default=True, description="Whether payload satisfies mandatory contract specifications")
     format_error_reason: str = Field(default="", description="Diagnostic reason if format_valid is False")
+    # Audit trail for the mechanical contract-name repair. When the model emitted a
+    # descriptively named contract (e.g. `VaultAttack`) it is renamed to the
+    # harness-mandated `ExploitModule` before validation, so the candidate can reach
+    # the EVM harness and produce a verifiable reward instead of a format rejection.
+    # `original_contract_name` is empty when no repair was applied.
+    contract_name_normalized: bool = Field(default=False, description="Whether contract name was mechanically repaired")
+    original_contract_name: str = Field(default="", description="Original contract name before mechanical repair")
     
     # Candidate lifecycle & exact token lineage tracking (Round 4/5)
     candidate_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
@@ -143,6 +150,12 @@ class RLVRTrajectory(BaseModel):
     token_provenance: Optional[str] = Field(default=None, description="model_generate, external_text_only, or synthetic")
     trainable: Optional[bool] = Field(default=None, description="True if eligible for GRPO optimization")
     generated_token_ids: Optional[List[int]] = Field(default=None)
+    # Audit trail for the mechanical contract-name repair (see llm_generator).
+    # `full_completion_text` keeps the model's ORIGINAL output, so token lineage and
+    # the training completion stay byte-identical to what the model actually emitted.
+    # These fields only record that the executable artifact was renamed.
+    contract_name_normalized: bool = Field(default=False, description="Whether the executable contract name was mechanically repaired")
+    original_contract_name: str = Field(default="", description="Original contract name before mechanical repair")
 
     @model_validator(mode="after")
     def validate_trajectory_invariants(self) -> "RLVRTrajectory":

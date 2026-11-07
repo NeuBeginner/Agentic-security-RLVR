@@ -24,7 +24,14 @@ class PipelineConfig:
     
     # Static Analysis Layer
     ENABLE_SLITHER: bool = True
-    
+
+    # Mechanical repair of the harness-mandated contract name.
+    # When enabled, a single top-level contract with a different name is renamed to
+    # `ExploitModule` before validation, so otherwise-valid candidates reach the EVM
+    # harness and can produce a verifiable reward instead of dying at the format gate.
+    # The strict validator itself is unchanged and remains available for direct use.
+    ENABLE_CONTRACT_NAME_NORMALIZATION: bool = True
+
     # Sandboxed Foundry Execution limits
     SANDBOX_TIMEOUT_SEC: int = 60
     SANDBOX_CPU_CORES: float = 2.0
@@ -43,7 +50,12 @@ class PipelineConfig:
     REWARD_BREACH_NO_REPLAY: float = 0.5      # Invariant breached once, but non-reproducible
     REWARD_RUNTIME_REVERT: float = -0.25      # Compiled cleanly, but reverted during EVM runtime
     REWARD_COMPILATION_FAIL: float = -0.5     # solc / forge compilation error
-    REWARD_FORMAT_ERROR: float = -0.5         # Malformed model response / missing contract ExploitModule
+    # Format failures are mechanically cheap to fix (interface shape, contract name),
+    # while compilation failures require real semantic repair of the exploit logic.
+    # Keeping them distinct gives the policy a usable gradient: a candidate that only
+    # misses the interface is strictly closer to success than one whose logic does not
+    # compile, so the reward must reflect that ordering.
+    REWARD_FORMAT_ERROR: float = -0.35        # Malformed model response / missing contract ExploitModule
     REWARD_SAFE_RUN: float = -0.1             # Clean execution, no invariant breached
     REWARD_TIMEOUT: float = -0.3              # Out of gas / infinite loop
     REWARD_CHEATCODE_PENALTY: float = -1.0    # Attempted to use Foundry cheatcodes / sandbox escape

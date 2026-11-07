@@ -652,7 +652,8 @@ def run_control_foundry_tests(target_name: str = "Vault"):
     Executes mandatory control verification tests for the Foundry Harness and Category Reward logic:
     1. Minimal benign ExploitModule (no-op) -> Compiles, links, reverts in harness (reward -0.25, RUNTIME_REVERT)
     2. Working Reentrancy ExploitModule -> Drains vault, breaches invariant, confirmed replay (reward +1.0, EXPLOIT_CONFIRMED)
-    3. Malformed contract name -> Rejected upfront before Foundry (reward -0.50, GENERATION_FORMAT_ERROR)
+    3. Structurally broken contract -> Rejected upfront before Foundry (GENERATION_FORMAT_ERROR)
+    4. Wrongly-named contract -> Mechanically renamed to ExploitModule, reaches Foundry, real EVM verdict
     """
     print("\n" + "=" * 78)
     print("🧪 EXECUTING MANDATORY FOUNDRY HARNESS CONTROL TEST SUITE (ROUND 5)")
@@ -785,17 +786,21 @@ contract ExploitModule {
     record_trajectory_remote.remote(t_rec.model_dump())
     print("    [✓] Synthetic control trajectory recorded with dataset_partition='synthetic_control', is_synthetic=True (isolated from GRPO dataset)!")
 
-    # 3. TEST 3: Malformed Contract Name (Formatting Error)
-    print("\n[Control Test 3] Testing Malformed Contract Name (contract VaultAttack)...")
+    # 3. TEST 3: Structurally broken contract that mechanical normalization cannot repair
+    #    (the wrongly-named-but-otherwise-valid case is now repaired and reaches Foundry;
+    #     this control keeps proving that a genuinely malformed exploit is still
+    #     rejected upfront, before Foundry is invoked)
+    print("\n[Control Test 3] Testing Structurally Broken Contract (missing runExploit entrypoint)...")
     malformed_code = """// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
 contract VaultAttack {
     constructor(address _target) payable {}
-    function runExploit() external payable {}
+    // Missing mandatory runExploit() entrypoint
 }
 """
     p3 = parse_model_response(target, f"```solidity\n{malformed_code}\n```")
+    assert not p3.format_valid, "Structurally broken exploit must be rejected before Foundry"
     v3_dict = verify_exploit_remote.remote(target.model_dump(), p3.model_dump())
     v3 = VerificationVerdict(**v3_dict)
     print(f"    Status: {'✅ PASS' if v3.category == ResultCategory.GENERATION_FORMAT_ERROR else '❌ FAIL'}")
@@ -804,6 +809,39 @@ contract VaultAttack {
     assert v3.category == ResultCategory.GENERATION_FORMAT_ERROR
     assert v3.reward_score == config.REWARD_FORMAT_ERROR
     print("    [✓] Control Test 3 verified: Format error caught before invoking Foundry.")
+
+    # 4. TEST 4: Wrongly-named but otherwise valid contract is mechanically repaired
+    print("\n[Control Test 4] Testing Mechanical Contract Name Normalization (contract VaultAttack)...")
+    renamable_code = """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Vault} from "../src/Vault.sol";
+
+contract VaultAttack {
+    Vault public targetContract;
+
+    constructor(address _target) payable {
+        targetContract = Vault(payable(_target));
+    }
+
+    function runExploit() external payable {}
+
+    receive() external payable {}
+}
+"""
+    p4 = parse_model_response(target, f"```solidity\n{renamable_code}\n```")
+    assert p4.contract_name_normalized, "Expected mechanical contract-name normalization"
+    assert p4.original_contract_name == "VaultAttack"
+    assert p4.format_valid, "Renamed exploit must pass the format gate"
+    v4_dict = verify_exploit_remote.remote(target.model_dump(), p4.model_dump())
+    v4 = VerificationVerdict(**v4_dict)
+    print(f"    Renamed: 'VaultAttack' -> 'ExploitModule' | format_valid={p4.format_valid}")
+    print(f"    Status: {'✅ PASS' if v4.category != ResultCategory.GENERATION_FORMAT_ERROR else '❌ FAIL'}")
+    print(f"    Category: {v4.category.value} | Reward: {v4.reward_score:+.2f}")
+    assert v4.category != ResultCategory.GENERATION_FORMAT_ERROR, (
+        "Mechanically repaired exploit must reach the EVM harness instead of being rejected"
+    )
+    print("    [✓] Control Test 4 verified: repaired exploit reaches Foundry and yields a real EVM verdict.")
 
     print("\n" + "=" * 78)
     print("🎉 ALL FOUNDRY HARNESS CONTROL TESTS PASSED (0 ERRORS)")

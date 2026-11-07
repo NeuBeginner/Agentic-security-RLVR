@@ -230,5 +230,7 @@ def create_finalized_trajectory(
         is_synthetic=synth,
         token_provenance=tok_prov,
         trainable=is_trainable,
-        generated_token_ids=candidate.payload.generated_token_ids
+        generated_token_ids=candidate.payload.generated_token_ids,
+        contract_name_normalized=candidate.payload.contract_name_normalized,
+        original_contract_name=candidate.payload.original_contract_name
     )
