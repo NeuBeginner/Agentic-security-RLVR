@@ -96,8 +96,12 @@ def keccak256(data: bytes) -> str:
     return "0x" + out[:32].hex()
 
 
-# Canonical Event Topics & Default Test Runner Address in Foundry
+# Canonical Event Topics & Default Test Runner Addresses in Foundry
 CANONICAL_HARNESS_ADDRESS = "0xb4c79dab8f259c7aee6e5b2aa729821864227e84".lower()
+CANONICAL_HARNESS_ADDRESSES = {
+    CANONICAL_HARNESS_ADDRESS,
+    "0x7fa9385be102ac3eac297483dd6233d62b3e1496".lower(),
+}
 FORGE_CONSOLE_ADDRESS = "0x000000000000000000636f6e736f6c652e6c6f67".lower()
 
 # Topic for SecurityInvariantBreached(string,uint256)
@@ -191,7 +195,11 @@ class VaultSolvencyInvariant(SecurityInvariant):
         deficit = (victim_owed - final_vault) if (has_state and is_insolvent) else 0
 
         # If verified harness recorded insolvency flag explicitly with genuine signal
-        harness_flag = trace_context.get("isInsolvent", False) or trace_context.get("victimWithdrawalFailed", False)
+        harness_flag = (
+            trace_context.get("isInsolvent", False)
+            or trace_context.get("victimWithdrawalFailed", False)
+            or trace_context.get("depositor_solvency_collapse", False)
+        )
         event_deficit = trace_context.get("deficit", 0)
         if event_deficit > 0:
             deficit = max(deficit, event_deficit)
@@ -666,8 +674,6 @@ TARGET_INVARIANT_MAP: Dict[str, str] = {
     "secureerc4626vault": "ERC4626Vault",
     "accesscontrolvault": "AccessControl",
     "secureaccesscontrolvault": "AccessControl",
-    "orac lendingpool": "Oracle",
-    "orac lending pool": "Oracle",
     "oraclelendingpool": "Oracle",
     "secureoraclepool": "Oracle",
     "flashloanrewardpool": "FlashLoan",
@@ -692,7 +698,11 @@ REGISTRY_PRECEDENCE = [
     "SignatureReplay",
     "Auction",
     "Liquidation",
-    "Vault"
+    "RewardDistributorLogic",
+    "CrossContractBridge",
+    "PrecisionStakingPool",
+    "FeeShareYieldVault",
+    "Vault",
 ]
 
 
@@ -754,27 +764,26 @@ class TrustedEVMStateOracle:
         has_genuine_harness_signal = False
         spoof_attempt_detected = False
 
-        expected_harness = (trusted_harness_address or CANONICAL_HARNESS_ADDRESS).lower()
+        # Strict emitter trust boundary:
+        # If a specific trusted_harness_address is provided by the runner, only that address is authorized.
+        # If trusted_harness_address is None (e.g. hermetic unit tests), fall back to canonical addresses.
+        if trusted_harness_address is not None:
+            addr_str = str(trusted_harness_address).strip().lower()
+            valid_emitters: Set[str] = {addr_str} if addr_str else set()
+        else:
+            valid_emitters = set(CANONICAL_HARNESS_ADDRESSES)
 
-        # Collect raw log events from structured JSON if not directly provided
+        # Oracle strictly consumes only the provided raw logs.
+        # It never scans arbitrary suites in structured_json or broadens the allowlist from trace addresses.
         extracted_raw_logs: List[Dict[str, Any]] = list(raw_logs or [])
-        if structured_json and isinstance(structured_json, dict):
-            for suite_name, suite_data in structured_json.items():
-                if isinstance(suite_data, dict):
-                    test_results = suite_data.get("test_results", {})
-                    for test_name, test_data in test_results.items():
-                        if isinstance(test_data, dict):
-                            suite_logs = test_data.get("logs", [])
-                            if isinstance(suite_logs, list):
-                                extracted_raw_logs.extend(suite_logs)
 
         # 1. Parse raw EVM event logs with cryptographic topic and emitter verification
         for rlog in extracted_raw_logs:
             if not isinstance(rlog, dict):
                 continue
 
-            emitter = str(rlog.get("address", "")).lower()
-            topics = [str(t).lower() for t in rlog.get("topics", [])]
+            emitter = str(rlog.get("address") or "").strip().lower()
+            topics = [str(t).lower() for t in rlog.get("topics", []) if t]
             data = str(rlog.get("data", ""))
 
             if not topics:
@@ -784,34 +793,43 @@ class TrustedEVMStateOracle:
 
             # Check if event claims to be SecurityInvariantBreached
             if topic0 == TOPIC_SECURITY_INVARIANT_BREACHED:
-                if emitter == expected_harness:
-                    has_genuine_harness_signal = True
+                if emitter and emitter in valid_emitters:
                     invariant_type, event_deficit = _decode_abi_string_and_uint(data)
-                    trace_context["event_emitted"] = "SecurityInvariantBreached"
-                    trace_context["verified_emitter"] = emitter
-                    trace_context["topic0"] = topic0
-                    trace_context["verified_event"] = True
-                    trace_context["invariant_type"] = invariant_type
-                    trace_context["deficit"] = event_deficit
-                    # These fields are derived only from the ABI payload of a raw,
-                    # cryptographically matched event emitted by the trusted harness.
-                    typed_flags = {
-                        "UNAUTHORIZED_ADMIN_DRAIN": ("unauthorized_admin", "owner_hijacked"),
-                        "SHARE_INFLATION_DEPOSITOR_DILUTION": ("share_inflation_detected",),
-                        "ORACLE_PRICE_MANIPULATION": ("price_manipulated",),
-                        "CROSS_CONTRACT_DESYNCHRONIZATION": ("cross_contract_desync",),
-                        "STATE_ACCOUNTING_INCONSISTENCY": ("accounting_inconsistency",),
-                        "PRECISION_LOSS_FEE_BYPASS": ("precision_loss",),
-                        "BUSINESS_LOGIC_FEE_DRAIN": ("fee_drain",),
-                    }
-                    for flag in typed_flags.get(invariant_type, ()):
-                        trace_context[flag] = True
+                    if not invariant_type:
+                        # Malformed ABI: cannot confirm breach
+                        trace_context["abi_decode_error"] = True
+                    else:
+                        has_genuine_harness_signal = True
+                        trace_context["event_emitted"] = "SecurityInvariantBreached"
+                        trace_context["verified_emitter"] = emitter
+                        trace_context["topic0"] = topic0
+                        trace_context["verified_event"] = True
+                        trace_context["invariant_type"] = invariant_type
+                        trace_context["deficit"] = event_deficit
+                        # Comprehensive invariant flags for all 12 vulnerability classes
+                        typed_flags = {
+                            "DEPOSITOR_SOLVENCY_COLLAPSE": ("isInsolvent", "depositor_solvency_collapse"),
+                            "UNAUTHORIZED_ADMIN_DRAIN": ("unauthorized_admin", "owner_hijacked"),
+                            "SHARE_INFLATION_DEPOSITOR_DILUTION": ("share_inflation_detected",),
+                            "ERC4626_SHARE_DILUTION_OR_INFLATION": ("share_inflation_detected",),
+                            "ORACLE_PRICE_MANIPULATION": ("price_manipulated",),
+                            "FLASH_LOAN_REWARD_DISTORTION": ("reward_drained",),
+                            "SIGNATURE_REPLAY_DRAIN": ("replay_executed",),
+                            "STATE_ACCOUNTING_INCONSISTENCY": ("accounting_inconsistency",),
+                            "BUSINESS_LOGIC_FEE_DRAIN": ("fee_drain",),
+                            "LIQUIDATION_ACCOUNTING_DEFECT": ("bad_debt_created",),
+                            "CROSS_CONTRACT_DESYNCHRONIZATION": ("cross_contract_desync",),
+                            "DENIAL_OF_SERVICE_LIVENESS": ("dos_detected",),
+                            "PRECISION_LOSS_FEE_BYPASS": ("precision_loss",),
+                        }
+                        for flag in typed_flags.get(invariant_type, ()):
+                            trace_context[flag] = True
                 else:
                     spoof_attempt_detected = True
 
             # Check if event is OracleSnapshot
             if topic0 == TOPIC_ORACLE_SNAPSHOT:
-                if emitter == expected_harness:
+                if emitter and emitter in valid_emitters:
                     has_genuine_harness_signal = True
                     # Decode structured snapshot payload if present
                     try:
@@ -902,14 +920,29 @@ class TrustedEVMStateOracle:
                 breached_invariants=[]
             )
 
-        # 3. Parse harness evidence with topic and emitter validation
+        # 3. Resolve trusted suite raw logs and address if not already provided
+        effective_raw_logs = raw_logs
+        effective_harness_addr = trusted_harness_address
+        if effective_raw_logs is None and structured_json is not None:
+            try:
+                from sandbox.runner import extract_trusted_harness_evidence
+                _, _, _, _, extracted_addr, extracted_logs = extract_trusted_harness_evidence(
+                    structured_json, target.name
+                )
+                effective_raw_logs = extracted_logs
+                if effective_harness_addr is None:
+                    effective_harness_addr = extracted_addr
+            except Exception:
+                effective_raw_logs = []
+
+        # 4. Parse harness evidence with topic and emitter validation
         init_state, fin_state, trace_ctx, genuine_signal, spoof_detected = self.parse_harness_evidence(
             decoded_logs=decoded_logs,
             stdout_text=stdout_text,
             stderr_text=stderr_text,
             structured_json=structured_json,
-            raw_logs=raw_logs,
-            trusted_harness_address=trusted_harness_address
+            raw_logs=effective_raw_logs,
+            trusted_harness_address=effective_harness_addr
         )
 
         # Requirement 2 & 3: Rejection on spoofing attempts

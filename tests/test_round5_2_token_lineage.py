@@ -50,6 +50,7 @@ from core.grpo_trainer import (
 @pytest.fixture(scope="module")
 def qwen_model_and_tokenizer():
     """Initializes a real Qwen2 causal LM on CPU with matching vocabulary (151665 tokens)."""
+    torch.manual_seed(42)
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Coder-1.5B-Instruct")
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -193,7 +194,7 @@ def test_initial_vs_refinement_lineage_isolation(qwen_model_and_tokenizer):
     )
     init_inputs = tokenizer([init_prompt], return_tensors="pt")
     with torch.no_grad():
-        init_out = model.generate(**init_inputs, max_new_tokens=16, do_sample=False)
+        init_out = model.generate(**init_inputs, max_new_tokens=32, do_sample=False)
     init_ids = init_out[0].tolist()[init_inputs.input_ids.shape[1]:]
 
     # Refinement Prompt & Generation
@@ -204,7 +205,7 @@ def test_initial_vs_refinement_lineage_isolation(qwen_model_and_tokenizer):
     )
     ref_inputs = tokenizer([ref_prompt], return_tensors="pt")
     with torch.no_grad():
-        ref_out = model.generate(**ref_inputs, max_new_tokens=16, do_sample=False)
+        ref_out = model.generate(**ref_inputs, max_new_tokens=32, do_sample=False)
     ref_ids = ref_out[0].tolist()[ref_inputs.input_ids.shape[1]:]
 
     assert init_prompt != ref_prompt, "Initial and refinement prompts must be distinct"

@@ -43,6 +43,7 @@ class AttackHypothesis(BaseModel):
     attack_vector: str = Field(..., description="Summary of how to trigger the vulnerability")
     affected_functions: List[str] = Field(default_factory=list)
     confidence_score: float = Field(default=1.0)
+    hypothesis_id: Optional[str] = Field(default=None, description="Hypothesis ID for provenance lineage")
 
 
 class ExploitPayload(BaseModel):
@@ -67,6 +68,7 @@ class ExploitPayload(BaseModel):
     
     # Candidate lifecycle & exact token lineage tracking (Round 4/5)
     candidate_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    hypothesis_id: Optional[str] = Field(default=None, description="Hypothesis ID for provenance lineage")
     run_id: str = Field(default="run-default")
     generation_iteration: int = Field(default=0, description="0 for initial batch, 1..N for refinement")
     candidate_index: int = Field(default=0)

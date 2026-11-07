@@ -5,11 +5,15 @@ on:
     branches:
       - 'audit/**'
       - 'feature/**'
+      - 'integration/**'
+      - 'feat/**'
   pull_request:
     branches:
       - main
       - 'feature/**'
       - 'audit/**'
+      - 'integration/**'
+      - 'feat/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
