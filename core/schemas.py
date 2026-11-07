@@ -63,6 +63,67 @@ class ExploitPayload(BaseModel):
     generated_token_ids: Optional[List[int]] = Field(default=None, description="Exact token IDs from LLM generation")
 
 
+class ExecutionEvidence(BaseModel):
+    """Cryptographic and execution evidence collected from the isolated EVM sandbox."""
+    execution_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    candidate_id: str = Field(default="")
+    target_id: str = Field(default="")
+    initial_state_hash: str = Field(default="", description="SHA-256 hash of pre-execution contract state/balances")
+    final_state_hash: str = Field(default="", description="SHA-256 hash of post-execution contract state/balances")
+    execution_status: str = Field(default="SUCCESS", description="SUCCESS, REVERT, TIMEOUT, COMPILATION_FAIL, INFRA_ERROR")
+    execution_success: bool = Field(default=False)
+    gas_used: Optional[int] = None
+    revert_reason: Optional[str] = None
+    logs_reference: List[str] = Field(default_factory=list)
+    environment_fingerprint: Dict[str, Any] = Field(default_factory=dict)
+    state_delta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class InvariantResult(BaseModel):
+    """Evaluation outcome for an individual formal security invariant."""
+    invariant_id: str = Field(..., description="Unique invariant identifier (e.g. INV-VAULT-01-SOLVENCY)")
+    invariant_name: str = Field(..., description="Human-readable invariant name")
+    passed: bool = Field(..., description="True if invariant remained unbroken; False if breached/violated")
+    observed_value: Any = Field(default=None, description="Actual observed metric value (e.g., balance, deficit)")
+    expected_condition: str = Field(default="", description="Formal condition expected to hold")
+    evidence_reference: Optional[str] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class VerificationResult(BaseModel):
+    """Independent verification result separating execution, invariant breach, and replay."""
+    execution_success: bool = Field(..., description="Whether the scenario executed to completion without unhandled error")
+    invariant_breach: bool = Field(..., description="Whether at least one security invariant was verifiably breached")
+    replay_confirmed: bool = Field(default=False, description="Whether the breach was independently reproduced")
+    confidence_status: str = Field(default="UNVERIFIED", description="UNVERIFIED, PROVISIONAL_BREACH, REPLAY_CONFIRMED, REJECTED, INFRA_FAILURE")
+    evidence: Optional[ExecutionEvidence] = None
+    invariant_results: List[InvariantResult] = Field(default_factory=list)
+    breached_invariants: List[str] = Field(default_factory=list)
+    failure_reason: Optional[str] = None
+
+
+class VulnerabilityHypothesis(BaseModel):
+    """Structured hypothesis generated from auditor findings or static analysis signals."""
+    hypothesis_id: str = Field(default_factory=lambda: f"hyp_{uuid.uuid4().hex[:8]}")
+    target_id: str = Field(..., description="Target contract identifier")
+    source_finding_id: Optional[str] = Field(default=None, description="Originating finding ID from auditor/Slither")
+    vulnerability_class: str = Field(..., description="Standardized vulnerability class (Reentrancy, ERC4626Inflation, etc.)")
+    affected_contract: str = Field(..., description="Name of affected contract")
+    affected_function: Optional[str] = Field(default=None, description="Target function under attack")
+    attack_preconditions: List[str] = Field(default_factory=list)
+    attack_sequence: List[str] = Field(default_factory=list)
+    expected_invariant: str = Field(default="", description="Invariant expected to be violated")
+    severity: str = Field(default="Medium", description="Critical, High, Medium, Low")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    validation_status: str = Field(
+        default="proposed",
+        description="proposed, normalized, prioritized, generated, tested, confirmed, rejected, inconclusive"
+    )
+    evidence: Optional[Dict[str, Any]] = None
+    attempt_count: int = Field(default=0)
+    last_error: Optional[str] = None
+
+
 class ExecutionResult(BaseModel):
     """Structured result collected from the isolated Modal sandbox container."""
     return_code: int
@@ -81,6 +142,9 @@ class ExecutionResult(BaseModel):
     reproducibility_confirmed: bool = False
     gas_used: Optional[int] = None
     state_delta: Dict[str, Any] = Field(default_factory=dict)
+    evidence: Optional[ExecutionEvidence] = None
+    invariant_results: List[InvariantResult] = Field(default_factory=list)
+    verification_result: Optional[VerificationResult] = None
 
 
 class VerificationVerdict(BaseModel):
@@ -102,6 +166,9 @@ class VerificationVerdict(BaseModel):
     generation_iteration: int = Field(default=0)
     candidate_index: int = Field(default=0)
     replay_status: str = Field(default="NOT_ELIGIBLE", description="CONFIRMED, FAILED, or NOT_ELIGIBLE")
+    evidence: Optional[ExecutionEvidence] = None
+    verification_result: Optional[VerificationResult] = None
+    hypothesis_id: Optional[str] = None
 
 
 class RLVRTrajectory(BaseModel):
@@ -143,6 +210,9 @@ class RLVRTrajectory(BaseModel):
     token_provenance: Optional[str] = Field(default=None, description="model_generate, external_text_only, or synthetic")
     trainable: Optional[bool] = Field(default=None, description="True if eligible for GRPO optimization")
     generated_token_ids: Optional[List[int]] = Field(default=None)
+    evidence: Optional[ExecutionEvidence] = None
+    invariant_results: List[InvariantResult] = Field(default_factory=list)
+    hypothesis_id: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_trajectory_invariants(self) -> "RLVRTrajectory":
