@@ -74,8 +74,8 @@ def _typed_breach_evidence():
     )
 
 
-def test_control_1_malformed_contract_name_triggers_format_error():
-    """Confirms that an exploit naming contract differently is rejected before Foundry."""
+def test_control_1_structurally_broken_contract_triggers_format_error():
+    """Mechanical name normalization must not hide a missing runExploit entrypoint."""
     bad_solidity = """
 ```solidity
 // SPDX-License-Identifier: MIT
@@ -83,7 +83,7 @@ pragma solidity ^0.8.20;
 
 contract ReentrancyAttack {
     constructor(address _target) payable {}
-    function runExploit() external payable {}
+    // Missing mandatory runExploit() entrypoint.
 }
 ```
 """
@@ -91,9 +91,9 @@ contract ReentrancyAttack {
     payload = parse_model_response(target, bad_solidity)
 
     assert not payload.format_valid
-    assert "instead of mandatory 'ExploitModule'" in payload.format_error_reason
+    assert "runExploit" in payload.format_error_reason
 
-    # Evaluator must assign GENERATION_FORMAT_ERROR and reward -0.50
+    # Evaluator must assign GENERATION_FORMAT_ERROR and the shaped format reward
     dummy_result = ExecutionResult(
         return_code=-4,
         stdout="",
