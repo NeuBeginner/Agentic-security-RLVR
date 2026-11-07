@@ -60,6 +60,7 @@ class ExploitPayload(BaseModel):
     # `original_contract_name` is empty when no repair was applied.
     contract_name_normalized: bool = Field(default=False, description="Whether contract name was mechanically repaired")
     original_contract_name: str = Field(default="", description="Original contract name before mechanical repair")
+    contract_normalization_reason: str = Field(default="", description="Why the mechanical repair was applied or declined")
     
     # Candidate lifecycle & exact token lineage tracking (Round 4/5)
     candidate_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
@@ -88,6 +89,18 @@ class ExecutionResult(BaseModel):
     reproducibility_confirmed: bool = False
     gas_used: Optional[int] = None
     state_delta: Dict[str, Any] = Field(default_factory=dict)
+    # Trusted evidence channel (Reward Specification 2.0.0).
+    # `harness_verdict` is the verdict of the IMMUTABLE repository-owned harness,
+    # extracted from forge's structured test result of the trusted suite only.
+    # It is NEVER derived from log text: logs are model-controllable and are
+    # therefore kept for diagnostics only.
+    #   "BREACH"     - the trusted harness confirmed the invariant breach
+    #   "NO_BREACH"  - the trusted harness ran and the invariant held
+    #   "EXEC_REVERT"- the exploit call reverted before the post-condition check
+    #   "UNKNOWN"    - no trusted verdict could be extracted (fail-closed)
+    harness_verdict: str = Field(default="", description="Trusted harness verdict: BREACH/NO_BREACH/EXEC_REVERT/UNKNOWN")
+    harness_suite: str = Field(default="", description="Forge suite path the trusted verdict was taken from")
+    evidence_source: str = Field(default="", description="Which trusted channel produced the verdict")
 
 
 class VerificationVerdict(BaseModel):
@@ -109,6 +122,14 @@ class VerificationVerdict(BaseModel):
     generation_iteration: int = Field(default=0)
     candidate_index: int = Field(default=0)
     replay_status: str = Field(default="NOT_ELIGIBLE", description="CONFIRMED, FAILED, or NOT_ELIGIBLE")
+
+    # Reward attribution (Reward Specification 2.0.0).
+    # `reward_components` holds the evidence-scoped credit of every component,
+    # `reward_penalty` the deficit of the failing stage. Together they reproduce
+    # `reward_score` exactly, which makes the reward auditable and reproducible.
+    reward_components: Dict[str, float] = Field(default_factory=dict)
+    reward_penalty: float = Field(default=0.0)
+    reward_spec_version: str = Field(default="1.0.0-legacy", description="Version of the reward specification that produced this reward")
 
 
 class RLVRTrajectory(BaseModel):
@@ -156,6 +177,14 @@ class RLVRTrajectory(BaseModel):
     # These fields only record that the executable artifact was renamed.
     contract_name_normalized: bool = Field(default=False, description="Whether the executable contract name was mechanically repaired")
     original_contract_name: str = Field(default="", description="Original contract name before mechanical repair")
+    contract_normalization_reason: str = Field(default="", description="Why the mechanical repair was applied or declined")
+
+    # Reward attribution (Reward Specification 2.0.0). The version identifies the
+    # specification that produced the reward: trajectories with different versions
+    # are NEVER merged into one GRPO advantage group.
+    reward_components: Dict[str, float] = Field(default_factory=dict)
+    reward_penalty: float = Field(default=0.0)
+    reward_spec_version: str = Field(default="1.0.0-legacy", description="Version of the reward specification that produced this reward")
 
     @model_validator(mode="after")
     def validate_trajectory_invariants(self) -> "RLVRTrajectory":
@@ -235,6 +264,9 @@ class GRPORollout(BaseModel):
     feedback: str
     advantage: float = 0.0
     generated_token_ids: Optional[List[int]] = None
+    # Reward attribution preserved from the trajectory (Reward Specification 2.0.0).
+    reward_components: Dict[str, float] = Field(default_factory=dict)
+    reward_spec_version: str = Field(default="", description="Reward specification version the rollout was scored with")
 
 
 class GRPOGroup(BaseModel):
@@ -249,6 +281,9 @@ class GRPOGroup(BaseModel):
     rollouts: List[GRPORollout]
     mean_reward: float = 0.0
     std_reward: float = 0.0
+    # Every rollout of a group shares one reward specification version: groups are
+    # never built from trajectories scored by incompatible specifications.
+    reward_spec_version: str = Field(default="")
 
 
 class GRPOTrainingStepStats(BaseModel):

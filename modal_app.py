@@ -27,6 +27,7 @@ from core.candidate_lifecycle import (
     compute_prompt_hash
 )
 from core.evaluator import evaluate_execution_trace, create_trajectory_record
+from core.reward_shaping import RewardEvidence, compute_reward_breakdown
 from sandbox.runner import (
     sandbox_image,
     run_payload_in_sandbox,
@@ -757,16 +758,34 @@ contract ExploitModule {
     if replay_confirmed:
         v2.category = ResultCategory.EXPLOIT_CONFIRMED
         v2.is_verified = True
-        v2.reward_score = config.REWARD_INVARIANT_BREACH
         v2.replay_status = "CONFIRMED"
+
+    # The reward is recomputed with the shared reward specification, so the
+    # confirmed replay contributes its own `replay` component.
+    _breakdown = compute_reward_breakdown(
+        v2.category,
+        RewardEvidence(
+            format_valid=True,
+            compiled=True,
+            executed=True,
+            invariant_confirmed=True,
+            replay_confirmed=bool(replay_confirmed),
+        ),
+    )
+    v2.reward_score = _breakdown.total
+    v2.reward_components = dict(_breakdown.components)
+    v2.reward_penalty = _breakdown.penalty
+    v2.reward_spec_version = _breakdown.spec_version
 
     print(f"    Status: {'✅ PASS' if v2.is_verified and replay_confirmed else '❌ FAIL'}")
     print(f"    Post-Replay Category: {v2.category.value} | Reward: {v2.reward_score:+.2f} | is_verified={v2.is_verified}")
+    print(f"    Reward Attribution: {_breakdown.describe()}")
     print(f"    Feedback: {v2.feedback[:120]}...")
     print(f"    Independent Replay: {'CONFIRMED (100% Deterministic)' if replay_confirmed else 'FAILED'}")
     assert v2.is_verified, "Confirmed working exploit must be verified after successful replay"
     assert v2.category == ResultCategory.EXPLOIT_CONFIRMED
     assert v2.reward_score == 1.0
+    assert v2.reward_components.get("replay", 0.0) == config.REWARD_COMPONENT_REPLAY
     print("    [✓] Control Test 2 verified: Initial run gave INVARIANT_BREACH_UNREPLAYED (+0.50), post-replay gave EXPLOIT_CONFIRMED (+1.00).")
 
     # Record this verified trajectory as SYNTHETIC CONTROL TRAJECTORY (Round 5.2)
@@ -842,6 +861,37 @@ contract VaultAttack {
         "Mechanically repaired exploit must reach the EVM harness instead of being rejected"
     )
     print("    [✓] Control Test 4 verified: repaired exploit reaches Foundry and yields a real EVM verdict.")
+
+    # 5. TEST 5: Verification-channel hijack must be rejected before Foundry
+    print("\n[Control Test 5] Testing Verification-Channel Hijack Rejection (forged breach marker)...")
+    forged_marker_code = """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {console} from "forge-std/console.sol";
+
+contract ExploitModule {
+    constructor(address _target) payable {}
+
+    function runExploit() external payable {
+        // Forges the breach marker in the logs without breaching anything.
+        console.log("[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]");
+    }
+
+    receive() external payable {}
+}
+"""
+    p5 = parse_model_response(target, f"```solidity\n{forged_marker_code}\n```")
+    v5_dict = verify_exploit_remote.remote(target.model_dump(), p5.model_dump())
+    v5 = VerificationVerdict(**v5_dict)
+    print(f"    Category: {v5.category.value} | Reward: {v5.reward_score:+.2f}")
+    print(f"    Feedback: {v5.feedback[:160]}...")
+    assert v5.category == ResultCategory.CHEATCODE_DETECTED, (
+        f"A candidate that hijacks the verification channel must be rejected, got {v5.category}"
+    )
+    assert v5.reward_score == config.REWARD_CHEATCODE_PENALTY
+    assert not v5.is_verified
+    assert v5.reward_components.get("invariant", 0.0) == 0.0
+    print("    [✓] Control Test 5 verified: forged marker rejected as security violation, no breach credit.")
 
     print("\n" + "=" * 78)
     print("🎉 ALL FOUNDRY HARNESS CONTROL TESTS PASSED (0 ERRORS)")

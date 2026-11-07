@@ -61,6 +61,32 @@ class PipelineConfig:
     REWARD_CHEATCODE_PENALTY: float = -1.0    # Attempted to use Foundry cheatcodes / sandbox escape
     REWARD_INFRA_ERROR: float = 0.0           # Infrastructure / harness environment failure (neutral)
 
+    # -------------------------------------------------------------------------
+    # Reward Specification 2.0.0 (evidence-scoped components)
+    # -------------------------------------------------------------------------
+    # The total reward is decomposed into five mutually exclusive evidence
+    # classes (generation / compilation / verification / invariant / replay)
+    # plus a single outcome penalty. The totals are byte-compatible with the
+    # legacy ladder above, so stored trajectories and the schema invariants stay
+    # valid, while every component can be traced back to exactly one trusted
+    # evidence source. See core/reward_shaping.py for the full contract.
+    REWARD_SPEC_VERSION: str = "2.0.0"
+    REWARD_COMPONENT_GENERATION: float = 0.05    # static format gate accepted the candidate
+    REWARD_COMPONENT_COMPILATION: float = 0.10   # trusted compiler accepted the candidate
+    REWARD_COMPONENT_VERIFICATION: float = 0.10  # candidate executed in the EVM without reverting
+    REWARD_COMPONENT_INVARIANT: float = 0.25     # trusted harness oracle confirmed the breach
+    REWARD_COMPONENT_REPLAY: float = 0.50        # independent fresh-EVM run reproduced the breach
+    # Outcome penalties (the deficit of the failing stage). Each is calibrated so
+    # that sum(components) + penalty reproduces the legacy reward constant above.
+    REWARD_PENALTY_FORMAT: float = -0.35
+    REWARD_PENALTY_CHEATCODE: float = -1.0
+    REWARD_PENALTY_INFRA: float = 0.0
+    REWARD_PENALTY_COMPILATION: float = -0.55
+    REWARD_PENALTY_REVERT: float = -0.40
+    REWARD_PENALTY_TIMEOUT: float = -0.45
+    REWARD_PENALTY_SAFE_RUN: float = -0.35
+    REWARD_PENALTY_BREACH: float = 0.0
+
     # GRPO Policy Optimization Parameters
     GRPO_GROUP_SIZE: int = 4
     GRPO_LEARNING_RATE: float = 5e-6

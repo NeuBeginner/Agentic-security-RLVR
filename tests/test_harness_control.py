@@ -213,6 +213,8 @@ def test_control_4a_unreplayed_breach_receives_partial_reward_only():
         test_status="Success",
         decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
         invariant_violated=True,
+        harness_verdict="BREACH",
+        harness_suite="test/VaultHarness.t.sol",
         reproducibility_confirmed=False  # NOT confirmed in replay!
     )
     verdict = evaluate_execution_trace(payload, result)
@@ -249,6 +251,8 @@ def test_control_4b_replayed_breach_receives_confirmed_exploit():
         test_status="Success",
         decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
         invariant_violated=True,
+        harness_verdict="BREACH",
+        harness_suite="test/VaultHarness.t.sol",
         reproducibility_confirmed=True  # Confirmed!
     )
     verdict = evaluate_execution_trace(payload, result)

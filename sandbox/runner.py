@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -7,6 +8,12 @@ import time
 import modal
 from core.schemas import ExploitPayload, ExecutionResult, TargetProgram, ResultCategory
 from core.config import config
+from core.evidence import (
+    HarnessVerdict,
+    HARNESS_NO_BREACH_REASON_PREFIX,
+    HARNESS_TEST_NAME,
+    trusted_harness_suite_prefix,
+)
 
 # Path to pre-baking script
 PREBAKE_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebake_solc.py")
@@ -66,16 +73,135 @@ PROHIBITED_CHEATCODES = [
     "vm.etch",
     "vm.sign",
     "Vm constant vm",
-    "Vm public vm"
+    "Vm public vm",
+    # --- Verification-channel hijack ---------------------------------------
+    # A candidate must not be able to influence the channel that decides whether
+    # its exploit succeeded:
+    #   * the Foundry test framework would let it inject its own `testExploit`
+    #     suite, which forge would then collect as a passing test;
+    #   * the console library would let it forge the breach marker in the logs.
+    "forge-std/StdAssertions.sol",
+    "forge-std/DSTest.sol",
+    "forge-std/Script.sol",
+    "forge-std/console.sol",
+    "forge-std/console2.sol",
+    "ds-test/test.sol",
 ]
+
+# A public/external `test*` function inside the candidate can be collected by
+# forge as a standalone test suite and would fake a passing verification run.
+_CANDIDATE_TEST_ENTRYPOINT_RE = re.compile(
+    r"function\s+test[A-Za-z0-9_]*\s*\([^)]*\)[^{;]*\b(public|external)\b",
+    re.IGNORECASE,
+)
+
+# The candidate has no legitimate need for the Foundry test framework.
+_CANDIDATE_IMPORT_RE = re.compile(r"import[^;]*?[\"']([^\"']+)[\"']", re.IGNORECASE)
+
+# Trusted harness verdicts. They are produced by the IMMUTABLE, repository-owned
+# harness and are read from forge's STRUCTURED test result - never from log text.
+HARNESS_VERDICT_BREACH = HarnessVerdict.BREACH.value
+HARNESS_VERDICT_NO_BREACH = HarnessVerdict.NO_BREACH.value
+HARNESS_VERDICT_EXEC_REVERT = HarnessVerdict.EXEC_REVERT.value
+HARNESS_VERDICT_UNKNOWN = HarnessVerdict.UNKNOWN.value
 
 
 def detect_prohibited_cheatcodes(code: str) -> bool:
-    """Detects attempts by candidate ExploitModule to use privileged Foundry cheatcodes."""
+    """
+    Detects attempts by candidate ExploitModule to use privileged Foundry
+    cheatcodes or to hijack the verification channel itself.
+
+    Both classes are security violations: a candidate that reaches into the
+    Foundry test framework could inject its own test suite, and a candidate that
+    imports the console library could forge the breach marker inside the logs.
+    """
+    if not code:
+        return False
+
     for pattern in PROHIBITED_CHEATCODES:
         if pattern in code:
             return True
+
+    for match in _CANDIDATE_IMPORT_RE.finditer(code):
+        path = match.group(1).lower()
+        if "forge-std" in path or "ds-test" in path:
+            return True
+
+    if _CANDIDATE_TEST_ENTRYPOINT_RE.search(code):
+        return True
+
     return False
+
+
+def extract_trusted_harness_verdict(
+    structured_data,
+    target_name: str
+):
+    """
+    Extracts the verdict of the immutable harness suite from forge's structured
+    output.
+
+    Only suites that belong to the repository-owned harness file are inspected.
+    A suite injected by the candidate (for example `test/ExploitModule.sol`)
+    can therefore never produce a verdict.
+
+    The verdict is derived from forge's structured test STATUS and REASON:
+      * status == "Success"                     -> BREACH
+        (harness contract: the test returns normally only on the breach path)
+      * status == "Failure" and the reason is the harness' own EXPLOIT_FAILED
+        rejection                                       -> NO_BREACH
+      * status == "Failure" with any other reason      -> EXEC_REVERT
+      * anything else / missing suite                   -> UNKNOWN (fail-closed)
+
+    Returns: (verdict, suite_path, status, reason)
+    """
+    verdict = HARNESS_VERDICT_UNKNOWN
+    suite_path = ""
+    status = None
+    reason = None
+
+    if not isinstance(structured_data, dict):
+        return verdict, suite_path, status, reason
+
+    prefix = trusted_harness_suite_prefix(target_name)
+
+    for suite_key, suite_val in structured_data.items():
+        if not isinstance(suite_val, dict):
+            continue
+
+        path = str(suite_key).split(":")[0].replace("\\", "/").strip()
+        if not path.startswith(prefix):
+            continue
+        # Defensive: never accept a suite that carries the candidate's filename.
+        if "ExploitModule" in path:
+            continue
+
+        test_results = suite_val.get("test_results", {})
+        if not isinstance(test_results, dict):
+            continue
+
+        for test_sig, test_info in test_results.items():
+            if not isinstance(test_info, dict):
+                continue
+            if HARNESS_TEST_NAME not in str(test_sig):
+                continue
+            suite_path = path
+            status = test_info.get("status")
+            reason = test_info.get("reason")
+            break
+
+        if suite_path:
+            break
+
+    if suite_path and status == "Success":
+        verdict = HARNESS_VERDICT_BREACH
+    elif suite_path and status == "Failure":
+        if reason and str(reason).startswith(HARNESS_NO_BREACH_REASON_PREFIX):
+            verdict = HARNESS_VERDICT_NO_BREACH
+        else:
+            verdict = HARNESS_VERDICT_EXEC_REVERT
+
+    return verdict, suite_path, status, reason
 
 
 def parse_forge_output(output_text: str):
@@ -259,32 +385,52 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             
             # Parse structured JSON output
             structured_json, test_status, revert_reason, decoded_logs = parse_forge_output(proc.stdout or "")
-            
-            # Determine fine-grained category
-            has_breach_signal = (
-                any("[INVARIANT_BREACHED" in str(l) for l in decoded_logs) or
-                ("[INVARIANT_BREACHED" in output_text and proc.returncode == 0)
+
+            # ------------------------------------------------------------------
+            # TRUSTED EVIDENCE (Reward Specification 2.0.0)
+            # ------------------------------------------------------------------
+            # The verdict is taken from the STRUCTURED result of the immutable,
+            # repository-owned harness suite. Log text is model-controllable and
+            # is therefore never used to decide whether an exploit succeeded -
+            # `decoded_logs` is kept for diagnostics only.
+            harness_verdict, harness_suite, verdict_status, verdict_reason = extract_trusted_harness_verdict(
+                structured_json, target.name
             )
-            
-            inv_violated = (
-                proc.returncode == 0 and
-                (test_status == "Success" or "[PASS]" in output_text) and
-                has_breach_signal
-            )
+
+            # Fail-closed on an inconsistent trusted verdict: a breach that is not
+            # backed by a clean forge run cannot be trusted.
+            if harness_verdict == HARNESS_VERDICT_BREACH and proc.returncode != 0:
+                harness_verdict = HARNESS_VERDICT_UNKNOWN
+            if (
+                harness_verdict == HARNESS_VERDICT_BREACH
+                and verdict_status is not None
+                and test_status is not None
+                and verdict_status != test_status
+            ):
+                harness_verdict = HARNESS_VERDICT_UNKNOWN
+
+            # The trusted status/reason supersede the global forge parse whenever
+            # the trusted suite produced a result of its own.
+            effective_test_status = verdict_status if verdict_status is not None else test_status
+            effective_revert_reason = verdict_reason if verdict_reason is not None else revert_reason
+
+            inv_violated = harness_verdict == HARNESS_VERDICT_BREACH
 
             # Classify outcome category
             if inv_violated:
                 category = ResultCategory.EXPLOIT_CONFIRMED
+            elif harness_verdict in (HARNESS_VERDICT_NO_BREACH, HARNESS_VERDICT_EXEC_REVERT):
+                category = ResultCategory.RUNTIME_REVERT
             elif proc.returncode == 0:
                 category = ResultCategory.SAFE_RUN
-            elif revert_reason is not None or "EVM Runtime Revert" in output_text:
-                category = ResultCategory.RUNTIME_REVERT
             elif "Compiler run failed" in output_text or "ParserError" in output_text or "Error (" in output_text:
                 category = ResultCategory.COMPILATION_ERROR
+            elif effective_revert_reason is not None or "EVM Runtime Revert" in output_text:
+                category = ResultCategory.RUNTIME_REVERT
             else:
                 # If forge failed without compiler or test output, it's an infrastructure fault
                 category = ResultCategory.INFRA_ERROR
-            
+
             return ExecutionResult(
                 return_code=proc.returncode,
                 stdout=proc.stdout or "",
@@ -294,12 +440,21 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 timed_out=False,
                 invariant_violated=inv_violated,
                 structured_json=structured_json,
-                test_status=test_status,
-                revert_reason=revert_reason,
+                test_status=effective_test_status,
+                revert_reason=effective_revert_reason,
                 decoded_logs=decoded_logs,
                 cheatcode_detected=False,
-                verified_by_harness=inv_violated,
-                reproducibility_confirmed=False
+                verified_by_harness=harness_verdict in (
+                    HARNESS_VERDICT_BREACH,
+                    HARNESS_VERDICT_NO_BREACH,
+                    HARNESS_VERDICT_EXEC_REVERT,
+                ),
+                reproducibility_confirmed=False,
+                harness_verdict=harness_verdict,
+                harness_suite=harness_suite,
+                evidence_source=(
+                    "trusted_harness_structured_result" if harness_suite else "none"
+                ),
             )
             
         except FileNotFoundError as fnf:
@@ -338,15 +493,29 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             )
 
 
-def verify_independent_replay(target: TargetProgram, payload: ExploitPayload) -> bool:
+def verify_independent_replay_result(target: TargetProgram, payload: ExploitPayload) -> ExecutionResult:
     """
     Executes an independent second run in a completely fresh ephemeral EVM container.
-    Confirms 100% deterministic reproducibility before awarding full RLVR reward.
+
+    The returned result carries its OWN trusted harness verdict, so the replay
+    evidence is genuinely independent of the first run and can be credited as a
+    separate reward component (no double counting).
     """
-    replay_result = run_payload_in_sandbox(target, payload)
+    return run_payload_in_sandbox(target, payload)
+
+
+def verify_independent_replay(target: TargetProgram, payload: ExploitPayload) -> bool:
+    """
+    Confirms 100% deterministic reproducibility before awarding full RLVR reward.
+
+    The replay is only accepted when the TRUSTED harness verdict of the second,
+    independent execution is a breach. Log text is never consulted.
+    """
+    replay_result = verify_independent_replay_result(target, payload)
     return (
-        replay_result.invariant_violated and
-        replay_result.return_code == 0 and
-        not replay_result.cheatcode_detected and
-        replay_result.category == ResultCategory.EXPLOIT_CONFIRMED
+        replay_result.harness_verdict == HARNESS_VERDICT_BREACH
+        and replay_result.invariant_violated
+        and replay_result.return_code == 0
+        and not replay_result.cheatcode_detected
+        and replay_result.category == ResultCategory.EXPLOIT_CONFIRMED
     )

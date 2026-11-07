@@ -20,6 +20,11 @@ from core.schemas import (
     AttackHypothesis
 )
 from core.config import config
+from core.reward_shaping import (
+    RewardEvidence,
+    compute_reward_breakdown,
+    REWARD_SPEC_VERSION,
+)
 
 
 # Explicit Category Priority (lower number = higher ranking)
@@ -111,6 +116,37 @@ def select_candidate_for_replay(candidates: List[CandidateRecord]) -> Optional[C
     return ranked_eligible[0]
 
 
+def _evidence_from_verdict(
+    verdict: VerificationVerdict,
+    replay_confirmed: bool
+) -> RewardEvidence:
+    """
+    Rebuilds the proven evidence of a verdict.
+
+    New verdicts carry the component attribution, so the evidence is read back
+    from it. Legacy verdicts (recorded before Reward Specification 2.0.0) carry
+    no attribution; a replay-eligible candidate had a trusted breach by
+    definition, so the pipeline stages are known to have succeeded.
+    """
+    components = verdict.reward_components or {}
+    if components:
+        return RewardEvidence(
+            format_valid=float(components.get("generation", 0.0)) > 0.0,
+            compiled=float(components.get("compilation", 0.0)) > 0.0,
+            executed=float(components.get("verification", 0.0)) > 0.0,
+            invariant_confirmed=float(components.get("invariant", 0.0)) > 0.0,
+            replay_confirmed=replay_confirmed,
+        )
+
+    return RewardEvidence(
+        format_valid=True,
+        compiled=True,
+        executed=True,
+        invariant_confirmed=True,
+        replay_confirmed=replay_confirmed,
+    )
+
+
 def finalize_candidate_replay(
     candidate: CandidateRecord,
     replay_success: bool,
@@ -119,6 +155,11 @@ def finalize_candidate_replay(
     """
     Applies independent replay outcome to the candidate record.
     Asserts candidate IDs match and enforces strict category/reward invariants.
+
+    The reward is recomputed with the shared reward specification, so the
+    replay contributes its OWN component (`replay`) on top of the components of
+    the initial run. The replay evidence is never a re-read of the first run,
+    therefore no piece of evidence is counted twice.
     """
     # Strict candidate ID identity assertion
     assert candidate.candidate_id == candidate.payload.candidate_id, (
@@ -140,7 +181,6 @@ def finalize_candidate_replay(
     elif replay_success:
         # Replay confirmed 100% deterministic reproducibility
         candidate.verdict.category = ResultCategory.EXPLOIT_CONFIRMED
-        candidate.verdict.reward_score = config.REWARD_INVARIANT_BREACH  # +1.00
         candidate.verdict.is_verified = True
         candidate.verdict.reproducible = True
         candidate.verdict.replay_status = "CONFIRMED"
@@ -148,11 +188,22 @@ def finalize_candidate_replay(
     else:
         # Flaky / non-reproducible run
         candidate.verdict.category = ResultCategory.INVARIANT_BREACH_UNREPLAYED
-        candidate.verdict.reward_score = config.REWARD_BREACH_NO_REPLAY  # +0.50
         candidate.verdict.is_verified = False
         candidate.verdict.reproducible = False
         candidate.verdict.replay_status = "FAILED"
         candidate.reproduced = False
+
+    breakdown = compute_reward_breakdown(
+        candidate.verdict.category,
+        _evidence_from_verdict(
+            candidate.verdict,
+            replay_confirmed=bool(replay_success) and not replay_infra_error,
+        ),
+    )
+    candidate.verdict.reward_score = breakdown.total
+    candidate.verdict.reward_components = dict(breakdown.components)
+    candidate.verdict.reward_penalty = breakdown.penalty
+    candidate.verdict.reward_spec_version = breakdown.spec_version
 
     return candidate
 
@@ -232,5 +283,9 @@ def create_finalized_trajectory(
         trainable=is_trainable,
         generated_token_ids=candidate.payload.generated_token_ids,
         contract_name_normalized=candidate.payload.contract_name_normalized,
-        original_contract_name=candidate.payload.original_contract_name
+        original_contract_name=candidate.payload.original_contract_name,
+        contract_normalization_reason=candidate.payload.contract_normalization_reason,
+        reward_components=dict(candidate.verdict.reward_components or {}),
+        reward_penalty=candidate.verdict.reward_penalty,
+        reward_spec_version=candidate.verdict.reward_spec_version or REWARD_SPEC_VERSION,
     )

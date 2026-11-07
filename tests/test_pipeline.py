@@ -162,6 +162,8 @@ def test_verify_real_reentrancy_exploit():
         timed_out=False,
         invariant_violated=True,
         test_status="Success",
+        harness_verdict="BREACH",
+        harness_suite="test/VaultHarness.t.sol",
         decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
         reproducibility_confirmed=True
     )
@@ -213,6 +215,8 @@ def test_verify_erc4626_inflation_exploit():
         timed_out=False,
         invariant_violated=True,
         test_status="Success",
+        harness_verdict="BREACH",
+        harness_suite="test/ERC4626VaultHarness.t.sol",
         decoded_logs=["[INVARIANT_BREACHED:SHARE_INFLATION_DEPOSITOR_DILUTION]"],
         reproducibility_confirmed=True
     )
@@ -428,6 +432,8 @@ def test_reproducibility_distinction():
         timed_out=False,
         invariant_violated=True,
         test_status="Success",
+        harness_verdict="BREACH",
+        harness_suite="test/VaultHarness.t.sol",
         decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
         reproducibility_confirmed=False
     )
@@ -446,6 +452,8 @@ def test_reproducibility_distinction():
         timed_out=False,
         invariant_violated=True,
         test_status="Success",
+        harness_verdict="BREACH",
+        harness_suite="test/VaultHarness.t.sol",
         decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
         reproducibility_confirmed=True
     )
