@@ -21,7 +21,7 @@ from core.hypothesis_manager import (
     classify_vulnerability,
     normalize_severity,
 )
-from core.llm_generator import build_analysis_prompt
+from core.llm_generator import build_analysis_prompt, build_refinement_prompt
 
 
 def test_classify_vulnerability_categories():
@@ -336,3 +336,58 @@ def test_feedback_loop_provenance_preservation():
     assert provenance["initial_breached_invariants"] == ["INV-VAULT-01-SOLVENCY"]
     assert "auditor_v1_1 ->" in provenance["provenance_lineage"]
     assert "EXPLOIT_CONFIRMED" in provenance["provenance_lineage"]
+
+
+def test_structured_hypothesis_and_previous_failures_reach_generation_prompt():
+    target = TargetProgram(
+        name="Vault",
+        source_code="contract Vault { function withdraw() external {} }",
+        invariants=["Depositor solvency"]
+    )
+    manager = HypothesisManager(target)
+    findings = [{
+        "title": "Reentrancy in withdraw",
+        "category": "Reentrancy",
+        "severity": "Critical",
+        "function": "withdraw",
+        "description": "External call before state update",
+        "attack_vector": "1. Deposit funds\n2. Call withdraw\n3. Reenter",
+    }]
+    hypothesis = manager.ingest_auditor_findings(findings)[0]
+    prompt = build_analysis_prompt(
+        target,
+        hypothesis=hypothesis,
+        previous_failures=[{
+            "candidate_id": "cand-previous",
+            "category": "RUNTIME_REVERT",
+            "feedback": "withdraw reverted because the attacker had no initial deposit",
+        }],
+    )
+    assert "Reentrancy" in prompt
+    assert "Critical Severity" in prompt
+    assert "cand-previous" in prompt
+    assert "attacker had no initial deposit" in prompt
+
+
+def test_refinement_prompt_preserves_hypothesis_and_failed_history():
+    target = TargetProgram(name="Vault", source_code="contract Vault {}")
+    manager = HypothesisManager(target)
+    hypothesis = manager.ingest_auditor_findings([{
+        "title": "Unauthorized withdraw",
+        "category": "AccessControl",
+        "severity": "High",
+        "function": "withdraw",
+        "description": "Missing authorization",
+        "attack_vector": "Call withdraw as an unprivileged account",
+    }])[0]
+    prompt = build_refinement_prompt(
+        target,
+        "contract ExploitModule {}",
+        "Foundry revert",
+        hypothesis=hypothesis,
+        previous_failures=[{"candidate_id": "old", "category": "RUNTIME_REVERT", "feedback": "Not exploitable"}],
+    )
+    assert "AccessControl" in prompt
+    assert "Call withdraw" in prompt
+    assert "candidate_id" not in prompt  # the history is rendered as concise failure context
+    assert "old [RUNTIME_REVERT]" in prompt

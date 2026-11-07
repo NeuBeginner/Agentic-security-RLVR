@@ -145,13 +145,31 @@ Instructions:
 """
 
 
-def build_refinement_prompt(target: TargetProgram, failed_code: str, error_feedback: str) -> str:
+def build_refinement_prompt(target: TargetProgram, failed_code: str, error_feedback: str, hypothesis: Optional[Any] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> str:
     """
     Constructs a closed-loop refinement prompt guided by structured Foundry EVM trace.
     Target-agnostic and focused on compiler feedback and revert reasons.
     """
     invariants_text = "\n".join(f"- {inv}" for inv in target.invariants) if target.invariants else "- Security invariants"
+    hypothesis_context = ""
+    if hypothesis:
+        vulnerability_type = getattr(hypothesis, "vulnerability_type", None) or getattr(hypothesis, "vulnerability_class", "Unknown")
+        severity = getattr(hypothesis, "severity", None) or "Unspecified"
+        attack_vector = getattr(hypothesis, "attack_vector", None) or " -> ".join(getattr(hypothesis, "attack_sequence", []) or [])
+        reasoning_trace = getattr(hypothesis, "reasoning_trace", None) or f"Preconditions: {getattr(hypothesis, 'attack_preconditions', [])}"
+        hypothesis_context = f"\nPrioritized hypothesis ({vulnerability_type}, {severity}): {attack_vector}\nReasoning: {reasoning_trace}\n"
+
+    failure_context = ""
+    if previous_failures:
+        failure_lines = [
+            f"- {item.get('candidate_id', 'unknown')} [{item.get('category', 'unknown')}]: {str(item.get('feedback', item.get('error', '')))[:500]}"
+            for item in previous_failures[:10] if isinstance(item, dict)
+        ]
+        if failure_lines:
+            failure_context = "\nPREVIOUS FAILED CANDIDATES:\n" + "\n".join(failure_lines) + "\n"
+
     return f"""Your previous candidate ExploitModule failed to compile or failed to breach the security invariant in the EVM.
+{hypothesis_context}{failure_context}
 
 --- FOUNDRY EVM EXECUTION FEEDBACK ---
 {error_feedback}
