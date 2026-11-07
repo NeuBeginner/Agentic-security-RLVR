@@ -445,10 +445,13 @@ def test_sandbox_execution_ignores_request_supplied_harness_code(tmp_path, monke
         }
     }
 
+    observed_harnesses = []
+
     class FakePopen:
         def __init__(self, cmd, *, cwd, **kwargs):
             harness_path = Path(cwd) / "test" / "VaultHarness.t.sol"
             self.written_harness = harness_path.read_text(encoding="utf-8")
+            observed_harnesses.append(self.written_harness)
             self.returncode = 0
             self.pid = 99999999
             self.stdout = io.BytesIO(json.dumps(structured).encode("utf-8"))
@@ -484,8 +487,8 @@ def test_sandbox_execution_ignores_request_supplied_harness_code(tmp_path, monke
 
     result = run_payload_in_sandbox(target, payload)
 
-    assert FakePopen
     assert result.harness_verdict == HarnessVerdict.BREACH.value
     assert result.harness_suite == "test/VaultHarness.t.sol"
-    assert trusted_source in result.stdout or result.verified_by_harness
-    assert "ATTACKER-CONTROLLED" not in FakePopen.__dict__.get("written_harness", "")
+    assert result.verified_by_harness is True
+    assert observed_harnesses == [trusted_source]
+    assert "ATTACKER-CONTROLLED" not in observed_harnesses[0]
