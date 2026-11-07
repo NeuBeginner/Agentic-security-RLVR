@@ -576,6 +576,36 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             effective_test_status = verdict_status if verdict_status is not None else test_status
             effective_revert_reason = verdict_reason if verdict_reason is not None else revert_reason
 
+            # Secondary Oracle evidence is captured for auditability, but does not
+            # replace the MiniMax trusted-harness verdict or independently award reward.
+            oracle_verification = None
+            if harness_verdict == HARNESS_VERDICT_BREACH:
+                try:
+                    from core.evm_oracle import trusted_oracle
+                    oracle_verification = trusted_oracle.verify_execution(
+                        target=target,
+                        candidate_id=payload.candidate_id or "unknown",
+                        return_code=proc.returncode,
+                        test_status=effective_test_status,
+                        decoded_logs=decoded_logs,
+                        stdout_text=raw_stdout,
+                        stderr_text=raw_stderr,
+                        execution_time_sec=elapsed,
+                        revert_reason=effective_revert_reason,
+                        cheatcode_detected=False,
+                        structured_json=structured_json,
+                    )
+                except Exception as oracle_exc:
+                    # The authoritative harness result remains intact; preserve a
+                    # machine-readable shadow-check failure rather than masking it.
+                    from core.schemas import VerificationResult
+                    oracle_verification = VerificationResult(
+                        execution_success=(proc.returncode == 0 and effective_test_status == "Success"),
+                        invariant_breach=False,
+                        confidence_status="UNVERIFIED",
+                        failure_reason=f"Secondary Oracle diagnostic failed: {type(oracle_exc).__name__}: {oracle_exc}",
+                    )
+
             inv_violated = harness_verdict == HARNESS_VERDICT_BREACH
 
             # Classify outcome category
@@ -615,6 +645,9 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 evidence_source=(
                     "trusted_harness_structured_result" if harness_suite else "none"
                 ),
+                evidence=oracle_verification.evidence if oracle_verification else None,
+                invariant_results=oracle_verification.invariant_results if oracle_verification else [],
+                verification_result=oracle_verification,
             )
             
         except FileNotFoundError as fnf:

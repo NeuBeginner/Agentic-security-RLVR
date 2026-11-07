@@ -4,13 +4,16 @@ import json
 import time
 import uuid
 import modal
+from typing import Optional, List, Dict, Any
 
 # Ensure local core and sandbox packages are in Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.config import config
+from core.hypothesis_manager import HypothesisManager
 from core.schemas import (
     TargetProgram,
+    VulnerabilityHypothesis,
     ExploitPayload,
     ExecutionResult,
     VerificationVerdict,
@@ -147,13 +150,16 @@ class ProductionAuditAgent:
         return [{"title": "Detected Vulnerability", "category": "LogicFlaw", "description": response_text[:300]}]
 
     @modal.method()
-    def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3) -> dict:
+    def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3, hypothesis_dict: Optional[dict] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> dict:
         import torch
-        from core.schemas import TargetProgram
+        from core.schemas import TargetProgram, VulnerabilityHypothesis
         from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_analysis_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
-        user_prompt = build_analysis_prompt(target)
+        hypothesis = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
+        user_prompt = build_analysis_prompt(
+            target, hypothesis=hypothesis, previous_failures=previous_failures
+        )
         messages = [
             {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
@@ -181,13 +187,17 @@ class ProductionAuditAgent:
         ).model_dump()
 
     @modal.method()
-    def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str) -> dict:
+    def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str, hypothesis_dict: Optional[dict] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> dict:
         import torch
-        from core.schemas import TargetProgram
+        from core.schemas import TargetProgram, VulnerabilityHypothesis
         from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_refinement_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
-        prompt = build_refinement_prompt(target, failed_code, error_trace)
+        hypothesis = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
+        prompt = build_refinement_prompt(
+            target, failed_code, error_trace,
+            hypothesis=hypothesis, previous_failures=previous_failures
+        )
         messages = [
             {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
@@ -270,13 +280,16 @@ class DevReasoningAgent:
             pass
 
     @modal.method()
-    def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3) -> dict:
+    def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3, hypothesis_dict: Optional[dict] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> dict:
         import torch
-        from core.schemas import TargetProgram
+        from core.schemas import TargetProgram, VulnerabilityHypothesis
         from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_analysis_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
-        user_prompt = build_analysis_prompt(target)
+        hypothesis = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
+        user_prompt = build_analysis_prompt(
+            target, hypothesis=hypothesis, previous_failures=previous_failures
+        )
         messages = [
             {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
@@ -304,13 +317,17 @@ class DevReasoningAgent:
         ).model_dump()
 
     @modal.method()
-    def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str) -> dict:
+    def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str, hypothesis_dict: Optional[dict] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> dict:
         import torch
-        from core.schemas import TargetProgram
+        from core.schemas import TargetProgram, VulnerabilityHypothesis
         from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_refinement_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
-        prompt = build_refinement_prompt(target, failed_code, error_trace)
+        hypothesis = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
+        prompt = build_refinement_prompt(
+            target, failed_code, error_trace,
+            hypothesis=hypothesis, previous_failures=previous_failures
+        )
         messages = [
             {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
@@ -1102,7 +1119,9 @@ def main(
     print(f"    Invariants     : {target.invariants}")
     print(f"    Solidity Vers  : {config.SOLC_VERSION}")
 
-    # 2. Phase 1: Static Analysis Layer (Slither AST Taint Analysis)
+    # 2. Phase 1: Static Analysis and model audit findings.
+    audit_findings = []
+    auditor_agent = None
     if config.ENABLE_SLITHER:
         print("\n[Phase 1] Running Slither Static Analysis on Modal CPU Worker...")
         try:
@@ -1110,14 +1129,43 @@ def main(
             target.slither_findings = slither_findings
             print(f"[✓] Slither extracted {len(slither_findings)} AST detector signal(s):")
             for sf in slither_findings:
-                print(f"    - [{sf.get('impact')}] {sf.get('check')}: {sf.get('description')[:70]}...")
+                print(f"    - [{sf.get('impact')}] {sf.get('check')}: {sf.get('description', '')[:70]}...")
         except Exception as e:
             print(f"[!] Slither notice: {e}")
 
+    # In audit mode, collect the actual model findings as a separate source.
+    if mode.lower() == "audit":
+        print(f"[+] Running audit model ({config.AUDIT_GPU_MODEL}) to produce structured findings...")
+        auditor_agent = ProductionAuditAgent()
+        try:
+            audit_findings = auditor_agent.audit_target_contract.remote(target.model_dump())
+            if not isinstance(audit_findings, list):
+                audit_findings = []
+            print(f"[+] Auditor produced {len(audit_findings)} finding(s).")
+        except Exception as e:
+            print(f"[!] Audit scan notice: {type(e).__name__}: {e}")
+            audit_findings = []
+
+    hypothesis_manager = HypothesisManager(target)
+    normalized_findings = list(target.slither_findings or []) + list(audit_findings or [])
+    prioritized_hypotheses = hypothesis_manager.ingest_auditor_findings(
+        normalized_findings, source_label="modal-audit+slither"
+    ) if normalized_findings else []
+    top_hypotheses = hypothesis_manager.get_top_hypotheses(limit=max(1, num_candidates))
+    if top_hypotheses:
+        print("[+] Prioritized vulnerability hypotheses:")
+        for item in top_hypotheses[:5]:
+            print(f"    - [{item.severity}] {item.vulnerability_class}::{item.affected_function or '*'} ({item.confidence:.2f})")
+    else:
+        print("[!] No structured findings were normalized; generation proceeds without a selected hypothesis.")
+
     # 3. Phase 2: Hypothesis Formulation & Multi-Candidate Exploit Synthesis (Round 4 Lifecycle)
     run_id = f"run_{int(time.time())}_{uuid.uuid4().hex[:6]}"
-    target_prompt = build_analysis_prompt(target)
+    primary_hypothesis = top_hypotheses[0] if top_hypotheses else None
+    primary_attack_hypothesis = hypothesis_manager.to_attack_hypothesis(primary_hypothesis) if primary_hypothesis else None
+    target_prompt = build_analysis_prompt(target, hypothesis=primary_attack_hypothesis)
     prompt_hash = compute_prompt_hash(target_prompt)
+    candidate_hypothesis_ids: Dict[str, str] = {}
     model_id = config.DEV_GPU_MODEL if generator.lower() == "dev" or target_name == "Vault" else config.AUDIT_GPU_MODEL
     checkpoint_id = "checkpoint-step-2" if use_lora else "base"
 
@@ -1128,8 +1176,12 @@ def main(
     if generator.lower() == "gemini":
         print("[+] Generator: Gemini 2.5 Flash (Frontier Reasoning API)")
         for i in range(1, num_candidates + 1):
-            p = synthesize_exploit_gemini(target)
+            selected_hypothesis = top_hypotheses[(i - 1) % len(top_hypotheses)] if top_hypotheses else None
+            attack_hypothesis = hypothesis_manager.to_attack_hypothesis(selected_hypothesis) if selected_hypothesis else None
+            p = synthesize_exploit_gemini(target, hypothesis=attack_hypothesis)
             p.candidate_id = f"{run_id}_c{i}_r0"
+            if selected_hypothesis:
+                candidate_hypothesis_ids[p.candidate_id] = selected_hypothesis.hypothesis_id
             p.run_id = run_id
             p.generation_iteration = 0
             p.candidate_index = i
@@ -1139,14 +1191,7 @@ def main(
     else:
         if mode.lower() == "audit":
             print(f"[+] Generator: Production Tier ({config.AUDIT_GPU_MODEL} on Modal H100)")
-            llm_agent = ProductionAuditAgent()
-            try:
-                findings = llm_agent.audit_target_contract.remote(target.model_dump())
-                print(f"[+] Qwen-Audit detected {len(findings)} vulnerability finding(s):")
-                for f_item in findings[:3]:
-                    print(f"    - [{f_item.get('severity', 'Med')}] {f_item.get('title')}")
-            except Exception as e:
-                print(f"[!] Audit scan notice: {e}")
+            llm_agent = auditor_agent or ProductionAuditAgent()
         else:
             lora_note = " + Trained GRPO LoRA" if use_lora else ""
             print(f"[+] Generator: Dev Tier ({config.DEV_GPU_MODEL}{lora_note} on Modal T4)")
@@ -1154,9 +1199,17 @@ def main(
 
         temperatures = [0.2 + (i * 0.2) for i in range(num_candidates)]
         for i, temp in enumerate(temperatures, 1):
-            p_dict = llm_agent.generate_solidity_exploit.remote(target.model_dump(), temperature=temp)
+            selected_hypothesis = top_hypotheses[(i - 1) % len(top_hypotheses)] if top_hypotheses else None
+            hypothesis_dict = selected_hypothesis.model_dump() if selected_hypothesis else None
+            previous_failures = hypothesis_manager.get_hypothesis_failures(selected_hypothesis.hypothesis_id) if selected_hypothesis else []
+            p_dict = llm_agent.generate_solidity_exploit.remote(
+                target.model_dump(), temperature=temp,
+                hypothesis_dict=hypothesis_dict, previous_failures=previous_failures
+            )
             p = ExploitPayload(**p_dict)
             p.candidate_id = f"{run_id}_c{i}_r0"
+            if selected_hypothesis:
+                candidate_hypothesis_ids[p.candidate_id] = selected_hypothesis.hypothesis_id
             p.run_id = run_id
             p.generation_iteration = 0
             p.candidate_index = i
@@ -1179,6 +1232,9 @@ def main(
         v.run_id = run_id
         v.generation_iteration = 0
         v.candidate_index = idx
+        hypothesis_id = candidate_hypothesis_ids.get(p.candidate_id)
+        if hypothesis_id:
+            hypothesis_manager.update_hypothesis_outcome(hypothesis_id, v, p.candidate_id)
 
         status_icon = "✅ BREACHED" if v.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED else "❌ REJECTED"
         print(f"    [Worker #{idx} | {p.candidate_id}] {status_icon} [{v.category.value}] | Reward: {v.reward_score:+.2f} | {v.feedback[:75]}...")
@@ -1215,11 +1271,18 @@ def main(
         print(f"    EVM trace              : {best_cand.verdict.feedback[:180]}...")
 
         ref_id = f"{run_id}_ref{current_round}"
+        parent_hypothesis_id = candidate_hypothesis_ids.get(best_cand.candidate_id)
+        parent_hypothesis = hypothesis_manager.hypotheses.get(parent_hypothesis_id) if parent_hypothesis_id else None
         if generator.lower() == "gemini":
             from core.llm_generator import build_refinement_prompt
             from google import genai
             client = genai.Client()
-            ref_prompt = build_refinement_prompt(target, best_cand.payload.test_code, best_cand.verdict.feedback)
+            parent_attack_hypothesis = hypothesis_manager.to_attack_hypothesis(parent_hypothesis) if parent_hypothesis else None
+            prior_failures = hypothesis_manager.get_hypothesis_failures(parent_hypothesis_id) if parent_hypothesis_id else []
+            ref_prompt = build_refinement_prompt(
+                target, best_cand.payload.test_code, best_cand.verdict.feedback,
+                hypothesis=parent_attack_hypothesis, previous_failures=prior_failures
+            )
             resp = client.models.generate_content(
                 model=config.GEMINI_MODEL,
                 contents=ref_prompt,
@@ -1232,10 +1295,13 @@ def main(
                 prompt_text=ref_prompt
             )
         else:
+            prior_failures = hypothesis_manager.get_hypothesis_failures(parent_hypothesis_id) if parent_hypothesis_id else []
             ref_dict = llm_agent.refine_solidity_exploit.remote(
                 target.model_dump(),
                 best_cand.payload.test_code,
-                best_cand.verdict.feedback
+                best_cand.verdict.feedback,
+                hypothesis_dict=parent_hypothesis.model_dump() if parent_hypothesis else None,
+                previous_failures=prior_failures
             )
             refined_payload = ExploitPayload(**ref_dict)
             if not refined_payload.prompt_text:
@@ -1243,6 +1309,8 @@ def main(
                 refined_payload.prompt_text = build_refinement_prompt(target, best_cand.payload.test_code, best_cand.verdict.feedback)
 
         refined_payload.candidate_id = ref_id
+        if parent_hypothesis_id:
+            candidate_hypothesis_ids[ref_id] = parent_hypothesis_id
         refined_payload.run_id = run_id
         refined_payload.generation_iteration = current_round
         refined_payload.candidate_index = len(all_candidate_records) + 1
@@ -1255,6 +1323,8 @@ def main(
         cand_verdict.run_id = run_id
         cand_verdict.generation_iteration = current_round
         cand_verdict.candidate_index = refined_payload.candidate_index
+        if parent_hypothesis_id:
+            hypothesis_manager.update_hypothesis_outcome(parent_hypothesis_id, cand_verdict, ref_id)
 
         status_icon = "✅ BREACHED" if cand_verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED else "❌ REJECTED"
         print(f"    [Refinement #{current_round} | {ref_id}] {status_icon} [{cand_verdict.category.value}] | Reward: {cand_verdict.reward_score:+.2f}")
@@ -1306,6 +1376,12 @@ def main(
             finalize_candidate_replay(replay_candidate, replay_success=False, replay_infra_error=True)
             replay_candidate.verdict.feedback = f"Replay Infrastructure Error ({type(exc).__name__}): {exc}"
 
+        selected_hypothesis_id = candidate_hypothesis_ids.get(replay_candidate.candidate_id)
+        if selected_hypothesis_id:
+            hypothesis_manager.update_hypothesis_outcome(
+                selected_hypothesis_id, replay_candidate.verdict, replay_candidate.candidate_id
+            )
+
         primary_record = replay_candidate
     else:
         print("[-] No candidate breached the security invariant. Replay NOT ELIGIBLE.")
@@ -1337,6 +1413,9 @@ def main(
     print(f"Final RLVR Ground-Truth Reward: {primary_record.verdict.reward_score:+.2f}")
     print(f"Independent EVM Replay        : {'CONFIRMED (independent replay passed)' if primary_record.verdict.reproducible else 'FAILED / NOT_ELIGIBLE'}")
     print(f"Total Candidates Evaluated    : {len(all_candidate_records)}")
+    print("Hypothesis Lifecycle:")
+    for hyp in hypothesis_manager.get_top_hypotheses(limit=5):
+        print(f"  - {hyp.hypothesis_id}: {hyp.vulnerability_class} [{hyp.validation_status}] attempts={hyp.attempt_count}")
     print("=" * 78 + "\n")
 
 
