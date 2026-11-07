@@ -682,19 +682,19 @@ def train_grpo_remote(
 
 def run_control_foundry_tests(target_name: str = "Vault"):
     """
-    Executes mandatory control verification tests for the Foundry Harness and Category Reward logic:
-    1. Minimal benign ExploitModule (no-op) -> Compiles, links, reverts in harness (reward -0.25, RUNTIME_REVERT)
-    2. Working Reentrancy ExploitModule -> Drains vault, breaches invariant, confirmed replay (reward +1.0, EXPLOIT_CONFIRMED)
-    3. Malformed contract name -> Rejected upfront before Foundry (reward -0.50, GENERATION_FORMAT_ERROR)
+    Preflight controls for format normalization and the current Oracle trust boundary.
+
+    The trusted state adapter is intentionally fail-closed until it can authenticate
+    EVM state independently of candidate-controlled logs. This routine must not
+    claim a confirmed exploit or a successful replay.
     """
-    print("\n" + "=" * 78)
-    print("🧪 EXECUTING MANDATORY FOUNDRY HARNESS CONTROL TEST SUITE (ROUND 5)")
+    print("\\n" + "=" * 78)
+    print("🧪 AEGIS FORMAT-GATE AND FAIL-CLOSED ORACLE CONTROLS")
     print("=" * 78)
 
     benchmarks_dir = os.path.join(os.path.dirname(__file__), "benchmarks", "targets", "solidity")
     target_path = os.path.join(benchmarks_dir, f"{target_name}.sol")
     harness_path = os.path.join(benchmarks_dir, f"{target_name}Harness.t.sol")
-
     with open(target_path, "r", encoding="utf-8") as f:
         target_source = f.read()
     with open(harness_path, "r", encoding="utf-8") as f:
@@ -715,58 +715,27 @@ def run_control_foundry_tests(target_name: str = "Vault"):
         trusted_harness_code=harness_source
     )
 
-    # 1. TEST 1: Minimal Benign ExploitModule (No LLM)
-    print("\n[Control Test 1] Testing Minimal Benign ExploitModule (No LLM)...")
     benign_code = """// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
-
 import {Vault} from "../src/Vault.sol";
-
 contract ExploitModule {
     Vault public targetContract;
-
-    constructor(address _target) payable {
-        targetContract = Vault(payable(_target));
-    }
-
-    function runExploit() external payable {
-        // Benign execution: does not breach solvency invariant
-    }
-
+    constructor(address _target) payable { targetContract = Vault(payable(_target)); }
+    function runExploit() external payable {}
     receive() external payable {}
 }
 """
-    p1 = parse_model_response(target, f"```solidity\n{benign_code}\n```")
-    v1_dict = verify_exploit_remote.remote(target.model_dump(), p1.model_dump())
-    v1 = VerificationVerdict(**v1_dict)
-    print(f"    Status: {'✅ PASS' if v1.category == ResultCategory.RUNTIME_REVERT else '❌ FAIL'}")
-    print(f"    Category: {v1.category.value} | Reward: {v1.reward_score:+.2f}")
-    print(f"    Feedback: {v1.feedback[:120]}...")
-    assert v1.category == ResultCategory.RUNTIME_REVERT, f"Expected RUNTIME_REVERT, got {v1.category}"
-    assert v1.reward_score <= 0.0, f"Expected non-positive reward, got {v1.reward_score}"
-    assert not v1.is_verified, "Benign test must not be verified as exploit"
-    print("    [✓] Control Test 1 verified: Import and compilation succeeded without Declaration 'ExploitModule' error.")
-
-    # 2. TEST 2: Confirmed Reentrancy ExploitModule
-    print("\n[Control Test 2] Testing Confirmed Working Reentrancy ExploitModule...")
-    working_exploit = """// SPDX-License-Identifier: MIT
+    candidate_code = """// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
-
 import {Vault} from "../src/Vault.sol";
-
-contract ExploitModule {
+contract VaultAttack {
     Vault public targetContract;
     uint256 public constant ATTACK_AMOUNT = 1 ether;
-
-    constructor(address _target) payable {
-        targetContract = Vault(payable(_target));
-    }
-
+    constructor(address _target) payable { targetContract = Vault(payable(_target)); }
     function runExploit() external payable {
         targetContract.deposit{value: ATTACK_AMOUNT}();
         targetContract.withdrawAll();
     }
-
     receive() external payable {
         if (address(targetContract).balance >= ATTACK_AMOUNT) {
             targetContract.withdrawAll();
@@ -774,73 +743,45 @@ contract ExploitModule {
     }
 }
 """
-    p2 = parse_model_response(target, f"```solidity\n{working_exploit}\n```")
-    v2_dict = verify_exploit_remote.remote(target.model_dump(), p2.model_dump())
-    v2 = VerificationVerdict(**v2_dict)
-
-    # Initial run before independent replay: must be INVARIANT_BREACH_UNREPLAYED with reward +0.50
-    assert v2.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED, f"Expected INVARIANT_BREACH_UNREPLAYED, got {v2.category}"
-    assert not v2.is_verified, "Initial breach must NOT have is_verified=True before independent replay!"
-    assert v2.reward_score == config.REWARD_BREACH_NO_REPLAY, f"Expected +0.50, got {v2.reward_score}"
-    print(f"    Initial Pre-Replay: ✅ PASS | Category: {v2.category.value} | Reward: {v2.reward_score:+.2f} | is_verified={v2.is_verified}")
-
-    replay_confirmed = verify_replay_remote.remote(target.model_dump(), p2.model_dump())
-    v2.reproducible = replay_confirmed
-    if replay_confirmed:
-        v2.category = ResultCategory.EXPLOIT_CONFIRMED
-        v2.is_verified = True
-        v2.reward_score = config.REWARD_INVARIANT_BREACH
-        v2.replay_status = "CONFIRMED"
-
-    print(f"    Status: {'✅ PASS' if v2.is_verified and replay_confirmed else '❌ FAIL'}")
-    print(f"    Post-Replay Category: {v2.category.value} | Reward: {v2.reward_score:+.2f} | is_verified={v2.is_verified}")
-    print(f"    Feedback: {v2.feedback[:120]}...")
-    print(f"    Independent Replay: {'CONFIRMED (100% Deterministic)' if replay_confirmed else 'FAILED'}")
-    assert v2.is_verified, "Confirmed working exploit must be verified after successful replay"
-    assert v2.category == ResultCategory.EXPLOIT_CONFIRMED
-    assert v2.reward_score == 1.0
-    print("    [✓] Control Test 2 verified: Initial run gave INVARIANT_BREACH_UNREPLAYED (+0.50), post-replay gave EXPLOIT_CONFIRMED (+1.00).")
-
-    # Record this verified trajectory as SYNTHETIC CONTROL TRAJECTORY (Round 5.2)
-    # Strictly isolated from production GRPO training dataset!
-    prompt_str = build_analysis_prompt(target)
-    t_rec = create_trajectory_record(
-        target,
-        p2,
-        v2,
-        prompt_used=prompt_str,
-        dataset_split="control",
-        dataset_partition="synthetic_control",
-        is_synthetic=True,
-        token_provenance="synthetic",
-        trainable=False
-    )
-    record_trajectory_remote.remote(t_rec.model_dump())
-    print("    [✓] Synthetic control trajectory recorded with dataset_partition='synthetic_control', is_synthetic=True (isolated from GRPO dataset)!")
-
-    # 3. TEST 3: Malformed Contract Name (Formatting Error)
-    print("\n[Control Test 3] Testing Malformed Contract Name (contract VaultAttack)...")
     malformed_code = """// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
-
-contract VaultAttack {
+contract MalformedAttack {
     constructor(address _target) payable {}
-    function runExploit() external payable {}
+    // runExploit intentionally missing
 }
 """
-    p3 = parse_model_response(target, f"```solidity\n{malformed_code}\n```")
-    v3_dict = verify_exploit_remote.remote(target.model_dump(), p3.model_dump())
-    v3 = VerificationVerdict(**v3_dict)
-    print(f"    Status: {'✅ PASS' if v3.category == ResultCategory.GENERATION_FORMAT_ERROR else '❌ FAIL'}")
-    print(f"    Category: {v3.category.value} | Reward: {v3.reward_score:+.2f}")
-    print(f"    Feedback: {v3.feedback[:120]}...")
+
+    # Control 1: a valid benign candidate remains unverified without authenticated state.
+    p1 = parse_model_response(target, f"\`\`\`solidity\\n{benign_code}\\n\`\`\`")
+    assert p1.format_valid, f"Benign candidate failed format gate: {p1.format_error_reason}"
+    v1 = VerificationVerdict(**verify_exploit_remote.remote(target.model_dump(), p1.model_dump()))
+    assert not v1.is_verified
+    assert v1.category not in {ResultCategory.EXPLOIT_CONFIRMED, ResultCategory.INVARIANT_BREACH_UNREPLAYED}
+    print(f"[Control 1] Benign candidate: {v1.category.value}, reward={v1.reward_score:+.2f}, verified={v1.is_verified}")
+
+    # Control 2: a wrongly-named single contract is normalized, but not falsely confirmed.
+    p2 = parse_model_response(target, f"\`\`\`solidity\\n{candidate_code}\\n\`\`\`")
+    assert p2.contract_name_normalized
+    assert p2.original_contract_name == "VaultAttack"
+    assert p2.format_valid, f"Normalized candidate failed format gate: {p2.format_error_reason}"
+    v2 = VerificationVerdict(**verify_exploit_remote.remote(target.model_dump(), p2.model_dump()))
+    assert not v2.is_verified
+    assert v2.category not in {ResultCategory.EXPLOIT_CONFIRMED, ResultCategory.INVARIANT_BREACH_UNREPLAYED}
+    print(f"[Control 2] Normalized candidate: {v2.category.value}, reward={v2.reward_score:+.2f}, verified={v2.is_verified}")
+    print("             Replay withheld: no authenticated initial-state evidence exists.")
+
+    # Control 3: the normalizer cannot repair a missing entrypoint.
+    p3 = parse_model_response(target, f"\`\`\`solidity\\n{malformed_code}\\n\`\`\`")
+    assert not p3.format_valid
+    v3 = VerificationVerdict(**verify_exploit_remote.remote(target.model_dump(), p3.model_dump()))
     assert v3.category == ResultCategory.GENERATION_FORMAT_ERROR
     assert v3.reward_score == config.REWARD_FORMAT_ERROR
-    print("    [✓] Control Test 3 verified: Format error caught before invoking Foundry.")
+    print(f"[Control 3] Malformed candidate: {v3.category.value}, reward={v3.reward_score:+.2f}")
 
-    print("\n" + "=" * 78)
-    print("🎉 ALL FOUNDRY HARNESS CONTROL TESTS PASSED (0 ERRORS)")
-    print("=" * 78 + "\n")
+    print("\\n" + "=" * 78)
+    print("✅ FORMAT-GATE CONTROLS PASSED; POSITIVE EVM VERIFICATION REMAINS BLOCKED")
+    print("   Enable positive rewards only after a trusted state-evidence adapter is implemented.")
+    print("=" * 78 + "\\n")
 
 
 def run_modal_replay_infra_error_integration_test(target_name: str = "Vault"):
