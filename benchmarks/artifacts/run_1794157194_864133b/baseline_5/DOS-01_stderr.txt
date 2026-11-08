@@ -1,0 +1,8 @@
+Warning: dynamic test linking disabled for 2 files: error: file ./AuctionDoS.sol not found
+Error: Compiler run failed:
+Error (6275): Source "test/AuctionDoS.sol" not found: File not found. Searched the following locations: "/tmp/tmpe5h3khfy".
+ParserError: Source "test/AuctionDoS.sol" not found: File not found. Searched the following locations: "/tmp/tmpe5h3khfy".
+ --> test/AuctionDoSHarness.t.sol:5:1:
+  |
+5 | import {AuctionDoS} from "./AuctionDoS.sol";
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

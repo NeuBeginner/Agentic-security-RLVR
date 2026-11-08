@@ -1,313 +1,561 @@
 {
   "evidence_type": "TRUSTED_HARNESS_CONTROL_VALIDATION",
-  "version": "2.2.0",
-  "timestamp_utc": "2026-11-08T15:52:00Z",
-  "git_commit_sha": "e4e94fc90cad5d111bfcbbce8d53ece598259811",
+  "version": "2.3.0",
+  "timestamp_utc": "2026-11-08T17:29:42Z",
+  "git_commit_sha": "864133bbcd2b8252d29198b213e0ccd174b2c7c8",
   "branch": "feat/empirical-benchmark-runner",
-  "scope": "Round 5 Foundry Harness Controls and Canonical CLI Modal H100 Model Inference",
+  "scope": "Iteration 10 Whole-Chain Verification: All 16 Benchmark Targets Executed against Repository-Owned Trusted Harnesses on Modal Nvidia H100 with Reconciled Billing and Separated Security Verdicts",
   "benchmark_relationship": "HARNESS_VALIDATION_AND_CANONICAL_CLI_H100_BENCHMARK_EXECUTION",
+  "run_id": "run_1794157194_864133b",
   "hardware_and_resource_clarification": {
     "evm_harness_worker": "Modal Serverless CPU Container (2 cores, 2048 MB RAM, Debian Slim + Foundry)",
     "gpu_allocated_for_harness": null,
-    "h100_model_inference_status": "VERIFIED_EXECUTED: Live model inference executed via canonical CLI runner (`python -m benchmarks.benchmark_runner --mode real --baseline5-provider modal_h100 --baselines baseline_5`) against commit e4e94fc on Modal Nvidia H100 80GB HBM3 GPU workers using ProductionAuditAgent (qtum/Qwen3-Coder-30B-A3B-Audit). Full token provenance, per-stage tracking, and fresh raw Modal billing records are reconciled."
+    "h100_model_inference_status": "VERIFIED_EXECUTED: Live model inference executed via canonical CLI runner (`python -m benchmarks.benchmark_runner --mode real --baseline5-provider modal_h100 --baselines baseline_5`) against clean commit 864133bbcd2b8252d29198b213e0ccd174b2c7c8 on Modal Nvidia H100 80GB HBM3 GPU workers using ProductionAuditAgent (qtum/Qwen3-Coder-30B-A3B-Audit). All 16 targets (12 vulnerable + 4 controls) executed with complete stdout/stderr evidence, cryptographic SHA-256 digests, and reconciled billing export."
   },
-  "real_modal_h100_inference_executions": [
+  "all_16_targets_executed": [
     {
-      "execution_id": "run_h100_canonical_cli_vault_reent01",
-      "status": "CANONICAL_CLI_VERIFIED_RUN",
-      "git_commit_sha": "e4e94fc90cad5d111bfcbbce8d53ece598259811",
-      "canonical_command": "python -m benchmarks.benchmark_runner --mode real --baseline5-provider modal_h100 --baselines baseline_5",
-      "modal_app_id": "ap-YbwvNoOI59aUm1Dw6BYsDI",
-      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-YbwvNoOI59aUm1Dw6BYsDI",
-      "target_id": "REENT-01",
-      "target_name": "Vault",
-      "gpu_model": "Nvidia H100 80GB HBM3 (81559 MiB)",
-      "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
-      "model_revision": "655425b794ae4a19f2ea16fa480c6b39102721ee",
-      "token_provenance": "model_generate",
-      "generated_tokens_count": 357,
-      "format_valid": true,
-      "stage_breakdown": {
-        "inference": "EXECUTED (ProductionAuditAgent.generate_solidity_exploit on Modal H100 GPU)",
-        "evm_sandbox": "EXECUTED (verify_exploit_remote on Modal CPU container; exit code 1, undeclared identifier _target)",
-        "independent_replay": "NOT_ELIGIBLE (EVM compilation failed; only INVARIANT_BREACH_UNREPLAYED qualifies)",
-        "trajectory_persistence": "NOT_ELIGIBLE (only verified breaches qualify for volume persistence)"
-      },
-      "harness_verdict": "COMPILATION_ERROR",
-      "reward_score": -0.5,
-      "duration_seconds": 225.518,
-      "billed_h100_cost_usd": 0.09234201,
-      "raw_artifact_path": "benchmarks/artifacts/run_1794152785_e4e94fc/baseline_5/REENT-01.json",
-      "raw_artifact_sha256": "3a1ed02a5799a7edca96d89cc1bde30c3289cded0e3beee4578de0a2694a0149",
-      "raw_artifact_size_bytes": 3115
+      "target_id": "AC-01",
+      "target_name": "AccessControlVault",
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/AC-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/AC-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "c5722f06f095fa09abe39b0eb225a02ac37028105912b2840bd216306c2df2de",
+      "input_sha256": "e3110ccbd528813d6d0e266738d49b0fa57b0b602a480dd04b681c4358eff0aa",
+      "output_sha256": "3bb38f3597fe06983085dea020c8e1cb2713d61e29bcd5a03a841dfccd887552",
+      "duration_seconds": 78.626,
+      "utc_start_time": "2026-11-08T17:02:57Z",
+      "utc_end_time": "2026-11-08T17:04:16Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
     },
     {
-      "execution_id": "run_h100_canonical_cli_erc4626_vault",
-      "status": "CANONICAL_CLI_VERIFIED_RUN",
-      "git_commit_sha": "e4e94fc90cad5d111bfcbbce8d53ece598259811",
-      "canonical_command": "python -m benchmarks.benchmark_runner --mode real --baseline5-provider modal_h100 --baselines baseline_5",
-      "modal_app_id": "ap-sSJn5LIiJtfUo5W0s7jKUt",
-      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-sSJn5LIiJtfUo5W0s7jKUt",
+      "target_id": "BIZ-01",
+      "target_name": "FeeShareYieldVault",
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/BIZ-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/BIZ-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "eaa91b3a3fefabc7c0fc925c50bff033c09350113b0b0f7085f2f86a45b7cd3d",
+      "input_sha256": "94bcccb40f263a812f7aefacb87b541d6a56cf558dc33e7c43cac01465edc0b2",
+      "output_sha256": "6d064e45cf70f8f0e3f0b08c9f98291962f556a0be4a27d593547dcb90468e6c",
+      "duration_seconds": 89.184,
+      "utc_start_time": "2026-11-08T17:09:35Z",
+      "utc_end_time": "2026-11-08T17:11:05Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
+    },
+    {
+      "target_id": "BRIDGE-01",
+      "target_name": "CrossContractBridge",
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/BRIDGE-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/BRIDGE-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "595ad0bf5d7b079079fa9a41d412fd1d21172ececf2a973cffaab99b639c002e",
+      "input_sha256": "cbc4bed24900715d0408c19e5c2a51296299dfb4f0819025df029bf3b1a4b768",
+      "output_sha256": "025a418496f807fdf203cc7c23d38aae476383328ad23dc97a36324b7f099987",
+      "duration_seconds": 105.583,
+      "utc_start_time": "2026-11-08T17:12:32Z",
+      "utc_end_time": "2026-11-08T17:14:18Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
+    },
+    {
+      "target_id": "DOS-01",
+      "target_name": "AuctionDoS",
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/DOS-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/DOS-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "7a3228af9563e4bcaf2d0cb23d63a1be1e0d3b5468ed7fbaf4c81f5b563e25fa",
+      "input_sha256": "4e27e2fde4a7421ad26a970fb8fb5ac179af319e5eb74ebfab024b854e795e1c",
+      "output_sha256": "93b0fc11dce1d73d263efea9802c62f4952eb96962d1397851f1e31ed0686b08",
+      "duration_seconds": 61.891,
+      "utc_start_time": "2026-11-08T17:14:18Z",
+      "utc_end_time": "2026-11-08T17:15:20Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
+    },
+    {
       "target_id": "ERC4626-01",
       "target_name": "ERC4626Vault",
-      "gpu_model": "Nvidia H100 80GB HBM3 (81559 MiB)",
-      "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
-      "model_revision": "655425b794ae4a19f2ea16fa480c6b39102721ee",
-      "token_provenance": "model_generate",
-      "generated_tokens_count": 289,
-      "format_valid": true,
-      "stage_breakdown": {
-        "inference": "EXECUTED (ProductionAuditAgent.generate_solidity_exploit on Modal H100 GPU)",
-        "evm_sandbox": "EXECUTED (verify_exploit_remote on Modal CPU container; exit code 1, undeclared identifier _target)",
-        "independent_replay": "NOT_ELIGIBLE (EVM compilation failed; only INVARIANT_BREACH_UNREPLAYED qualifies)",
-        "trajectory_persistence": "NOT_ELIGIBLE (only verified breaches qualify for volume persistence)"
-      },
-      "harness_verdict": "COMPILATION_ERROR",
-      "reward_score": -0.5,
-      "duration_seconds": 83.0,
-      "billed_h100_cost_usd": 0.08588450,
-      "raw_artifact_path": "benchmarks/artifacts/run_1794152785_e4e94fc/baseline_5/ERC4626-01.json",
-      "raw_artifact_sha256": "ea789a4b23767235319d23a606a7fb6ff3100861f66a1fda02b97adc278696b3",
-      "raw_artifact_size_bytes": 3142
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/ERC4626-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/ERC4626-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "eeab092678b889613546eb43e2fbf9216a20c05097dd76b9b66216b2c1975a57",
+      "input_sha256": "5400e6d7c497d796922cc61bd4dcd342dd689a0c54f4567c643025439004867c",
+      "output_sha256": "31cf030431de16508f7ac1e2277fec2907a7d56b6356205945614e4041a9af89",
+      "duration_seconds": 99.205,
+      "utc_start_time": "2026-11-08T17:01:16Z",
+      "utc_end_time": "2026-11-08T17:02:57Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
     },
     {
-      "execution_id": "historical_run_h100_benchmark_vault_reent01",
-      "status": "HISTORICAL_EVIDENCE_RUN",
-      "modal_app_id": "ap-qdwGbY0i0o4USLAz0EEmRZ",
-      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-qdwGbY0i0o4USLAz0EEmRZ",
+      "target_id": "FLASH-01",
+      "target_name": "FlashLoanRewardPool",
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/FLASH-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/FLASH-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "da29936ad28bd396570b55d21f62ca007cc731a5050401851f12f8814d045027",
+      "input_sha256": "d9fd70b86d1677bae01d71bab8f15e8d93cae195a814150d8eb1f6ec9878f1ae",
+      "output_sha256": "33eb7ab97bc09de75960c47839975d760c73d69683d4186e19841e9af839941b",
+      "duration_seconds": 76.996,
+      "utc_start_time": "2026-11-08T17:05:44Z",
+      "utc_end_time": "2026-11-08T17:07:01Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
+    },
+    {
+      "target_id": "LIQ-01",
+      "target_name": "LendingLiquidation",
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/LIQ-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/LIQ-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "bc4c561109874acbb75837cbd100cae515ad120970829bf666e4f572f5cb38a2",
+      "input_sha256": "22e5c16b30679b44e7c0ca07b24bc037e2c51cf17ba732ca4740c2c693fd3075",
+      "output_sha256": "b53a37bc484e5bc205390762a9f98c85002dd73bc9adccb9cd92e04a7ec9e447",
+      "duration_seconds": 86.364,
+      "utc_start_time": "2026-11-08T17:11:05Z",
+      "utc_end_time": "2026-11-08T17:12:32Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
+    },
+    {
+      "target_id": "ORACLE-01",
+      "target_name": "OracleLendingPool",
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/ORACLE-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/ORACLE-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e19fe12c5a765875a6eb8d46dff5d58771f14ec48e8a5dade3adcae92a8112ae",
+      "input_sha256": "987cf31b3ab7814b7869cfcb5a85297d07b83702fdf89ee880469bd3c8efdea9",
+      "output_sha256": "964f8fbc756697db5e0937ec4aa95a4c0f30f401a6c972563d3484b80afe34f5",
+      "duration_seconds": 87.659,
+      "utc_start_time": "2026-11-08T17:04:16Z",
+      "utc_end_time": "2026-11-08T17:05:44Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
+    },
+    {
+      "target_id": "PREC-01",
+      "target_name": "PrecisionStakingPool",
+      "execution_status": "SUCCESS",
+      "security_verdict": "GENERATION_FORMAT_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": -4,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/PREC-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/PREC-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "072f4e8e1984ea8ce78f54aedb2102000860bb6ba18b07d280881618790c03ff",
+      "input_sha256": "fbd895a4eafe93dab603ce9aeaae42f19552ba4acc1a45f055d16a87b238fc7a",
+      "output_sha256": "b8ba4e42450755eac0e5b7779f62e510cdb5ff75c96d53ec86bf5b00148bb0eb",
+      "duration_seconds": 231.864,
+      "utc_start_time": "2026-11-08T17:15:20Z",
+      "utc_end_time": "2026-11-08T17:19:12Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
+    },
+    {
       "target_id": "REENT-01",
       "target_name": "Vault",
-      "gpu_model": "Nvidia H100 80GB HBM3 (81559 MiB)",
-      "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
-      "model_revision": "655425b794ae4a19f2ea16fa480c6b39102721ee",
-      "token_provenance": "model_generate",
-      "generated_tokens_count": 456,
-      "format_valid": true,
-      "stage_breakdown": {
-        "inference": "EXECUTED",
-        "evm_sandbox": "EXECUTED (COMPILATION_ERROR)",
-        "independent_replay": "NOT_ELIGIBLE",
-        "trajectory_persistence": "NOT_ELIGIBLE"
-      },
-      "harness_verdict": "COMPILATION_ERROR",
-      "reward_score": -0.5,
-      "duration_seconds": 100.617,
-      "billed_h100_cost_usd": 0.10600315,
-      "raw_artifact_path": "benchmarks/artifacts/run_1794146412_118d644/baseline_5/REENT-01.json"
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/REENT-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/REENT-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "808a6bb921ae4a0b441e9010586757e731b8730f36d2563d2fd60b943b4ffae5",
+      "input_sha256": "a773cc86cd1873e0979a4a153102edd45b2d2f81d2ea57ef7881fee08825e241",
+      "output_sha256": "9bf65fd5debf355edf6bc8bbd83578d3369cf03a68d17ca101db3b74f7e1aabd",
+      "duration_seconds": 82.059,
+      "utc_start_time": "2026-11-08T16:59:54Z",
+      "utc_end_time": "2026-11-08T17:01:16Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
     },
     {
-      "execution_id": "historical_run_h100_pipeline_test",
-      "status": "HISTORICAL_EVIDENCE_RUN",
-      "modal_app_id": "ap-YRvqnFsZgUc4CRdJBJTpyQ",
-      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-YRvqnFsZgUc4CRdJBJTpyQ",
-      "target_name": "Vault",
-      "gpu_model": "Nvidia H100 80GB HBM3 (81559 MiB)",
-      "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
-      "token_provenance": "model_generate",
-      "generated_tokens_count": 254,
-      "format_valid": true,
-      "stage_breakdown": {
-        "inference": "EXECUTED",
-        "evm_sandbox": "EXECUTED (COMPILATION_ERROR)",
-        "independent_replay": "NOT_ELIGIBLE",
-        "trajectory_persistence": "NOT_ELIGIBLE"
-      },
-      "harness_verdict": "COMPILATION_ERROR",
-      "reward_score": -0.5,
-      "billed_h100_cost_usd": 0.08285542
+      "target_id": "SAFE-01",
+      "target_name": "SecureVault",
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SAFE-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SAFE-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "a8e432a00635c06396083e34f9fdf5a73846000ddf66134cbc2b1bcafeba9c3d",
+      "input_sha256": "6478720999579160ae807d719f7eb72363a1357e750119b5d1cec003e8d440b8",
+      "output_sha256": "d436c0c30d1aa4b4d9c637175d7f1ab6e5a1093472ede5ffbbcb8bdd55bebefe",
+      "duration_seconds": 88.055,
+      "utc_start_time": "2026-11-08T17:19:12Z",
+      "utc_end_time": "2026-11-08T17:20:40Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
     },
     {
-      "execution_id": "historical_run_h100_adapter_integration",
-      "status": "HISTORICAL_EVIDENCE_RUN",
-      "modal_app_id": "ap-jrxKl0EWBSkaARfMlWmIeE",
-      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-jrxKl0EWBSkaARfMlWmIeE",
-      "target_name": "Vault",
-      "gpu_model": "Nvidia H100 80GB HBM3 (81559 MiB)",
-      "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
-      "token_provenance": "model_generate",
-      "generated_tokens_count": 379,
-      "format_valid": true,
-      "stage_breakdown": {
-        "inference": "EXECUTED",
-        "evm_sandbox": "NOT_RUN",
-        "independent_replay": "NOT_ELIGIBLE",
-        "trajectory_persistence": "NOT_ELIGIBLE"
-      },
-      "billed_h100_cost_usd": 0.08023972
-    }
-  ],
-  "gpu_tier_live_probes": [
-    {
-      "gpu_model": "Nvidia Tesla T4 (15360 MiB)",
-      "modal_app_id": "ap-xT99u41Q47w5O0y70f80qY",
-      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-xT99u41Q47w5O0y70f80qY",
-      "status": "PASS",
-      "verification_command": "modal run -c \"import modal; app = modal.App(); @app.function(gpu='t4') def f(): import subprocess; return subprocess.check_output(['nvidia-smi', '--query-gpu=gpu_name,memory.total', '--format=csv,noheader']).decode(); print(f.remote())\""
+      "target_id": "SAFE-02",
+      "target_name": "SecureAccessControlVault",
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SAFE-02_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SAFE-02_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "0062eca853774b8b4467f2a9888213ac01fa1f173fc7766bc6777ace055b78cd",
+      "input_sha256": "f8a8dbec1f190ffa39dad8a1c6bd3b10fb6b8dce8f7e921ec86fe33441d80993",
+      "output_sha256": "40615066ad31fb63623378ae1ead887cca9546524869a2ee6e3da62123942240",
+      "duration_seconds": 67.407,
+      "utc_start_time": "2026-11-08T17:20:40Z",
+      "utc_end_time": "2026-11-08T17:21:48Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
     },
     {
-      "gpu_model": "Nvidia H100 80GB HBM3 (81559 MiB)",
-      "modal_app_id": "ap-bB7hT9K1173UvH3Z11c47D",
-      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-bB7hT9K1173UvH3Z11c47D",
-      "status": "PASS",
-      "verification_command": "modal run -c \"import modal; app = modal.App(); @app.function(gpu='h100') def f(): import subprocess; return subprocess.check_output(['nvidia-smi', '--query-gpu=gpu_name,memory.total', '--format=csv,noheader']).decode(); print(f.remote())\""
+      "target_id": "SAFE-03",
+      "target_name": "SecureERC4626Vault",
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SAFE-03_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SAFE-03_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "3431d0d3247ebb5977645504bd9e6caeff20dc41a081e9741cd6142dd773ecab",
+      "input_sha256": "41e01284ae4715d673a804fe1398b0863e86a279cc07b807c62d8e0e2b4d33c0",
+      "output_sha256": "5128eacef9eaa95b5e2ec5727fcce277334f69e393f9cd37d5c50f1161231cc3",
+      "duration_seconds": 115.889,
+      "utc_start_time": "2026-11-08T17:21:48Z",
+      "utc_end_time": "2026-11-08T17:23:44Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
+    },
+    {
+      "target_id": "SAFE-04",
+      "target_name": "SecureOraclePool",
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SAFE-04_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SAFE-04_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "09aeaf17ddfe5b4156668bba5d563512ce8dc17484fbfc3299da4553e4b4c6d8",
+      "input_sha256": "eac7fee82da0091fede02e4bcd305dacb145d8f6b4700a24e3f62ae885986e7d",
+      "output_sha256": "68cb8753ce8a14a0aa1d85685e62c7f86b57bbd5acc3bac4462be6dc6a23f550",
+      "duration_seconds": 101.988,
+      "utc_start_time": "2026-11-08T17:23:44Z",
+      "utc_end_time": "2026-11-08T17:25:27Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
+    },
+    {
+      "target_id": "SIG-01",
+      "target_name": "SignatureReplayWallet",
+      "execution_status": "SUCCESS",
+      "security_verdict": "GENERATION_FORMAT_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": -4,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SIG-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SIG-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "519608493cd8851b52addfed28f69989363ea446748e02625c47fffda503edc5",
+      "input_sha256": "fe0d88dea6c402a1e0ceab505ec9da4db416f7a7549e2702671927fe17f741da",
+      "output_sha256": "057ff3db01bb633ef3f46ce51711524aaa0f1dd3f5f1c59e5b8df6b53b195453",
+      "duration_seconds": 64.676,
+      "utc_start_time": "2026-11-08T17:07:01Z",
+      "utc_end_time": "2026-11-08T17:08:06Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
+    },
+    {
+      "target_id": "STATE-01",
+      "target_name": "RewardDistributorLogic",
+      "execution_status": "SUCCESS",
+      "security_verdict": "COMPILATION_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "stdout_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/STATE-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/STATE-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "4f414c6697ef8d9ba4fd651be79b866b7aa7bd0a87f569528f55972018d2498b",
+      "input_sha256": "8cde7ab7abc430d399f4e33e8907242ef5eab804bd5c7aa476442f038ea5f12f",
+      "output_sha256": "fa12ce81ffb69223b5d4f4cb4f5b9e178489db70261afce54dba9b40006e0d49",
+      "duration_seconds": 88.726,
+      "utc_start_time": "2026-11-08T17:08:06Z",
+      "utc_end_time": "2026-11-08T17:09:35Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ]
     }
   ],
   "modal_billing_audit": {
-    "workspace": "neubeginner",
-    "raw_ledger_file": "benchmarks/evidence/modal_billing_report_raw.json",
-    "total_billing_records": 53,
-    "h100_resource_records_count": 5,
-    "canonical_cli_run_h100_billed_cost_usd": 0.17822651,
-    "h100_cumulative_billed_cost_usd": 0.44732480,
-    "metered_volumes_cost_usd": 0.90,
-    "free_storage_credit_usd": -0.90,
-    "balance_explanation": "Modal free tier provides initial $30 credit and 10GB free volume storage (-$0.90 credit). Live H100 model inference consumed $0.1782 for canonical CLI runs under commit e4e94fc (ap-YbwvNoOI59aUm1Dw6BYsDI and ap-sSJn5LIiJtfUo5W0s7jKUt) and $0.4473 across all 5 verified H100 line items (including historical runs ap-YRvqnFsZgUc4CRdJBJTpyQ, ap-jrxKl0EWBSkaARfMlWmIeE, and ap-qdwGbY0i0o4USLAz0EEmRZ). Micro-costs and per-app breakdowns are fully documented in benchmarks/evidence/modal_billing_report_raw.json."
+    "audit_date": "2026-11-08",
+    "billing_period": "November 2026 (Month-to-Date)",
+    "raw_billing_file": "benchmarks/evidence/modal_billing_report_raw.json",
+    "total_account_month_cost_usd": 2.0376,
+    "total_h100_gpu_items_billed": 21,
+    "total_h100_gpu_cost_usd": 2.0027,
+    "h100_app_sessions": [
+      {
+        "object_id": "ap-0x4jWDQRJkDB4hqjp6Af9o",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.08574044,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-6Rvc4zxfwJe0dnHnjgqEdk",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.06363844,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-6bjPOzmEzbMWdpbvBg4HWZ",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.11018093,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-8DndrsS5ECpNUGjdCOdJN0",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.10465253,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-DgfLTnmreaZY2SyXXdFwV4",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.06220402,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-JkJ4yiVmuey9U7TQLrHtUM",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.24963443,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-PYUoVKKLfr5Yc7Hw0t18uL",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.08366451,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-SqCGiGJVQch9Zbah5JgPd9",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.09121984,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-XqwqlzXApxeSI9LNmIKFk0",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.08112165,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-YRvqnFsZgUc4CRdJBJTpyQ",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.08285542,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-YbwvNoOI59aUm1Dw6BYsDI",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.09234201,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-cOjJQ8LZoHyM1pxf5bYnc6",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.09078777,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-fIqn5E9wZ7JMIynqFA1ARw",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.07918913,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-hUiirCgwr4PZ6w75J8B08Q",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.09005846,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-jrxKl0EWBSkaARfMlWmIeE",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.08023972,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-lk4ZnoREubi0n28Vf9D0iS",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.09313501,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-oDhkhWAKbD6JiwlBWSFo3C",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.09415443,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-qdwGbY0i0o4USLAz0EEmRZ",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.10600315,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-sSJn5LIiJtfUo5W0s7jKUt",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.0858845,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-xYh05KqSqmvtWDwQK5PrZU",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.10675222,
+        "interval_start": "2026-11-08T00:00:00"
+      },
+      {
+        "object_id": "ap-zf7HP2LzasGnPxHQ5qZgrn",
+        "description": "aegis-rlvr-security",
+        "resource": "H100",
+        "cost_usd": 0.0692882,
+        "interval_start": "2026-11-08T00:00:00"
+      }
+    ],
+    "billing_reconciliation_verdict": "VERIFIED_ACCURATE: All live Modal H100 and CPU app executions reconcile directly with upstream Modal billing ledger."
   },
-  "targets_validated": [
-    {
-      "target_name": "Vault",
-      "harness_contract": "VaultTrustedHarness",
-      "harness_file": "benchmarks/targets/solidity/VaultHarness.t.sol",
-      "modal_app_id": "ap-yYp9ZrpFiUer9BR7ImyvBw",
-      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-yYp9ZrpFiUer9BR7ImyvBw",
-      "command": ["modal", "run", "modal_app.py", "--mode", "control", "--target-name", "Vault"],
-      "resource_type": "CPU (ephemeral container)",
-      "gpu": null,
-      "cpu_cores": 2.0,
-      "memory_mb": 2048,
-      "measured_cost_usd": 0.00068355,
-      "tests_passed": 5,
-      "tests_failed": 0,
-      "test_details": {
-        "control_test_1": {
-          "description": "Minimal benign ExploitModule (no invariant breach)",
-          "status": "PASS",
-          "category": "SAFE_RUN",
-          "reward_score": -0.10,
-          "is_verified": false
-        },
-        "control_test_2": {
-          "description": "Confirmed working Reentrancy ExploitModule",
-          "status": "PASS",
-          "initial_pre_replay_category": "INVARIANT_BREACH_UNREPLAYED",
-          "initial_reward_score": 0.50,
-          "initial_is_verified": false,
-          "post_replay_category": "EXPLOIT_CONFIRMED",
-          "post_replay_reward_score": 1.00,
-          "post_replay_is_verified": true,
-          "independent_replay_confirmed": true,
-          "reward_components": {
-            "generation": 0.05,
-            "compilation": 0.10,
-            "verification": 0.10,
-            "invariant": 0.25,
-            "replay": 0.50
-          }
-        },
-        "control_test_3": {
-          "description": "Structurally broken contract missing runExploit entrypoint",
-          "status": "PASS",
-          "category": "GENERATION_FORMAT_ERROR",
-          "reward_score": -0.35,
-          "rejected_before_foundry": true
-        },
-        "control_test_4": {
-          "description": "Mechanical contract name normalization (VaultAttack -> ExploitModule)",
-          "status": "PASS",
-          "category": "SAFE_RUN",
-          "repaired_and_executed": true
-        },
-        "control_test_5": {
-          "description": "Verification-channel hijack rejection (forged console breach marker)",
-          "status": "PASS",
-          "category": "CHEATCODE_DETECTED",
-          "reward_score": -1.00,
-          "rejected_before_foundry": true
-        }
-      }
-    },
-    {
-      "target_name": "ERC4626Vault",
-      "harness_contract": "ERC4626TrustedHarness",
-      "harness_file": "benchmarks/targets/solidity/ERC4626VaultHarness.t.sol",
-      "modal_app_id": "ap-zFmfZEGUCiU5WbYhTX184W",
-      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-zFmfZEGUCiU5WbYhTX184W",
-      "command": ["modal", "run", "modal_app.py", "--mode", "control", "--target-name", "ERC4626Vault"],
-      "resource_type": "CPU (ephemeral container)",
-      "gpu": null,
-      "cpu_cores": 2.0,
-      "memory_mb": 2048,
-      "measured_cost_usd": 0.00067975,
-      "tests_passed": 5,
-      "tests_failed": 0,
-      "test_details": {
-        "control_test_1": {
-          "description": "Minimal benign ExploitModule for ERC4626Vault",
-          "status": "PASS",
-          "category": "SAFE_RUN",
-          "reward_score": -0.10,
-          "is_verified": false
-        },
-        "control_test_2": {
-          "description": "Confirmed working First-Depositor Share Inflation ExploitModule",
-          "status": "PASS",
-          "initial_pre_replay_category": "INVARIANT_BREACH_UNREPLAYED",
-          "initial_reward_score": 0.50,
-          "initial_is_verified": false,
-          "post_replay_category": "EXPLOIT_CONFIRMED",
-          "post_replay_reward_score": 1.00,
-          "post_replay_is_verified": true,
-          "independent_replay_confirmed": true,
-          "reward_components": {
-            "generation": 0.05,
-            "compilation": 0.10,
-            "verification": 0.10,
-            "invariant": 0.25,
-            "replay": 0.50
-          }
-        },
-        "control_test_3": {
-          "description": "Structurally broken contract missing runExploit entrypoint",
-          "status": "PASS",
-          "category": "GENERATION_FORMAT_ERROR",
-          "reward_score": -0.35,
-          "rejected_before_foundry": true
-        },
-        "control_test_4": {
-          "description": "Mechanical contract name normalization (ERC4626VaultAttack -> ExploitModule)",
-          "status": "PASS",
-          "category": "SAFE_RUN",
-          "repaired_and_executed": true
-        },
-        "control_test_5": {
-          "description": "Verification-channel hijack rejection (forged console breach marker)",
-          "status": "PASS",
-          "category": "CHEATCODE_DETECTED",
-          "reward_score": -1.00,
-          "rejected_before_foundry": true
-        }
-      }
-    },
-    {
-      "target_name": "Fault_Injection_Integration",
-      "harness_contract": "verify_replay_fault_injection_remote",
-      "harness_file": "modal_app.py:413",
-      "modal_app_id": "ap-433Rhd6UwxLQmJQVA7zYBI",
-      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-433Rhd6UwxLQmJQVA7zYBI",
-      "command": ["modal", "run", "modal_app.py", "--mode", "check-infra", "--target-name", "Vault"],
-      "resource_type": "CPU (ephemeral container)",
-      "gpu": null,
-      "injected_fault": "TimeoutError: Modal worker execution timed out (60s EVM container limit exceeded)",
-      "orchestration_outcome": {
-        "status": "PASS",
-        "category": "INFRA_ERROR",
-        "reward_score": 0.0,
-        "is_verified": false,
-        "reproduced": false,
-        "trainable": false,
-        "persistence_isolated": true,
-        "records_saved_to_volume": 0
-      }
-    }
-  ]
+  "summary_metrics": {
+    "baseline_id": "baseline_5",
+    "total_targets": 16,
+    "completed_targets": 16,
+    "unavailable_targets": 0,
+    "execution_status": "SUCCESS",
+    "vulnerable_targets": 12,
+    "synthetic_controls": 4,
+    "verified_breaches": 0,
+    "replayed_breaches": 0,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1_score": 0.0,
+    "fpr": 0.0,
+    "fnr": 1.0,
+    "verified_finding_rate": 0.0,
+    "replay_retention_rate": 0.0
+  }
 }
