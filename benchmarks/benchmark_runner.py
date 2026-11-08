@@ -55,6 +55,8 @@ from benchmarks.protocol import (
     DatasetManifest,
     AdapterRunManifest,
     ArtifactFileRecord,
+    validate_manifest_git_integrity,
+    verify_manifest_git_integrity,
 )
 from benchmarks.evaluator import evaluate_baseline_run
 from benchmarks.adapters import (
@@ -524,6 +526,10 @@ class AegisBenchmarkSuite:
             adapters=adapter_manifests,
             total_duration_seconds=total_duration,
         )
+
+        # Enforce git reproducibility manifest integrity
+        if commit_sha != "unknown":
+            verify_manifest_git_integrity(repro_manifest, run_artifacts_dir, expected_commit_sha=commit_sha)
 
         rel_manifest_file = None
         if save_results and rel_artifacts_dir:

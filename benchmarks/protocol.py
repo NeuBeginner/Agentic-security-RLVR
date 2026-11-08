@@ -286,3 +286,72 @@ class RunReproducibilityManifest:
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
+
+def validate_manifest_git_integrity(
+    manifest_data: Any,
+    run_dir: Optional[Any] = None,
+    expected_commit_sha: Optional[str] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validates git provenance integrity of a reproducibility manifest:
+    1. commit_sha must be a full 40-character hexadecimal SHA (rejects 'HEAD', 'unknown', or short hashes).
+    2. If expected_commit_sha is provided, manifest commit_sha must strictly match it.
+    3. If run_dir or manifest run_id is provided, directory suffix (or run_id suffix) must match commit_sha[:7].
+    """
+    import re
+
+    if hasattr(manifest_data, "to_dict"):
+        data = manifest_data.to_dict()
+    elif isinstance(manifest_data, dict):
+        data = manifest_data
+    else:
+        return False, f"Unsupported manifest_data type: {type(manifest_data).__name__}"
+
+    git_info = data.get("git")
+    if not git_info or not isinstance(git_info, dict):
+        return False, "Missing or invalid 'git' block in reproducibility manifest"
+
+    commit_sha = git_info.get("commit_sha")
+    if not commit_sha or not isinstance(commit_sha, str):
+        return False, "Missing or non-string 'commit_sha' in manifest git metadata"
+
+    # Must be 40-character hex string
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", commit_sha):
+        return False, f"Invalid git commit SHA '{commit_sha}': must be a full 40-character hexadecimal SHA"
+
+    commit_sha_lower = commit_sha.lower()
+
+    if expected_commit_sha is not None:
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", expected_commit_sha):
+            return False, f"Invalid expected commit SHA '{expected_commit_sha}': must be a full 40-character hexadecimal SHA"
+        if commit_sha_lower != expected_commit_sha.lower():
+            return False, f"Manifest git commit SHA '{commit_sha}' does not match expected checkout SHA '{expected_commit_sha}'"
+
+    run_ref = None
+    if run_dir:
+        run_ref = Path(run_dir).name
+    elif "run_id" in data and data["run_id"]:
+        run_ref = data["run_id"]
+
+    if run_ref:
+        parts = run_ref.split("_")
+        if len(parts) >= 3 and parts[0] == "run":
+            dir_sha_suffix = parts[-1].lower()
+            expected_prefix = commit_sha_lower[: len(dir_sha_suffix)]
+            if dir_sha_suffix != expected_prefix or len(dir_sha_suffix) < 7:
+                return False, f"Run directory suffix '{dir_sha_suffix}' does not match manifest commit prefix '{commit_sha_lower[:7]}'"
+
+    return True, None
+
+
+def verify_manifest_git_integrity(
+    manifest_data: Any,
+    run_dir: Optional[Any] = None,
+    expected_commit_sha: Optional[str] = None,
+) -> None:
+    """Raises ValueError if reproducibility manifest git integrity validation fails."""
+    valid, err = validate_manifest_git_integrity(manifest_data, run_dir, expected_commit_sha)
+    if not valid:
+        raise ValueError(f"Reproducibility manifest git integrity validation failed: {err}")
+
+

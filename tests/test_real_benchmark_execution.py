@@ -2207,3 +2207,99 @@ def test_full_aegis_rlvr_modal_h100_records_audit_agent_function_and_token_prove
     assert art.tool_metadata["generated_tokens_count"] == 5
     assert art.tool_metadata["inference_backend"] == "modal_h100"
 
+
+def test_manifest_git_integrity_rejects_non_40_char_or_special_shas():
+    """Manifest git integrity validation must strictly reject 'HEAD', 'unknown', or abbreviated SHAs."""
+    from benchmarks.protocol import validate_manifest_git_integrity, verify_manifest_git_integrity
+
+    invalid_shas = ["HEAD", "unknown", "c1813a7", "118d644", "", "not_a_hex_string_with_forty_characters_12345"]
+    for bad_sha in invalid_shas:
+        manifest = {
+            "run_id": "run_1794146412_c1813a7",
+            "git": {"commit_sha": bad_sha, "is_dirty": False, "branch": "main"}
+        }
+        valid, err = validate_manifest_git_integrity(manifest)
+        assert valid is False, f"Expected rejection for bad SHA '{bad_sha}'"
+        assert ("Invalid git commit SHA" in err) or ("Missing or non-string" in err)
+
+        with pytest.raises(ValueError, match="Reproducibility manifest git integrity validation failed"):
+            verify_manifest_git_integrity(manifest)
+
+
+def test_manifest_git_integrity_rejects_sha_mismatch_with_checkout():
+    """Manifest git integrity validation must reject manifests whose full SHA does not match expected checkout."""
+    from benchmarks.protocol import validate_manifest_git_integrity, verify_manifest_git_integrity
+
+    manifest_sha = "c1813a78c08952e34eb1afdac5b4cf5752547e79"
+    checkout_sha = "118d6447209930f36f901193d56f69e6b4ad2327"
+
+    manifest = {
+        "run_id": f"run_1794146412_{manifest_sha[:7]}",
+        "git": {"commit_sha": manifest_sha, "is_dirty": False, "branch": "feat/empirical-benchmark-runner"}
+    }
+
+    valid, err = validate_manifest_git_integrity(manifest, expected_commit_sha=checkout_sha)
+    assert valid is False
+    assert "does not match expected checkout SHA" in err
+
+    with pytest.raises(ValueError, match="does not match expected checkout SHA"):
+        verify_manifest_git_integrity(manifest, expected_commit_sha=checkout_sha)
+
+
+def test_manifest_git_integrity_rejects_run_dir_suffix_inconsistency():
+    """Manifest git integrity validation must reject inconsistent run-directory suffix and manifest commit SHA."""
+    from benchmarks.protocol import validate_manifest_git_integrity, verify_manifest_git_integrity
+
+    manifest_sha = "c1813a78c08952e34eb1afdac5b4cf5752547e79"
+    mismatched_dir = "benchmarks/artifacts/run_1794146412_118d644"
+
+    manifest = {
+        "run_id": "run_1794146412_118d644",
+        "git": {"commit_sha": manifest_sha, "is_dirty": False, "branch": "feat/empirical-benchmark-runner"}
+    }
+
+    valid, err = validate_manifest_git_integrity(manifest, run_dir=mismatched_dir)
+    assert valid is False
+    assert "Run directory suffix '118d644' does not match manifest commit prefix 'c1813a7'" in err
+
+    with pytest.raises(ValueError, match="Run directory suffix '118d644' does not match manifest commit prefix 'c1813a7'"):
+        verify_manifest_git_integrity(manifest, run_dir=mismatched_dir)
+
+
+def test_manifest_git_integrity_accepts_valid_consistent_manifest():
+    """Manifest git integrity validation must accept consistent 40-char SHA matching checkout and run dir."""
+    from benchmarks.protocol import validate_manifest_git_integrity, verify_manifest_git_integrity
+
+    full_sha = "c1813a78c08952e34eb1afdac5b4cf5752547e79"
+    run_dir = f"benchmarks/artifacts/run_1794146412_{full_sha[:7]}"
+
+    manifest = {
+        "run_id": f"run_1794146412_{full_sha[:7]}",
+        "git": {"commit_sha": full_sha, "is_dirty": False, "branch": "feat/empirical-benchmark-runner"}
+    }
+
+    valid, err = validate_manifest_git_integrity(manifest, run_dir=run_dir, expected_commit_sha=full_sha)
+    assert valid is True
+    assert err is None
+    # Must not raise
+    verify_manifest_git_integrity(manifest, run_dir=run_dir, expected_commit_sha=full_sha)
+
+
+def test_benchmark_runner_enforces_manifest_git_integrity_on_execution():
+    """AegisBenchmarkSuite.run_benchmark must produce a manifest that passes git integrity validation."""
+    from benchmarks.protocol import verify_manifest_git_integrity
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        rep = suite.run_benchmark(mode="smoke", baselines_to_run=["baseline_1"], save_results=True)
+
+        manifest_summary = rep["reproducibility_manifest_summary"]
+        commit_sha = rep["git_commit_sha"]
+        if commit_sha != "unknown":
+            verify_manifest_git_integrity(
+                manifest_summary,
+                run_dir=rep["artifacts_directory"],
+                expected_commit_sha=commit_sha
+            )
+
+
