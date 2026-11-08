@@ -79,6 +79,11 @@ class TargetExecutionArtifact:
     tool_metadata: Dict[str, Any] = field(default_factory=dict)
     raw_output: Dict[str, Any] = field(default_factory=dict)
     logs: List[str] = field(default_factory=list)
+    argv: Optional[List[str]] = None
+    timeout_sec: Optional[int] = None
+    resource_budget: Dict[str, Any] = field(default_factory=dict)
+    effective_config_hash: Optional[str] = None
+    prompt_hash: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -214,6 +219,8 @@ class EnvironmentManifest:
     solc_version: Optional[str] = None
     modal_version: Optional[str] = None
     modal_authenticated: bool = False
+    package_versions: Dict[str, str] = field(default_factory=dict)
+    provider_configs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -241,7 +248,9 @@ class AdapterRunManifest:
     availability_status: str
     availability_reason: Optional[str] = None
     command: Optional[str] = None
+    argv: Optional[List[str]] = None
     timeout_sec: int = 60
+    resource_budget: Dict[str, Any] = field(default_factory=dict)
     duration_seconds: float = 0.0
     target_count: int = 0
     completed_targets: int = 0
@@ -249,6 +258,7 @@ class AdapterRunManifest:
     cost_status: str = "unmeasured"
     cost_usd: Optional[float] = None
     artifact_files: List[ArtifactFileRecord] = field(default_factory=list)
+    per_target_provenance: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass

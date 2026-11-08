@@ -89,6 +89,27 @@ class BaselineAdapter(ABC):
     def baseline_name(self) -> str:
         pass
 
+    @property
+    def timeout_sec(self) -> int:
+        return getattr(self, "_timeout_sec", 60)
+
+    @property
+    def resource_budget(self) -> Dict[str, Any]:
+        return getattr(self, "_resource_budget", {"timeout_sec": self.timeout_sec})
+
+    def get_effective_config_hash(self) -> str:
+        """Returns deterministic SHA-256 hash of effective adapter configuration."""
+        data = {
+            "baseline_id": self.baseline_id,
+            "timeout_sec": self.timeout_sec,
+            "resource_budget": self.resource_budget,
+        }
+        return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def get_default_argv(self) -> List[str]:
+        """Returns structured default invocation command line tokens."""
+        return [self.baseline_id]
+
     @abstractmethod
     def check_availability(self) -> Tuple[bool, Optional[str]]:
         """Returns (is_available, unavailable_reason)."""
@@ -112,6 +133,17 @@ class SlitherBaselineAdapter(BaselineAdapter):
     Captures complete stdout/stderr, actual binary version, and exit codes.
     Reports FAILED/INCOMPLETE if execution fails or output is unparseable.
     """
+    def __init__(
+        self,
+        timeout_sec: int = 60,
+        resource_budget: Optional[Dict[str, Any]] = None,
+    ):
+        self._timeout_sec = timeout_sec
+        self._resource_budget = resource_budget or {
+            "timeout_sec": timeout_sec,
+            "compiler_context": "@openzeppelin/=lib/openzeppelin-contracts/ forge-std/=lib/forge-std/src/",
+        }
+
     @property
     def baseline_id(self) -> str:
         return "baseline_1"
@@ -119,6 +151,29 @@ class SlitherBaselineAdapter(BaselineAdapter):
     @property
     def baseline_name(self) -> str:
         return "Static Analysis Only (Slither)"
+
+    def get_effective_config_hash(self) -> str:
+        data = {
+            "baseline_id": self.baseline_id,
+            "slither_version": self.get_slither_version(),
+            "timeout_sec": self.timeout_sec,
+            "resource_budget": self.resource_budget,
+            "solc_remaps": [
+                "@openzeppelin/=lib/openzeppelin-contracts/",
+                "forge-std/=lib/forge-std/src/",
+            ],
+        }
+        return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def get_default_argv(self) -> List[str]:
+        return [
+            "slither",
+            "<target_path>",
+            "--json",
+            "slither_out.json",
+            "--solc-remaps",
+            "@openzeppelin/=lib/openzeppelin-contracts/ forge-std/=lib/forge-std/src/",
+        ]
 
     def get_slither_version(self) -> str:
         try:
@@ -143,16 +198,22 @@ class SlitherBaselineAdapter(BaselineAdapter):
         self,
         target: TargetSpecification,
         base_dir: Optional[Path] = None,
-        timeout_sec: int = 60
+        timeout_sec: Optional[int] = None
     ) -> TargetExecutionArtifact:
+        effective_timeout = timeout_sec if timeout_sec is not None else self.timeout_sec
         is_avail, reason = self.check_availability()
         if not is_avail:
+            cmd = ["slither", target.source_file, "--json", "slither_out.json"]
             return TargetExecutionArtifact(
                 baseline_id=self.baseline_id,
                 target_id=target.contract_id,
                 target_name=target.target_name,
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
+                argv=cmd,
+                timeout_sec=effective_timeout,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
             )
 
         start_time = time.time()
@@ -171,6 +232,10 @@ class SlitherBaselineAdapter(BaselineAdapter):
                 status=ExecutionStatus.FAILED,
                 unavailable_reason=f"Target source file {target_path} not found",
                 duration_seconds=0.0,
+                argv=["slither", str(target_path), "--json", "slither_out.json"],
+                timeout_sec=effective_timeout,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
             )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -193,7 +258,7 @@ class SlitherBaselineAdapter(BaselineAdapter):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
-                    timeout=timeout_sec,
+                    timeout=effective_timeout,
                 )
                 elapsed = round(time.time() - start_time, 3)
 
@@ -206,11 +271,14 @@ class SlitherBaselineAdapter(BaselineAdapter):
                     "slither_version": slither_ver,
                     "exit_code": proc.returncode,
                     "command": " ".join(cmd),
-                    "timeout_sec": timeout_sec,
+                    "argv": list(cmd),
+                    "timeout_sec": effective_timeout,
+                    "resource_budget": dict(self.resource_budget),
                     "compiler_context": "@openzeppelin/=lib/openzeppelin-contracts/ forge-std/=lib/forge-std/src/",
                     "project_context_cwd": cwd,
                     "stdout_sha256": stdout_sha256,
                     "stderr_sha256": stderr_sha256,
+                    "effective_config_hash": self.get_effective_config_hash(),
                 }
 
                 # P0 REQUIREMENT: Non-zero exit code MUST be classified as FAILED.
@@ -228,6 +296,10 @@ class SlitherBaselineAdapter(BaselineAdapter):
                         tool_metadata=base_tool_metadata,
                         raw_output={"stdout": stdout_text, "stderr": stderr_text},
                         logs=[stderr_text[:1000]] if stderr_text else [stdout_text[:1000]],
+                        argv=list(cmd),
+                        timeout_sec=effective_timeout,
+                        resource_budget=dict(self.resource_budget),
+                        effective_config_hash=self.get_effective_config_hash(),
                     )
 
                 # Returncode is 0: verify JSON output exists
@@ -243,6 +315,10 @@ class SlitherBaselineAdapter(BaselineAdapter):
                         tool_metadata=base_tool_metadata,
                         raw_output={"stdout": stdout_text, "stderr": stderr_text},
                         logs=[stderr_text[:1000]] if stderr_text else [],
+                        argv=list(cmd),
+                        timeout_sec=effective_timeout,
+                        resource_budget=dict(self.resource_budget),
+                        effective_config_hash=self.get_effective_config_hash(),
                     )
 
                 # Parse JSON
@@ -261,6 +337,10 @@ class SlitherBaselineAdapter(BaselineAdapter):
                         tool_metadata=base_tool_metadata,
                         raw_output={"stdout": stdout_text, "stderr": stderr_text},
                         logs=[stderr_text[:1000]] if stderr_text else [],
+                        argv=list(cmd),
+                        timeout_sec=effective_timeout,
+                        resource_budget=dict(self.resource_budget),
+                        effective_config_hash=self.get_effective_config_hash(),
                     )
 
                 # Validate JSON structure and expected fields
@@ -276,6 +356,10 @@ class SlitherBaselineAdapter(BaselineAdapter):
                         tool_metadata=base_tool_metadata,
                         raw_output={"stdout": stdout_text, "stderr": stderr_text},
                         logs=[stderr_text[:1000]] if stderr_text else [],
+                        argv=list(cmd),
+                        timeout_sec=effective_timeout,
+                        resource_budget=dict(self.resource_budget),
+                        effective_config_hash=self.get_effective_config_hash(),
                     )
 
                 if "success" in data and data["success"] is False:
@@ -291,6 +375,10 @@ class SlitherBaselineAdapter(BaselineAdapter):
                         tool_metadata=base_tool_metadata,
                         raw_output={"stdout": stdout_text, "stderr": stderr_text},
                         logs=[stderr_text[:1000]] if stderr_text else [],
+                        argv=list(cmd),
+                        timeout_sec=effective_timeout,
+                        resource_budget=dict(self.resource_budget),
+                        effective_config_hash=self.get_effective_config_hash(),
                     )
 
                 if "results" not in data or not isinstance(data.get("results"), dict):
@@ -305,6 +393,10 @@ class SlitherBaselineAdapter(BaselineAdapter):
                         tool_metadata=base_tool_metadata,
                         raw_output={"stdout": stdout_text, "stderr": stderr_text},
                         logs=[stderr_text[:1000]] if stderr_text else [],
+                        argv=list(cmd),
+                        timeout_sec=effective_timeout,
+                        resource_budget=dict(self.resource_budget),
+                        effective_config_hash=self.get_effective_config_hash(),
                     )
 
                 results_obj = data["results"]
@@ -320,6 +412,10 @@ class SlitherBaselineAdapter(BaselineAdapter):
                         tool_metadata=base_tool_metadata,
                         raw_output={"stdout": stdout_text, "stderr": stderr_text},
                         logs=[stderr_text[:1000]] if stderr_text else [],
+                        argv=list(cmd),
+                        timeout_sec=effective_timeout,
+                        resource_budget=dict(self.resource_budget),
+                        effective_config_hash=self.get_effective_config_hash(),
                     )
 
                 findings = []
@@ -355,7 +451,11 @@ class SlitherBaselineAdapter(BaselineAdapter):
                         "stdout": stdout_text,
                         "stderr": stderr_text,
                     },
-                    logs=[stdout_text[:1000]] if stdout_text else []
+                    logs=[stdout_text[:1000]] if stdout_text else [],
+                    argv=list(cmd),
+                    timeout_sec=effective_timeout,
+                    resource_budget=dict(self.resource_budget),
+                    effective_config_hash=self.get_effective_config_hash(),
                 )
 
             except subprocess.TimeoutExpired:
@@ -364,10 +464,14 @@ class SlitherBaselineAdapter(BaselineAdapter):
                     target_id=target.contract_id,
                     target_name=target.target_name,
                     status=ExecutionStatus.FAILED,
-                    unavailable_reason=f"Slither timed out after {timeout_sec}s",
-                    duration_seconds=float(timeout_sec),
+                    unavailable_reason=f"Slither timed out after {effective_timeout}s",
+                    duration_seconds=float(effective_timeout),
                     cost_usd=None,
-                    tool_metadata={"slither_version": slither_ver},
+                    tool_metadata={"slither_version": slither_ver, "argv": list(cmd)},
+                    argv=list(cmd),
+                    timeout_sec=effective_timeout,
+                    resource_budget=dict(self.resource_budget),
+                    effective_config_hash=self.get_effective_config_hash(),
                 )
             except Exception as e:
                 return TargetExecutionArtifact(
@@ -378,7 +482,11 @@ class SlitherBaselineAdapter(BaselineAdapter):
                     unavailable_reason=f"Slither execution exception: {e}",
                     duration_seconds=round(time.time() - start_time, 3),
                     cost_usd=None,
-                    tool_metadata={"slither_version": slither_ver},
+                    tool_metadata={"slither_version": slither_ver, "argv": list(cmd)},
+                    argv=list(cmd),
+                    timeout_sec=effective_timeout,
+                    resource_budget=dict(self.resource_budget),
+                    effective_config_hash=self.get_effective_config_hash(),
                 )
 
 
@@ -388,15 +496,26 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
     Queries configured LLM model without generating code or verifying in Foundry.
     If LLM API credentials or model provider are missing, reports UNAVAILABLE.
     """
+    PROMPT_TEMPLATE = (
+        "You are a smart contract auditor. Analyze the following Solidity contract for security vulnerabilities.\n"
+        "Contract Name: {target_name}\n"
+        "Source Code:\n{source_code}\n\n"
+        "Respond with a JSON object: {{\"vulnerability_found\": true/false, \"vulnerability_type\": \"...\", \"confidence\": \"High/Medium/Low\"}}"
+    )
+
     def __init__(
         self,
         model_id: str = "gemini-1.5-pro",
         provider: str = "gemini",
-        client_override: Any = None
+        client_override: Any = None,
+        timeout_sec: int = 60,
+        resource_budget: Optional[Dict[str, Any]] = None,
     ):
         self.model_id = model_id
         self.provider = provider
         self.client_override = client_override
+        self._timeout_sec = timeout_sec
+        self._resource_budget = resource_budget or {"timeout_sec": timeout_sec, "temperature": 0.0}
 
     @property
     def baseline_id(self) -> str:
@@ -405,6 +524,20 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
     @property
     def baseline_name(self) -> str:
         return "LLM Auditor Only (Raw Text Findings)"
+
+    def get_effective_config_hash(self) -> str:
+        data = {
+            "baseline_id": self.baseline_id,
+            "provider": self.provider,
+            "model_id": self.model_id,
+            "timeout_sec": self.timeout_sec,
+            "resource_budget": self.resource_budget,
+            "prompt_template_sha256": hashlib.sha256(self.PROMPT_TEMPLATE.encode("utf-8")).hexdigest(),
+        }
+        return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def get_default_argv(self) -> List[str]:
+        return ["invoke_llm_auditor", "--provider", self.provider, "--model", self.model_id]
 
     def check_availability(self) -> Tuple[bool, Optional[str]]:
         if self.client_override is not None:
@@ -417,6 +550,7 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
         base_dir: Optional[Path] = None,
         timeout_sec: int = 60
     ) -> TargetExecutionArtifact:
+        cmd = ["invoke_llm_auditor", "--provider", self.provider, "--model", self.model_id, "--target", target.target_name]
         is_avail, reason = self.check_availability()
         if not is_avail:
             return TargetExecutionArtifact(
@@ -425,17 +559,16 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
                 target_name=target.target_name,
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
+                argv=cmd,
+                timeout_sec=timeout_sec,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
             )
 
         start_time = time.time()
         source_code = target.load_source_code(base_dir)
-        prompt = (
-            f"You are a smart contract auditor. Analyze the following Solidity contract for security vulnerabilities.\n"
-            f"Contract Name: {target.target_name}\n"
-            f"Source Code:\n{source_code}\n\n"
-            f"Respond with a JSON object: {{\"vulnerability_found\": true/false, \"vulnerability_type\": \"...\", \"confidence\": \"High/Medium/Low\"}}"
-        )
-        prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+        prompt = self.PROMPT_TEMPLATE.format(target_name=target.target_name, source_code=source_code)
+        prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
         try:
             if self.client_override:
@@ -460,6 +593,20 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
             except Exception:
                 detected = "vulnerability" in response_text.lower() and "high" in response_text.lower()
 
+            base_tool_metadata = {
+                "provider": self.provider,
+                "model_id": self.model_id,
+                "prompt_hash": prompt_sha256,
+                "confidence": confidence,
+                "vulnerability_type": vuln_type,
+                "cost_status": "unmeasured",
+                "command": " ".join(cmd),
+                "argv": cmd,
+                "timeout_sec": timeout_sec,
+                "resource_budget": dict(self.resource_budget),
+                "effective_config_hash": self.get_effective_config_hash(),
+            }
+
             return TargetExecutionArtifact(
                 baseline_id=self.baseline_id,
                 target_id=target.contract_id,
@@ -471,16 +618,14 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
                 replayed_breaches=0,
                 duration_seconds=elapsed,
                 cost_usd=None,  # Unmeasured empirical cost
-                tool_metadata={
-                    "provider": self.provider,
-                    "model_id": self.model_id,
-                    "prompt_hash": prompt_hash,
-                    "confidence": confidence,
-                    "vulnerability_type": vuln_type,
-                    "cost_status": "unmeasured",
-                },
+                tool_metadata=base_tool_metadata,
                 raw_output={"response": response_text},
-                logs=[response_text[:300]]
+                logs=[response_text[:300]],
+                argv=cmd,
+                timeout_sec=timeout_sec,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
+                prompt_hash=prompt_sha256,
             )
 
         except Exception as e:
@@ -495,7 +640,14 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
                 tool_metadata={
                     "provider": self.provider,
                     "model_id": self.model_id,
+                    "command": " ".join(cmd),
+                    "argv": cmd,
                 },
+                argv=cmd,
+                timeout_sec=timeout_sec,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
+                prompt_hash=prompt_sha256,
             )
 
 
@@ -506,15 +658,25 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
     Candidate count is taken directly from actual generator output.
     verified_breaches and replayed_breaches are strictly 0.
     """
+    PROMPT_TEMPLATE = (
+        "Generate a Solidity ExploitModule for {target_name}.\n"
+        "Source:\n{source_code}\n\n"
+        "Respond with ```solidity contract ExploitModule {{ ... }} ```"
+    )
+
     def __init__(
         self,
         model_id: str = "gemini-1.5-pro",
         provider: str = "gemini",
-        client_override: Any = None
+        client_override: Any = None,
+        timeout_sec: int = 60,
+        resource_budget: Optional[Dict[str, Any]] = None,
     ):
         self.model_id = model_id
         self.provider = provider
         self.client_override = client_override
+        self._timeout_sec = timeout_sec
+        self._resource_budget = resource_budget or {"timeout_sec": timeout_sec, "temperature": 0.0}
 
     @property
     def baseline_id(self) -> str:
@@ -523,6 +685,20 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
     @property
     def baseline_name(self) -> str:
         return "LLM Auditor + Exploit Gen (Unverified PoC)"
+
+    def get_effective_config_hash(self) -> str:
+        data = {
+            "baseline_id": self.baseline_id,
+            "provider": self.provider,
+            "model_id": self.model_id,
+            "timeout_sec": self.timeout_sec,
+            "resource_budget": self.resource_budget,
+            "prompt_template_sha256": hashlib.sha256(self.PROMPT_TEMPLATE.encode("utf-8")).hexdigest(),
+        }
+        return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def get_default_argv(self) -> List[str]:
+        return ["invoke_llm_poc_generator", "--provider", self.provider, "--model", self.model_id]
 
     def check_availability(self) -> Tuple[bool, Optional[str]]:
         if self.client_override is not None:
@@ -535,6 +711,7 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
         base_dir: Optional[Path] = None,
         timeout_sec: int = 60
     ) -> TargetExecutionArtifact:
+        cmd = ["invoke_llm_poc_generator", "--provider", self.provider, "--model", self.model_id, "--target", target.target_name]
         is_avail, reason = self.check_availability()
         if not is_avail:
             return TargetExecutionArtifact(
@@ -543,16 +720,16 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
                 target_name=target.target_name,
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
+                argv=cmd,
+                timeout_sec=timeout_sec,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
             )
 
         start_time = time.time()
         source_code = target.load_source_code(base_dir)
-        prompt = (
-            f"Generate a Solidity ExploitModule for {target.target_name}.\n"
-            f"Source:\n{source_code}\n\n"
-            f"Respond with ```solidity contract ExploitModule {{ ... }} ```"
-        )
-        prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+        prompt = self.PROMPT_TEMPLATE.format(target_name=target.target_name, source_code=source_code)
+        prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
         try:
             if self.client_override:
@@ -567,6 +744,18 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
             candidates_generated = 1 if has_code else 0
             detected = bool(candidates_generated > 0)
 
+            base_tool_metadata = {
+                "provider": self.provider,
+                "model_id": self.model_id,
+                "prompt_hash": prompt_sha256,
+                "cost_status": "unmeasured",
+                "command": " ".join(cmd),
+                "argv": cmd,
+                "timeout_sec": timeout_sec,
+                "resource_budget": dict(self.resource_budget),
+                "effective_config_hash": self.get_effective_config_hash(),
+            }
+
             return TargetExecutionArtifact(
                 baseline_id=self.baseline_id,
                 target_id=target.contract_id,
@@ -578,14 +767,14 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
                 replayed_breaches=0,  # Unverified!
                 duration_seconds=elapsed,
                 cost_usd=None,  # Unmeasured empirical cost
-                tool_metadata={
-                    "provider": self.provider,
-                    "model_id": self.model_id,
-                    "prompt_hash": prompt_hash,
-                    "cost_status": "unmeasured",
-                },
+                tool_metadata=base_tool_metadata,
                 raw_output={"response": response_text, "generated_code_present": has_code},
-                logs=[response_text[:300]]
+                logs=[response_text[:300]],
+                argv=cmd,
+                timeout_sec=timeout_sec,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
+                prompt_hash=prompt_sha256,
             )
 
         except Exception as e:
@@ -600,7 +789,14 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
                 tool_metadata={
                     "provider": self.provider,
                     "model_id": self.model_id,
+                    "command": " ".join(cmd),
+                    "argv": cmd,
                 },
+                argv=cmd,
+                timeout_sec=timeout_sec,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
+                prompt_hash=prompt_sha256,
             )
 
 
@@ -612,15 +808,23 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
     Does NOT use hardened EVM state oracle or trusted harness anti-spoofing emitter checks.
     Separates naive test pass signal from verified invariant breach (verified_breaches is strictly 0).
     """
+    PROMPT_TEMPLATE = (
+        "Write exploit module for {target_name}:\n{source_code}"
+    )
+
     def __init__(
         self,
         model_id: str = "gemini-1.5-pro",
         provider: str = "gemini",
-        client_override: Any = None
+        client_override: Any = None,
+        timeout_sec: int = 60,
+        resource_budget: Optional[Dict[str, Any]] = None,
     ):
         self.model_id = model_id
         self.provider = provider
         self.client_override = client_override
+        self._timeout_sec = timeout_sec
+        self._resource_budget = resource_budget or {"timeout_sec": timeout_sec, "offline": True}
 
     @property
     def baseline_id(self) -> str:
@@ -629,6 +833,23 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
     @property
     def baseline_name(self) -> str:
         return "LLM + Naive Foundry (Exit Code 0 / Text Marker)"
+
+    def get_effective_config_hash(self) -> str:
+        prompt_tmpl_sha = hashlib.sha256(self.PROMPT_TEMPLATE.encode("utf-8")).hexdigest()
+        data = {
+            "baseline_id": self.baseline_id,
+            "provider": self.provider,
+            "model_id": self.model_id,
+            "forge_version": self.get_forge_version(),
+            "timeout_sec": self.timeout_sec,
+            "resource_budget": self.resource_budget,
+            "prompt_template_sha256": prompt_tmpl_sha,
+            "foundry_args": ["test", "--offline", "--json"],
+        }
+        return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def get_default_argv(self) -> List[str]:
+        return ["forge", "test", "--offline", "--json"]
 
     def get_forge_version(self) -> str:
         try:
@@ -709,8 +930,10 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
         self,
         target: TargetSpecification,
         base_dir: Optional[Path] = None,
-        timeout_sec: int = 60
+        timeout_sec: Optional[int] = None
     ) -> TargetExecutionArtifact:
+        effective_timeout = timeout_sec if timeout_sec is not None else self.timeout_sec
+        default_cmd = ["forge", "test", "--offline", "--json"]
         is_avail, reason = self.check_availability()
         if not is_avail:
             return TargetExecutionArtifact(
@@ -719,6 +942,10 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 target_name=target.target_name,
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
+                argv=default_cmd,
+                timeout_sec=effective_timeout,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
             )
 
         start_time = time.time()
@@ -726,7 +953,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
 
         try:
             source_code = target.load_source_code(base_dir)
-            prompt = f"Write exploit module for {target.target_name}:\n{source_code}"
+            prompt = self.PROMPT_TEMPLATE.format(target_name=target.target_name, source_code=source_code)
             prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
             if self.client_override:
@@ -750,7 +977,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
 
                 # Run forge
                 cmd = ["forge", "test", "--offline", "--json"]
-                config_hash = hashlib.sha256(b"forge.profile.default.offline.json").hexdigest()
+                effective_cfg_hash = self.get_effective_config_hash()
 
                 proc = subprocess.run(
                     cmd,
@@ -758,7 +985,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
-                    timeout=timeout_sec,
+                    timeout=effective_timeout,
                 )
                 elapsed = round(time.time() - start_time, 3)
 
@@ -775,8 +1002,11 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     "forge_version": forge_ver,
                     "forge_exit_code": proc.returncode,
                     "command": " ".join(cmd),
-                    "config_hash": config_hash,
-                    "timeout_sec": timeout_sec,
+                    "argv": list(cmd),
+                    "config_hash": effective_cfg_hash,
+                    "effective_config_hash": effective_cfg_hash,
+                    "timeout_sec": effective_timeout,
+                    "resource_budget": dict(self.resource_budget),
                     "stdout_sha256": stdout_sha256,
                     "stderr_sha256": stderr_sha256,
                     "prompt_sha256": prompt_sha256,
@@ -811,6 +1041,11 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                         tool_metadata=base_tool_metadata,
                         raw_output={"stdout": stdout_text, "stderr": stderr_text},
                         logs=[stderr_text[:500]] if stderr_text else [stdout_text[:500]],
+                        argv=list(cmd),
+                        timeout_sec=effective_timeout,
+                        resource_budget=dict(self.resource_budget),
+                        effective_config_hash=effective_cfg_hash,
+                        prompt_hash=prompt_sha256,
                     )
 
                 # 2. Exit code 0, but no tests were executed (e.g. empty test suite)
@@ -834,6 +1069,11 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                         tool_metadata=base_tool_metadata,
                         raw_output={"stdout": stdout_text, "stderr": stderr_text},
                         logs=[stdout_text[:500]] if stdout_text else [],
+                        argv=list(cmd),
+                        timeout_sec=effective_timeout,
+                        resource_budget=dict(self.resource_budget),
+                        effective_config_hash=effective_cfg_hash,
+                        prompt_hash=prompt_sha256,
                     )
 
                 # 3. Tests were executed and completed:
@@ -856,6 +1096,11 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     tool_metadata=base_tool_metadata,
                     raw_output={"stdout": stdout_text, "stderr": stderr_text},
                     logs=[stdout_text[:500]] if stdout_text else [],
+                    argv=list(cmd),
+                    timeout_sec=effective_timeout,
+                    resource_budget=dict(self.resource_budget),
+                    effective_config_hash=effective_cfg_hash,
+                    prompt_hash=prompt_sha256,
                 )
 
         except subprocess.TimeoutExpired:
@@ -864,14 +1109,20 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 target_id=target.contract_id,
                 target_name=target.target_name,
                 status=ExecutionStatus.FAILED,
-                unavailable_reason=f"Naive Foundry execution timed out after {timeout_sec}s",
-                duration_seconds=float(timeout_sec),
+                unavailable_reason=f"Naive Foundry execution timed out after {effective_timeout}s",
+                duration_seconds=float(effective_timeout),
                 cost_usd=None,
                 tool_metadata={
                     "provider": self.provider,
                     "model_id": self.model_id,
                     "forge_version": forge_ver,
+                    "command": " ".join(default_cmd),
+                    "argv": default_cmd,
                 },
+                argv=default_cmd,
+                timeout_sec=effective_timeout,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
             )
         except Exception as e:
             return TargetExecutionArtifact(
@@ -886,7 +1137,13 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     "provider": self.provider,
                     "model_id": self.model_id,
                     "forge_version": forge_ver,
+                    "command": " ".join(default_cmd),
+                    "argv": default_cmd,
                 },
+                argv=default_cmd,
+                timeout_sec=effective_timeout,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
             )
 
 
@@ -906,11 +1163,21 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
         self,
         model_id: str = "gemini-1.5-pro",
         provider: str = "gemini",
-        candidate_generator: Any = None
+        candidate_generator: Any = None,
+        max_hypotheses: int = 3,
+        timeout_sec: int = 120,
+        resource_budget: Optional[Dict[str, Any]] = None,
     ):
         self.model_id = model_id
         self.provider = provider
         self.candidate_generator = candidate_generator
+        self.max_hypotheses = max_hypotheses
+        self._timeout_sec = timeout_sec
+        self._resource_budget = resource_budget or {
+            "timeout_sec": timeout_sec,
+            "max_hypotheses": max_hypotheses,
+            "allowlist": ["Vault", "ERC4626Vault"],
+        }
 
     @property
     def baseline_id(self) -> str:
@@ -919,6 +1186,26 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
     @property
     def baseline_name(self) -> str:
         return "Full Aegis-RLVR (Hypothesis + Isolated Oracle + Replay)"
+
+    def get_effective_config_hash(self) -> str:
+        data = {
+            "baseline_id": self.baseline_id,
+            "provider": self.provider,
+            "model_id": self.model_id,
+            "max_hypotheses": self.max_hypotheses,
+            "timeout_sec": self.timeout_sec,
+            "resource_budget": self.resource_budget,
+            "allowlist": ["Vault", "ERC4626Vault"],
+        }
+        return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def get_default_argv(self) -> List[str]:
+        return [
+            "aegis_rlvr_pipeline",
+            f"--hypotheses={self.max_hypotheses}",
+            f"--provider={self.provider}",
+            f"--model={self.model_id}",
+        ]
 
     def check_availability(self) -> Tuple[bool, Optional[str]]:
         forge_bin = shutil.which("forge")
@@ -938,9 +1225,18 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
         self,
         target: TargetSpecification,
         base_dir: Optional[Path] = None,
-        timeout_sec: int = 60
+        timeout_sec: int = 120
     ) -> TargetExecutionArtifact:
         from sandbox.runner import TRUSTED_HARNESS_CONTRACTS
+        cmd = [
+            "aegis_rlvr_pipeline",
+            "--target",
+            target.target_name,
+            f"--hypotheses={self.max_hypotheses}",
+            f"--provider={self.provider}",
+            f"--model={self.model_id}",
+        ]
+
         if target.target_name not in TRUSTED_HARNESS_CONTRACTS:
             return TargetExecutionArtifact(
                 baseline_id=self.baseline_id,
@@ -952,6 +1248,10 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 candidates_generated=0,
                 verified_breaches=0,
                 replayed_breaches=0,
+                argv=cmd,
+                timeout_sec=timeout_sec,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
             )
 
         is_avail, reason = self.check_availability()
@@ -962,6 +1262,10 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 target_name=target.target_name,
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
+                argv=cmd,
+                timeout_sec=timeout_sec,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
             )
 
         start_time = time.time()
@@ -1019,6 +1323,20 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             if is_verified:
                 is_replayed = verify_independent_replay(target_prog, payload)
 
+            base_tool_metadata = {
+                "provider": self.provider,
+                "model_id": self.model_id,
+                "harness_verdict": exec_res.harness_verdict,
+                "harness_suite": exec_res.harness_suite,
+                "reproduced": is_replayed,
+                "cost_status": "unmeasured",
+                "command": " ".join(cmd),
+                "argv": cmd,
+                "timeout_sec": timeout_sec,
+                "resource_budget": dict(self.resource_budget),
+                "effective_config_hash": self.get_effective_config_hash(),
+            }
+
             return TargetExecutionArtifact(
                 baseline_id=self.baseline_id,
                 target_id=target.contract_id,
@@ -1030,16 +1348,13 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 replayed_breaches=1 if is_replayed else 0,
                 duration_seconds=elapsed,
                 cost_usd=None,
-                tool_metadata={
-                    "provider": self.provider,
-                    "model_id": self.model_id,
-                    "harness_verdict": exec_res.harness_verdict,
-                    "harness_suite": exec_res.harness_suite,
-                    "reproduced": is_replayed,
-                    "cost_status": "unmeasured",
-                },
+                tool_metadata=base_tool_metadata,
                 raw_output={"exit_code": exec_res.return_code, "category": exec_res.category.value if exec_res.category else None},
-                logs=[exec_res.stdout[:300]]
+                logs=[exec_res.stdout[:300]],
+                argv=cmd,
+                timeout_sec=timeout_sec,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
             )
 
         except Exception as e:
@@ -1051,6 +1366,16 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 unavailable_reason=f"Full Aegis-RLVR execution exception: {e}",
                 duration_seconds=round(time.time() - start_time, 3),
                 cost_usd=None,
+                tool_metadata={
+                    "provider": self.provider,
+                    "model_id": self.model_id,
+                    "command": " ".join(cmd),
+                    "argv": cmd,
+                },
+                argv=cmd,
+                timeout_sec=timeout_sec,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
             )
 
 
@@ -1059,9 +1384,17 @@ class SyntheticSmokeAdapter(BaselineAdapter):
     Synthetic Mock Adapter strictly used in --mode smoke for CI pipeline tests.
     Every produced artifact is explicitly labeled with is_synthetic_smoke: True.
     """
-    def __init__(self, baseline_id: str, baseline_name: str):
+    def __init__(
+        self,
+        baseline_id: str,
+        baseline_name: str,
+        timeout_sec: int = 5,
+        resource_budget: Optional[Dict[str, Any]] = None,
+    ):
         self._b_id = baseline_id
         self._b_name = baseline_name
+        self._timeout_sec = timeout_sec
+        self._resource_budget = resource_budget or {"timeout_sec": timeout_sec, "mode": "synthetic_smoke"}
 
     @property
     def baseline_id(self) -> str:
@@ -1070,6 +1403,19 @@ class SyntheticSmokeAdapter(BaselineAdapter):
     @property
     def baseline_name(self) -> str:
         return self._b_name
+
+    def get_effective_config_hash(self) -> str:
+        data = {
+            "baseline_id": self._b_id,
+            "baseline_name": self._b_name,
+            "timeout_sec": self.timeout_sec,
+            "resource_budget": self.resource_budget,
+            "is_synthetic_smoke": True,
+        }
+        return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def get_default_argv(self) -> List[str]:
+        return ["synthetic_smoke_runner", "--baseline", self._b_id]
 
     def check_availability(self) -> Tuple[bool, Optional[str]]:
         return True, None
@@ -1083,6 +1429,7 @@ class SyntheticSmokeAdapter(BaselineAdapter):
         # Deterministic synthetic simulation for CI plumbing
         tid = target.contract_id
         is_ctrl = target.difficulty == "control"
+        cmd = ["synthetic_smoke_runner", "--baseline", self._b_id, "--target", target.contract_id]
 
         detected = False
         candidates = 0
@@ -1107,6 +1454,15 @@ class SyntheticSmokeAdapter(BaselineAdapter):
             verified = 1 if detected else 0
             replayed = 1 if (detected and verified == 1) else 0
 
+        tool_metadata = {
+            "is_synthetic_smoke": True,
+            "command": " ".join(cmd),
+            "argv": cmd,
+            "timeout_sec": self.timeout_sec,
+            "resource_budget": dict(self.resource_budget),
+            "effective_config_hash": self.get_effective_config_hash(),
+        }
+
         return TargetExecutionArtifact(
             baseline_id=self._b_id,
             target_id=target.contract_id,
@@ -1118,7 +1474,11 @@ class SyntheticSmokeAdapter(BaselineAdapter):
             replayed_breaches=replayed,
             duration_seconds=0.01,
             cost_usd=None,  # No synthetic fabricated dollar amounts
-            tool_metadata={"is_synthetic_smoke": True},
+            tool_metadata=tool_metadata,
             raw_output={"mock_run": True},
-            logs=["[SYNTHETIC_SMOKE_FIXTURE]"]
+            logs=["[SYNTHETIC_SMOKE_FIXTURE]"],
+            argv=cmd,
+            timeout_sec=self.timeout_sec,
+            resource_budget=dict(self.resource_budget),
+            effective_config_hash=self.get_effective_config_hash(),
         )

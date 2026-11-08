@@ -697,9 +697,10 @@ def test_run_reproducibility_manifest_schema_and_portable_relative_paths():
     """
     P1 Requirement: Every run produces a reproducibility manifest containing:
     - git commit sha, branch, dirty status;
-    - environment versions (python, slither, forge, solc, modal);
+    - environment versions (python, slither, forge, solc, modal, packages, providers);
     - dataset version and sha256;
-    - adapter commands, hashes, and artifact files with SHA-256 and byte sizes;
+    - adapter structured argv, commands, effective config hashes, resource budgets,
+      per-target provenance, and artifact files with SHA-256 and byte sizes;
     - strictly repository-relative portable paths (no developer absolute paths).
     """
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -718,6 +719,12 @@ def test_run_reproducibility_manifest_schema_and_portable_relative_paths():
         env = manifest_summary["environment"]
         assert "python_version" in env
         assert "os_platform" in env
+        assert isinstance(env.get("package_versions"), dict)
+        assert "pydantic" in env.get("package_versions", {})
+        assert "pytest" in env.get("package_versions", {})
+        assert isinstance(env.get("provider_configs"), dict)
+        assert "gemini" in env.get("provider_configs", {})
+        assert "openai" in env.get("provider_configs", {})
 
         # Check dataset metadata
         ds = manifest_summary["dataset"]
@@ -738,6 +745,25 @@ def test_run_reproducibility_manifest_schema_and_portable_relative_paths():
         assert b1_man["cost_usd"] is None
         assert len(b1_man["artifact_files"]) == 16
 
+        # P1 REQUIREMENT: Exact structured argv, effective config hash, and resource budget
+        assert isinstance(b1_man["argv"], list)
+        assert b1_man["argv"] == ["synthetic_smoke_runner", "--baseline", "baseline_1"]
+        assert b1_man["command"] == "synthetic_smoke_runner --baseline baseline_1"
+        assert len(b1_man["config_hash"]) == 64
+        assert b1_man["timeout_sec"] == 5
+        assert isinstance(b1_man["resource_budget"], dict)
+        assert b1_man["resource_budget"]["mode"] == "synthetic_smoke"
+
+        # P1 REQUIREMENT: Per-target provenance derived directly from execution records
+        assert "per_target_provenance" in b1_man
+        assert len(b1_man["per_target_provenance"]) == 16
+        for tid, t_prov in b1_man["per_target_provenance"].items():
+            assert "argv" in t_prov
+            assert isinstance(t_prov["argv"], list)
+            assert t_prov["argv"][:3] == ["synthetic_smoke_runner", "--baseline", "baseline_1"]
+            assert t_prov["timeout_sec"] == 5
+            assert len(t_prov["effective_config_hash"]) == 64
+
         # Check that artifact file records have portable relative paths and valid SHA-256
         for art_rec in b1_man["artifact_files"]:
             assert not art_rec["relative_path"].startswith("C:")
@@ -747,14 +773,89 @@ def test_run_reproducibility_manifest_schema_and_portable_relative_paths():
             assert len(art_rec["sha256"]) == 64
 
 
+def test_manifest_derived_from_actual_execution_records_and_custom_adapter_config():
+    """
+    P1 Requirement: Proves that the reproducibility manifest dynamically and deterministically
+    derives adapter command, structured argv, timeout, and resource budget from the actual
+    execution records rather than a static hardcoded descriptor map.
+    """
+    custom_budget = {"timeout_sec": 42, "max_memory_mb": 4096, "custom_flag": "test_provenance"}
+    adapter = SyntheticSmokeAdapter(
+        baseline_id="baseline_1",
+        baseline_name="Custom Static Analysis Baseline",
+        timeout_sec=42,
+        resource_budget=custom_budget,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        rep = suite.run_benchmark(
+            mode="smoke",
+            baselines_to_run=["baseline_1"],
+            custom_adapters={"baseline_1": adapter},
+            save_results=True,
+        )
+
+        b1_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_1"]
+        assert b1_man["timeout_sec"] == 42
+        assert b1_man["resource_budget"] == custom_budget
+        assert b1_man["config_hash"] == adapter.get_effective_config_hash()
+        assert b1_man["argv"] == ["synthetic_smoke_runner", "--baseline", "baseline_1"]
+        assert b1_man["command"] == "synthetic_smoke_runner --baseline baseline_1"
+
+        # Check that all 16 target records received the custom timeout and budget
+        for tid, t_prov in b1_man["per_target_provenance"].items():
+            assert t_prov["timeout_sec"] == 42
+            assert t_prov["effective_config_hash"] == adapter.get_effective_config_hash()
+
+
+def test_real_adapter_structured_argv_and_effective_config_hash():
+    """
+    P1 Requirement: Proves that Slither and Naive Foundry adapters emit structured argv arrays,
+    actual timeout_sec, resource budgets, and deterministic effective_config_hashes in their
+    per-target artifacts.
+    """
+    target = TargetSpecification(
+        contract_id="TEST-01",
+        target_name="Vault",
+        source_file="benchmarks/targets/solidity/Vault.sol",
+        harness_file="benchmarks/targets/solidity/VaultHarness.t.sol",
+    )
+
+    # 1. Slither adapter execution artifact
+    slither_adapter = SlitherBaselineAdapter(timeout_sec=35, resource_budget={"timeout_sec": 35, "opt": True})
+    slither_art = slither_adapter.execute_target(target, base_dir=Path(__file__).parent.parent)
+    assert slither_art.argv is not None
+    assert isinstance(slither_art.argv, list)
+    assert slither_art.argv[0] == "slither"
+    assert slither_art.timeout_sec == 35
+    assert slither_art.resource_budget == {"timeout_sec": 35, "opt": True}
+    assert len(slither_art.effective_config_hash) == 64
+
+    # 2. Naive Foundry adapter execution artifact
+    foundry_adapter = LLMNaiveFoundryBaselineAdapter(
+        timeout_sec=55,
+        resource_budget={"timeout_sec": 55, "offline": True},
+        client_override=lambda p: "contract ExploitModule { function runExploit() external {} }",
+    )
+    foundry_art = foundry_adapter.execute_target(target, base_dir=Path(__file__).parent.parent)
+    assert foundry_art.argv is not None
+    assert isinstance(foundry_art.argv, list)
+    assert foundry_art.argv == ["forge", "test", "--offline", "--json"]
+    assert foundry_art.timeout_sec == 55
+    assert foundry_art.resource_budget == {"timeout_sec": 55, "offline": True}
+    assert len(foundry_art.effective_config_hash) == 64
+
+
 # =============================================================================
-# Issue #9 Real Tool Integration Tests (Strict NOT_RUN Handling)
+# Real Tool Integration Probes (Explicit NOT_RUN / SKIPPED Separation)
 # =============================================================================
 
 def test_real_slither_integration_is_not_run_when_binary_missing():
     """
-    Real Slither integration test must be cleanly marked NOT_RUN / skipped
+    Real Slither host integration probe: strictly marked NOT_RUN / skipped
     when slither binary is not available on host system PATH.
+    Does NOT count as empirical benchmark execution.
     """
     adapter = SlitherBaselineAdapter()
     is_avail, reason = adapter.check_availability()
@@ -769,8 +870,9 @@ def test_real_slither_integration_is_not_run_when_binary_missing():
 
 def test_real_foundry_integration_is_not_run_when_binary_missing():
     """
-    Real Foundry integration test must be cleanly marked NOT_RUN / skipped
-    when forge binary is not available on host system PATH.
+    Real Foundry host integration probe: strictly marked NOT_RUN / skipped
+    when forge binary is not available on host system PATH or credentials missing.
+    Does NOT count as empirical benchmark execution.
     """
     adapter = LLMNaiveFoundryBaselineAdapter()
     is_avail, reason = adapter.check_availability()

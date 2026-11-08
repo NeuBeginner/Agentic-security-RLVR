@@ -196,6 +196,23 @@ class AegisBenchmarkSuite:
         except Exception:
             pass
 
+        package_versions: Dict[str, str] = {}
+        for pkg_name in ("pydantic", "torch", "pytest", "google-genai", "openai", "slither-analyzer"):
+            try:
+                import importlib.metadata
+                package_versions[pkg_name] = importlib.metadata.version(pkg_name)
+            except Exception:
+                pass
+
+        provider_configs: Dict[str, Dict[str, Any]] = {
+            "gemini": {
+                "available": bool(os.environ.get("GEMINI_API_KEY")),
+            },
+            "openai": {
+                "available": bool(os.environ.get("OPENAI_API_KEY")),
+            },
+        }
+
         return EnvironmentManifest(
             python_version=python_ver,
             os_platform=os_plat,
@@ -204,6 +221,8 @@ class AegisBenchmarkSuite:
             solc_version=solc_ver,
             modal_version=modal_ver,
             modal_authenticated=modal_auth,
+            package_versions=package_versions,
+            provider_configs=provider_configs,
         )
 
     def _get_dataset_manifest(self, public_targets: List[TargetSpecification]) -> DatasetManifest:
@@ -335,33 +354,50 @@ class AegisBenchmarkSuite:
             )
             results[b_id] = eval_result.to_dict()
 
-            # Build per-adapter execution manifest
+            # Build per-adapter execution manifest derived directly from actual execution records
             is_avail, avail_reason = adapter.check_availability()
             adapter_duration = round(time.time() - baseline_start_time, 3)
 
-            cmd_map = {
-                "baseline_1": "slither <target_path> --json <out> --solc-remaps @openzeppelin/=lib/... forge-std/=lib/...",
-                "baseline_2": f"invoke_llm_provider('{provider}', '{model_id}', prompt)",
-                "baseline_3": f"invoke_llm_provider('{provider}', '{model_id}', prompt) -> ExploitModule",
-                "baseline_4": "forge test --offline --json",
-                "baseline_5": "HypothesisManager -> run_payload_in_sandbox -> verify_independent_replay",
-            }
-            config_hash_val = hashlib.sha256(f"{b_id}:{model_id}:{provider}".encode("utf-8")).hexdigest()
+            first_art = baseline_artifacts[0] if baseline_artifacts else None
+            actual_argv = adapter.get_default_argv()
+            actual_cmd = " ".join(actual_argv) if actual_argv else adapter.baseline_id
+            effective_config_hash = adapter.get_effective_config_hash()
+            actual_timeout_sec = adapter.timeout_sec
+            actual_resource_budget = dict(adapter.resource_budget)
+
+            per_target_provenance: Dict[str, Dict[str, Any]] = {}
+            for art in baseline_artifacts:
+                per_target_provenance[art.target_id] = {
+                    "target_name": art.target_name,
+                    "status": art.status.value,
+                    "argv": art.argv or actual_argv,
+                    "command": " ".join(art.argv) if art.argv else actual_cmd,
+                    "timeout_sec": art.timeout_sec or actual_timeout_sec,
+                    "effective_config_hash": art.effective_config_hash or effective_config_hash,
+                    "prompt_hash": art.prompt_hash,
+                    "duration_seconds": art.duration_seconds,
+                    "exit_code": art.tool_metadata.get("exit_code") or art.tool_metadata.get("forge_exit_code"),
+                    "stdout_sha256": art.tool_metadata.get("stdout_sha256"),
+                    "stderr_sha256": art.tool_metadata.get("stderr_sha256"),
+                }
 
             adapter_manifests[b_id] = AdapterRunManifest(
                 baseline_id=b_id,
                 baseline_name=adapter.baseline_name,
                 availability_status="AVAILABLE" if is_avail else "UNAVAILABLE",
                 availability_reason=avail_reason,
-                command=cmd_map.get(b_id, "unknown"),
-                timeout_sec=60,
+                command=actual_cmd,
+                argv=actual_argv,
+                timeout_sec=actual_timeout_sec,
+                resource_budget=actual_resource_budget,
                 duration_seconds=adapter_duration,
                 target_count=len(public_targets),
                 completed_targets=sum(1 for a in baseline_artifacts if a.status == ExecutionStatus.SUCCESS),
-                config_hash=config_hash_val,
+                config_hash=effective_config_hash,
                 cost_status="unmeasured",
                 cost_usd=None,
                 artifact_files=adapter_artifact_files,
+                per_target_provenance=per_target_provenance,
             )
 
         rel_artifacts_dir = None

@@ -23,12 +23,13 @@ The Aegis-RLVR benchmark framework provides an empirical evaluation across 5 dis
 - **Naive Foundry Signal Separation:**
   `LLMNaiveFoundryBaselineAdapter` parses structured Forge JSON and records a passing test as `naive_signal: True` / `detected: True`, but strictly maintains `verified_breaches == 0` and `replayed_breaches == 0`. Exit code 0 without executed tests or compilation errors are classified as unverified / failed.
 - **Run-Level Reproducibility Manifest (`reproducibility_manifest.json`):**
-  Every benchmark run records an immutable, machine-readable reproducibility manifest capturing:
+  Every benchmark run records an immutable, machine-readable reproducibility manifest derived directly from actual execution records:
   * Git commit SHA, branch, and clean/dirty working tree status;
-  * Environment metadata: Python, Slither, Forge, Solc, and Modal versions and authentication state;
-  * Benchmark dataset version, dataset file SHA-256 hash, and target IDs;
-  * Per-adapter exact execution commands, timeout limits, durations, and config hashes;
-  * Provenance for all generated artifact files with byte size and cryptographic SHA-256 hash;
+  * Host environment metadata: Python, Slither, Forge, Solc, and Modal versions, authentication state, critical package versions (`pydantic`, `torch`, `pytest`, `google-genai`, `openai`), and provider configuration;
+  * Benchmark dataset version, dataset file SHA-256 hash, target count, and target IDs;
+  * Per-adapter provenance: structured `argv` token arrays (not reconstructed display strings), actual `timeout_sec`, resource budget limits, durations, completed targets, and deterministic `config_hash` (computed across tool versions, prompt template hashes, compiler remappings, and budget);
+  * Per-target runtime execution provenance (`per_target_provenance`): target-specific `argv`, `timeout_sec`, `effective_config_hash`, `prompt_hash`, duration, exit code, and `stdout_sha256`/`stderr_sha256`;
+  * Complete inventory of generated artifact files with byte size and cryptographic SHA-256 hash;
   * Strictly repository-relative portable paths (no machine-local developer paths).
 - **Explicit Provider Routing:**
   LLM baselines require explicit provider configuration (`--provider gemini` or `--provider openai`). Credential verification checks only the requested provider, avoiding mismatched provider crashes.
@@ -116,6 +117,11 @@ benchmarks/
   "replayed_breaches": 0,
   "duration_seconds": 1.45,
   "cost_usd": null,
+  "argv": ["slither", "benchmarks/targets/solidity/Vault.sol", "--json", "slither_out.json", "--solc-remaps", "..."],
+  "timeout_sec": 60,
+  "resource_budget": {"timeout_sec": 60, "compiler_context": "..."},
+  "effective_config_hash": "a46090da71943e87ea4da5e7b68577e53518854d79b81698d1497a7f3ca95cf6",
+  "prompt_hash": null,
   "tool_metadata": {
     "slither_version": "0.10.4",
     "exit_code": 0,
