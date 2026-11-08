@@ -98,39 +98,15 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pytest pytest-cov numpy
 
-      - name: Install Foundry (bounded retries)
-        id: install-foundry
-        run: |
-          set -e
-          FOUNDRY_OK=false
-          for attempt in 1 2 3; do
-            echo "Attempt $attempt: installing Foundry toolchain..."
-            if curl -sSL https://raw.githubusercontent.com/foundry-rs/foundry/master/foundryup/install | bash; then
-              export PATH="$HOME/.foundry/bin:$PATH"
-              echo "$HOME/.foundry/bin" >> $GITHUB_PATH
-              if foundryup; then
-                echo "Foundry toolchain installed successfully on attempt $attempt"
-                FOUNDRY_OK=true
-                break
-              fi
-            fi
-            echo "Attempt $attempt failed. Backing off before retry..."
-            sleep 15
-          done
-          if [ "$FOUNDRY_OK" = "false" ]; then
-            echo "::error title=Foundry Toolchain Unavailable::GitHub Releases CDN download failed after 3 attempts with HTTP timeout. Live Foundry EVM integration is NOT_RUN / UNAVAILABLE."
-            echo "## Live Foundry EVM Integration Probe: NOT_RUN / UNAVAILABLE" >> $GITHUB_STEP_SUMMARY
-            echo "**Status**: NOT_RUN / UNAVAILABLE" >> $GITHUB_STEP_SUMMARY
-            echo "**Root Cause**: Upstream GitHub Releases asset proxy timed out (HTTP 503/504) downloading foundryup/foundry binaries." >> $GITHUB_STEP_SUMMARY
-            echo "**Scope**: Infrastructure failure. Deterministic Python and contract tests executed independently in 'tests' job." >> $GITHUB_STEP_SUMMARY
-            exit 1
-          fi
+      - name: Install Foundry Toolchain
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
 
       - name: Run Live Foundry Integration Tests
         env:
           PYTHONPATH: .
         run: |
-          export PATH="$HOME/.foundry/bin:$PATH"
           forge --version
           python -m pytest -v tests/test_real_benchmark_execution.py -k "test_real_foundry_integration" --junitxml=test-results-foundry.xml
 

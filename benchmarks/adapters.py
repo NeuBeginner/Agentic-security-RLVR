@@ -1183,7 +1183,15 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
 
     @property
     def baseline_name(self) -> str:
-        return "Full Aegis-RLVR (Hypothesis + Isolated Oracle + Replay)"
+        if self.provider == "modal_h100":
+            return "Full Aegis-RLVR (Modal H100 Reasoning + Modal CPU EVM Replay)"
+        elif self.provider == "modal_t4":
+            return "Full Aegis-RLVR (Modal T4 Reasoning + Modal CPU EVM Replay)"
+        elif self.provider == "gemini":
+            return "Full Aegis-RLVR (Gemini Frontier API Reasoning + Modal CPU EVM Replay)"
+        elif self.provider == "openai":
+            return "Full Aegis-RLVR (OpenAI API Reasoning + Modal CPU EVM Replay)"
+        return f"Full Aegis-RLVR ({self.provider} + Modal CPU EVM Replay)"
 
     def get_effective_config_hash(self) -> str:
         data = {
@@ -1367,8 +1375,36 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 try:
                     is_replayed = bool(verify_replay_remote.remote(target_dict, payload_dict))
                 except Exception as exc:
-                    is_replayed = False
-                    verdict.feedback = f"Modal replay remote exception: {type(exc).__name__}: {exc}"
+                    # Remote replay infrastructure error: MUST fail closed as FAILED, NEVER SUCCESS
+                    is_timeout = isinstance(exc, TimeoutError) or "timed out" in str(exc).lower()
+                    return TargetExecutionArtifact(
+                        baseline_id=self.baseline_id,
+                        target_id=target.contract_id,
+                        target_name=target.target_name,
+                        status=ExecutionStatus.FAILED,
+                        unavailable_reason=f"Modal remote replay {'timed out' if is_timeout else 'infrastructure failure'}: {type(exc).__name__}: {exc}",
+                        duration_seconds=round(time.time() - start_time, 3),
+                        cost_usd=None,
+                        tool_metadata={
+                            "remote_backend": "modal",
+                            "modal_app": config.APP_NAME,
+                            "modal_functions": ["verify_exploit_remote", "verify_replay_remote"],
+                            "remote_stages": {
+                                "inference": "remote_gpu" if self.provider in ("modal_h100", "modal_t4") else "api_or_local",
+                                "evm_sandbox": "modal_cpu_worker",
+                                "independent_replay": "modal_cpu_worker_failed",
+                                "trajectory_persistence": "not_eligible",
+                            },
+                            "error_type": type(exc).__name__,
+                            "stage_failed": "independent_replay",
+                            "command": " ".join(cmd),
+                            "argv": cmd,
+                        },
+                        argv=cmd,
+                        timeout_sec=timeout_sec,
+                        resource_budget=dict(self.resource_budget),
+                        effective_config_hash=self.get_effective_config_hash(),
+                    )
 
             is_verified = bool(replay_attempted and is_replayed and verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED)
             if is_verified:
@@ -1379,6 +1415,9 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 verdict.reward_score = config.REWARD_INVARIANT_BREACH
 
             # 4. Remote trajectory persistence on Modal volume
+            persisted_path = None
+            persistence_status = "not_eligible"
+            persistence_error = None
             if is_verified:
                 try:
                     from core.evaluator import create_trajectory_record
@@ -1390,14 +1429,20 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                         is_synthetic=False,
                         trainable=False
                     )
-                    record_trajectory_remote.remote(traj.model_dump())
-                except Exception:
-                    pass
+                    persisted_res = record_trajectory_remote.remote(traj.model_dump())
+                    if isinstance(persisted_res, str) and persisted_res:
+                        persisted_path = persisted_res
+                        persistence_status = "persisted"
+                    else:
+                        persistence_status = "unknown_response"
+                except Exception as p_exc:
+                    persistence_status = "failed"
+                    persistence_error = f"{type(p_exc).__name__}: {p_exc}"
 
             modal_functions = ["verify_exploit_remote"]
             if replay_attempted:
                 modal_functions.append("verify_replay_remote")
-            if is_verified:
+            if persistence_status == "persisted":
                 modal_functions.append("record_trajectory_remote")
 
             base_tool_metadata = {
@@ -1408,8 +1453,15 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     "inference": "remote_gpu" if self.provider in ("modal_h100", "modal_t4") else "api_or_local",
                     "evm_sandbox": "modal_cpu_worker",
                     "independent_replay": "modal_cpu_worker" if replay_attempted else "not_attempted",
-                    "trajectory_persistence": "modal_volume" if is_verified else "not_eligible",
+                    "trajectory_persistence": "modal_volume" if persistence_status == "persisted" else persistence_status,
                 },
+                "inference_backend": "modal_h100" if self.provider == "modal_h100" else ("modal_t4" if self.provider == "modal_t4" else f"{self.provider}_api"),
+                "evm_sandbox_backend": "modal_cpu_worker",
+                "replay_backend": "modal_cpu_worker" if replay_attempted else "not_attempted",
+                "trajectory_persistence_backend": "modal_volume" if persistence_status == "persisted" else persistence_status,
+                "persisted_trajectory_path": persisted_path,
+                "persistence_status": persistence_status,
+                "persistence_error": persistence_error,
                 "gpu_allocated": config.AUDIT_GPU_TYPE if self.provider == "modal_h100" else (config.DEV_GPU_TYPE if self.provider == "modal_t4" else None),
                 "cpu_cores": config.SANDBOX_CPU_CORES,
                 "memory_mb": config.SANDBOX_MEMORY_MB,

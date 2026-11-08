@@ -364,6 +364,165 @@ def test_full_aegis_rlvr_replay_failure_prevents_verified_breach(monkeypatch):
     assert artifact.tool_metadata["reproduced"] is False
 
 
+def test_full_aegis_rlvr_replay_infrastructure_exception_fails_closed(monkeypatch):
+    """When remote replay worker throws an exception (e.g. crash/timeout), adapter MUST return FAILED, never SUCCESS."""
+    import modal_app
+    from core.schemas import ResultCategory, ExploitPayload, AttackHypothesis
+
+    monkeypatch.setattr(FullAegisRLVRBaselineAdapter, "check_availability", lambda self: (True, None))
+
+    def mock_verify_exploit_remote(target_dict, payload_dict):
+        return {
+            "target_name": target_dict["name"],
+            "vulnerability_type": "ReentrancyDrain",
+            "poc_code": payload_dict.get("test_code", ""),
+            "category": ResultCategory.INVARIANT_BREACH_UNREPLAYED.value,
+            "reward_score": 0.50,
+            "reward_components": {"generation": 0.05, "compilation": 0.10, "verification": 0.10, "invariant": 0.25},
+            "is_verified": False,
+            "reproducible": False,
+            "feedback": "Initial invariant breach achieved, awaiting replay confirmation",
+        }
+
+    # Replay worker throws a real remote exception
+    def mock_replay_throw(target_dict, payload_dict):
+        raise ConnectionResetError("Modal replay worker connection dropped by host")
+
+    monkeypatch.setattr(modal_app.verify_exploit_remote, "remote", mock_verify_exploit_remote)
+    monkeypatch.setattr(modal_app.verify_replay_remote, "remote", mock_replay_throw)
+
+    dataset = BenchmarkDataset()
+    vault_target = [t for t in dataset.get_public_targets() if t.target_name == "Vault"][0]
+
+    dummy_payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(vulnerability_type="ReentrancyDrain", reasoning_trace="Trace", attack_vector="Drain"),
+        test_code="contract ExploitModule { function runExploit() external payable {} }",
+        format_valid=True,
+    )
+    adapter = FullAegisRLVRBaselineAdapter(candidate_generator=lambda prog: dummy_payload)
+    artifact = adapter.execute_target(vault_target)
+
+    # Invariant: Must fail closed as FAILED, never SUCCESS!
+    assert artifact.status == ExecutionStatus.FAILED
+    assert "ConnectionResetError" in (artifact.unavailable_reason or "")
+    assert "Modal remote replay infrastructure failure" in (artifact.unavailable_reason or "")
+    assert artifact.detected is False
+    assert artifact.verified_breaches == 0
+    assert artifact.replayed_breaches == 0
+    assert artifact.tool_metadata["stage_failed"] == "independent_replay"
+
+
+def test_full_aegis_rlvr_trajectory_persistence_failure_recorded_properly(monkeypatch):
+    """When trajectory persistence raises an exception, it must be recorded as failed, not reported as completed."""
+    import modal_app
+    from core.schemas import ResultCategory, ExploitPayload, AttackHypothesis
+
+    monkeypatch.setattr(FullAegisRLVRBaselineAdapter, "check_availability", lambda self: (True, None))
+
+    def mock_verify_exploit_remote(target_dict, payload_dict):
+        return {
+            "target_name": target_dict["name"],
+            "vulnerability_type": "ReentrancyDrain",
+            "poc_code": payload_dict.get("test_code", ""),
+            "category": ResultCategory.INVARIANT_BREACH_UNREPLAYED.value,
+            "reward_score": 0.50,
+            "reward_components": {"generation": 0.05, "compilation": 0.10, "verification": 0.10, "invariant": 0.25},
+            "is_verified": False,
+            "reproducible": False,
+            "feedback": "Remote EVM invariant breach achieved",
+        }
+
+    monkeypatch.setattr(modal_app.verify_exploit_remote, "remote", mock_verify_exploit_remote)
+    monkeypatch.setattr(modal_app.verify_replay_remote, "remote", lambda td, pd: True)
+
+    def mock_record_trajectory_throw(traj_dict):
+        raise OSError("Modal volume disk quota exceeded (/vol/models full)")
+
+    monkeypatch.setattr(modal_app.record_trajectory_remote, "remote", mock_record_trajectory_throw)
+
+    dataset = BenchmarkDataset()
+    vault_target = [t for t in dataset.get_public_targets() if t.target_name == "Vault"][0]
+
+    dummy_payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(vulnerability_type="ReentrancyDrain", reasoning_trace="Trace", attack_vector="Drain"),
+        test_code="contract ExploitModule { function runExploit() external payable {} }",
+        format_valid=True,
+    )
+    adapter = FullAegisRLVRBaselineAdapter(candidate_generator=lambda prog: dummy_payload)
+    artifact = adapter.execute_target(vault_target)
+
+    assert artifact.status == ExecutionStatus.SUCCESS
+    assert artifact.detected is True
+    # Crucial assertion: record_trajectory_remote must NOT be in modal_functions when it failed!
+    assert "record_trajectory_remote" not in artifact.tool_metadata["modal_functions"]
+    assert artifact.tool_metadata["remote_stages"]["trajectory_persistence"] == "failed"
+    assert artifact.tool_metadata["persistence_status"] == "failed"
+    assert "Modal volume disk quota exceeded" in artifact.tool_metadata["persistence_error"]
+    assert artifact.tool_metadata["persisted_trajectory_path"] is None
+
+
+def test_full_aegis_rlvr_trajectory_persistence_success_recorded(monkeypatch):
+    """When trajectory persistence succeeds, persisted path must be recorded and included in modal_functions."""
+    import modal_app
+    from core.schemas import ResultCategory, ExploitPayload, AttackHypothesis
+
+    monkeypatch.setattr(FullAegisRLVRBaselineAdapter, "check_availability", lambda self: (True, None))
+
+    def mock_verify_exploit_remote(target_dict, payload_dict):
+        return {
+            "target_name": target_dict["name"],
+            "vulnerability_type": "ReentrancyDrain",
+            "poc_code": payload_dict.get("test_code", ""),
+            "category": ResultCategory.INVARIANT_BREACH_UNREPLAYED.value,
+            "reward_score": 0.50,
+            "reward_components": {"generation": 0.05, "compilation": 0.10, "verification": 0.10, "invariant": 0.25},
+            "is_verified": False,
+            "reproducible": False,
+            "feedback": "Remote EVM invariant breach achieved",
+        }
+
+    monkeypatch.setattr(modal_app.verify_exploit_remote, "remote", mock_verify_exploit_remote)
+    monkeypatch.setattr(modal_app.verify_replay_remote, "remote", lambda td, pd: True)
+    monkeypatch.setattr(modal_app.record_trajectory_remote, "remote", lambda td: "/vol/models/trajectories/traj_vault_pass.json")
+
+    dataset = BenchmarkDataset()
+    vault_target = [t for t in dataset.get_public_targets() if t.target_name == "Vault"][0]
+
+    dummy_payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(vulnerability_type="ReentrancyDrain", reasoning_trace="Trace", attack_vector="Drain"),
+        test_code="contract ExploitModule { function runExploit() external payable {} }",
+        format_valid=True,
+    )
+    adapter = FullAegisRLVRBaselineAdapter(candidate_generator=lambda prog: dummy_payload)
+    artifact = adapter.execute_target(vault_target)
+
+    assert artifact.status == ExecutionStatus.SUCCESS
+    assert artifact.detected is True
+    assert "record_trajectory_remote" in artifact.tool_metadata["modal_functions"]
+    assert artifact.tool_metadata["remote_stages"]["trajectory_persistence"] == "modal_volume"
+    assert artifact.tool_metadata["persistence_status"] == "persisted"
+    assert artifact.tool_metadata["persisted_trajectory_path"] == "/vol/models/trajectories/traj_vault_pass.json"
+    assert artifact.tool_metadata["persistence_error"] is None
+
+
+def test_full_aegis_rlvr_explicit_inference_backend_naming():
+    """Verify that Baseline 5 baseline_name explicitly describes its inference backend."""
+    b_h100 = FullAegisRLVRBaselineAdapter(provider="modal_h100", model_id="Qwen3-Coder-30B-A3B-Audit")
+    assert b_h100.baseline_name == "Full Aegis-RLVR (Modal H100 Reasoning + Modal CPU EVM Replay)"
+
+    b_t4 = FullAegisRLVRBaselineAdapter(provider="modal_t4", model_id="Qwen2.5-Coder-1.5B-Instruct")
+    assert b_t4.baseline_name == "Full Aegis-RLVR (Modal T4 Reasoning + Modal CPU EVM Replay)"
+
+    b_gemini = FullAegisRLVRBaselineAdapter(provider="gemini", model_id="gemini-1.5-pro")
+    assert b_gemini.baseline_name == "Full Aegis-RLVR (Gemini Frontier API Reasoning + Modal CPU EVM Replay)"
+
+    b_openai = FullAegisRLVRBaselineAdapter(provider="openai", model_id="gpt-4o")
+    assert b_openai.baseline_name == "Full Aegis-RLVR (OpenAI API Reasoning + Modal CPU EVM Replay)"
+
+
 def test_raw_artifacts_persisted_with_provenance():
     """Verify that execution writes individual JSON artifacts per target with full provenance."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1832,10 +1991,13 @@ def test_real_slither_integration_is_not_run_when_binary_missing():
 def test_real_foundry_integration_is_not_run_when_binary_missing():
     """
     Real Foundry host integration probe: strictly marked NOT_RUN / skipped
-    when forge binary is not available on host system PATH or credentials missing.
+    when forge binary is not available on host system PATH.
+    When forge binary is present, executes real Foundry compilation and test execution.
     Does NOT count as empirical benchmark execution.
     """
-    adapter = LLMNaiveFoundryBaselineAdapter()
+    adapter = LLMNaiveFoundryBaselineAdapter(
+        client_override=lambda prompt: "contract ExploitModule { function runExploit() external {} }"
+    )
     is_avail, reason = adapter.check_availability()
     if not is_avail:
         pytest.skip(f"NOT_RUN: Real Foundry integration unavailable: {reason}")
