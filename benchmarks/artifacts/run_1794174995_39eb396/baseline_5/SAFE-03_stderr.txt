@@ -1,0 +1,8 @@
+Warning: dynamic test linking disabled for 2 files: error: file ./SecureERC4626Vault.sol not found
+Error: Compiler run failed:
+Error (6275): Source "test/SecureERC4626Vault.sol" not found: File not found. Searched the following locations: "/tmp/tmp47a4_tzt".
+ParserError: Source "test/SecureERC4626Vault.sol" not found: File not found. Searched the following locations: "/tmp/tmp47a4_tzt".
+ --> test/SecureERC4626VaultHarness.t.sol:5:1:
+  |
+5 | import {SecureERC4626Vault} from "./SecureERC4626Vault.sol";
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
