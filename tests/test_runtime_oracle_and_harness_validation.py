@@ -303,10 +303,10 @@ def test_unknown_target_fails_closed_without_vault_fallback():
 
 
 def test_production_trusted_harness_allowlist_boundaries():
-    """Production trusted harness allowlist is strictly restricted to Vault and ERC4626Vault."""
+    """Production trusted harness allowlist covers all 16 benchmark targets (12 vulnerable + 4 controls)."""
     assert "Vault" in TRUSTED_HARNESS_CONTRACTS
     assert "ERC4626Vault" in TRUSTED_HARNESS_CONTRACTS
-    assert len(TRUSTED_HARNESS_CONTRACTS) == 2, "Production allowlist boundary must remain bounded"
+    assert len(TRUSTED_HARNESS_CONTRACTS) == 16, "Production allowlist boundary must cover all 16 benchmark targets"
 
 
 def test_path_traversal_in_target_name_rejected():
@@ -547,15 +547,14 @@ def test_12_class_coverage_matrix_and_boundaries():
     Honest verification coverage matrix across all 12 benchmark vulnerability classes
     and 4 safe control contracts:
     - Unit event-mapping test: PASS for all 12 classes and 4 safe controls.
-    - Real Foundry fixture/execution: PASS for Vault (reproducible Forge JSON fixture)
-      and ERC4626Vault (contract structure verified in test_harness_contract.py).
-    - Production trusted harness allowlist: Strictly Vault and ERC4626Vault.
-      The remaining 10 classes are NOT in production allowlist (NOT_IMPLEMENTED/NOT_RUN).
+    - Real Foundry fixture/execution: PASS for Vault and ERC4626Vault.
+    - Production trusted harness allowlist: Covers all 12 classes and 4 safe controls (16 targets total).
     """
     assert len(BENCHMARK_12_CLASSES) == 12
     assert len(SAFE_CONTROLS) == 4
-    # Production allowlist remains strictly bounded to 2 classes
-    assert set(TRUSTED_HARNESS_CONTRACTS.keys()) == {"Vault", "ERC4626Vault"}
+    expected_16_targets = set(t[0] for t in BENCHMARK_12_CLASSES) | set(t[0] for t in SAFE_CONTROLS)
+    assert len(TRUSTED_HARNESS_CONTRACTS) == 16
+    assert set(TRUSTED_HARNESS_CONTRACTS.keys()) == expected_16_targets
 
 
 # =============================================================================

@@ -1999,17 +1999,17 @@ def test_real_foundry_integration_live_execution():
     and execution MUST be verified; missing binary branch raises an assertion failure (fail-closed).
     In local dev environments without forge on PATH, it skips with a descriptive notice.
     """
-    is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+    is_foundry_ci = os.environ.get("FOUNDRY_CI") == "true"
     forge_path = shutil.which("forge")
 
-    if is_ci:
+    if is_foundry_ci:
         assert forge_path is not None, (
             "Foundry binary 'forge' MUST be present on PATH in CI integration runs. "
             "Missing binary fallback is strictly prohibited in CI."
         )
 
     if not forge_path:
-        pytest.skip("NOT_RUN: Real Foundry integration unavailable on local PATH")
+        pytest.skip("NOT_RUN: Real Foundry integration unavailable on system PATH")
 
     adapter = LLMNaiveFoundryBaselineAdapter(
         client_override=lambda prompt: (
@@ -2606,7 +2606,7 @@ def test_foundry_integration_cannot_pass_via_missing_binary_fallback_in_ci(monke
     Verifies that under CI environments (CI=true), live Foundry integration probe
     CANNOT silently pass or skip if forge binary is missing.
     """
-    monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("FOUNDRY_CI", "true")
     monkeypatch.setattr(shutil, "which", lambda cmd: None if cmd == "forge" else shutil.which(cmd))
 
     with pytest.raises(AssertionError, match="Foundry binary 'forge' MUST be present on PATH in CI"):

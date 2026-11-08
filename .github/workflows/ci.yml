@@ -106,6 +106,7 @@ jobs:
       - name: Run Live Foundry Integration Tests
         env:
           PYTHONPATH: .
+          FOUNDRY_CI: "true"
         run: |
           forge --version
           python -m pytest -v tests/test_real_benchmark_execution.py -k "test_real_foundry_integration" --junitxml=test-results-foundry.xml
