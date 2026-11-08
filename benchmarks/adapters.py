@@ -41,6 +41,7 @@ def ensure_modal_app_context():
     Ensures that an active Modal app context exists when invoking remote Modal functions
     from standalone Python scripts or runner entrypoints.
     Handles sequential invocations and nested context entry without stale app_id collisions.
+    Fails safely as a no-op when running without Modal credentials (e.g. CI runners).
     """
     global _MODAL_APP_RUNNING
     if _MODAL_APP_RUNNING:
@@ -50,6 +51,17 @@ def ensure_modal_app_context():
         yield
         return
     try:
+        import modal
+        token_id = os.environ.get("MODAL_TOKEN_ID")
+        if not token_id:
+            try:
+                token_id = modal.config.config.get("token_id")
+            except Exception:
+                token_id = None
+        if not token_id:
+            yield
+            return
+
         from modal_app import app
         ctx = app.run()
     except Exception:

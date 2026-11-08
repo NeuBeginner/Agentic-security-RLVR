@@ -348,41 +348,39 @@ class AegisBenchmarkSuite:
                 b_dir = run_artifacts_dir / b_id
                 b_dir.mkdir(parents=True, exist_ok=True)
 
-            from benchmarks.adapters import ensure_modal_app_context
-            with ensure_modal_app_context():
-                for target in public_targets:
-                    # Adapters receive ONLY public TargetSpecification (zero ground-truth leakage)
-                    artifact = adapter.execute_target(target, base_dir=base_dir)
-                    baseline_artifacts.append(artifact)
+            for target in public_targets:
+                # Adapters receive ONLY public TargetSpecification (zero ground-truth leakage)
+                artifact = adapter.execute_target(target, base_dir=base_dir)
+                baseline_artifacts.append(artifact)
 
-                    # Save per-target JSON artifact
-                    if save_results:
-                        art_file = run_artifacts_dir / b_id / f"{target.contract_id}.json"
-                        art_dict = artifact.to_dict()
-                        with open(art_file, "w", encoding="utf-8") as f:
-                            json.dump(art_dict, f, indent=2)
+                # Save per-target JSON artifact
+                if save_results:
+                    art_file = run_artifacts_dir / b_id / f"{target.contract_id}.json"
+                    art_dict = artifact.to_dict()
+                    with open(art_file, "w", encoding="utf-8") as f:
+                        json.dump(art_dict, f, indent=2)
 
-                        # Track file provenance with cryptographic hash and byte size
+                    # Track file provenance with cryptographic hash and byte size
+                    try:
+                        art_bytes = art_file.read_bytes()
+                        art_sha = hashlib.sha256(art_bytes).hexdigest()
                         try:
-                            art_bytes = art_file.read_bytes()
-                            art_sha = hashlib.sha256(art_bytes).hexdigest()
+                            rel_art_path = str(art_file.relative_to(base_dir)).replace("\\", "/")
+                        except ValueError:
                             try:
-                                rel_art_path = str(art_file.relative_to(base_dir)).replace("\\", "/")
+                                rel_art_path = str(art_file.relative_to(self.artifacts_base_dir)).replace("\\", "/")
                             except ValueError:
-                                try:
-                                    rel_art_path = str(art_file.relative_to(self.artifacts_base_dir)).replace("\\", "/")
-                                except ValueError:
-                                    rel_art_path = f"{run_id}/{b_id}/{art_file.name}"
+                                rel_art_path = f"{run_id}/{b_id}/{art_file.name}"
 
-                            adapter_artifact_files.append(
-                                ArtifactFileRecord(
-                                    relative_path=rel_art_path,
-                                    size_bytes=len(art_bytes),
-                                    sha256=art_sha,
-                                )
+                        adapter_artifact_files.append(
+                            ArtifactFileRecord(
+                                relative_path=rel_art_path,
+                                size_bytes=len(art_bytes),
+                                sha256=art_sha,
                             )
-                        except Exception as err:
-                            pass
+                        )
+                    except Exception as err:
+                        pass
 
             # Post-run evaluation consuming artifacts and private GroundTruth
             eval_result: BaselineEvaluationResult = evaluate_baseline_run(

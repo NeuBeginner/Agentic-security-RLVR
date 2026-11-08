@@ -2175,6 +2175,9 @@ def test_full_aegis_rlvr_modal_h100_records_audit_agent_function_and_token_prove
                 "prompt_text": "analysis prompt",
             }
 
+    from contextlib import nullcontext
+    monkeypatch.setattr("benchmarks.adapters.ensure_modal_app_context", lambda: nullcontext())
+
     import modal_app
     class MockProdAgent:
         generate_solidity_exploit = RemoteMock()
