@@ -1491,6 +1491,48 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 verdict = VerificationVerdict(**verdict_dict)
                 elapsed = round(time.time() - start_time, 3)
 
+                # 2b. Closed-loop refinement if candidate failed compilation or reverted without breach
+                max_refinements = 1
+                refinements_done = 0
+                while (
+                    verdict.category not in (ResultCategory.INVARIANT_BREACH_UNREPLAYED, ResultCategory.EXPLOIT_CONFIRMED)
+                    and refinements_done < max_refinements
+                    and payload is not None
+                    and payload.test_code
+                    and self.candidate_generator is None
+                    and self.provider in ("modal_h100", "modal_t4")
+                ):
+                    refinements_done += 1
+                    err_trace = verdict.feedback or verdict.stderr or "Exploit candidate failed to breach invariant."
+                    try:
+                        if self.provider == "modal_h100":
+                            from modal_app import ProductionAuditAgent
+                            ref_agent = ProductionAuditAgent()
+                            rp_dict = ref_agent.refine_solidity_exploit.remote(
+                                target_dict,
+                                payload.test_code,
+                                err_trace,
+                            )
+                        else:
+                            from modal_app import DevReasoningAgent
+                            ref_agent = DevReasoningAgent()
+                            rp_dict = ref_agent.refine_solidity_exploit.remote(
+                                target_dict,
+                                payload.test_code,
+                                err_trace,
+                            )
+                        ref_payload = ExploitPayload(**rp_dict)
+                        if ref_payload and ref_payload.test_code and len(ref_payload.test_code.strip()) > 20:
+                            candidates_count += 1
+                            payload = ref_payload
+                            payload_dict = payload.model_dump()
+                            verdict_dict = verify_exploit_remote.remote(target_dict, payload_dict)
+                            verdict = VerificationVerdict(**verdict_dict)
+                        else:
+                            break
+                    except Exception:
+                        break
+
                 # 3. Independent remote replay verification on fresh Modal container
                 is_replayed = False
                 replay_attempted = False

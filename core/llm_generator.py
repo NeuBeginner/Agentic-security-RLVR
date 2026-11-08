@@ -137,11 +137,36 @@ Instructions:
 2. Synthesize the complete `ExploitModule` contract.
 3. CRITICAL: The contract declaration MUST be `contract ExploitModule` (do not use any other name).
 4. Import the target: `import {{{target.name}}} from "../src/{target.name}.sol";` (do not redefine it).
-5. Store the target contract reference: `{target.name} public targetContract = {target.name}(payable(_target));`.
+5. Declare the target variable `{target.name} public targetContract;` and initialize it in the constructor:
+   `constructor(address _target) payable {{ targetContract = {target.name}(payable(_target)); }}`
 6. Implement `function runExploit() external payable` that executes transactions with the target to breach the invariant.
-7. If necessary for callbacks or reentrancy, implement `receive() external payable` or other fallback handlers.
+7. If attacking via callbacks or reentrancy, implement `receive() external payable` or other fallback handlers.
 8. Strictly unprivileged: Do NOT use Foundry cheatcodes (vm.*) or test harnesses.
 9. Return clean, compilable Solidity code in a single ```solidity ... ``` block.
+
+Standard structure:
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {{{target.name}}} from "../src/{target.name}.sol";
+
+contract ExploitModule {{
+    {target.name} public targetContract;
+
+    constructor(address _target) payable {{
+        targetContract = {target.name}(payable(_target));
+    }}
+
+    function runExploit() external payable {{
+        // Exploit transactions here
+    }}
+
+    receive() external payable {{
+        // Reentrancy / callback handling if applicable
+    }}
+}}
+```
 """
 
 
