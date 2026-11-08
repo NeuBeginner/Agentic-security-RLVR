@@ -748,9 +748,11 @@ def test_run_reproducibility_manifest_schema_and_portable_relative_paths():
         assert len(b1_man["artifact_files"]) == 16
 
         # P1 REQUIREMENT: Exact structured argv, effective config hash, and resource budget
-        assert isinstance(b1_man["argv"], list)
-        assert b1_man["argv"] == ["synthetic_smoke_runner", "--baseline", "baseline_1"]
-        assert b1_man["command"] == "synthetic_smoke_runner --baseline baseline_1"
+        # Adapter-level actual argv/command are strictly None; templates are in planned_argv/command
+        assert b1_man["argv"] is None
+        assert b1_man["command"] is None
+        assert b1_man["planned_argv"] == ["synthetic_smoke_runner", "--baseline", "baseline_1"]
+        assert b1_man["planned_command"] == "synthetic_smoke_runner --baseline baseline_1"
         assert len(b1_man["config_hash"]) == 64
         assert b1_man["timeout_sec"] == 5
         assert isinstance(b1_man["resource_budget"], dict)
@@ -802,8 +804,10 @@ def test_manifest_derived_from_actual_execution_records_and_custom_adapter_confi
         assert b1_man["timeout_sec"] == 42
         assert b1_man["resource_budget"] == custom_budget
         assert b1_man["config_hash"] == adapter.get_effective_config_hash()
-        assert b1_man["argv"] == ["synthetic_smoke_runner", "--baseline", "baseline_1"]
-        assert b1_man["command"] == "synthetic_smoke_runner --baseline baseline_1"
+        assert b1_man["argv"] is None
+        assert b1_man["command"] is None
+        assert b1_man["planned_argv"] == ["synthetic_smoke_runner", "--baseline", "baseline_1"]
+        assert b1_man["planned_command"] == "synthetic_smoke_runner --baseline baseline_1"
 
         # Check that all 16 target records received the custom timeout and budget
         for tid, t_prov in b1_man["per_target_provenance"].items():
@@ -829,9 +833,9 @@ def test_real_adapter_structured_argv_and_effective_config_hash(monkeypatch):
     slither_unavail_art = slither_adapter.execute_target(target, base_dir=Path(__file__).parent.parent)
     assert slither_unavail_art.status == ExecutionStatus.UNAVAILABLE
     assert slither_unavail_art.argv is None
-    assert slither_unavail_art.timeout_sec == 35
-    assert slither_unavail_art.resource_budget == {"timeout_sec": 35, "opt": True}
-    assert len(slither_unavail_art.effective_config_hash) == 64
+    assert slither_unavail_art.timeout_sec is None
+    assert slither_unavail_art.resource_budget == {}
+    assert slither_unavail_art.effective_config_hash is None
 
     # 2. Slither adapter executed state: argv must be list of tokens passed to subprocess (P1-C)
     monkeypatch.setattr(slither_adapter, "check_availability", lambda: (True, None))
@@ -938,12 +942,15 @@ def test_manifest_uninvoked_and_unavailable_targets_have_null_actual_argv_and_co
         assert b1_man["planned_argv"] == adapter.get_default_argv()
         assert b1_man["planned_command"] == " ".join(adapter.get_default_argv())
 
-        # Target level: all targets have null actual argv, null command, null exit code
+        # Target level: all targets have null actual argv, null command, null exit code, null provenance
         for tid, t_prov in b1_man["per_target_provenance"].items():
             assert t_prov["status"] == "UNAVAILABLE"
             assert t_prov["argv"] is None
             assert t_prov["command"] is None
             assert t_prov["exit_code"] is None
+            assert t_prov["timeout_sec"] is None
+            assert t_prov["resource_budget"] is None
+            assert t_prov["effective_config_hash"] is None
             assert "missing on host" in (t_prov["unavailable_reason"] or "")
 
 
@@ -1049,8 +1056,8 @@ def test_manifest_executed_subprocess_matches_exact_invocation_record_and_custom
         assert b1_man["timeout_sec"] == 73
         assert b1_man["resource_budget"] == custom_budget
         assert b1_man["config_hash"] == adapter.get_effective_config_hash()
-        assert b1_man["argv"] == custom_tokens
-        assert b1_man["command"] == " ".join(custom_tokens)
+        assert b1_man["argv"] is None
+        assert b1_man["command"] is None
         assert b1_man["planned_argv"] == custom_tokens
         assert b1_man["planned_command"] == " ".join(custom_tokens)
 
@@ -1066,6 +1073,134 @@ def test_manifest_executed_subprocess_matches_exact_invocation_record_and_custom
             expected_stdout_sha = hashlib.sha256(f"executed target {tid}".encode("utf-8")).hexdigest()
             assert t_prov["stdout_sha256"] == expected_stdout_sha
             assert t_prov["stderr_sha256"] == hashlib.sha256(b"").hexdigest()
+
+
+def test_adapter_level_manifest_never_labels_template_as_actual_command():
+    """
+    P1-B Acceptance Gate: Proves that for a subprocess adapter whose actual per-target
+    argv differs from its default planned template (e.g. contains real file paths instead of
+    <target_path>), the adapter-level actual argv and command remain strictly None, and no
+    adapter-level field labels the template as actual execution evidence.
+    """
+    template_tokens = ["slither", "<target_path>", "--json", "slither_out.json"]
+
+    class MockDifferingSubprocessAdapter(BaselineAdapter):
+        @property
+        def baseline_id(self):
+            return "baseline_1"
+        @property
+        def baseline_name(self):
+            return "Mock Differing Adapter"
+        def check_availability(self):
+            return True, None
+        def get_default_argv(self):
+            return list(template_tokens)
+        def get_effective_config_hash(self):
+            return hashlib.sha256(b"differing_mock_config").hexdigest()
+        def execute_target(self, target, base_dir=None, timeout_sec=None):
+            # Target-specific argv that differs completely from template
+            target_argv = ["slither", f"contracts/{target.contract_id}.sol", "--json", f"/tmp/{target.contract_id}.json"]
+            return TargetExecutionArtifact(
+                baseline_id=self.baseline_id,
+                target_id=target.contract_id,
+                target_name=target.target_name,
+                status=ExecutionStatus.SUCCESS,
+                detected=True,
+                argv=target_argv,
+                timeout_sec=45,
+                resource_budget={"timeout_sec": 45},
+                effective_config_hash=self.get_effective_config_hash(),
+                tool_metadata={"exit_code": 0, "stdout_sha256": "abc", "stderr_sha256": "def"},
+            )
+
+    adapter = MockDifferingSubprocessAdapter()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        rep = suite.run_benchmark(
+            mode="smoke",
+            baselines_to_run=["baseline_1"],
+            custom_adapters={"baseline_1": adapter},
+            save_results=True,
+        )
+
+        b1_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_1"]
+
+        # 1. Assert no adapter-level field labels the template as actual
+        assert b1_man["argv"] is None
+        assert b1_man["command"] is None
+
+        # 2. Assert planned template is preserved under planned_argv / planned_command
+        assert b1_man["planned_argv"] == template_tokens
+        assert b1_man["planned_command"] == "slither <target_path> --json slither_out.json"
+
+        # 3. Assert per-target records contain the distinct actual executed argv
+        for tid, t_prov in b1_man["per_target_provenance"].items():
+            expected_target_argv = ["slither", f"contracts/{tid}.sol", "--json", f"/tmp/{tid}.json"]
+            assert t_prov["argv"] == expected_target_argv
+            assert t_prov["command"] == " ".join(expected_target_argv)
+            assert "<target_path>" not in t_prov["argv"]
+
+
+def test_manifest_uninvoked_artifacts_do_not_silently_fall_back_to_adapter_defaults():
+    """
+    P1-B & P1-C Requirement: Proves that when an artifact lacks invocation records (e.g. timeout,
+    resource budget, config hash, exit code), the manifest per_target_provenance preserves null/None
+    and does NOT silently fall back to adapter-level configured defaults.
+    """
+    class SparseMockAdapter(BaselineAdapter):
+        @property
+        def baseline_id(self):
+            return "baseline_1"
+        @property
+        def baseline_name(self):
+            return "Sparse Mock Adapter"
+        @property
+        def timeout_sec(self):
+            return 99  # Should NOT leak into uninvoked targets
+        @property
+        def resource_budget(self):
+            return {"timeout_sec": 99, "adapter_level_budget": True}  # Should NOT leak
+        def check_availability(self):
+            return True, None
+        def get_default_argv(self):
+            return ["sparse_runner"]
+        def get_effective_config_hash(self):
+            return "adapter_level_config_hash_should_not_leak"
+        def execute_target(self, target, base_dir=None, timeout_sec=None):
+            # Target artifact deliberately lacks invocation records
+            return TargetExecutionArtifact(
+                baseline_id=self.baseline_id,
+                target_id=target.contract_id,
+                target_name=target.target_name,
+                status=ExecutionStatus.UNAVAILABLE,
+                unavailable_reason="Uninvoked sparse test",
+                argv=None,
+                timeout_sec=None,  # No invocation timeout
+                resource_budget={},  # Empty resource budget
+                effective_config_hash=None,  # No config hash
+                tool_metadata={},  # No exit code or hashes
+            )
+
+    adapter = SparseMockAdapter()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        rep = suite.run_benchmark(
+            mode="smoke",
+            baselines_to_run=["baseline_1"],
+            custom_adapters={"baseline_1": adapter},
+            save_results=True,
+        )
+
+        b1_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_1"]
+        for tid, t_prov in b1_man["per_target_provenance"].items():
+            assert t_prov["status"] == "UNAVAILABLE"
+            assert t_prov["argv"] is None
+            assert t_prov["command"] is None
+            assert t_prov["exit_code"] is None
+            # Invariant: Must NOT fall back to adapter.timeout_sec, adapter.resource_budget, or adapter.config_hash
+            assert t_prov["timeout_sec"] is None
+            assert t_prov["resource_budget"] is None
+            assert t_prov["effective_config_hash"] is None
 
 
 # =============================================================================

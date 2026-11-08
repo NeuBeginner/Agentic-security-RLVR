@@ -105,9 +105,10 @@ benchmarks/
 
 ### Reproducibility Manifest Provenance
 The reproducibility manifest (`reproducibility_manifest_summary`) separates actual execution evidence from planned invocation metadata:
-- **Actual execution evidence (`argv`, `command`, `exit_code`, `stdout_sha256`, `stderr_sha256`)**: Recorded only from actual runtime invocation records. If a target or adapter was `UNAVAILABLE` or uninvoked, `argv`, `command`, and `exit_code` remain `null`. Process exit codes preserve valid integer `0` for successful exits.
+- **Adapter-level evidence (`planned_argv`, `planned_command`)**: Stores the adapter's planned command template (e.g., `["slither", "<target_path>", ...]`). Because adapters execute multiple distinct targets with distinct target files and arguments, adapter-level actual `argv` and `command` remain strictly `null`.
+- **Per-target actual execution evidence (`per_target_provenance`)**: Records exact per-target invocation tokens (`argv`), stringified commands (`command`), integer exit codes (`exit_code`, preserving integer `0`), stdout/stderr SHA-256 hashes, applied timeouts, and effective config hashes.
+- **Strict absence of silent fallbacks**: When a target was `UNAVAILABLE` or uninvoked, its `argv`, `command`, `exit_code`, `timeout_sec`, `resource_budget`, and `effective_config_hash` remain strictly `null`/empty, preserving uninvoked state without injecting adapter-level configured defaults.
 - **Provider API provenance (`provider`, `model_id`, `prompt_hash`, `effective_config_hash`)**: Direct LLM provider calls record provider/model IDs and prompt hashes without fabricating shell commands (`argv` and `command` remain `null`).
-- **Planned invocation template (`planned_argv`, `planned_command`)**: Stores the adapter's intended invocation template separately from actual execution evidence.
 
 ### Artifact Schema (`TargetExecutionArtifact`)
 ```json

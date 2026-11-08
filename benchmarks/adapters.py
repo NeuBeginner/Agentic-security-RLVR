@@ -210,9 +210,9 @@ class SlitherBaselineAdapter(BaselineAdapter):
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
                 argv=None,
-                timeout_sec=effective_timeout,
-                resource_budget=dict(self.resource_budget),
-                effective_config_hash=self.get_effective_config_hash(),
+                timeout_sec=None,
+                resource_budget={},
+                effective_config_hash=None,
             )
 
         start_time = time.time()
@@ -232,9 +232,9 @@ class SlitherBaselineAdapter(BaselineAdapter):
                 unavailable_reason=f"Target source file {target_path} not found",
                 duration_seconds=0.0,
                 argv=None,
-                timeout_sec=effective_timeout,
-                resource_budget=dict(self.resource_budget),
-                effective_config_hash=self.get_effective_config_hash(),
+                timeout_sec=None,
+                resource_budget={},
+                effective_config_hash=None,
             )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -559,9 +559,9 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
                 argv=None,
-                timeout_sec=timeout_sec,
-                resource_budget=dict(self.resource_budget),
-                effective_config_hash=self.get_effective_config_hash(),
+                timeout_sec=None,
+                resource_budget={},
+                effective_config_hash=None,
             )
 
         start_time = time.time()
@@ -720,9 +720,9 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
                 argv=None,
-                timeout_sec=timeout_sec,
-                resource_budget=dict(self.resource_budget),
-                effective_config_hash=self.get_effective_config_hash(),
+                timeout_sec=None,
+                resource_budget={},
+                effective_config_hash=None,
             )
 
         start_time = time.time()
@@ -942,9 +942,9 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
                 argv=None,
-                timeout_sec=effective_timeout,
-                resource_budget=dict(self.resource_budget),
-                effective_config_hash=self.get_effective_config_hash(),
+                timeout_sec=None,
+                resource_budget={},
+                effective_config_hash=None,
             )
 
         start_time = time.time()
@@ -1247,9 +1247,9 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 verified_breaches=0,
                 replayed_breaches=0,
                 argv=None,
-                timeout_sec=timeout_sec,
-                resource_budget=dict(self.resource_budget),
-                effective_config_hash=self.get_effective_config_hash(),
+                timeout_sec=None,
+                resource_budget={},
+                effective_config_hash=None,
             )
 
         is_avail, reason = self.check_availability()
@@ -1261,9 +1261,9 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
                 argv=None,
-                timeout_sec=timeout_sec,
-                resource_budget=dict(self.resource_budget),
-                effective_config_hash=self.get_effective_config_hash(),
+                timeout_sec=None,
+                resource_budget={},
+                effective_config_hash=None,
             )
 
         start_time = time.time()

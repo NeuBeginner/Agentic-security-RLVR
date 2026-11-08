@@ -358,17 +358,20 @@ class AegisBenchmarkSuite:
             is_avail, avail_reason = adapter.check_availability()
             adapter_duration = round(time.time() - baseline_start_time, 3)
 
-            # Determine whether subprocess execution actually occurred
-            has_executed_subprocess = any(art.argv is not None for art in baseline_artifacts)
-
-            # Planned command/argv (template/intent) vs actual execution evidence
+            # Planned command/argv (template/intent)
             default_argv = adapter.get_default_argv()
             planned_argv = list(default_argv) if default_argv else None
             planned_cmd = " ".join(planned_argv) if planned_argv else None
 
-            # Actual adapter-level command and argv (None if no subprocess was invoked)
-            actual_adapter_argv = list(default_argv) if (has_executed_subprocess and default_argv) else None
-            actual_adapter_cmd = " ".join(actual_adapter_argv) if actual_adapter_argv else None
+            # Adapter-level actual execution evidence:
+            # Per Issue #10 Section 7 & reviewer acceptance criteria:
+            # An adapter executes multiple distinct targets with distinct paths and argvs.
+            # Adapter-level actual argv and command MUST NOT be populated from get_default_argv()
+            # (which contains template placeholders like <target_path>).
+            # Adapter-level actual argv and command are strictly None.
+            # Exact invocation records are captured and preserved exclusively in per_target_provenance.
+            actual_adapter_argv = None
+            actual_adapter_cmd = None
 
             effective_config_hash = adapter.get_effective_config_hash()
             actual_timeout_sec = adapter.timeout_sec
@@ -403,8 +406,8 @@ class AegisBenchmarkSuite:
                     "provider": provider_name,
                     "model_id": model_id,
                     "timeout_sec": art.timeout_sec,
-                    "resource_budget": dict(art.resource_budget) if art.resource_budget else actual_resource_budget,
-                    "effective_config_hash": art.effective_config_hash or effective_config_hash,
+                    "resource_budget": dict(art.resource_budget) if art.resource_budget else None,
+                    "effective_config_hash": art.effective_config_hash,
                     "prompt_hash": art.prompt_hash,
                     "duration_seconds": art.duration_seconds,
                     "exit_code": target_exit_code,
