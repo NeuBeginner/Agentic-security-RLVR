@@ -103,6 +103,12 @@ benchmarks/
         └── baseline_5/
 ```
 
+### Reproducibility Manifest Provenance
+The reproducibility manifest (`reproducibility_manifest_summary`) separates actual execution evidence from planned invocation metadata:
+- **Actual execution evidence (`argv`, `command`, `exit_code`, `stdout_sha256`, `stderr_sha256`)**: Recorded only from actual runtime invocation records. If a target or adapter was `UNAVAILABLE` or uninvoked, `argv`, `command`, and `exit_code` remain `null`. Process exit codes preserve valid integer `0` for successful exits.
+- **Provider API provenance (`provider`, `model_id`, `prompt_hash`, `effective_config_hash`)**: Direct LLM provider calls record provider/model IDs and prompt hashes without fabricating shell commands (`argv` and `command` remain `null`).
+- **Planned invocation template (`planned_argv`, `planned_command`)**: Stores the adapter's intended invocation template separately from actual execution evidence.
+
 ### Artifact Schema (`TargetExecutionArtifact`)
 ```json
 {

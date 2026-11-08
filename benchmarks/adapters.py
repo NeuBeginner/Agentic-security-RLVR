@@ -106,9 +106,9 @@ class BaselineAdapter(ABC):
         }
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
-    def get_default_argv(self) -> List[str]:
-        """Returns structured default invocation command line tokens."""
-        return [self.baseline_id]
+    def get_default_argv(self) -> Optional[List[str]]:
+        """Returns structured default invocation command line tokens, or None if not subprocess-based."""
+        return None
 
     @abstractmethod
     def check_availability(self) -> Tuple[bool, Optional[str]]:
@@ -203,14 +203,13 @@ class SlitherBaselineAdapter(BaselineAdapter):
         effective_timeout = timeout_sec if timeout_sec is not None else self.timeout_sec
         is_avail, reason = self.check_availability()
         if not is_avail:
-            cmd = ["slither", target.source_file, "--json", "slither_out.json"]
             return TargetExecutionArtifact(
                 baseline_id=self.baseline_id,
                 target_id=target.contract_id,
                 target_name=target.target_name,
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
-                argv=cmd,
+                argv=None,
                 timeout_sec=effective_timeout,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -232,7 +231,7 @@ class SlitherBaselineAdapter(BaselineAdapter):
                 status=ExecutionStatus.FAILED,
                 unavailable_reason=f"Target source file {target_path} not found",
                 duration_seconds=0.0,
-                argv=["slither", str(target_path), "--json", "slither_out.json"],
+                argv=None,
                 timeout_sec=effective_timeout,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -536,8 +535,9 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
         }
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
-    def get_default_argv(self) -> List[str]:
-        return ["invoke_llm_auditor", "--provider", self.provider, "--model", self.model_id]
+    def get_default_argv(self) -> Optional[List[str]]:
+        """Returns None because LLM auditor is a direct provider API invocation, not a subprocess."""
+        return None
 
     def check_availability(self) -> Tuple[bool, Optional[str]]:
         if self.client_override is not None:
@@ -550,7 +550,6 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
         base_dir: Optional[Path] = None,
         timeout_sec: int = 60
     ) -> TargetExecutionArtifact:
-        cmd = ["invoke_llm_auditor", "--provider", self.provider, "--model", self.model_id, "--target", target.target_name]
         is_avail, reason = self.check_availability()
         if not is_avail:
             return TargetExecutionArtifact(
@@ -559,7 +558,7 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
                 target_name=target.target_name,
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
-                argv=cmd,
+                argv=None,
                 timeout_sec=timeout_sec,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -597,14 +596,14 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
                 "provider": self.provider,
                 "model_id": self.model_id,
                 "prompt_hash": prompt_sha256,
+                "prompt_sha256": prompt_sha256,
                 "confidence": confidence,
                 "vulnerability_type": vuln_type,
                 "cost_status": "unmeasured",
-                "command": " ".join(cmd),
-                "argv": cmd,
                 "timeout_sec": timeout_sec,
                 "resource_budget": dict(self.resource_budget),
                 "effective_config_hash": self.get_effective_config_hash(),
+                "exit_code": None,
             }
 
             return TargetExecutionArtifact(
@@ -621,7 +620,7 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
                 tool_metadata=base_tool_metadata,
                 raw_output={"response": response_text},
                 logs=[response_text[:300]],
-                argv=cmd,
+                argv=None,
                 timeout_sec=timeout_sec,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -640,10 +639,10 @@ class LLMAuditorBaselineAdapter(BaselineAdapter):
                 tool_metadata={
                     "provider": self.provider,
                     "model_id": self.model_id,
-                    "command": " ".join(cmd),
-                    "argv": cmd,
+                    "prompt_hash": prompt_sha256,
+                    "exit_code": None,
                 },
-                argv=cmd,
+                argv=None,
                 timeout_sec=timeout_sec,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -697,8 +696,9 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
         }
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
-    def get_default_argv(self) -> List[str]:
-        return ["invoke_llm_poc_generator", "--provider", self.provider, "--model", self.model_id]
+    def get_default_argv(self) -> Optional[List[str]]:
+        """Returns None because LLM unverified PoC generation is a direct provider API invocation, not a subprocess."""
+        return None
 
     def check_availability(self) -> Tuple[bool, Optional[str]]:
         if self.client_override is not None:
@@ -711,7 +711,6 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
         base_dir: Optional[Path] = None,
         timeout_sec: int = 60
     ) -> TargetExecutionArtifact:
-        cmd = ["invoke_llm_poc_generator", "--provider", self.provider, "--model", self.model_id, "--target", target.target_name]
         is_avail, reason = self.check_availability()
         if not is_avail:
             return TargetExecutionArtifact(
@@ -720,7 +719,7 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
                 target_name=target.target_name,
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
-                argv=cmd,
+                argv=None,
                 timeout_sec=timeout_sec,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -748,12 +747,12 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
                 "provider": self.provider,
                 "model_id": self.model_id,
                 "prompt_hash": prompt_sha256,
+                "prompt_sha256": prompt_sha256,
                 "cost_status": "unmeasured",
-                "command": " ".join(cmd),
-                "argv": cmd,
                 "timeout_sec": timeout_sec,
                 "resource_budget": dict(self.resource_budget),
                 "effective_config_hash": self.get_effective_config_hash(),
+                "exit_code": None,
             }
 
             return TargetExecutionArtifact(
@@ -770,7 +769,7 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
                 tool_metadata=base_tool_metadata,
                 raw_output={"response": response_text, "generated_code_present": has_code},
                 logs=[response_text[:300]],
-                argv=cmd,
+                argv=None,
                 timeout_sec=timeout_sec,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -789,10 +788,10 @@ class LLMUnverifiedPoCBaselineAdapter(BaselineAdapter):
                 tool_metadata={
                     "provider": self.provider,
                     "model_id": self.model_id,
-                    "command": " ".join(cmd),
-                    "argv": cmd,
+                    "prompt_hash": prompt_sha256,
+                    "exit_code": None,
                 },
-                argv=cmd,
+                argv=None,
                 timeout_sec=timeout_sec,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -942,7 +941,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 target_name=target.target_name,
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
-                argv=default_cmd,
+                argv=None,
                 timeout_sec=effective_timeout,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -1000,6 +999,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     "provider": self.provider,
                     "model_id": self.model_id,
                     "forge_version": forge_ver,
+                    "exit_code": proc.returncode,
                     "forge_exit_code": proc.returncode,
                     "command": " ".join(cmd),
                     "argv": list(cmd),
@@ -1116,10 +1116,9 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     "provider": self.provider,
                     "model_id": self.model_id,
                     "forge_version": forge_ver,
-                    "command": " ".join(default_cmd),
-                    "argv": default_cmd,
+                    "exit_code": None,
                 },
-                argv=default_cmd,
+                argv=None,
                 timeout_sec=effective_timeout,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -1137,10 +1136,9 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     "provider": self.provider,
                     "model_id": self.model_id,
                     "forge_version": forge_ver,
-                    "command": " ".join(default_cmd),
-                    "argv": default_cmd,
+                    "exit_code": None,
                 },
-                argv=default_cmd,
+                argv=None,
                 timeout_sec=effective_timeout,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -1248,7 +1246,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 candidates_generated=0,
                 verified_breaches=0,
                 replayed_breaches=0,
-                argv=cmd,
+                argv=None,
                 timeout_sec=timeout_sec,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -1262,7 +1260,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 target_name=target.target_name,
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
-                argv=cmd,
+                argv=None,
                 timeout_sec=timeout_sec,
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
@@ -1457,7 +1455,10 @@ class SyntheticSmokeAdapter(BaselineAdapter):
         tool_metadata = {
             "is_synthetic_smoke": True,
             "command": " ".join(cmd),
-            "argv": cmd,
+            "argv": list(cmd),
+            "exit_code": 0,
+            "stdout_sha256": hashlib.sha256(b"mock stdout").hexdigest(),
+            "stderr_sha256": hashlib.sha256(b"").hexdigest(),
             "timeout_sec": self.timeout_sec,
             "resource_budget": dict(self.resource_budget),
             "effective_config_hash": self.get_effective_config_hash(),

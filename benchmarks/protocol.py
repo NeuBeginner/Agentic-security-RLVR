@@ -249,6 +249,8 @@ class AdapterRunManifest:
     availability_reason: Optional[str] = None
     command: Optional[str] = None
     argv: Optional[List[str]] = None
+    planned_command: Optional[str] = None
+    planned_argv: Optional[List[str]] = None
     timeout_sec: int = 60
     resource_budget: Dict[str, Any] = field(default_factory=dict)
     duration_seconds: float = 0.0

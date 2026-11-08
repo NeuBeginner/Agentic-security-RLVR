@@ -17,6 +17,7 @@ Unit and integration tests for real Aegis-RLVR benchmark execution:
 import json
 import tempfile
 import subprocess
+import hashlib
 from pathlib import Path
 import pytest
 
@@ -30,6 +31,7 @@ from benchmarks.protocol import (
 )
 from benchmarks.evaluator import evaluate_baseline_run
 from benchmarks.adapters import (
+    BaselineAdapter,
     SlitherBaselineAdapter,
     LLMAuditorBaselineAdapter,
     LLMUnverifiedPoCBaselineAdapter,
@@ -809,11 +811,11 @@ def test_manifest_derived_from_actual_execution_records_and_custom_adapter_confi
             assert t_prov["effective_config_hash"] == adapter.get_effective_config_hash()
 
 
-def test_real_adapter_structured_argv_and_effective_config_hash():
+def test_real_adapter_structured_argv_and_effective_config_hash(monkeypatch):
     """
-    P1 Requirement: Proves that Slither and Naive Foundry adapters emit structured argv arrays,
-    actual timeout_sec, resource budgets, and deterministic effective_config_hashes in their
-    per-target artifacts.
+    P1 Requirement: Proves that Slither and Naive Foundry adapters emit structured argv arrays
+    when executed, null argv when unavailable, and deterministic effective_config_hashes,
+    timeout_sec, and resource budgets in their per-target artifacts.
     """
     target = TargetSpecification(
         contract_id="TEST-01",
@@ -822,29 +824,248 @@ def test_real_adapter_structured_argv_and_effective_config_hash():
         harness_file="benchmarks/targets/solidity/VaultHarness.t.sol",
     )
 
-    # 1. Slither adapter execution artifact
+    # 1. Slither adapter unavailable state (no binary on path): argv must be None (P1-B)
     slither_adapter = SlitherBaselineAdapter(timeout_sec=35, resource_budget={"timeout_sec": 35, "opt": True})
-    slither_art = slither_adapter.execute_target(target, base_dir=Path(__file__).parent.parent)
-    assert slither_art.argv is not None
-    assert isinstance(slither_art.argv, list)
-    assert slither_art.argv[0] == "slither"
-    assert slither_art.timeout_sec == 35
-    assert slither_art.resource_budget == {"timeout_sec": 35, "opt": True}
-    assert len(slither_art.effective_config_hash) == 64
+    slither_unavail_art = slither_adapter.execute_target(target, base_dir=Path(__file__).parent.parent)
+    assert slither_unavail_art.status == ExecutionStatus.UNAVAILABLE
+    assert slither_unavail_art.argv is None
+    assert slither_unavail_art.timeout_sec == 35
+    assert slither_unavail_art.resource_budget == {"timeout_sec": 35, "opt": True}
+    assert len(slither_unavail_art.effective_config_hash) == 64
 
-    # 2. Naive Foundry adapter execution artifact
+    # 2. Slither adapter executed state: argv must be list of tokens passed to subprocess (P1-C)
+    monkeypatch.setattr(slither_adapter, "check_availability", lambda: (True, None))
+    monkeypatch.setattr(slither_adapter, "get_slither_version", lambda: "0.10.4")
+
+    def mock_slither_run(cmd, *args, **kwargs):
+        json_path = cmd[3]
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump({"success": True, "results": {"detectors": []}}, f)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="slither success", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", mock_slither_run)
+    slither_exec_art = slither_adapter.execute_target(target, base_dir=Path(__file__).parent.parent)
+    assert slither_exec_art.status == ExecutionStatus.SUCCESS
+    assert slither_exec_art.argv is not None
+    assert isinstance(slither_exec_art.argv, list)
+    assert slither_exec_art.argv[0] == "slither"
+    assert slither_exec_art.tool_metadata["exit_code"] == 0
+    assert slither_exec_art.timeout_sec == 35
+    assert slither_exec_art.resource_budget == {"timeout_sec": 35, "opt": True}
+    assert len(slither_exec_art.effective_config_hash) == 64
+
+    # 3. Naive Foundry adapter executed state: argv must be forge tokens (P1-C)
     foundry_adapter = LLMNaiveFoundryBaselineAdapter(
         timeout_sec=55,
         resource_budget={"timeout_sec": 55, "offline": True},
         client_override=lambda p: "contract ExploitModule { function runExploit() external {} }",
     )
+    monkeypatch.setattr(foundry_adapter, "check_availability", lambda: (True, None))
+    monkeypatch.setattr(foundry_adapter, "get_forge_version", lambda: "forge 0.2.0")
+
+    def mock_forge_run(cmd, *args, **kwargs):
+        out_json = {"test/ExploitModule.sol:ExploitModule": {"test_results": {"testExploit()": {"status": "Success"}}}}
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=json.dumps(out_json), stderr="")
+
+    monkeypatch.setattr(subprocess, "run", mock_forge_run)
     foundry_art = foundry_adapter.execute_target(target, base_dir=Path(__file__).parent.parent)
-    assert foundry_art.argv is not None
-    assert isinstance(foundry_art.argv, list)
+    assert foundry_art.status == ExecutionStatus.SUCCESS
     assert foundry_art.argv == ["forge", "test", "--offline", "--json"]
+    assert foundry_art.tool_metadata["exit_code"] == 0
     assert foundry_art.timeout_sec == 55
     assert foundry_art.resource_budget == {"timeout_sec": 55, "offline": True}
     assert len(foundry_art.effective_config_hash) == 64
+
+
+def test_manifest_preserves_integer_zero_exit_code():
+    """
+    P1-A Requirement: Regression test proving that a successful process exit
+    (exit_code: 0) is persisted as integer 0 in the manifest per_target_provenance,
+    rather than dropped by truthiness checks.
+    """
+    adapter = SyntheticSmokeAdapter(
+        baseline_id="baseline_1",
+        baseline_name="Synthetic Baseline",
+        timeout_sec=10,
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        rep = suite.run_benchmark(
+            mode="smoke",
+            baselines_to_run=["baseline_1"],
+            custom_adapters={"baseline_1": adapter},
+            save_results=True,
+        )
+
+        b1_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_1"]
+        per_target = b1_man["per_target_provenance"]
+        assert len(per_target) > 0
+
+        # Check every target has exit_code exactly equal to integer 0
+        for tid, t_prov in per_target.items():
+            assert "exit_code" in t_prov
+            assert t_prov["exit_code"] == 0
+            assert isinstance(t_prov["exit_code"], int)
+            assert not isinstance(t_prov["exit_code"], bool)
+
+
+def test_manifest_uninvoked_and_unavailable_targets_have_null_actual_argv_and_command():
+    """
+    P1-B Requirement: Tests that for targets where no invocation occurred (UNAVAILABLE),
+    actual argv and command are null/None, status says UNAVAILABLE, and planned_argv holds
+    the adapter's template command separately.
+    """
+    class UnavailableMockSlitherAdapter(SlitherBaselineAdapter):
+        def check_availability(self):
+            return False, "Slither toolchain missing on host"
+
+    adapter = UnavailableMockSlitherAdapter(timeout_sec=20)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        rep = suite.run_benchmark(
+            mode="smoke",
+            baselines_to_run=["baseline_1"],
+            custom_adapters={"baseline_1": adapter},
+            save_results=True,
+        )
+
+        b1_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_1"]
+        assert b1_man["availability_status"] == "UNAVAILABLE"
+        # Adapter level: actual execution evidence is null because no subprocess was run
+        assert b1_man["argv"] is None
+        assert b1_man["command"] is None
+        # Planned template is stored separately
+        assert b1_man["planned_argv"] == adapter.get_default_argv()
+        assert b1_man["planned_command"] == " ".join(adapter.get_default_argv())
+
+        # Target level: all targets have null actual argv, null command, null exit code
+        for tid, t_prov in b1_man["per_target_provenance"].items():
+            assert t_prov["status"] == "UNAVAILABLE"
+            assert t_prov["argv"] is None
+            assert t_prov["command"] is None
+            assert t_prov["exit_code"] is None
+            assert "missing on host" in (t_prov["unavailable_reason"] or "")
+
+
+def test_manifest_provider_api_calls_have_no_invented_shell_commands_and_preserve_provenance():
+    """
+    P1-C Requirement: Tests that for provider API calls (LLM Auditor and Unverified PoC),
+    no shell command is invented (argv and command are None), and provider, model_id,
+    prompt_hash, and effective_config_hash are recorded in the manifest.
+    """
+    auditor_adapter = LLMAuditorBaselineAdapter(
+        provider="google",
+        model_id="gemini-2.5-flash",
+        client_override=lambda prompt: '{"vulnerability_found": true, "vulnerability_type": "Reentrancy", "confidence": "High"}',
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        rep = suite.run_benchmark(
+            mode="smoke",
+            baselines_to_run=["baseline_2"],
+            custom_adapters={"baseline_2": auditor_adapter},
+            save_results=True,
+        )
+
+        b2_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_2"]
+        # API call has no subprocess: actual command and argv must be None
+        assert b2_man["argv"] is None
+        assert b2_man["command"] is None
+        assert b2_man["planned_argv"] is None
+        assert b2_man["planned_command"] is None
+
+        for tid, t_prov in b2_man["per_target_provenance"].items():
+            assert t_prov["argv"] is None
+            assert t_prov["command"] is None
+            assert t_prov["exit_code"] is None
+            assert t_prov["provider"] == "google"
+            assert t_prov["model_id"] == "gemini-2.5-flash"
+            assert len(t_prov["prompt_hash"]) == 64
+            assert t_prov["effective_config_hash"] == auditor_adapter.get_effective_config_hash()
+
+
+def test_manifest_executed_subprocess_matches_exact_invocation_record_and_custom_overrides():
+    """
+    P1-C Requirement: Deliberately varies argv, config, and timeout on a subprocess adapter
+    and asserts exact equality between the invocation record and the emitted manifest.
+    """
+    custom_budget = {"timeout_sec": 73, "custom_opt": "enabled", "worker_threads": 4}
+    custom_tokens = ["custom_runner", "--special-flag", "--timeout=73"]
+
+    class CustomSubprocessAdapter(BaselineAdapter):
+        @property
+        def baseline_id(self):
+            return "baseline_1"
+        @property
+        def baseline_name(self):
+            return "Custom Subprocess Adapter"
+        @property
+        def timeout_sec(self):
+            return 73
+        @property
+        def resource_budget(self):
+            return custom_budget
+        def check_availability(self):
+            return True, None
+        def get_default_argv(self):
+            return list(custom_tokens)
+        def get_effective_config_hash(self):
+            return hashlib.sha256(b"custom_config_unique_73").hexdigest()
+        def execute_target(self, target, base_dir=None, timeout_sec=None):
+            eff_timeout = timeout_sec or self.timeout_sec
+            invocation_argv = list(custom_tokens) + ["--target", target.contract_id]
+            stdout_text = f"executed target {target.contract_id}"
+            stderr_text = ""
+            return TargetExecutionArtifact(
+                baseline_id=self.baseline_id,
+                target_id=target.contract_id,
+                target_name=target.target_name,
+                status=ExecutionStatus.SUCCESS,
+                detected=True,
+                duration_seconds=0.05,
+                argv=invocation_argv,
+                timeout_sec=eff_timeout,
+                resource_budget=dict(self.resource_budget),
+                effective_config_hash=self.get_effective_config_hash(),
+                tool_metadata={
+                    "exit_code": 0,
+                    "stdout_sha256": hashlib.sha256(stdout_text.encode("utf-8")).hexdigest(),
+                    "stderr_sha256": hashlib.sha256(stderr_text.encode("utf-8")).hexdigest(),
+                },
+                raw_output={"stdout": stdout_text, "stderr": stderr_text},
+            )
+
+    adapter = CustomSubprocessAdapter()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        rep = suite.run_benchmark(
+            mode="smoke",
+            baselines_to_run=["baseline_1"],
+            custom_adapters={"baseline_1": adapter},
+            save_results=True,
+        )
+
+        b1_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_1"]
+        assert b1_man["timeout_sec"] == 73
+        assert b1_man["resource_budget"] == custom_budget
+        assert b1_man["config_hash"] == adapter.get_effective_config_hash()
+        assert b1_man["argv"] == custom_tokens
+        assert b1_man["command"] == " ".join(custom_tokens)
+        assert b1_man["planned_argv"] == custom_tokens
+        assert b1_man["planned_command"] == " ".join(custom_tokens)
+
+        # Invariant: assert exact equality between invocation record and manifest per-target entry
+        for tid, t_prov in b1_man["per_target_provenance"].items():
+            expected_argv = custom_tokens + ["--target", tid]
+            assert t_prov["argv"] == expected_argv
+            assert t_prov["command"] == " ".join(expected_argv)
+            assert t_prov["timeout_sec"] == 73
+            assert t_prov["resource_budget"] == custom_budget
+            assert t_prov["effective_config_hash"] == adapter.get_effective_config_hash()
+            assert t_prov["exit_code"] == 0
+            expected_stdout_sha = hashlib.sha256(f"executed target {tid}".encode("utf-8")).hexdigest()
+            assert t_prov["stdout_sha256"] == expected_stdout_sha
+            assert t_prov["stderr_sha256"] == hashlib.sha256(b"").hexdigest()
 
 
 # =============================================================================

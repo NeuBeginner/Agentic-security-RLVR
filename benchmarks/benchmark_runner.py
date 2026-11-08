@@ -358,25 +358,56 @@ class AegisBenchmarkSuite:
             is_avail, avail_reason = adapter.check_availability()
             adapter_duration = round(time.time() - baseline_start_time, 3)
 
-            first_art = baseline_artifacts[0] if baseline_artifacts else None
-            actual_argv = adapter.get_default_argv()
-            actual_cmd = " ".join(actual_argv) if actual_argv else adapter.baseline_id
+            # Determine whether subprocess execution actually occurred
+            has_executed_subprocess = any(art.argv is not None for art in baseline_artifacts)
+
+            # Planned command/argv (template/intent) vs actual execution evidence
+            default_argv = adapter.get_default_argv()
+            planned_argv = list(default_argv) if default_argv else None
+            planned_cmd = " ".join(planned_argv) if planned_argv else None
+
+            # Actual adapter-level command and argv (None if no subprocess was invoked)
+            actual_adapter_argv = list(default_argv) if (has_executed_subprocess and default_argv) else None
+            actual_adapter_cmd = " ".join(actual_adapter_argv) if actual_adapter_argv else None
+
             effective_config_hash = adapter.get_effective_config_hash()
             actual_timeout_sec = adapter.timeout_sec
             actual_resource_budget = dict(adapter.resource_budget)
 
             per_target_provenance: Dict[str, Dict[str, Any]] = {}
             for art in baseline_artifacts:
+                # P1-A: Explicit key presence and None handling for exit code (preserves integer 0)
+                target_exit_code = None
+                if "exit_code" in art.tool_metadata and art.tool_metadata["exit_code"] is not None:
+                    target_exit_code = int(art.tool_metadata["exit_code"])
+                elif "forge_exit_code" in art.tool_metadata and art.tool_metadata["forge_exit_code"] is not None:
+                    target_exit_code = int(art.tool_metadata["forge_exit_code"])
+
+                # P1-B: Actual argv / command comes ONLY from invocation artifact; null if uninvoked
+                if art.argv is not None:
+                    actual_art_argv = list(art.argv)
+                    actual_art_cmd = " ".join(actual_art_argv)
+                else:
+                    actual_art_argv = None
+                    actual_art_cmd = None
+
+                provider_name = art.tool_metadata.get("provider")
+                model_id = art.tool_metadata.get("model_id")
+
                 per_target_provenance[art.target_id] = {
                     "target_name": art.target_name,
                     "status": art.status.value,
-                    "argv": art.argv or actual_argv,
-                    "command": " ".join(art.argv) if art.argv else actual_cmd,
-                    "timeout_sec": art.timeout_sec or actual_timeout_sec,
+                    "unavailable_reason": art.unavailable_reason,
+                    "argv": actual_art_argv,
+                    "command": actual_art_cmd,
+                    "provider": provider_name,
+                    "model_id": model_id,
+                    "timeout_sec": art.timeout_sec,
+                    "resource_budget": dict(art.resource_budget) if art.resource_budget else actual_resource_budget,
                     "effective_config_hash": art.effective_config_hash or effective_config_hash,
                     "prompt_hash": art.prompt_hash,
                     "duration_seconds": art.duration_seconds,
-                    "exit_code": art.tool_metadata.get("exit_code") or art.tool_metadata.get("forge_exit_code"),
+                    "exit_code": target_exit_code,
                     "stdout_sha256": art.tool_metadata.get("stdout_sha256"),
                     "stderr_sha256": art.tool_metadata.get("stderr_sha256"),
                 }
@@ -386,8 +417,10 @@ class AegisBenchmarkSuite:
                 baseline_name=adapter.baseline_name,
                 availability_status="AVAILABLE" if is_avail else "UNAVAILABLE",
                 availability_reason=avail_reason,
-                command=actual_cmd,
-                argv=actual_argv,
+                command=actual_adapter_cmd,
+                argv=actual_adapter_argv,
+                planned_command=planned_cmd,
+                planned_argv=planned_argv,
                 timeout_sec=actual_timeout_sec,
                 resource_budget=actual_resource_budget,
                 duration_seconds=adapter_duration,
