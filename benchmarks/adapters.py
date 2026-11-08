@@ -1199,23 +1199,26 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
 
     def get_default_argv(self) -> List[str]:
         return [
-            "aegis_rlvr_pipeline",
+            "modal",
+            "run",
+            "modal_app.py",
             f"--hypotheses={self.max_hypotheses}",
             f"--provider={self.provider}",
             f"--model={self.model_id}",
         ]
 
     def check_availability(self) -> Tuple[bool, Optional[str]]:
-        forge_bin = shutil.which("forge")
         has_modal = False
         try:
             import modal
             has_modal = bool(modal.config.config.get("token_id"))
         except Exception:
             has_modal = bool(os.environ.get("MODAL_TOKEN_ID"))
-        if not forge_bin and not has_modal:
-            return False, "Neither forge executable nor Modal authentication found on system PATH/environment"
+        if not has_modal:
+            return False, "Modal authentication not configured (missing token_id in ~/.modal.toml or MODAL_TOKEN_ID env)"
         if self.candidate_generator is None:
+            if self.provider in ("modal_h100", "modal_t4"):
+                return True, None
             return check_llm_provider_availability(self.provider)
         return True, None
 
@@ -1225,10 +1228,13 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
         base_dir: Optional[Path] = None,
         timeout_sec: int = 120
     ) -> TargetExecutionArtifact:
+        from core.config import config
         from sandbox.runner import TRUSTED_HARNESS_CONTRACTS
         cmd = [
-            "aegis_rlvr_pipeline",
-            "--target",
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
             target.target_name,
             f"--hypotheses={self.max_hypotheses}",
             f"--provider={self.provider}",
@@ -1270,17 +1276,60 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
         source_code = target.load_source_code(base_dir)
 
         try:
-            from core.schemas import TargetProgram, ExploitPayload, AttackHypothesis
-            from sandbox.runner import run_payload_in_sandbox, verify_independent_replay, HarnessVerdict
+            from core.schemas import TargetProgram, ExploitPayload, AttackHypothesis, ResultCategory, VerificationVerdict
+            from modal_app import verify_exploit_remote, verify_replay_remote, record_trajectory_remote
+
+            # Resolve trusted verification harness
+            solidity_dir = (
+                base_dir / "benchmarks" / "targets" / "solidity"
+                if base_dir
+                else Path(__file__).parent / "targets" / "solidity"
+            )
+            if not solidity_dir.exists():
+                solidity_dir = Path(__file__).parent.parent / "benchmarks" / "targets" / "solidity"
+
+            harness_file = solidity_dir / f"{target.target_name}Harness.t.sol"
+            harness_source = ""
+            if harness_file.exists():
+                harness_source = harness_file.read_text(encoding="utf-8")
+            else:
+                harness_name = TRUSTED_HARNESS_CONTRACTS.get(target.target_name)
+                if harness_name:
+                    hf = solidity_dir / f"{harness_name}.t.sol"
+                    if hf.exists():
+                        harness_source = hf.read_text(encoding="utf-8")
+
+            invariants_map = {
+                "Vault": ["address(vault).balance >= balances[victim] (Depositor Solvency)"],
+                "ERC4626Vault": [
+                    "victimShares > 0 (No zero-share deposit robbery)",
+                    "vault.convertToAssets(victimShares) >= 0.95 * VICTIM_DEPOSIT (Dilution Protection)"
+                ]
+            }
+            target_invariants = invariants_map.get(target.target_name, ["Security invariant intact"])
 
             target_prog = TargetProgram(
                 name=target.target_name,
                 source_code=source_code,
+                language="solidity",
+                invariants=target_invariants,
+                trusted_harness_code=harness_source
             )
 
             # 1. Synthesize candidate payload
+            payload = None
             if self.candidate_generator:
                 payload = self.candidate_generator(target_prog)
+            elif self.provider == "modal_h100":
+                from modal_app import ProductionAuditAgent
+                agent = ProductionAuditAgent()
+                p_dict = agent.generate_solidity_exploit.remote(target_prog.model_dump())
+                payload = ExploitPayload(**p_dict)
+            elif self.provider == "modal_t4":
+                from modal_app import DevReasoningAgent
+                agent = DevReasoningAgent()
+                p_dict = agent.generate_solidity_exploit.remote(target_prog.model_dump())
+                payload = ExploitPayload(**p_dict)
             else:
                 from core.hypothesis import HypothesisManager
                 hyp_mgr = HypothesisManager()
@@ -1297,35 +1346,78 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     f"Respond with Solidity code containing contract ExploitModule {{ ... }}"
                 )
                 test_code = invoke_llm_provider(self.provider, self.model_id, prompt)
-                payload = ExploitPayload(
-                    target_name=target_prog.name,
-                    hypothesis=selected_hyp,
-                    test_code=test_code,
-                    format_valid=True
-                )
+                from core.llm_generator import parse_model_response
+                payload = parse_model_response(target_prog, test_code, hypothesis=selected_hyp)
 
             candidates_count = 1 if (payload and payload.test_code and len(payload.test_code.strip()) > 20) else 0
 
-            # 2. Execute candidate in isolated sandbox with trusted harness
-            exec_res = run_payload_in_sandbox(target_prog, payload)
+            # 2. Execute candidate remotely on Modal EVM sandbox
+            target_dict = target_prog.model_dump()
+            payload_dict = payload.model_dump() if payload else {}
+
+            verdict_dict = verify_exploit_remote.remote(target_dict, payload_dict)
+            verdict = VerificationVerdict(**verdict_dict)
             elapsed = round(time.time() - start_time, 3)
 
-            is_verified = (
-                exec_res.harness_verdict == HarnessVerdict.BREACH.value
-                and exec_res.verification_result is not None
-                and exec_res.verification_result.invariant_breach is True
-            )
-
-            # 3. Independent replay verification
+            # 3. Independent remote replay verification on fresh Modal container
             is_replayed = False
+            replay_attempted = False
+            if verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED:
+                replay_attempted = True
+                try:
+                    is_replayed = bool(verify_replay_remote.remote(target_dict, payload_dict))
+                except Exception as exc:
+                    is_replayed = False
+                    verdict.feedback = f"Modal replay remote exception: {type(exc).__name__}: {exc}"
+
+            is_verified = bool(replay_attempted and is_replayed and verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED)
             if is_verified:
-                is_replayed = verify_independent_replay(target_prog, payload)
+                verdict.category = ResultCategory.EXPLOIT_CONFIRMED
+                verdict.is_verified = True
+                verdict.reproducible = True
+                verdict.replay_status = "CONFIRMED"
+                verdict.reward_score = config.REWARD_INVARIANT_BREACH
+
+            # 4. Remote trajectory persistence on Modal volume
+            if is_verified:
+                try:
+                    from core.evaluator import create_trajectory_record
+                    traj = create_trajectory_record(
+                        target_prog, payload, verdict,
+                        prompt_used=payload.prompt_text or "",
+                        dataset_split="test",
+                        dataset_partition="test",
+                        is_synthetic=False,
+                        trainable=False
+                    )
+                    record_trajectory_remote.remote(traj.model_dump())
+                except Exception:
+                    pass
+
+            modal_functions = ["verify_exploit_remote"]
+            if replay_attempted:
+                modal_functions.append("verify_replay_remote")
+            if is_verified:
+                modal_functions.append("record_trajectory_remote")
 
             base_tool_metadata = {
+                "remote_backend": "modal",
+                "modal_app": config.APP_NAME,
+                "modal_functions": modal_functions,
+                "remote_stages": {
+                    "inference": "remote_gpu" if self.provider in ("modal_h100", "modal_t4") else "api_or_local",
+                    "evm_sandbox": "modal_cpu_worker",
+                    "independent_replay": "modal_cpu_worker" if replay_attempted else "not_attempted",
+                    "trajectory_persistence": "modal_volume" if is_verified else "not_eligible",
+                },
+                "gpu_allocated": config.AUDIT_GPU_TYPE if self.provider == "modal_h100" else (config.DEV_GPU_TYPE if self.provider == "modal_t4" else None),
+                "cpu_cores": config.SANDBOX_CPU_CORES,
+                "memory_mb": config.SANDBOX_MEMORY_MB,
                 "provider": self.provider,
                 "model_id": self.model_id,
-                "harness_verdict": exec_res.harness_verdict,
-                "harness_suite": exec_res.harness_suite,
+                "harness_verdict": verdict.category.value,
+                "reward_score": verdict.reward_score,
+                "reward_components": verdict.reward_components,
                 "reproduced": is_replayed,
                 "cost_status": "unmeasured",
                 "command": " ".join(cmd),
@@ -1347,8 +1439,8 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 duration_seconds=elapsed,
                 cost_usd=None,
                 tool_metadata=base_tool_metadata,
-                raw_output={"exit_code": exec_res.return_code, "category": exec_res.category.value if exec_res.category else None},
-                logs=[exec_res.stdout[:300]],
+                raw_output={"category": verdict.category.value, "reward_score": verdict.reward_score},
+                logs=[verdict.feedback[:300]] if verdict.feedback else [],
                 argv=cmd,
                 timeout_sec=timeout_sec,
                 resource_budget=dict(self.resource_budget),
@@ -1356,15 +1448,19 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             )
 
         except Exception as e:
+            is_timeout = isinstance(e, TimeoutError) or "timed out" in str(e).lower()
             return TargetExecutionArtifact(
                 baseline_id=self.baseline_id,
                 target_id=target.contract_id,
                 target_name=target.target_name,
                 status=ExecutionStatus.FAILED,
-                unavailable_reason=f"Full Aegis-RLVR execution exception: {e}",
+                unavailable_reason=f"Full Aegis-RLVR Modal remote execution {'timed out' if is_timeout else 'failed'}: {type(e).__name__}: {e}",
                 duration_seconds=round(time.time() - start_time, 3),
                 cost_usd=None,
                 tool_metadata={
+                    "remote_backend": "modal",
+                    "modal_app": config.APP_NAME,
+                    "modal_functions": ["verify_exploit_remote"],
                     "provider": self.provider,
                     "model_id": self.model_id,
                     "command": " ".join(cmd),

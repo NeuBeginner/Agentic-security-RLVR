@@ -154,6 +154,216 @@ def test_full_aegis_rlvr_rejects_non_allowlisted_harness():
     assert artifact.replayed_breaches == 0
 
 
+def test_full_aegis_rlvr_modal_absent_fails_closed_no_local_fallback(monkeypatch):
+    """When Modal credentials are absent, Baseline 5 must be UNAVAILABLE and strictly never fall back to local execution."""
+    import sandbox.runner
+
+    # 1. Strip Modal credentials from environment and modal.config
+    monkeypatch.delenv("MODAL_TOKEN_ID", raising=False)
+    monkeypatch.delenv("MODAL_TOKEN_SECRET", raising=False)
+    try:
+        import modal
+        monkeypatch.setattr(modal.config.config, "get", lambda key, default=None: None)
+    except Exception:
+        pass
+
+    # 2. Trap local sandbox execution: if local sandbox is called, raise an assertion error!
+    def local_sandbox_trap(*args, **kwargs):
+        raise AssertionError("VIOLATION: Full Aegis-RLVR silently fell back to local sandbox execution!")
+
+    monkeypatch.setattr(sandbox.runner, "run_payload_in_sandbox", local_sandbox_trap)
+    monkeypatch.setattr(sandbox.runner, "verify_independent_replay", local_sandbox_trap)
+
+    dataset = BenchmarkDataset()
+    vault_target = [t for t in dataset.get_public_targets() if t.target_name == "Vault"][0]
+
+    adapter = FullAegisRLVRBaselineAdapter()
+    is_avail, reason = adapter.check_availability()
+    assert is_avail is False
+    assert "Modal authentication not configured" in (reason or "")
+
+    artifact = adapter.execute_target(vault_target)
+    assert artifact.status == ExecutionStatus.UNAVAILABLE
+    assert "Modal authentication not configured" in (artifact.unavailable_reason or "")
+    assert artifact.argv is None
+    assert artifact.timeout_sec is None
+    assert artifact.effective_config_hash is None
+    assert artifact.resource_budget == {}
+    assert artifact.detected is False
+    assert artifact.verified_breaches == 0
+    assert artifact.replayed_breaches == 0
+
+
+def test_full_aegis_rlvr_invokes_modal_remote_functions(monkeypatch):
+    """When Modal is available, Baseline 5 must invoke real Modal remote functions and record remote provenance."""
+    import modal_app
+    from core.schemas import ResultCategory, ExploitPayload, AttackHypothesis
+
+    monkeypatch.setattr(FullAegisRLVRBaselineAdapter, "check_availability", lambda self: (True, None))
+
+    remote_exploit_calls = []
+    remote_replay_calls = []
+    remote_trajectory_calls = []
+
+    def mock_verify_exploit_remote(target_dict, payload_dict):
+        remote_exploit_calls.append((target_dict, payload_dict))
+        return {
+            "target_name": target_dict["name"],
+            "vulnerability_type": "ReentrancyDrain",
+            "poc_code": payload_dict.get("test_code", ""),
+            "category": ResultCategory.INVARIANT_BREACH_UNREPLAYED.value,
+            "reward_score": 0.50,
+            "reward_components": {"generation": 0.05, "compilation": 0.10, "verification": 0.10, "invariant": 0.25},
+            "is_verified": False,
+            "reproducible": False,
+            "feedback": "Remote EVM invariant breach achieved",
+        }
+
+    def mock_verify_replay_remote(target_dict, payload_dict):
+        remote_replay_calls.append((target_dict, payload_dict))
+        return True
+
+    def mock_record_trajectory_remote(traj_dict):
+        remote_trajectory_calls.append(traj_dict)
+        return "/vol/models/trajectories/traj_123.json"
+
+    monkeypatch.setattr(modal_app.verify_exploit_remote, "remote", mock_verify_exploit_remote)
+    monkeypatch.setattr(modal_app.verify_replay_remote, "remote", mock_verify_replay_remote)
+    monkeypatch.setattr(modal_app.record_trajectory_remote, "remote", mock_record_trajectory_remote)
+
+    dataset = BenchmarkDataset()
+    vault_target = [t for t in dataset.get_public_targets() if t.target_name == "Vault"][0]
+
+    dummy_payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(vulnerability_type="ReentrancyDrain", reasoning_trace="Trace", attack_vector="Drain"),
+        test_code="contract ExploitModule { function runExploit() external payable {} }",
+        format_valid=True,
+    )
+    adapter = FullAegisRLVRBaselineAdapter(candidate_generator=lambda prog: dummy_payload)
+    artifact = adapter.execute_target(vault_target)
+
+    assert len(remote_exploit_calls) == 1
+    assert len(remote_replay_calls) == 1
+    assert len(remote_trajectory_calls) == 1
+
+    assert artifact.status == ExecutionStatus.SUCCESS
+    assert artifact.detected is True
+    assert artifact.verified_breaches == 1
+    assert artifact.replayed_breaches == 1
+    assert artifact.tool_metadata["remote_backend"] == "modal"
+    assert artifact.tool_metadata["modal_functions"] == ["verify_exploit_remote", "verify_replay_remote", "record_trajectory_remote"]
+    assert artifact.tool_metadata["remote_stages"]["evm_sandbox"] == "modal_cpu_worker"
+    assert artifact.tool_metadata["remote_stages"]["independent_replay"] == "modal_cpu_worker"
+    assert artifact.tool_metadata["remote_stages"]["trajectory_persistence"] == "modal_volume"
+    assert artifact.tool_metadata["reproduced"] is True
+
+
+def test_full_aegis_rlvr_remote_timeout_fails_closed(monkeypatch):
+    """When a remote Modal worker times out, Baseline 5 must report FAILED fail-closed, never SUCCESS."""
+    import modal_app
+    from core.schemas import ExploitPayload, AttackHypothesis
+
+    monkeypatch.setattr(FullAegisRLVRBaselineAdapter, "check_availability", lambda self: (True, None))
+
+    def mock_timeout(target_dict, payload_dict):
+        raise TimeoutError("Modal worker execution timed out (60s container limit)")
+
+    monkeypatch.setattr(modal_app.verify_exploit_remote, "remote", mock_timeout)
+
+    dataset = BenchmarkDataset()
+    vault_target = [t for t in dataset.get_public_targets() if t.target_name == "Vault"][0]
+
+    dummy_payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(vulnerability_type="ReentrancyDrain", reasoning_trace="Trace", attack_vector="Drain"),
+        test_code="contract ExploitModule { function runExploit() external payable {} }",
+        format_valid=True,
+    )
+    adapter = FullAegisRLVRBaselineAdapter(candidate_generator=lambda prog: dummy_payload)
+    artifact = adapter.execute_target(vault_target)
+
+    assert artifact.status == ExecutionStatus.FAILED
+    assert "timed out" in (artifact.unavailable_reason or "").lower()
+    assert artifact.detected is False
+    assert artifact.verified_breaches == 0
+    assert artifact.replayed_breaches == 0
+
+
+def test_full_aegis_rlvr_remote_worker_exception_fails_closed(monkeypatch):
+    """When a remote Modal worker raises an infrastructure exception, Baseline 5 must report FAILED."""
+    import modal_app
+    from core.schemas import ExploitPayload, AttackHypothesis
+
+    monkeypatch.setattr(FullAegisRLVRBaselineAdapter, "check_availability", lambda self: (True, None))
+
+    def mock_infra_error(target_dict, payload_dict):
+        raise ConnectionResetError("Modal worker connection dropped by host")
+
+    monkeypatch.setattr(modal_app.verify_exploit_remote, "remote", mock_infra_error)
+
+    dataset = BenchmarkDataset()
+    vault_target = [t for t in dataset.get_public_targets() if t.target_name == "Vault"][0]
+
+    dummy_payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(vulnerability_type="ReentrancyDrain", reasoning_trace="Trace", attack_vector="Drain"),
+        test_code="contract ExploitModule { function runExploit() external payable {} }",
+        format_valid=True,
+    )
+    adapter = FullAegisRLVRBaselineAdapter(candidate_generator=lambda prog: dummy_payload)
+    artifact = adapter.execute_target(vault_target)
+
+    assert artifact.status == ExecutionStatus.FAILED
+    assert "ConnectionResetError" in (artifact.unavailable_reason or "")
+    assert artifact.detected is False
+    assert artifact.verified_breaches == 0
+    assert artifact.replayed_breaches == 0
+
+
+def test_full_aegis_rlvr_replay_failure_prevents_verified_breach(monkeypatch):
+    """When independent replay fails or reverts, candidate must remain unverified and not count as breach."""
+    import modal_app
+    from core.schemas import ResultCategory, ExploitPayload, AttackHypothesis
+
+    monkeypatch.setattr(FullAegisRLVRBaselineAdapter, "check_availability", lambda self: (True, None))
+
+    def mock_verify_exploit_remote(target_dict, payload_dict):
+        return {
+            "target_name": target_dict["name"],
+            "vulnerability_type": "ReentrancyDrain",
+            "poc_code": payload_dict.get("test_code", ""),
+            "category": ResultCategory.INVARIANT_BREACH_UNREPLAYED.value,
+            "reward_score": 0.50,
+            "reward_components": {"generation": 0.05, "compilation": 0.10, "verification": 0.10, "invariant": 0.25},
+            "is_verified": False,
+            "reproducible": False,
+            "feedback": "Initial invariant breach achieved, awaiting replay confirmation",
+        }
+
+    # Replay returns False (could not reproduce in clean container)
+    monkeypatch.setattr(modal_app.verify_exploit_remote, "remote", mock_verify_exploit_remote)
+    monkeypatch.setattr(modal_app.verify_replay_remote, "remote", lambda target_dict, payload_dict: False)
+
+    dataset = BenchmarkDataset()
+    vault_target = [t for t in dataset.get_public_targets() if t.target_name == "Vault"][0]
+
+    dummy_payload = ExploitPayload(
+        target_name="Vault",
+        hypothesis=AttackHypothesis(vulnerability_type="ReentrancyDrain", reasoning_trace="Trace", attack_vector="Drain"),
+        test_code="contract ExploitModule { function runExploit() external payable {} }",
+        format_valid=True,
+    )
+    adapter = FullAegisRLVRBaselineAdapter(candidate_generator=lambda prog: dummy_payload)
+    artifact = adapter.execute_target(vault_target)
+
+    assert artifact.status == ExecutionStatus.SUCCESS
+    assert artifact.detected is False
+    assert artifact.verified_breaches == 0
+    assert artifact.replayed_breaches == 0
+    assert artifact.tool_metadata["reproduced"] is False
+
+
 def test_raw_artifacts_persisted_with_provenance():
     """Verify that execution writes individual JSON artifacts per target with full provenance."""
     with tempfile.TemporaryDirectory() as tmpdir:
