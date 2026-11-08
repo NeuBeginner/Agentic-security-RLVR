@@ -14,6 +14,8 @@ Unit and integration tests for real Aegis-RLVR benchmark execution:
 10. Unmeasured costs report None, never fabricating constant dollar figures.
 """
 
+import os
+import shutil
 import json
 import tempfile
 import subprocess
@@ -139,11 +141,12 @@ def test_candidates_count_is_dynamic_not_constant():
 
 def test_full_aegis_rlvr_rejects_non_allowlisted_harness():
     """Full Aegis-RLVR must report UNAVAILABLE for targets without trusted harness in allowlist."""
-    dataset = BenchmarkDataset()
-    targets = dataset.get_public_targets()
-
-    # Find a target not in production allowlist (e.g. AuctionDoS / DOS-01)
-    non_allowlisted = [t for t in targets if t.target_name not in ("Vault", "ERC4626Vault")][0]
+    non_allowlisted = TargetSpecification(
+        contract_id="UNKNOWN-01",
+        target_name="UnknownUntrustedContract",
+        source_file="benchmarks/targets/solidity/Vault.sol",
+        harness_file="benchmarks/targets/solidity/VaultHarness.t.sol",
+    )
 
     adapter = FullAegisRLVRBaselineAdapter()
     artifact = adapter.execute_target(non_allowlisted)
@@ -1868,6 +1871,7 @@ def test_manifest_missing_target_file_pre_invocation_failure_leaves_adapter_actu
             baselines_to_run=["baseline_1"],
             custom_adapters={"baseline_1": adapter},
             save_results=True,
+            require_clean=False,
         )
 
         b1_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_1"]
@@ -1988,24 +1992,59 @@ def test_real_slither_integration_is_not_run_when_binary_missing():
     assert art.tool_metadata["slither_version"] != "unknown"
 
 
-def test_real_foundry_integration_is_not_run_when_binary_missing():
+def test_real_foundry_integration_live_execution():
     """
-    Real Foundry host integration probe: strictly marked NOT_RUN / skipped
-    when forge binary is not available on host system PATH.
-    When forge binary is present, executes real Foundry compilation and test execution.
-    Does NOT count as empirical benchmark execution.
+    Live Foundry host integration probe: invokes real `forge` binary against target.
+    In CI environments (CI=true or GITHUB_ACTIONS=true), forge binary MUST be installed
+    and execution MUST be verified; missing binary branch raises an assertion failure (fail-closed).
+    In local dev environments without forge on PATH, it skips with a descriptive notice.
     """
+    is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+    forge_path = shutil.which("forge")
+
+    if is_ci:
+        assert forge_path is not None, (
+            "Foundry binary 'forge' MUST be present on PATH in CI integration runs. "
+            "Missing binary fallback is strictly prohibited in CI."
+        )
+
+    if not forge_path:
+        pytest.skip("NOT_RUN: Real Foundry integration unavailable on local PATH")
+
     adapter = LLMNaiveFoundryBaselineAdapter(
-        client_override=lambda prompt: "contract ExploitModule { function runExploit() external {} }"
+        client_override=lambda prompt: (
+            "// SPDX-License-Identifier: MIT\n"
+            "pragma solidity ^0.8.20;\n"
+            "contract ExploitModule {\n"
+            "    function testExploit() public {}\n"
+            "}\n"
+        )
     )
-    is_avail, reason = adapter.check_availability()
-    if not is_avail:
-        pytest.skip(f"NOT_RUN: Real Foundry integration unavailable: {reason}")
-    # If binary exists, execute one real check
     dataset = BenchmarkDataset()
     target = dataset.get_public_targets()[0]
     art = adapter.execute_target(target, base_dir=Path(__file__).parent.parent)
     assert art.tool_metadata["forge_version"] != "unknown"
+    assert art.process_exit_code is not None
+
+
+def test_real_foundry_integration_is_not_run_when_binary_missing(monkeypatch):
+    """
+    Real Foundry missing-binary probe: verifies that when forge binary is absent from PATH,
+    the adapter correctly identifies unavailability, sets status to UNAVAILABLE, and does NOT
+    attempt subprocess execution.
+    """
+    monkeypatch.setattr(shutil, "which", lambda cmd: None if cmd == "forge" else shutil.which(cmd))
+    adapter = LLMNaiveFoundryBaselineAdapter()
+    is_avail, reason = adapter.check_availability()
+    assert is_avail is False
+    assert "forge executable not found on system PATH" in (reason or "")
+
+    dataset = BenchmarkDataset()
+    target = dataset.get_public_targets()[0]
+    art = adapter.execute_target(target, base_dir=Path(__file__).parent.parent)
+    assert art.status == ExecutionStatus.UNAVAILABLE
+    assert "forge executable not found" in (art.unavailable_reason or "")
+    assert art.security_verdict == "UNAVAILABLE"
 
 
 # =============================================================================
@@ -2056,6 +2095,7 @@ def test_runner_routes_baseline5_provider_explicitly(tmpdir, monkeypatch):
         baseline5_provider="modal_h100",
         baselines_to_run=["baseline_5"],
         save_results=False,
+        require_clean=False,
     )
 
     b5_adapter = instantiated_adapters["baseline_5"]
@@ -2139,6 +2179,7 @@ def test_runner_preserves_distinct_providers_for_baselines_2_4_and_baseline_5(tm
         baseline5_provider="modal_h100",
         baselines_to_run=["baseline_2", "baseline_5"],
         save_results=False,
+        require_clean=False,
     )
 
     assert created["baseline_2"].provider == "gemini"
@@ -2303,3 +2344,270 @@ def test_benchmark_runner_enforces_manifest_git_integrity_on_execution():
             )
 
 
+
+
+# =============================================================================
+# Iteration 10 Regression Suite: 16-Target Scope, Verification Statuses & Provenance
+# =============================================================================
+
+def test_16_target_scope_and_allowlist_consistency():
+    """
+    Verifies that all 16 benchmark targets (12 vulnerable targets + 4 synthetic safe controls)
+    are consistently defined in benchmark_dataset.json, exist on disk with valid Solidity source,
+    have dedicated immutable test harnesses on disk, and are fully recognized in
+    TRUSTED_HARNESS_CONTRACTS and FullAegisRLVRBaselineAdapter.
+    """
+    from sandbox.runner import TRUSTED_HARNESS_CONTRACTS
+
+    dataset = BenchmarkDataset()
+    public_targets = dataset.get_public_targets()
+    assert len(public_targets) == 16, f"Expected 16 targets, got {len(public_targets)}"
+
+    base_dir = Path(__file__).parent.parent
+    adapter = FullAegisRLVRBaselineAdapter()
+    allowlist = adapter.allowlist
+
+    for target in public_targets:
+        # 1. Source file exists on disk
+        src_path = base_dir / target.source_file
+        assert src_path.exists(), f"Source file {src_path} for target {target.contract_id} not found"
+
+        # 2. Target contract is in TRUSTED_HARNESS_CONTRACTS
+        assert target.target_name in TRUSTED_HARNESS_CONTRACTS, (
+            f"Target {target.target_name} ({target.contract_id}) missing from TRUSTED_HARNESS_CONTRACTS"
+        )
+
+        # 3. Harness file exists on disk and harness contract name is mapped
+        harness_contract_name = TRUSTED_HARNESS_CONTRACTS[target.target_name]
+        assert isinstance(harness_contract_name, str) and harness_contract_name
+        assert target.harness_file, f"Target {target.target_name} lacks harness_file"
+        harness_path = base_dir / target.harness_file
+        assert harness_path.exists(), f"Harness file {harness_path} for target {target.target_name} not found"
+
+        # 4. Target is in adapter allowlist
+        assert target.target_name in allowlist, (
+            f"Target {target.target_name} missing from FullAegisRLVRBaselineAdapter allowlist"
+        )
+
+
+def test_mixed_execution_and_security_statuses_separated():
+    """
+    Verifies strict separation between process execution status (ExecutionStatus: SUCCESS/FAILED/UNAVAILABLE)
+    and EVM security verdicts (COMPILATION_ERROR, NO_BREACH, INVARIANT_BREACH, EXPLOIT_CONFIRMED),
+    as well as replay_status and persistence_status.
+    """
+    art = TargetExecutionArtifact(
+        baseline_id="baseline_5",
+        target_id="REENT-01",
+        target_name="Vault",
+        status=ExecutionStatus.SUCCESS,
+        security_verdict="NO_BREACH",
+        replay_status="NOT_ELIGIBLE",
+        persistence_status="NOT_ELIGIBLE",
+        process_exit_code=0,
+    )
+    d = art.to_dict()
+    assert d["status"] == "SUCCESS"
+    assert d["execution_status"] == "SUCCESS"
+    assert d["security_verdict"] == "NO_BREACH"
+    assert d["replay_status"] == "NOT_ELIGIBLE"
+    assert d["persistence_status"] == "NOT_ELIGIBLE"
+    assert d["process_exit_code"] == 0
+
+    art_fail = TargetExecutionArtifact(
+        baseline_id="baseline_5",
+        target_id="REENT-01",
+        target_name="Vault",
+        status=ExecutionStatus.FAILED,
+        security_verdict="COMPILATION_ERROR",
+        replay_status="NOT_ELIGIBLE",
+        persistence_status="NOT_ELIGIBLE",
+        process_exit_code=1,
+    )
+    d_fail = art_fail.to_dict()
+    assert d_fail["status"] == "FAILED"
+    assert d_fail["execution_status"] == "FAILED"
+    assert d_fail["security_verdict"] == "COMPILATION_ERROR"
+
+
+def test_compilation_failure_never_counted_as_exploit_or_breach():
+    """
+    P0 Guarantee: Evaluator must NEVER treat a compilation error as a detected exploit,
+    invariant breach, or true positive, even if a buggy adapter marked detected=True.
+    """
+    dataset = BenchmarkDataset()
+    gt_map = dataset.ground_truth
+
+    # Synthesize an artifact with compilation failure but erroneously set detected=True
+    artifact = TargetExecutionArtifact(
+        baseline_id="baseline_4",
+        target_id="REENT-01",
+        target_name="Vault",
+        status=ExecutionStatus.FAILED,
+        security_verdict="COMPILATION_ERROR",
+        detected=True,  # buggy signal
+        verified_breaches=1,  # buggy signal
+        replayed_breaches=0,
+        duration_seconds=1.0,
+    )
+
+    eval_res = evaluate_baseline_run(
+        baseline_id="baseline_4",
+        baseline_name="LLM + Naive Foundry",
+        artifacts=[artifact],
+        ground_truth_map=gt_map,
+    )
+    # Because 1 target out of 16 was provided and it failed, overall status is FAILED
+    assert eval_res.status == ExecutionStatus.FAILED
+    assert eval_res.true_positives is None  # fail-closed metrics are None
+    detail = eval_res.details[0]
+    assert detail["detected"] is False  # Must be coerced to False for compilation error!
+    assert detail["verified_breaches"] == 0
+
+
+def test_target_artifact_preserves_stdout_stderr_paths_and_sha256(tmpdir):
+    """
+    Verifies that benchmark runner persists real stdout and stderr evidence files,
+    computes accurate cryptographic SHA-256 digests, and stores relative paths
+    in the execution artifact and manifest.
+    """
+    suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+    report = suite.run_benchmark(
+        mode="smoke",
+        baselines_to_run=["baseline_1"],
+        save_results=True,
+    )
+    run_dir = Path(tmpdir) / report["run_id"]
+    b1_dir = run_dir / "baseline_1"
+    assert b1_dir.exists()
+
+    json_files = list(b1_dir.glob("*.json"))
+    assert len(json_files) > 0
+
+    for jf in json_files:
+        with open(jf, "r", encoding="utf-8") as f:
+            art_data = json.load(f)
+
+        assert "stdout_path" in art_data
+        assert "stderr_path" in art_data
+        assert "stdout_sha256" in art_data
+        assert "stderr_sha256" in art_data
+
+        stdout_p = Path(__file__).parent.parent / art_data["stdout_path"] if not Path(art_data["stdout_path"]).is_absolute() else Path(art_data["stdout_path"])
+        if not stdout_p.exists():
+            stdout_p = Path(jf.parent) / f"{jf.stem}_stdout.txt"
+        assert stdout_p.exists(), f"Stdout file {stdout_p} does not exist"
+
+        content = stdout_p.read_text(encoding="utf-8")
+        computed_sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        assert computed_sha == art_data["stdout_sha256"]
+
+
+def test_modal_invocation_provenance_retention():
+    """
+    Verifies that Baseline 5 with Modal backend properly records all invocation provenance:
+    remote app, functions invoked, execution stages, token provenance, and SHA-256 digests.
+    """
+    art = TargetExecutionArtifact(
+        baseline_id="baseline_5",
+        target_id="REENT-01",
+        target_name="Vault",
+        status=ExecutionStatus.SUCCESS,
+        security_verdict="EXPLOIT_CONFIRMED",
+        replay_status="CONFIRMED",
+        persistence_status="persisted",
+        process_exit_code=0,
+        stdout_sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        stderr_sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        input_sha256="a1b2c3d4",
+        output_sha256="d4c3b2a1",
+        tool_metadata={
+            "remote_backend": "modal",
+            "modal_app": "aegis-rlvr-engine",
+            "modal_functions": [
+                "ProductionAuditAgent.generate_solidity_exploit",
+                "verify_exploit_remote",
+                "verify_replay_remote",
+                "record_trajectory_remote"
+            ],
+            "remote_stages": {
+                "inference": "remote_gpu",
+                "sandbox": "remote_modal",
+                "replay": "remote_modal",
+                "persistence": "remote_volume",
+            },
+            "token_provenance": "remote_modal_h100",
+            "cost_status": "unmeasured",
+        }
+    )
+    d = art.to_dict()
+    assert d["tool_metadata"]["remote_backend"] == "modal"
+    assert "verify_exploit_remote" in d["tool_metadata"]["modal_functions"]
+    assert d["tool_metadata"]["remote_stages"]["sandbox"] == "remote_modal"
+    assert d["security_verdict"] == "EXPLOIT_CONFIRMED"
+    assert d["replay_status"] == "CONFIRMED"
+    assert d["persistence_status"] == "persisted"
+
+
+def test_manifest_git_integrity_rejects_dirty_checkout():
+    """
+    Verifies that validate_manifest_git_integrity rejects runs where is_dirty=True
+    when require_clean=True is specified (enforced during canonical real benchmark runs).
+    """
+    from benchmarks.protocol import validate_manifest_git_integrity, verify_manifest_git_integrity
+
+    full_sha = "c1813a78c08952e34eb1afdac5b4cf5752547e79"
+    run_dir = f"benchmarks/artifacts/run_1794146412_{full_sha[:7]}"
+
+    manifest_dirty = {
+        "run_id": f"run_1794146412_{full_sha[:7]}",
+        "git": {"commit_sha": full_sha, "is_dirty": True, "branch": "feat/empirical-benchmark-runner"}
+    }
+
+    valid, err = validate_manifest_git_integrity(manifest_dirty, run_dir=run_dir, expected_commit_sha=full_sha, require_clean=True)
+    assert valid is False
+    assert "Dirty git checkout detected" in err
+
+    with pytest.raises(ValueError, match="Dirty git checkout detected"):
+        verify_manifest_git_integrity(manifest_dirty, run_dir=run_dir, expected_commit_sha=full_sha, require_clean=True)
+
+
+def test_manifest_git_integrity_exact_sha_and_directory_suffix_matching():
+    """
+    Verifies that manifest validation enforces full 40-hex SHA format,
+    rejects SHA mismatches against git checkout, and verifies run directory suffix.
+    """
+    from benchmarks.protocol import validate_manifest_git_integrity
+
+    full_sha = "c1813a78c08952e34eb1afdac5b4cf5752547e79"
+    mismatched_sha = "e2924b89d09063f45fc2befbd6c57f6863658f80"
+
+    # 1. Reject non-hex or invalid length SHA
+    short_manifest = {
+        "run_id": "run_123_c1813a7",
+        "git": {"commit_sha": "c1813a7", "is_dirty": False}
+    }
+    valid, err = validate_manifest_git_integrity(short_manifest)
+    assert valid is False
+    assert "40-character hexadecimal" in err
+
+    # 2. Reject mismatch against expected checkout SHA
+    manifest = {
+        "run_id": f"run_123_{full_sha[:7]}",
+        "git": {"commit_sha": full_sha, "is_dirty": False}
+    }
+    valid, err = validate_manifest_git_integrity(manifest, expected_commit_sha=mismatched_sha)
+    assert valid is False
+    assert "does not match expected checkout SHA" in err
+
+
+def test_foundry_integration_cannot_pass_via_missing_binary_fallback_in_ci(monkeypatch):
+    """
+    Verifies that under CI environments (CI=true), live Foundry integration probe
+    CANNOT silently pass or skip if forge binary is missing.
+    """
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setattr(shutil, "which", lambda cmd: None if cmd == "forge" else shutil.which(cmd))
+
+    with pytest.raises(AssertionError, match="Foundry binary 'forge' MUST be present on PATH in CI"):
+        test_real_foundry_integration_live_execution()

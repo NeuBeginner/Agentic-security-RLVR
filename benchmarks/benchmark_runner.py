@@ -250,6 +250,7 @@ class AegisBenchmarkSuite:
         custom_adapters: Optional[Dict[str, BaselineAdapter]] = None,
         baseline5_provider: Optional[str] = None,
         baseline5_model_id: Optional[str] = None,
+        require_clean: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
         Executes the benchmark suite across baselines.
@@ -355,12 +356,59 @@ class AegisBenchmarkSuite:
                 artifact = adapter.execute_target(target, base_dir=base_dir)
                 baseline_artifacts.append(artifact)
 
-                # Save per-target JSON artifact
+                # Save per-target JSON artifact and stdout/stderr evidence
                 if save_results:
+                    stdout_content = ""
+                    stderr_content = ""
+                    if isinstance(artifact.raw_output, dict):
+                        stdout_content = str(artifact.raw_output.get("stdout") or "")
+                        stderr_content = str(artifact.raw_output.get("stderr") or "")
+                    elif isinstance(artifact.logs, list) and artifact.logs:
+                        stderr_content = "\n".join(str(l) for l in artifact.logs)
+
+                    stdout_file = run_artifacts_dir / b_id / f"{target.contract_id}_stdout.txt"
+                    stderr_file = run_artifacts_dir / b_id / f"{target.contract_id}_stderr.txt"
+                    stdout_file.write_text(stdout_content, encoding="utf-8")
+                    stderr_file.write_text(stderr_content, encoding="utf-8")
+
+                    try:
+                        rel_stdout_path = str(stdout_file.relative_to(base_dir)).replace("\\", "/")
+                    except ValueError:
+                        rel_stdout_path = f"{run_id}/{b_id}/{stdout_file.name}"
+
+                    try:
+                        rel_stderr_path = str(stderr_file.relative_to(base_dir)).replace("\\", "/")
+                    except ValueError:
+                        rel_stderr_path = f"{run_id}/{b_id}/{stderr_file.name}"
+
+                    artifact.stdout_path = rel_stdout_path
+                    artifact.stderr_path = rel_stderr_path
+                    if not artifact.stdout_sha256:
+                        artifact.stdout_sha256 = hashlib.sha256(stdout_content.encode("utf-8")).hexdigest()
+                    if not artifact.stderr_sha256:
+                        artifact.stderr_sha256 = hashlib.sha256(stderr_content.encode("utf-8")).hexdigest()
+
+                    if not artifact.security_verdict:
+                        if artifact.status == ExecutionStatus.UNAVAILABLE:
+                            artifact.security_verdict = "UNAVAILABLE"
+                        elif artifact.status == ExecutionStatus.FAILED:
+                            artifact.security_verdict = "EXECUTION_FAILURE"
+                        elif artifact.detected:
+                            artifact.security_verdict = "DETECTED_POTENTIAL_VULNERABILITY"
+                        else:
+                            artifact.security_verdict = "NO_BREACH"
+
+                    if not artifact.replay_status:
+                        artifact.replay_status = "NOT_ELIGIBLE"
+                    if not artifact.persistence_status:
+                        artifact.persistence_status = "NOT_ELIGIBLE"
+
                     art_file = run_artifacts_dir / b_id / f"{target.contract_id}.json"
                     art_dict = artifact.to_dict()
                     with open(art_file, "w", encoding="utf-8") as f:
                         json.dump(art_dict, f, indent=2)
+
+
 
                     # Track file provenance with cryptographic hash and byte size
                     try:
@@ -528,14 +576,22 @@ class AegisBenchmarkSuite:
         )
 
         # Enforce git reproducibility manifest integrity
+        effective_require_clean = (
+            require_clean
+            if require_clean is not None
+            else ((mode == "real") and not (os.environ.get("AEGIS_ALLOW_DIRTY") == "1"))
+        )
         if commit_sha != "unknown":
-            verify_manifest_git_integrity(repro_manifest, run_artifacts_dir, expected_commit_sha=commit_sha)
+            verify_manifest_git_integrity(
+                repro_manifest, run_artifacts_dir, expected_commit_sha=commit_sha, require_clean=effective_require_clean
+            )
 
         rel_manifest_file = None
         if save_results and rel_artifacts_dir:
             rel_manifest_file = f"{rel_artifacts_dir}/reproducibility_manifest.json"
 
         report: Dict[str, Any] = {
+            "run_id": run_id,
             "benchmark_version": self.dataset.version,
             "execution_mode": "SYNTHETIC_SMOKE_TEST" if mode == "smoke" else "REAL_EXPERIMENT",
             "is_synthetic_smoke": (mode == "smoke"),

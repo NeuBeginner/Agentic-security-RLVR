@@ -29,6 +29,20 @@ TRUSTED_HARNESSES_DIR = "/opt/aegis/trusted_harnesses"
 TRUSTED_HARNESS_CONTRACTS = {
     "Vault": "VaultTrustedHarness",
     "ERC4626Vault": "ERC4626TrustedHarness",
+    "AccessControlVault": "AccessControlVaultHarness",
+    "AuctionDoS": "AuctionDoSHarness",
+    "CrossContractBridge": "CrossContractBridgeHarness",
+    "FeeShareYieldVault": "FeeShareYieldVaultHarness",
+    "FlashLoanRewardPool": "FlashLoanRewardPoolHarness",
+    "LendingLiquidation": "LendingLiquidationHarness",
+    "OracleLendingPool": "OracleLendingPoolHarness",
+    "PrecisionStakingPool": "PrecisionStakingPoolHarness",
+    "RewardDistributorLogic": "RewardDistributorLogicHarness",
+    "SignatureReplayWallet": "SignatureReplayWalletHarness",
+    "SecureVault": "SecureVaultTrustedHarness",
+    "SecureAccessControlVault": "SecureAccessControlVaultHarness",
+    "SecureERC4626Vault": "SecureERC4626TrustedHarness",
+    "SecureOraclePool": "SecureOraclePoolHarness",
 }
 
 # Optimized, Pinned Foundry + Solc + OpenZeppelin + Slither Execution Image for Modal

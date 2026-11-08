@@ -76,6 +76,18 @@ class TargetExecutionArtifact:
     replayed_breaches: int = 0
     duration_seconds: float = 0.0
     cost_usd: Optional[float] = None
+    security_verdict: Optional[str] = None
+    replay_status: Optional[str] = None
+    persistence_status: Optional[str] = None
+    stdout_path: Optional[str] = None
+    stderr_path: Optional[str] = None
+    stdout_sha256: Optional[str] = None
+    stderr_sha256: Optional[str] = None
+    input_sha256: Optional[str] = None
+    output_sha256: Optional[str] = None
+    process_exit_code: Optional[int] = None
+    utc_start_time: Optional[str] = None
+    utc_end_time: Optional[str] = None
     tool_metadata: Dict[str, Any] = field(default_factory=dict)
     raw_output: Dict[str, Any] = field(default_factory=dict)
     logs: List[str] = field(default_factory=list)
@@ -88,6 +100,7 @@ class TargetExecutionArtifact:
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
         d["status"] = self.status.value
+        d["execution_status"] = self.status.value
         return d
 
 
@@ -291,12 +304,14 @@ def validate_manifest_git_integrity(
     manifest_data: Any,
     run_dir: Optional[Any] = None,
     expected_commit_sha: Optional[str] = None,
+    require_clean: bool = False,
 ) -> Tuple[bool, Optional[str]]:
     """
     Validates git provenance integrity of a reproducibility manifest:
     1. commit_sha must be a full 40-character hexadecimal SHA (rejects 'HEAD', 'unknown', or short hashes).
     2. If expected_commit_sha is provided, manifest commit_sha must strictly match it.
     3. If run_dir or manifest run_id is provided, directory suffix (or run_id suffix) must match commit_sha[:7].
+    4. If require_clean is True, rejects manifests recorded from dirty git checkouts (is_dirty=True).
     """
     import re
 
@@ -320,6 +335,9 @@ def validate_manifest_git_integrity(
         return False, f"Invalid git commit SHA '{commit_sha}': must be a full 40-character hexadecimal SHA"
 
     commit_sha_lower = commit_sha.lower()
+
+    if require_clean and git_info.get("is_dirty") is True:
+        return False, "Dirty git checkout detected: reproducibility requires clean working tree (no uncommitted modifications)"
 
     if expected_commit_sha is not None:
         if not re.fullmatch(r"[0-9a-fA-F]{40}", expected_commit_sha):
@@ -348,9 +366,12 @@ def verify_manifest_git_integrity(
     manifest_data: Any,
     run_dir: Optional[Any] = None,
     expected_commit_sha: Optional[str] = None,
+    require_clean: bool = False,
 ) -> None:
     """Raises ValueError if reproducibility manifest git integrity validation fails."""
-    valid, err = validate_manifest_git_integrity(manifest_data, run_dir, expected_commit_sha)
+    valid, err = validate_manifest_git_integrity(
+        manifest_data, run_dir, expected_commit_sha, require_clean=require_clean
+    )
     if not valid:
         raise ValueError(f"Reproducibility manifest git integrity validation failed: {err}")
 

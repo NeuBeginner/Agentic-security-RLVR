@@ -998,6 +998,9 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 target_name=target.target_name,
                 status=ExecutionStatus.UNAVAILABLE,
                 unavailable_reason=reason,
+                security_verdict="UNAVAILABLE",
+                replay_status="NOT_ELIGIBLE",
+                persistence_status="NOT_ELIGIBLE",
                 argv=None,
                 timeout_sec=None,
                 resource_budget={},
@@ -1005,12 +1008,14 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
             )
 
         start_time = time.time()
+        utc_start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start_time))
         forge_ver = self.get_forge_version()
 
         try:
             source_code = target.load_source_code(base_dir)
             prompt = self.PROMPT_TEMPLATE.format(target_name=target.target_name, source_code=source_code)
             prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+            input_sha256 = hashlib.sha256(source_code.encode("utf-8")).hexdigest()
 
             if self.client_override:
                 candidate_code = self.client_override(prompt)
@@ -1025,6 +1030,17 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 test_dir = os.path.join(tmpdir, "test")
                 os.makedirs(src_dir, exist_ok=True)
                 os.makedirs(test_dir, exist_ok=True)
+
+                foundry_toml_content = (
+                    "[profile.default]\n"
+                    "src = \"src\"\n"
+                    "out = \"out\"\n"
+                    "libs = [\"lib\"]\n"
+                    "test = \"test\"\n"
+                    "cache = false\n"
+                )
+                with open(os.path.join(tmpdir, "foundry.toml"), "w", encoding="utf-8") as f:
+                    f.write(foundry_toml_content)
 
                 with open(os.path.join(src_dir, f"{target.target_name}.sol"), "w", encoding="utf-8") as f:
                     f.write(source_code)
@@ -1044,6 +1060,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     timeout=effective_timeout,
                 )
                 elapsed = round(time.time() - start_time, 3)
+                utc_end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
                 stdout_text = proc.stdout or ""
                 stderr_text = proc.stderr or ""
@@ -1082,6 +1099,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     base_tool_metadata["naive_signal"] = False
                     base_tool_metadata["test_pass"] = False
                     base_tool_metadata["is_compile_failure"] = is_compile_failure
+                    sec_verdict = "COMPILATION_ERROR" if is_compile_failure else "NO_BREACH"
 
                     return TargetExecutionArtifact(
                         baseline_id=self.baseline_id,
@@ -1095,6 +1113,16 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                         replayed_breaches=0,
                         duration_seconds=elapsed,
                         cost_usd=None,
+                        security_verdict=sec_verdict,
+                        replay_status="NOT_ELIGIBLE",
+                        persistence_status="NOT_ELIGIBLE",
+                        stdout_sha256=stdout_sha256,
+                        stderr_sha256=stderr_sha256,
+                        input_sha256=input_sha256,
+                        output_sha256=candidate_code_sha256,
+                        process_exit_code=proc.returncode,
+                        utc_start_time=utc_start,
+                        utc_end_time=utc_end,
                         tool_metadata=base_tool_metadata,
                         raw_output={"stdout": stdout_text, "stderr": stderr_text},
                         logs=[stderr_text[:500]] if stderr_text else [stdout_text[:500]],
@@ -1123,6 +1151,16 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                         replayed_breaches=0,
                         duration_seconds=elapsed,
                         cost_usd=None,
+                        security_verdict="INCONCLUSIVE",
+                        replay_status="NOT_ELIGIBLE",
+                        persistence_status="NOT_ELIGIBLE",
+                        stdout_sha256=stdout_sha256,
+                        stderr_sha256=stderr_sha256,
+                        input_sha256=input_sha256,
+                        output_sha256=candidate_code_sha256,
+                        process_exit_code=proc.returncode,
+                        utc_start_time=utc_start,
+                        utc_end_time=utc_end,
                         tool_metadata=base_tool_metadata,
                         raw_output={"stdout": stdout_text, "stderr": stderr_text},
                         logs=[stdout_text[:500]] if stdout_text else [],
@@ -1150,6 +1188,16 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     replayed_breaches=0,
                     duration_seconds=elapsed,
                     cost_usd=None,
+                    security_verdict="NAIVE_TEST_PASS" if test_pass else "NO_BREACH",
+                    replay_status="NOT_ELIGIBLE",
+                    persistence_status="NOT_ELIGIBLE",
+                    stdout_sha256=stdout_sha256,
+                    stderr_sha256=stderr_sha256,
+                    input_sha256=input_sha256,
+                    output_sha256=candidate_code_sha256,
+                    process_exit_code=proc.returncode,
+                    utc_start_time=utc_start,
+                    utc_end_time=utc_end,
                     tool_metadata=base_tool_metadata,
                     raw_output={"stdout": stdout_text, "stderr": stderr_text},
                     logs=[stdout_text[:500]] if stdout_text else [],
@@ -1161,6 +1209,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 )
 
         except subprocess.TimeoutExpired:
+            utc_end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             return TargetExecutionArtifact(
                 baseline_id=self.baseline_id,
                 target_id=target.contract_id,
@@ -1169,6 +1218,11 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 unavailable_reason=f"Naive Foundry execution timed out after {effective_timeout}s",
                 duration_seconds=float(effective_timeout),
                 cost_usd=None,
+                security_verdict="TIMEOUT",
+                replay_status="NOT_ELIGIBLE",
+                persistence_status="NOT_ELIGIBLE",
+                utc_start_time=utc_start,
+                utc_end_time=utc_end,
                 tool_metadata={
                     "provider": self.provider,
                     "model_id": self.model_id,
@@ -1181,6 +1235,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 effective_config_hash=self.get_effective_config_hash(),
             )
         except Exception as e:
+            utc_end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             return TargetExecutionArtifact(
                 baseline_id=self.baseline_id,
                 target_id=target.contract_id,
@@ -1189,6 +1244,11 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 unavailable_reason=f"Naive Foundry execution failed: {e}",
                 duration_seconds=round(time.time() - start_time, 3),
                 cost_usd=None,
+                security_verdict="EXECUTION_FAILURE",
+                replay_status="NOT_ELIGIBLE",
+                persistence_status="NOT_ELIGIBLE",
+                utc_start_time=utc_start,
+                utc_end_time=utc_end,
                 tool_metadata={
                     "provider": self.provider,
                     "model_id": self.model_id,
@@ -1200,7 +1260,6 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 resource_budget=dict(self.resource_budget),
                 effective_config_hash=self.get_effective_config_hash(),
             )
-
 
 class FullAegisRLVRBaselineAdapter(BaselineAdapter):
     """
@@ -1228,11 +1287,17 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
         self.candidate_generator = candidate_generator
         self.max_hypotheses = max_hypotheses
         self._timeout_sec = timeout_sec
+        from sandbox.runner import TRUSTED_HARNESS_CONTRACTS
         self._resource_budget = resource_budget or {
             "timeout_sec": timeout_sec,
             "max_hypotheses": max_hypotheses,
-            "allowlist": ["Vault", "ERC4626Vault"],
+            "allowlist": sorted(list(TRUSTED_HARNESS_CONTRACTS.keys())),
         }
+
+    @property
+    def allowlist(self) -> List[str]:
+        from sandbox.runner import TRUSTED_HARNESS_CONTRACTS
+        return sorted(list(TRUSTED_HARNESS_CONTRACTS.keys()))
 
     @property
     def baseline_id(self) -> str:
@@ -1251,6 +1316,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
         return f"Full Aegis-RLVR ({self.provider} + Modal CPU EVM Replay)"
 
     def get_effective_config_hash(self) -> str:
+        from sandbox.runner import TRUSTED_HARNESS_CONTRACTS
         data = {
             "baseline_id": self.baseline_id,
             "provider": self.provider,
@@ -1258,7 +1324,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             "max_hypotheses": self.max_hypotheses,
             "timeout_sec": self.timeout_sec,
             "resource_budget": self.resource_budget,
-            "allowlist": ["Vault", "ERC4626Vault"],
+            "allowlist": sorted(list(TRUSTED_HARNESS_CONTRACTS.keys())),
         }
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -1508,6 +1574,20 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             if persistence_status == "persisted":
                 modal_functions.append("record_trajectory_remote")
 
+            sec_verdict = "EXPLOIT_CONFIRMED" if is_verified else verdict.category.value
+            rep_status = "CONFIRMED" if is_replayed else ("NOT_ELIGIBLE" if not replay_attempted else "FAILED")
+            pers_status = persistence_status
+            exit_code = verdict_dict.get("sandbox_returncode", 1 if verdict.category == ResultCategory.COMPILATION_ERROR else 0)
+
+            raw_stdout = verdict_dict.get("sandbox_stdout", "")
+            raw_stderr = verdict_dict.get("sandbox_stderr", verdict.feedback or "")
+            stdout_sha = hashlib.sha256(raw_stdout.encode("utf-8")).hexdigest()
+            stderr_sha = hashlib.sha256(raw_stderr.encode("utf-8")).hexdigest()
+            input_sha = hashlib.sha256(source_code.encode("utf-8")).hexdigest()
+            output_sha = hashlib.sha256((payload.test_code or "").encode("utf-8")).hexdigest() if payload else None
+            utc_start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start_time))
+            utc_end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
             base_tool_metadata = {
                 "remote_backend": "modal",
                 "modal_app": config.APP_NAME,
@@ -1545,6 +1625,15 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 "timeout_sec": timeout_sec,
                 "resource_budget": dict(self.resource_budget),
                 "effective_config_hash": self.get_effective_config_hash(),
+                "security_verdict": sec_verdict,
+                "replay_status": rep_status,
+                "process_exit_code": exit_code,
+                "stdout_sha256": stdout_sha,
+                "stderr_sha256": stderr_sha,
+                "input_sha256": input_sha,
+                "output_sha256": output_sha,
+                "utc_start_time": utc_start,
+                "utc_end_time": utc_end,
             }
 
             return TargetExecutionArtifact(
@@ -1552,6 +1641,16 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 target_id=target.contract_id,
                 target_name=target.target_name,
                 status=ExecutionStatus.SUCCESS,
+                security_verdict=sec_verdict,
+                replay_status=rep_status,
+                persistence_status=pers_status,
+                stdout_sha256=stdout_sha,
+                stderr_sha256=stderr_sha,
+                input_sha256=input_sha,
+                output_sha256=output_sha,
+                process_exit_code=exit_code,
+                utc_start_time=utc_start,
+                utc_end_time=utc_end,
                 detected=bool(is_verified),
                 candidates_generated=candidates_count,
                 verified_breaches=1 if is_verified else 0,
@@ -1559,7 +1658,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 duration_seconds=elapsed,
                 cost_usd=None,
                 tool_metadata=base_tool_metadata,
-                raw_output={"category": verdict.category.value, "reward_score": verdict.reward_score},
+                raw_output={"category": verdict.category.value, "reward_score": verdict.reward_score, "stdout": raw_stdout, "stderr": raw_stderr},
                 logs=[verdict.feedback[:300]] if verdict.feedback else [],
                 argv=cmd,
                 timeout_sec=timeout_sec,

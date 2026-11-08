@@ -12,7 +12,9 @@
           "contract_id": "REENT-01",
           "target_name": "Vault",
           "is_vulnerable": true,
-          "vulnerable_functions": ["withdrawAll"],
+          "vulnerable_functions": [
+            "withdrawAll"
+          ],
           "ground_truth_invariant": "DEPOSITOR_SOLVENCY_COLLAPSE",
           "source_file": "benchmarks/targets/solidity/Vault.sol",
           "harness_file": "benchmarks/targets/solidity/VaultHarness.t.sol",
@@ -29,7 +31,10 @@
           "contract_id": "ERC4626-01",
           "target_name": "ERC4626Vault",
           "is_vulnerable": true,
-          "vulnerable_functions": ["deposit", "withdraw"],
+          "vulnerable_functions": [
+            "deposit",
+            "withdraw"
+          ],
           "ground_truth_invariant": "ERC4626_SHARE_DILUTION_OR_INFLATION",
           "source_file": "benchmarks/targets/solidity/ERC4626Vault.sol",
           "harness_file": "benchmarks/targets/solidity/ERC4626VaultHarness.t.sol",
@@ -46,7 +51,9 @@
           "contract_id": "AC-01",
           "target_name": "AccessControlVault",
           "is_vulnerable": true,
-          "vulnerable_functions": ["setOwner"],
+          "vulnerable_functions": [
+            "setOwner"
+          ],
           "ground_truth_invariant": "UNAUTHORIZED_ADMIN_DRAIN",
           "source_file": "benchmarks/targets/solidity/AccessControlVault.sol",
           "harness_file": "benchmarks/targets/solidity/AccessControlVaultHarness.t.sol",
@@ -63,7 +70,9 @@
           "contract_id": "ORACLE-01",
           "target_name": "OracleLendingPool",
           "is_vulnerable": true,
-          "vulnerable_functions": ["borrow"],
+          "vulnerable_functions": [
+            "borrow"
+          ],
           "ground_truth_invariant": "ORACLE_PRICE_MANIPULATION",
           "source_file": "benchmarks/targets/solidity/OracleLendingPool.sol",
           "harness_file": "benchmarks/targets/solidity/OracleLendingPoolHarness.t.sol",
@@ -80,7 +89,9 @@
           "contract_id": "FLASH-01",
           "target_name": "FlashLoanRewardPool",
           "is_vulnerable": true,
-          "vulnerable_functions": ["claimReward"],
+          "vulnerable_functions": [
+            "claimReward"
+          ],
           "ground_truth_invariant": "FLASH_LOAN_REWARD_DISTORTION",
           "source_file": "benchmarks/targets/solidity/FlashLoanRewardPool.sol",
           "harness_file": "benchmarks/targets/solidity/FlashLoanRewardPoolHarness.t.sol",
@@ -97,7 +108,9 @@
           "contract_id": "SIG-01",
           "target_name": "SignatureReplayWallet",
           "is_vulnerable": true,
-          "vulnerable_functions": ["executeWithSignature"],
+          "vulnerable_functions": [
+            "executeWithSignature"
+          ],
           "ground_truth_invariant": "SIGNATURE_REPLAY_DRAIN",
           "source_file": "benchmarks/targets/solidity/SignatureReplayWallet.sol",
           "harness_file": "benchmarks/targets/solidity/SignatureReplayWalletHarness.t.sol",
@@ -114,7 +127,9 @@
           "contract_id": "STATE-01",
           "target_name": "RewardDistributorLogic",
           "is_vulnerable": true,
-          "vulnerable_functions": ["claimPointsReward"],
+          "vulnerable_functions": [
+            "claimPointsReward"
+          ],
           "ground_truth_invariant": "STATE_ACCOUNTING_INCONSISTENCY",
           "source_file": "benchmarks/targets/solidity/RewardDistributorLogic.sol",
           "harness_file": "benchmarks/targets/solidity/RewardDistributorLogicHarness.t.sol",
@@ -131,7 +146,9 @@
           "contract_id": "BIZ-01",
           "target_name": "FeeShareYieldVault",
           "is_vulnerable": true,
-          "vulnerable_functions": ["harvestPerformanceFee"],
+          "vulnerable_functions": [
+            "harvestPerformanceFee"
+          ],
           "ground_truth_invariant": "BUSINESS_LOGIC_FEE_DRAIN",
           "source_file": "benchmarks/targets/solidity/FeeShareYieldVault.sol",
           "harness_file": "benchmarks/targets/solidity/FeeShareYieldVaultHarness.t.sol",
@@ -148,7 +165,9 @@
           "contract_id": "LIQ-01",
           "target_name": "LendingLiquidation",
           "is_vulnerable": true,
-          "vulnerable_functions": ["liquidateDefective"],
+          "vulnerable_functions": [
+            "liquidateDefective"
+          ],
           "ground_truth_invariant": "LIQUIDATION_ACCOUNTING_DEFECT",
           "source_file": "benchmarks/targets/solidity/LendingLiquidation.sol",
           "harness_file": "benchmarks/targets/solidity/LendingLiquidationHarness.t.sol",
@@ -165,7 +184,9 @@
           "contract_id": "BRIDGE-01",
           "target_name": "CrossContractBridge",
           "is_vulnerable": true,
-          "vulnerable_functions": ["releaseBridgedTokens"],
+          "vulnerable_functions": [
+            "releaseBridgedTokens"
+          ],
           "ground_truth_invariant": "CROSS_CONTRACT_DESYNCHRONIZATION",
           "source_file": "benchmarks/targets/solidity/CrossContractBridge.sol",
           "harness_file": "benchmarks/targets/solidity/CrossContractBridgeHarness.t.sol",
@@ -182,7 +203,9 @@
           "contract_id": "DOS-01",
           "target_name": "AuctionDoS",
           "is_vulnerable": true,
-          "vulnerable_functions": ["bid"],
+          "vulnerable_functions": [
+            "bid"
+          ],
           "ground_truth_invariant": "DENIAL_OF_SERVICE_LIVENESS",
           "source_file": "benchmarks/targets/solidity/AuctionDoS.sol",
           "harness_file": "benchmarks/targets/solidity/AuctionDoSHarness.t.sol",
@@ -199,7 +222,9 @@
           "contract_id": "PREC-01",
           "target_name": "PrecisionStakingPool",
           "is_vulnerable": true,
-          "vulnerable_functions": ["depositWithFee"],
+          "vulnerable_functions": [
+            "depositWithFee"
+          ],
           "ground_truth_invariant": "PRECISION_LOSS_FEE_BYPASS",
           "source_file": "benchmarks/targets/solidity/PrecisionStakingPool.sol",
           "harness_file": "benchmarks/targets/solidity/PrecisionStakingPoolHarness.t.sol",
@@ -218,7 +243,8 @@
       "ground_truth_invariant": "NONE",
       "source_file": "benchmarks/targets/solidity/controls/SecureVault.sol",
       "difficulty": "medium",
-      "description": "Safe vault protected by CEI pattern and nonReentrant modifier."
+      "description": "Safe vault protected by CEI pattern and nonReentrant modifier.",
+      "harness_file": "benchmarks/targets/solidity/SecureVaultHarness.t.sol"
     },
     {
       "contract_id": "SAFE-02",
@@ -228,7 +254,8 @@
       "ground_truth_invariant": "NONE",
       "source_file": "benchmarks/targets/solidity/controls/SecureAccessControlVault.sol",
       "difficulty": "low",
-      "description": "Safe access-controlled vault protected by onlyOwner modifier."
+      "description": "Safe access-controlled vault protected by onlyOwner modifier.",
+      "harness_file": "benchmarks/targets/solidity/SecureAccessControlVaultHarness.t.sol"
     },
     {
       "contract_id": "SAFE-03",
@@ -238,7 +265,8 @@
       "ground_truth_invariant": "NONE",
       "source_file": "benchmarks/targets/solidity/controls/SecureERC4626Vault.sol",
       "difficulty": "high",
-      "description": "Safe ERC4626 implementation using virtual shares offset mitigation."
+      "description": "Safe ERC4626 implementation using virtual shares offset mitigation.",
+      "harness_file": "benchmarks/targets/solidity/SecureERC4626VaultHarness.t.sol"
     },
     {
       "contract_id": "SAFE-04",
@@ -248,7 +276,8 @@
       "ground_truth_invariant": "NONE",
       "source_file": "benchmarks/targets/solidity/controls/SecureOraclePool.sol",
       "difficulty": "high",
-      "description": "Safe lending pool using TWAP oracle and volatility guards."
+      "description": "Safe lending pool using TWAP oracle and volatility guards.",
+      "harness_file": "benchmarks/targets/solidity/SecureOraclePoolHarness.t.sol"
     }
   ]
 }

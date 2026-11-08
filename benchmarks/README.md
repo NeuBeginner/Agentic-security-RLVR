@@ -37,8 +37,8 @@ The Aegis-RLVR benchmark framework provides an empirical evaluation across 5 dis
   Unless actual token usage and a versioned pricing schedule are provided, `cost_usd` is stored as `null` (`None`). Hardcoded constant dollar amounts are strictly excluded from empirical reports.
 - **Dynamic Candidate Sizing:**
   Exploit candidate counts are extracted from real generator outputs, never hardcoded constants.
-- **Production Allowlist Isolation:**
-  Baseline 5 enforces the repository trusted harness allowlist (`Vault` -> `VaultTrustedHarness`, `ERC4626Vault` -> `ERC4626TrustedHarness`). Targets outside the allowlist receive `status = UNAVAILABLE` with explicit boundary reason.
+- **Production Allowlist Scope:**
+  Baseline 5 enforces verified repository-owned trusted harnesses across all 16 benchmark targets in `benchmarks/benchmark_dataset.json` (12 vulnerable targets + 4 synthetic safe controls). Every target is backed by an immutable, isolated `.t.sol` harness in `benchmarks/targets/solidity/` and declared in `TRUSTED_HARNESS_CONTRACTS`. Targets outside this canonical allowlist receive `status = UNAVAILABLE` with explicit boundary reason.
 
 ---
 
@@ -90,7 +90,7 @@ To execute live experiments for each baseline, the host environment must supply:
 | **Baseline 2** | Python | `GEMINI_API_KEY`/`GOOGLE_API_KEY` (Gemini) or `OPENAI_API_KEY` (OpenAI) | None |
 | **Baseline 3** | Python | `GEMINI_API_KEY`/`GOOGLE_API_KEY` (Gemini) or `OPENAI_API_KEY` (OpenAI) | None |
 | **Baseline 4** | `forge` (Foundry) | `GEMINI_API_KEY`/`GOOGLE_API_KEY` (Gemini) or `OPENAI_API_KEY` (OpenAI) | None |
-| **Baseline 5** | `forge` (local) or Modal (`~/.modal.toml` / `MODAL_TOKEN_ID`) | `GEMINI_API_KEY`/`GOOGLE_API_KEY` (Gemini) or `OPENAI_API_KEY` (OpenAI) | Trusted harness allowlist (`Vault`, `ERC4626Vault`) |
+| **Baseline 5** | `forge` (local) or Modal (`~/.modal.toml` / `MODAL_TOKEN_ID`) | `GEMINI_API_KEY`/`GOOGLE_API_KEY` (Gemini) or `OPENAI_API_KEY` (OpenAI) | Trusted harness allowlist (All 16 benchmark targets: 12 vulnerable + 4 controls) |
 
 ---
 

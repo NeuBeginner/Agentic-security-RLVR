@@ -47,13 +47,18 @@ def evaluate_baseline_run(
     for a in artifacts:
         gt = ground_truth_map.get(a.target_id)
         is_vuln = gt.is_vulnerable if gt else False
+        is_compile_err = (a.security_verdict == "COMPILATION_ERROR")
+        det = False if is_compile_err else (a.detected if a.status == ExecutionStatus.SUCCESS else None)
         details.append({
             "target_id": a.target_id,
             "is_vulnerable": is_vuln,
-            "detected": a.detected if a.status == ExecutionStatus.SUCCESS else None,
+            "detected": det,
+            "security_verdict": a.security_verdict,
+            "replay_status": a.replay_status,
+            "persistence_status": a.persistence_status,
             "candidates_generated": a.candidates_generated,
-            "verified_breaches": a.verified_breaches,
-            "replayed_breaches": a.replayed_breaches,
+            "verified_breaches": 0 if is_compile_err else a.verified_breaches,
+            "replayed_breaches": 0 if is_compile_err else a.replayed_breaches,
             "duration_seconds": round(a.duration_seconds, 3),
             "cost_usd": a.cost_usd,
             "status": a.status.value,
@@ -107,7 +112,11 @@ def evaluate_baseline_run(
             raise KeyError(f"Target {art.target_id} lacks authoritative ground truth entry.")
 
         is_vuln = gt.is_vulnerable
-        detected = art.detected
+        # P0 Guarantee: Compilation error must NEVER count as breach or positive detection
+        if art.security_verdict == "COMPILATION_ERROR":
+            detected = False
+        else:
+            detected = art.detected
 
         if is_vuln and detected:
             tp += 1

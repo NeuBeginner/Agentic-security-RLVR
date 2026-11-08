@@ -390,7 +390,11 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     
     # 2. Evaluate multi-factor verdict
     verdict = evaluate_execution_trace(payload, raw_result)
-    return verdict.model_dump()
+    res_dict = verdict.model_dump()
+    res_dict["sandbox_stdout"] = raw_result.stdout or ""
+    res_dict["sandbox_stderr"] = raw_result.stderr or ""
+    res_dict["sandbox_returncode"] = raw_result.return_code
+    return res_dict
 
 
 @app.function(
