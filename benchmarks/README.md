@@ -146,3 +146,21 @@ The reproducibility manifest (`reproducibility_manifest_summary`) strictly separ
   "logs": [...]
 }
 ```
+
+### CI Pipeline Test Partition and Status Semantics
+
+The GitHub Actions CI pipeline (`.github/workflows/ci.yml`) is partitioned into two distinct jobs to isolate deterministic codebase verification from external toolchain distribution infrastructure:
+
+1. **`tests` (Reward v2 and trusted harness regression suite)**:
+   - Executes the complete deterministic test suite: reward shaping, trusted harness contracts, EVM oracle state transitions, GRPO/trajectory integrity, evaluator fail-closed semantics, and reproducibility manifest aggregation (346 tests).
+   - Independent of external tool binaries; uses pre-recorded real EVM execution fixtures (`tests/fixtures/forge/real_vault_execution.json`).
+   - Produces JUnit XML artifact reports (`aegis-reconciled-ci-report`).
+   - Status semantics: Green (`PASS`) verifies codebase and contract correctness.
+
+2. **`foundry-integration` (Real Foundry EVM integration probe)**:
+   - Dedicated probe for live Foundry EVM binary execution on the runner host.
+   - Includes bounded retries (3 attempts with exponential backoff) for resilience against transient release CDN timeouts.
+   - Status semantics:
+     * **`PASS`**: Foundry installed and live `forge test` probe executed successfully.
+     * **`FAILED` (`NOT_RUN / UNAVAILABLE`)**: If release CDN downloads fail (HTTP 503/504), the job fails closed with an explicit error annotation and summary explaining the infrastructure outage.
+     * **Isolation Invariant**: A green `tests` job never implies the `foundry-integration` job passed, and a CDN-blocked Foundry probe never hides infrastructure failure or converts unexecuted tests to success.
