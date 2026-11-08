@@ -358,24 +358,51 @@ class AegisBenchmarkSuite:
             is_avail, avail_reason = adapter.check_availability()
             adapter_duration = round(time.time() - baseline_start_time, 3)
 
-            # Planned command/argv (template/intent)
+            # Planned command/argv, timeout, resource budget, and config hash (template/intent)
             default_argv = adapter.get_default_argv()
             planned_argv = list(default_argv) if default_argv else None
             planned_cmd = " ".join(planned_argv) if planned_argv else None
+            planned_timeout_sec = adapter.timeout_sec
+            planned_resource_budget = dict(adapter.resource_budget) if adapter.resource_budget else {}
+            planned_config_hash = adapter.get_effective_config_hash()
 
             # Adapter-level actual execution evidence:
             # Per Issue #10 Section 7 & reviewer acceptance criteria:
             # An adapter executes multiple distinct targets with distinct paths and argvs.
-            # Adapter-level actual argv and command MUST NOT be populated from get_default_argv()
-            # (which contains template placeholders like <target_path>).
             # Adapter-level actual argv and command are strictly None.
-            # Exact invocation records are captured and preserved exclusively in per_target_provenance.
+            # Adapter-level actual timeout_sec, resource_budget, and config_hash must be derived strictly
+            # from actual invocation records. If zero targets were invoked, or if targets have mixed/differing
+            # values, adapter-level actual fields remain None / empty, keeping exact values exclusively
+            # in per_target_provenance.
             actual_adapter_argv = None
             actual_adapter_cmd = None
 
-            effective_config_hash = adapter.get_effective_config_hash()
-            actual_timeout_sec = adapter.timeout_sec
-            actual_resource_budget = dict(adapter.resource_budget)
+            invoked_artifacts = [
+                art for art in baseline_artifacts
+                if art.status != ExecutionStatus.UNAVAILABLE
+                and art.timeout_sec is not None
+                and (art.argv is not None or art.tool_metadata.get("provider") is not None)
+            ]
+
+            actual_timeout_sec: Optional[int] = None
+            actual_resource_budget: Dict[str, Any] = {}
+            actual_config_hash: Optional[str] = None
+
+            if len(baseline_artifacts) > 0 and len(invoked_artifacts) == len(baseline_artifacts):
+                # Check timeouts
+                invoked_timeouts = {art.timeout_sec for art in invoked_artifacts if art.timeout_sec is not None}
+                if len(invoked_timeouts) == 1 and all(art.timeout_sec is not None for art in invoked_artifacts):
+                    actual_timeout_sec = next(iter(invoked_timeouts))
+
+                # Check resource budgets
+                invoked_budgets = [dict(art.resource_budget) for art in invoked_artifacts if art.resource_budget]
+                if len(invoked_budgets) == len(invoked_artifacts) and all(b == invoked_budgets[0] for b in invoked_budgets):
+                    actual_resource_budget = dict(invoked_budgets[0])
+
+                # Check config hashes
+                invoked_hashes = {art.effective_config_hash for art in invoked_artifacts if art.effective_config_hash is not None}
+                if len(invoked_hashes) == 1 and all(art.effective_config_hash is not None for art in invoked_artifacts):
+                    actual_config_hash = next(iter(invoked_hashes))
 
             per_target_provenance: Dict[str, Dict[str, Any]] = {}
             for art in baseline_artifacts:
@@ -426,10 +453,13 @@ class AegisBenchmarkSuite:
                 planned_argv=planned_argv,
                 timeout_sec=actual_timeout_sec,
                 resource_budget=actual_resource_budget,
+                config_hash=actual_config_hash,
+                planned_timeout_sec=planned_timeout_sec,
+                planned_resource_budget=planned_resource_budget,
+                planned_config_hash=planned_config_hash,
                 duration_seconds=adapter_duration,
                 target_count=len(public_targets),
                 completed_targets=sum(1 for a in baseline_artifacts if a.status == ExecutionStatus.SUCCESS),
-                config_hash=effective_config_hash,
                 cost_status="unmeasured",
                 cost_usd=None,
                 artifact_files=adapter_artifact_files,

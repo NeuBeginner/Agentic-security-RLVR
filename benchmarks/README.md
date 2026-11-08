@@ -104,8 +104,12 @@ benchmarks/
 ```
 
 ### Reproducibility Manifest Provenance
-The reproducibility manifest (`reproducibility_manifest_summary`) separates actual execution evidence from planned invocation metadata:
-- **Adapter-level evidence (`planned_argv`, `planned_command`)**: Stores the adapter's planned command template (e.g., `["slither", "<target_path>", ...]`). Because adapters execute multiple distinct targets with distinct target files and arguments, adapter-level actual `argv` and `command` remain strictly `null`.
+The reproducibility manifest (`reproducibility_manifest_summary`) strictly separates actual execution evidence from planned/configured intent:
+- **Adapter-level planned metadata (`planned_argv`, `planned_command`, `planned_timeout_sec`, `planned_resource_budget`, `planned_config_hash`)**: Stores the adapter's configured defaults and planned invocation template (e.g., `["slither", "<target_path>", ...]`, configured timeout limit, and baseline configuration hash).
+- **Adapter-level actual execution evidence (`argv`, `command`, `timeout_sec`, `resource_budget`, `config_hash`)**:
+  - `argv` and `command` remain strictly `null` because adapters execute multiple distinct targets with distinct paths and argument tokens.
+  - `timeout_sec`, `resource_budget`, and `config_hash` are derived strictly from actual invocation artifacts. If zero targets were invoked (e.g., pre-invocation missing files or tool unavailability) or if targets executed with mixed or differing parameters, adapter-level actual execution fields remain strictly `null`/empty, keeping exact values exclusively in `per_target_provenance`.
+  - Only when all targets in a benchmark run are successfully invoked and share identical proven execution metadata do adapter-level actual fields reflect that common value.
 - **Per-target actual execution evidence (`per_target_provenance`)**: Records exact per-target invocation tokens (`argv`), stringified commands (`command`), integer exit codes (`exit_code`, preserving integer `0`), stdout/stderr SHA-256 hashes, applied timeouts, and effective config hashes.
 - **Strict absence of silent fallbacks**: When a target was `UNAVAILABLE` or uninvoked, its `argv`, `command`, `exit_code`, `timeout_sec`, `resource_budget`, and `effective_config_hash` remain strictly `null`/empty, preserving uninvoked state without injecting adapter-level configured defaults.
 - **Provider API provenance (`provider`, `model_id`, `prompt_hash`, `effective_config_hash`)**: Direct LLM provider calls record provider/model IDs and prompt hashes without fabricating shell commands (`argv` and `command` remain `null`).

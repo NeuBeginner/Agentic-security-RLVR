@@ -251,12 +251,15 @@ class AdapterRunManifest:
     argv: Optional[List[str]] = None
     planned_command: Optional[str] = None
     planned_argv: Optional[List[str]] = None
-    timeout_sec: int = 60
+    timeout_sec: Optional[int] = None
     resource_budget: Dict[str, Any] = field(default_factory=dict)
+    config_hash: Optional[str] = None
+    planned_timeout_sec: Optional[int] = None
+    planned_resource_budget: Dict[str, Any] = field(default_factory=dict)
+    planned_config_hash: Optional[str] = None
     duration_seconds: float = 0.0
     target_count: int = 0
     completed_targets: int = 0
-    config_hash: Optional[str] = None
     cost_status: str = "unmeasured"
     cost_usd: Optional[float] = None
     artifact_files: List[ArtifactFileRecord] = field(default_factory=list)

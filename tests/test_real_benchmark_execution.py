@@ -938,9 +938,14 @@ def test_manifest_uninvoked_and_unavailable_targets_have_null_actual_argv_and_co
         # Adapter level: actual execution evidence is null because no subprocess was run
         assert b1_man["argv"] is None
         assert b1_man["command"] is None
-        # Planned template is stored separately
+        assert b1_man["timeout_sec"] is None
+        assert b1_man["resource_budget"] == {}
+        assert b1_man["config_hash"] is None
+        # Planned template and configured defaults are stored separately
         assert b1_man["planned_argv"] == adapter.get_default_argv()
         assert b1_man["planned_command"] == " ".join(adapter.get_default_argv())
+        assert b1_man["planned_timeout_sec"] == adapter.timeout_sec
+        assert b1_man["planned_config_hash"] == adapter.get_effective_config_hash()
 
         # Target level: all targets have null actual argv, null command, null exit code, null provenance
         for tid, t_prov in b1_man["per_target_provenance"].items():
@@ -1192,12 +1197,402 @@ def test_manifest_uninvoked_artifacts_do_not_silently_fall_back_to_adapter_defau
         )
 
         b1_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_1"]
+        # Adapter-level actuals must NOT be populated from configured adapter defaults
+        assert b1_man["timeout_sec"] is None
+        assert b1_man["resource_budget"] == {}
+        assert b1_man["config_hash"] is None
+        assert b1_man["argv"] is None
+        assert b1_man["command"] is None
+        # Planned metadata preserved
+        assert b1_man["planned_timeout_sec"] == 99
+        assert b1_man["planned_resource_budget"] == {"timeout_sec": 99, "adapter_level_budget": True}
+        assert b1_man["planned_config_hash"] == "adapter_level_config_hash_should_not_leak"
+        assert b1_man["planned_argv"] == ["sparse_runner"]
+
         for tid, t_prov in b1_man["per_target_provenance"].items():
             assert t_prov["status"] == "UNAVAILABLE"
             assert t_prov["argv"] is None
             assert t_prov["command"] is None
             assert t_prov["exit_code"] is None
             # Invariant: Must NOT fall back to adapter.timeout_sec, adapter.resource_budget, or adapter.config_hash
+            assert t_prov["timeout_sec"] is None
+            assert t_prov["resource_budget"] is None
+            assert t_prov["effective_config_hash"] is None
+
+
+def test_manifest_adapter_available_zero_targets_invoked_preserves_adapter_level_nulls():
+    """
+    Reviewer Requirement: When an adapter is available (check_availability() -> (True, None)),
+    but zero targets are actually invoked (e.g. all targets return UNAVAILABLE), the adapter-level
+    actual execution fields (timeout_sec, resource_budget, config_hash, argv, command) MUST remain
+    null/empty, while planned/configured fields preserve the adapter defaults.
+    """
+    class AvailableButZeroInvokedAdapter(BaselineAdapter):
+        @property
+        def baseline_id(self):
+            return "baseline_1"
+        @property
+        def baseline_name(self):
+            return "Available Zero Invoked Adapter"
+        @property
+        def timeout_sec(self):
+            return 75
+        @property
+        def resource_budget(self):
+            return {"timeout_sec": 75, "configured": True}
+        def check_availability(self):
+            return True, None
+        def get_default_argv(self):
+            return ["tool_cli", "--target", "<target_path>"]
+        def get_effective_config_hash(self):
+            return "planned_config_hash_value_1234567890abcdef"
+        def execute_target(self, target, base_dir=None, timeout_sec=None):
+            return TargetExecutionArtifact(
+                baseline_id=self.baseline_id,
+                target_id=target.contract_id,
+                target_name=target.target_name,
+                status=ExecutionStatus.UNAVAILABLE,
+                unavailable_reason="Target pre-condition failed",
+                argv=None,
+                timeout_sec=None,
+                resource_budget={},
+                effective_config_hash=None,
+                tool_metadata={},
+            )
+
+    adapter = AvailableButZeroInvokedAdapter()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        rep = suite.run_benchmark(
+            mode="smoke",
+            baselines_to_run=["baseline_1"],
+            custom_adapters={"baseline_1": adapter},
+            save_results=True,
+        )
+
+        b1_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_1"]
+        # Adapter availability is True
+        assert b1_man["availability_status"] == "AVAILABLE"
+        # Actual adapter-level fields are strictly null / empty because 0 targets were invoked
+        assert b1_man["argv"] is None
+        assert b1_man["command"] is None
+        assert b1_man["timeout_sec"] is None
+        assert b1_man["resource_budget"] == {}
+        assert b1_man["config_hash"] is None
+        # Planned metadata preserves configured defaults
+        assert b1_man["planned_argv"] == ["tool_cli", "--target", "<target_path>"]
+        assert b1_man["planned_command"] == "tool_cli --target <target_path>"
+        assert b1_man["planned_timeout_sec"] == 75
+        assert b1_man["planned_resource_budget"] == {"timeout_sec": 75, "configured": True}
+        assert b1_man["planned_config_hash"] == "planned_config_hash_value_1234567890abcdef"
+
+
+def test_manifest_adapter_mixed_invoked_and_uninvoked_targets_leaves_adapter_actuals_null():
+    """
+    Reviewer Requirement: When an adapter runs multiple targets and has a mixture of invoked
+    and uninvoked (UNAVAILABLE) targets, adapter-level actual execution fields must remain null/empty.
+    One target's runtime values must NOT be claimed as the adapter-level execution value.
+    """
+    class MixedInvocationAdapter(BaselineAdapter):
+        @property
+        def baseline_id(self):
+            return "baseline_1"
+        @property
+        def baseline_name(self):
+            return "Mixed Invocation Adapter"
+        @property
+        def timeout_sec(self):
+            return 80
+        @property
+        def resource_budget(self):
+            return {"timeout_sec": 80}
+        def check_availability(self):
+            return True, None
+        def get_default_argv(self):
+            return ["mixed_cli", "<target_path>"]
+        def get_effective_config_hash(self):
+            return "adapter_level_mixed_hash"
+        def execute_target(self, target, base_dir=None, timeout_sec=None):
+            # Target REENT-01 is invoked and SUCCESS; all other targets are UNAVAILABLE
+            if target.contract_id == "REENT-01":
+                return TargetExecutionArtifact(
+                    baseline_id=self.baseline_id,
+                    target_id=target.contract_id,
+                    target_name=target.target_name,
+                    status=ExecutionStatus.SUCCESS,
+                    detected=True,
+                    argv=["mixed_cli", f"contracts/{target.contract_id}.sol"],
+                    timeout_sec=40,
+                    resource_budget={"timeout_sec": 40},
+                    effective_config_hash="reent01_invoked_hash",
+                    tool_metadata={"exit_code": 0},
+                )
+            else:
+                return TargetExecutionArtifact(
+                    baseline_id=self.baseline_id,
+                    target_id=target.contract_id,
+                    target_name=target.target_name,
+                    status=ExecutionStatus.UNAVAILABLE,
+                    unavailable_reason="Uninvoked target",
+                    argv=None,
+                    timeout_sec=None,
+                    resource_budget={},
+                    effective_config_hash=None,
+                    tool_metadata={},
+                )
+
+    adapter = MixedInvocationAdapter()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        rep = suite.run_benchmark(
+            mode="smoke",
+            baselines_to_run=["baseline_1"],
+            custom_adapters={"baseline_1": adapter},
+            save_results=True,
+        )
+
+        b1_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_1"]
+        # Invariant: Because not all targets were invoked, adapter-level actual fields are null/empty
+        assert b1_man["argv"] is None
+        assert b1_man["command"] is None
+        assert b1_man["timeout_sec"] is None
+        assert b1_man["resource_budget"] == {}
+        assert b1_man["config_hash"] is None
+
+        # Planned metadata preserves adapter defaults
+        assert b1_man["planned_timeout_sec"] == 80
+        assert b1_man["planned_resource_budget"] == {"timeout_sec": 80}
+        assert b1_man["planned_config_hash"] == "adapter_level_mixed_hash"
+
+        # Per-target records: REENT-01 has exact execution values; others have nulls
+        reent_prov = b1_man["per_target_provenance"]["REENT-01"]
+        assert reent_prov["status"] == "SUCCESS"
+        assert reent_prov["argv"] == ["mixed_cli", "contracts/REENT-01.sol"]
+        assert reent_prov["timeout_sec"] == 40
+        assert reent_prov["effective_config_hash"] == "reent01_invoked_hash"
+
+        for tid, t_prov in b1_man["per_target_provenance"].items():
+            if tid != "REENT-01":
+                assert t_prov["status"] == "UNAVAILABLE"
+                assert t_prov["argv"] is None
+                assert t_prov["timeout_sec"] is None
+                assert t_prov["resource_budget"] is None
+                assert t_prov["effective_config_hash"] is None
+
+
+def test_manifest_adapter_differing_target_execution_values_leaves_adapter_actuals_null():
+    """
+    Reviewer Requirement: When multiple targets are invoked with different actual timeout,
+    resource budget, or config hash values, the adapter-level actual fields must remain null/empty.
+    No single target's value may be claimed as representing the whole adapter.
+    """
+    class DifferingTargetValuesAdapter(BaselineAdapter):
+        @property
+        def baseline_id(self):
+            return "baseline_1"
+        @property
+        def baseline_name(self):
+            return "Differing Values Adapter"
+        @property
+        def timeout_sec(self):
+            return 50
+        @property
+        def resource_budget(self):
+            return {"timeout_sec": 50}
+        def check_availability(self):
+            return True, None
+        def get_default_argv(self):
+            return ["differing_cli", "<target_path>"]
+        def get_effective_config_hash(self):
+            return "adapter_level_hash"
+        def execute_target(self, target, base_dir=None, timeout_sec=None):
+            # Target REENT-01 runs with timeout 25; all other targets run with timeout 50
+            t_timeout = 25 if target.contract_id == "REENT-01" else 50
+            t_hash = f"hash_for_{target.contract_id}"
+            t_budget = {"timeout_sec": t_timeout, "target": target.contract_id}
+            return TargetExecutionArtifact(
+                baseline_id=self.baseline_id,
+                target_id=target.contract_id,
+                target_name=target.target_name,
+                status=ExecutionStatus.SUCCESS,
+                detected=True,
+                argv=["differing_cli", f"contracts/{target.contract_id}.sol"],
+                timeout_sec=t_timeout,
+                resource_budget=t_budget,
+                effective_config_hash=t_hash,
+                tool_metadata={"exit_code": 0},
+            )
+
+    adapter = DifferingTargetValuesAdapter()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        rep = suite.run_benchmark(
+            mode="smoke",
+            baselines_to_run=["baseline_1"],
+            custom_adapters={"baseline_1": adapter},
+            save_results=True,
+        )
+
+        b1_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_1"]
+        # Invariant: Because timeouts, budgets, and config hashes differ across targets,
+        # adapter-level actual execution fields are strictly null/empty
+        assert b1_man["timeout_sec"] is None
+        assert b1_man["resource_budget"] == {}
+        assert b1_man["config_hash"] is None
+        assert b1_man["argv"] is None
+        assert b1_man["command"] is None
+
+        # Planned metadata reflects configured adapter defaults
+        assert b1_man["planned_timeout_sec"] == 50
+        assert b1_man["planned_resource_budget"] == {"timeout_sec": 50}
+        assert b1_man["planned_config_hash"] == "adapter_level_hash"
+
+        # Per-target records preserve the exact differing runtime values
+        assert b1_man["per_target_provenance"]["REENT-01"]["timeout_sec"] == 25
+        assert b1_man["per_target_provenance"]["REENT-01"]["effective_config_hash"] == "hash_for_REENT-01"
+        assert b1_man["per_target_provenance"]["AC-01"]["timeout_sec"] == 50
+        assert b1_man["per_target_provenance"]["AC-01"]["effective_config_hash"] == "hash_for_AC-01"
+
+
+def test_manifest_missing_target_file_pre_invocation_failure_leaves_adapter_actuals_null():
+    """
+    Reviewer Requirement: When a real baseline adapter (SlitherBaselineAdapter) encounters a missing
+    target file or pre-invocation failure, the target status is UNAVAILABLE and the manifest adapter-level
+    actual execution fields are null/empty.
+    """
+    adapter = SlitherBaselineAdapter(timeout_sec=45)
+    # Mock check_availability to return True so adapter is considered available
+    adapter.check_availability = lambda: (True, None)
+
+    # Use a target with non-existent source file
+    missing_target = TargetSpecification(
+        contract_id="NONEXISTENT-01",
+        target_name="MissingContract",
+        source_file="does/not/exist/MissingContract.sol",
+        harness_file="does/not/exist/MissingHarness.sol",
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        art = adapter.execute_target(missing_target, base_dir=Path(tmpdir))
+        assert art.status == ExecutionStatus.FAILED
+        assert "not found" in (art.unavailable_reason or "").lower()
+        assert art.argv is None
+        assert art.timeout_sec is None
+        assert art.resource_budget == {}
+        assert art.effective_config_hash is None
+
+        # Run within suite
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        # Override public targets to just the missing target
+        suite.dataset.targets = [missing_target]
+        suite.dataset.ground_truth = {
+            "NONEXISTENT-01": GroundTruth(
+                contract_id="NONEXISTENT-01",
+                is_vulnerable=True,
+                vulnerable_functions=["attack"],
+                ground_truth_invariant="NONE",
+            )
+        }
+
+        rep = suite.run_benchmark(
+            mode="real",
+            baselines_to_run=["baseline_1"],
+            custom_adapters={"baseline_1": adapter},
+            save_results=True,
+        )
+
+        b1_man = rep["reproducibility_manifest_summary"]["adapters"]["baseline_1"]
+        assert b1_man["availability_status"] == "AVAILABLE"
+        # Actual execution evidence is null / empty
+        assert b1_man["argv"] is None
+        assert b1_man["command"] is None
+        assert b1_man["timeout_sec"] is None
+        assert b1_man["resource_budget"] == {}
+        assert b1_man["config_hash"] is None
+        # Planned metadata preserved
+        assert b1_man["planned_timeout_sec"] == 45
+        assert b1_man["planned_argv"] == adapter.get_default_argv()
+        assert b1_man["planned_command"] == " ".join(adapter.get_default_argv())
+
+
+def test_manifest_serialization_round_trip_preserves_null_vs_planned_values():
+    """
+    Reviewer Requirement: Verifies full JSON serialization round-trip of the reproducibility manifest.
+    Asserts that null/empty actual execution fields stay null/empty, and planned metadata fields
+    preserve their exact types, tokens, integers, and structures without mutation or data loss.
+    """
+    class RoundTripMockAdapter(BaselineAdapter):
+        @property
+        def baseline_id(self):
+            return "baseline_1"
+        @property
+        def baseline_name(self):
+            return "Round Trip Mock Adapter"
+        @property
+        def timeout_sec(self):
+            return 65
+        @property
+        def resource_budget(self):
+            return {"timeout_sec": 65, "custom_key": "custom_val"}
+        def check_availability(self):
+            return True, None
+        def get_default_argv(self):
+            return ["rt_tool", "<target_path>", "--opt"]
+        def get_effective_config_hash(self):
+            return "rt_planned_hash_abcdef123456"
+        def execute_target(self, target, base_dir=None, timeout_sec=None):
+            return TargetExecutionArtifact(
+                baseline_id=self.baseline_id,
+                target_id=target.contract_id,
+                target_name=target.target_name,
+                status=ExecutionStatus.UNAVAILABLE,
+                unavailable_reason="Uninvoked for serialization test",
+                argv=None,
+                timeout_sec=None,
+                resource_budget={},
+                effective_config_hash=None,
+                tool_metadata={},
+            )
+
+    adapter = RoundTripMockAdapter()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+        rep = suite.run_benchmark(
+            mode="smoke",
+            baselines_to_run=["baseline_1"],
+            custom_adapters={"baseline_1": adapter},
+            save_results=True,
+        )
+
+        manifest_summary = rep["reproducibility_manifest_summary"]
+
+        # Serialize to JSON string
+        serialized_json = json.dumps(manifest_summary, indent=2)
+
+        # Deserialize back
+        deserialized = json.loads(serialized_json)
+
+        b1_deser = deserialized["adapters"]["baseline_1"]
+
+        # Invariant: Actual execution fields remain null/empty in deserialized JSON
+        assert b1_deser["argv"] is None
+        assert b1_deser["command"] is None
+        assert b1_deser["timeout_sec"] is None
+        assert b1_deser["resource_budget"] == {}
+        assert b1_deser["config_hash"] is None
+
+        # Invariant: Planned metadata fields retain exact configured values
+        assert b1_deser["planned_argv"] == ["rt_tool", "<target_path>", "--opt"]
+        assert b1_deser["planned_command"] == "rt_tool <target_path> --opt"
+        assert b1_deser["planned_timeout_sec"] == 65
+        assert b1_deser["planned_resource_budget"] == {"timeout_sec": 65, "custom_key": "custom_val"}
+        assert b1_deser["planned_config_hash"] == "rt_planned_hash_abcdef123456"
+
+        # Per-target records preserve null actuals
+        for tid, t_prov in b1_deser["per_target_provenance"].items():
+            assert t_prov["status"] == "UNAVAILABLE"
+            assert t_prov["argv"] is None
+            assert t_prov["command"] is None
             assert t_prov["timeout_sec"] is None
             assert t_prov["resource_budget"] is None
             assert t_prov["effective_config_hash"] is None
