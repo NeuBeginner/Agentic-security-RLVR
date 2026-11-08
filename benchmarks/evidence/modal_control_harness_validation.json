@@ -1,19 +1,78 @@
 {
   "evidence_type": "TRUSTED_HARNESS_CONTROL_VALIDATION",
-  "version": "2.1.0",
-  "timestamp_utc": "2026-11-08T15:04:00Z",
-  "git_commit_sha": "HEAD",
+  "version": "2.2.0",
+  "timestamp_utc": "2026-11-08T15:52:00Z",
+  "git_commit_sha": "e4e94fc90cad5d111bfcbbce8d53ece598259811",
   "branch": "feat/empirical-benchmark-runner",
-  "scope": "Round 5 Foundry Harness Controls and Real Modal H100 Model Inference",
-  "benchmark_relationship": "HARNESS_VALIDATION_AND_REAL_H100_BENCHMARK_EXECUTION",
+  "scope": "Round 5 Foundry Harness Controls and Canonical CLI Modal H100 Model Inference",
+  "benchmark_relationship": "HARNESS_VALIDATION_AND_CANONICAL_CLI_H100_BENCHMARK_EXECUTION",
   "hardware_and_resource_clarification": {
     "evm_harness_worker": "Modal Serverless CPU Container (2 cores, 2048 MB RAM, Debian Slim + Foundry)",
     "gpu_allocated_for_harness": null,
-    "h100_model_inference_status": "VERIFIED_EXECUTED: Real model inference was executed on Modal Nvidia H100 80GB HBM3 GPU workers using ProductionAuditAgent (qtum/Qwen3-Coder-30B-A3B-Audit). Full token provenance and raw Modal billing records are attached."
+    "h100_model_inference_status": "VERIFIED_EXECUTED: Live model inference executed via canonical CLI runner (`python -m benchmarks.benchmark_runner --mode real --baseline5-provider modal_h100 --baselines baseline_5`) against commit e4e94fc on Modal Nvidia H100 80GB HBM3 GPU workers using ProductionAuditAgent (qtum/Qwen3-Coder-30B-A3B-Audit). Full token provenance, per-stage tracking, and fresh raw Modal billing records are reconciled."
   },
   "real_modal_h100_inference_executions": [
     {
-      "execution_id": "run_h100_benchmark_vault_reent01",
+      "execution_id": "run_h100_canonical_cli_vault_reent01",
+      "status": "CANONICAL_CLI_VERIFIED_RUN",
+      "git_commit_sha": "e4e94fc90cad5d111bfcbbce8d53ece598259811",
+      "canonical_command": "python -m benchmarks.benchmark_runner --mode real --baseline5-provider modal_h100 --baselines baseline_5",
+      "modal_app_id": "ap-YbwvNoOI59aUm1Dw6BYsDI",
+      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-YbwvNoOI59aUm1Dw6BYsDI",
+      "target_id": "REENT-01",
+      "target_name": "Vault",
+      "gpu_model": "Nvidia H100 80GB HBM3 (81559 MiB)",
+      "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+      "model_revision": "655425b794ae4a19f2ea16fa480c6b39102721ee",
+      "token_provenance": "model_generate",
+      "generated_tokens_count": 357,
+      "format_valid": true,
+      "stage_breakdown": {
+        "inference": "EXECUTED (ProductionAuditAgent.generate_solidity_exploit on Modal H100 GPU)",
+        "evm_sandbox": "EXECUTED (verify_exploit_remote on Modal CPU container; exit code 1, undeclared identifier _target)",
+        "independent_replay": "NOT_ELIGIBLE (EVM compilation failed; only INVARIANT_BREACH_UNREPLAYED qualifies)",
+        "trajectory_persistence": "NOT_ELIGIBLE (only verified breaches qualify for volume persistence)"
+      },
+      "harness_verdict": "COMPILATION_ERROR",
+      "reward_score": -0.5,
+      "duration_seconds": 225.518,
+      "billed_h100_cost_usd": 0.09234201,
+      "raw_artifact_path": "benchmarks/artifacts/run_1794152785_e4e94fc/baseline_5/REENT-01.json",
+      "raw_artifact_sha256": "3a1ed02a5799a7edca96d89cc1bde30c3289cded0e3beee4578de0a2694a0149",
+      "raw_artifact_size_bytes": 3115
+    },
+    {
+      "execution_id": "run_h100_canonical_cli_erc4626_vault",
+      "status": "CANONICAL_CLI_VERIFIED_RUN",
+      "git_commit_sha": "e4e94fc90cad5d111bfcbbce8d53ece598259811",
+      "canonical_command": "python -m benchmarks.benchmark_runner --mode real --baseline5-provider modal_h100 --baselines baseline_5",
+      "modal_app_id": "ap-sSJn5LIiJtfUo5W0s7jKUt",
+      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-sSJn5LIiJtfUo5W0s7jKUt",
+      "target_id": "ERC4626-01",
+      "target_name": "ERC4626Vault",
+      "gpu_model": "Nvidia H100 80GB HBM3 (81559 MiB)",
+      "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+      "model_revision": "655425b794ae4a19f2ea16fa480c6b39102721ee",
+      "token_provenance": "model_generate",
+      "generated_tokens_count": 289,
+      "format_valid": true,
+      "stage_breakdown": {
+        "inference": "EXECUTED (ProductionAuditAgent.generate_solidity_exploit on Modal H100 GPU)",
+        "evm_sandbox": "EXECUTED (verify_exploit_remote on Modal CPU container; exit code 1, undeclared identifier _target)",
+        "independent_replay": "NOT_ELIGIBLE (EVM compilation failed; only INVARIANT_BREACH_UNREPLAYED qualifies)",
+        "trajectory_persistence": "NOT_ELIGIBLE (only verified breaches qualify for volume persistence)"
+      },
+      "harness_verdict": "COMPILATION_ERROR",
+      "reward_score": -0.5,
+      "duration_seconds": 83.0,
+      "billed_h100_cost_usd": 0.08588450,
+      "raw_artifact_path": "benchmarks/artifacts/run_1794152785_e4e94fc/baseline_5/ERC4626-01.json",
+      "raw_artifact_sha256": "ea789a4b23767235319d23a606a7fb6ff3100861f66a1fda02b97adc278696b3",
+      "raw_artifact_size_bytes": 3142
+    },
+    {
+      "execution_id": "historical_run_h100_benchmark_vault_reent01",
+      "status": "HISTORICAL_EVIDENCE_RUN",
       "modal_app_id": "ap-qdwGbY0i0o4USLAz0EEmRZ",
       "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-qdwGbY0i0o4USLAz0EEmRZ",
       "target_id": "REENT-01",
@@ -24,15 +83,21 @@
       "token_provenance": "model_generate",
       "generated_tokens_count": 456,
       "format_valid": true,
+      "stage_breakdown": {
+        "inference": "EXECUTED",
+        "evm_sandbox": "EXECUTED (COMPILATION_ERROR)",
+        "independent_replay": "NOT_ELIGIBLE",
+        "trajectory_persistence": "NOT_ELIGIBLE"
+      },
       "harness_verdict": "COMPILATION_ERROR",
       "reward_score": -0.5,
       "duration_seconds": 100.617,
       "billed_h100_cost_usd": 0.10600315,
-      "billed_total_cost_usd": 0.10705128,
       "raw_artifact_path": "benchmarks/artifacts/run_1794146412_118d644/baseline_5/REENT-01.json"
     },
     {
-      "execution_id": "run_h100_pipeline_test",
+      "execution_id": "historical_run_h100_pipeline_test",
+      "status": "HISTORICAL_EVIDENCE_RUN",
       "modal_app_id": "ap-YRvqnFsZgUc4CRdJBJTpyQ",
       "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-YRvqnFsZgUc4CRdJBJTpyQ",
       "target_name": "Vault",
@@ -41,12 +106,19 @@
       "token_provenance": "model_generate",
       "generated_tokens_count": 254,
       "format_valid": true,
+      "stage_breakdown": {
+        "inference": "EXECUTED",
+        "evm_sandbox": "EXECUTED (COMPILATION_ERROR)",
+        "independent_replay": "NOT_ELIGIBLE",
+        "trajectory_persistence": "NOT_ELIGIBLE"
+      },
       "harness_verdict": "COMPILATION_ERROR",
       "reward_score": -0.5,
       "billed_h100_cost_usd": 0.08285542
     },
     {
-      "execution_id": "run_h100_adapter_integration",
+      "execution_id": "historical_run_h100_adapter_integration",
+      "status": "HISTORICAL_EVIDENCE_RUN",
       "modal_app_id": "ap-jrxKl0EWBSkaARfMlWmIeE",
       "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-jrxKl0EWBSkaARfMlWmIeE",
       "target_name": "Vault",
@@ -55,6 +127,12 @@
       "token_provenance": "model_generate",
       "generated_tokens_count": 379,
       "format_valid": true,
+      "stage_breakdown": {
+        "inference": "EXECUTED",
+        "evm_sandbox": "NOT_RUN",
+        "independent_replay": "NOT_ELIGIBLE",
+        "trajectory_persistence": "NOT_ELIGIBLE"
+      },
       "billed_h100_cost_usd": 0.08023972
     }
   ],
@@ -77,12 +155,13 @@
   "modal_billing_audit": {
     "workspace": "neubeginner",
     "raw_ledger_file": "benchmarks/evidence/modal_billing_report_raw.json",
-    "total_billing_records": 45,
-    "h100_resource_records_count": 3,
-    "h100_cumulative_billed_cost_usd": 0.26909829,
+    "total_billing_records": 53,
+    "h100_resource_records_count": 5,
+    "canonical_cli_run_h100_billed_cost_usd": 0.17822651,
+    "h100_cumulative_billed_cost_usd": 0.44732480,
     "metered_volumes_cost_usd": 0.90,
     "free_storage_credit_usd": -0.90,
-    "balance_explanation": "Modal free tier provides initial $30 credit and 10GB free volume storage (-$0.90 credit). Live H100 model inference consumed $0.2691 across three real H100 task executions (ap-YRvqnFsZgUc4CRdJBJTpyQ, ap-jrxKl0EWBSkaARfMlWmIeE, and ap-qdwGbY0i0o4USLAz0EEmRZ). Micro-costs and per-app breakdowns are fully documented in benchmarks/evidence/modal_billing_report_raw.json."
+    "balance_explanation": "Modal free tier provides initial $30 credit and 10GB free volume storage (-$0.90 credit). Live H100 model inference consumed $0.1782 for canonical CLI runs under commit e4e94fc (ap-YbwvNoOI59aUm1Dw6BYsDI and ap-sSJn5LIiJtfUo5W0s7jKUt) and $0.4473 across all 5 verified H100 line items (including historical runs ap-YRvqnFsZgUc4CRdJBJTpyQ, ap-jrxKl0EWBSkaARfMlWmIeE, and ap-qdwGbY0i0o4USLAz0EEmRZ). Micro-costs and per-app breakdowns are fully documented in benchmarks/evidence/modal_billing_report_raw.json."
   },
   "targets_validated": [
     {
