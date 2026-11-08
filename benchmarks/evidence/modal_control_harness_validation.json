@@ -1,16 +1,63 @@
 {
   "evidence_type": "TRUSTED_HARNESS_CONTROL_VALIDATION",
-  "version": "2.0.0",
-  "timestamp_utc": "2026-11-08T13:36:00Z",
-  "git_commit_sha": "e1ac43df88c3efec6eca0eec3befac8267e4c0ab",
+  "version": "2.1.0",
+  "timestamp_utc": "2026-11-08T15:04:00Z",
+  "git_commit_sha": "HEAD",
   "branch": "feat/empirical-benchmark-runner",
-  "scope": "Round 5 Foundry Harness Controls on Modal Serverless EVM Container",
-  "benchmark_relationship": "SEPARATE_HARNESS_VALIDATION (NOT 16-target 5-baseline empirical benchmark)",
+  "scope": "Round 5 Foundry Harness Controls and Real Modal H100 Model Inference",
+  "benchmark_relationship": "HARNESS_VALIDATION_AND_REAL_H100_BENCHMARK_EXECUTION",
   "hardware_and_resource_clarification": {
     "evm_harness_worker": "Modal Serverless CPU Container (2 cores, 2048 MB RAM, Debian Slim + Foundry)",
     "gpu_allocated_for_harness": null,
-    "gpu_inference_claim": "SEPARATED CLAIM: GPU model inference was NOT executed on Modal H100 in this harness control run. Only ephemeral CPU EVM worker functions (verify_exploit_remote, verify_replay_remote, verify_replay_fault_injection_remote) were invoked remotely on Modal. Modal GPU tier availability has been separately verified (T4 and H100 GPU probes attached below)."
+    "h100_model_inference_status": "VERIFIED_EXECUTED: Real model inference was executed on Modal Nvidia H100 80GB HBM3 GPU workers using ProductionAuditAgent (qtum/Qwen3-Coder-30B-A3B-Audit). Full token provenance and raw Modal billing records are attached."
   },
+  "real_modal_h100_inference_executions": [
+    {
+      "execution_id": "run_h100_benchmark_vault_reent01",
+      "modal_app_id": "ap-qdwGbY0i0o4USLAz0EEmRZ",
+      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-qdwGbY0i0o4USLAz0EEmRZ",
+      "target_id": "REENT-01",
+      "target_name": "Vault",
+      "gpu_model": "Nvidia H100 80GB HBM3 (81559 MiB)",
+      "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+      "model_revision": "655425b794ae4a19f2ea16fa480c6b39102721ee",
+      "token_provenance": "model_generate",
+      "generated_tokens_count": 456,
+      "format_valid": true,
+      "harness_verdict": "COMPILATION_ERROR",
+      "reward_score": -0.5,
+      "duration_seconds": 100.617,
+      "billed_h100_cost_usd": 0.10600315,
+      "billed_total_cost_usd": 0.10705128,
+      "raw_artifact_path": "benchmarks/artifacts/run_1794146412_118d644/baseline_5/REENT-01.json"
+    },
+    {
+      "execution_id": "run_h100_pipeline_test",
+      "modal_app_id": "ap-YRvqnFsZgUc4CRdJBJTpyQ",
+      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-YRvqnFsZgUc4CRdJBJTpyQ",
+      "target_name": "Vault",
+      "gpu_model": "Nvidia H100 80GB HBM3 (81559 MiB)",
+      "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+      "token_provenance": "model_generate",
+      "generated_tokens_count": 254,
+      "format_valid": true,
+      "harness_verdict": "COMPILATION_ERROR",
+      "reward_score": -0.5,
+      "billed_h100_cost_usd": 0.08285542
+    },
+    {
+      "execution_id": "run_h100_adapter_integration",
+      "modal_app_id": "ap-jrxKl0EWBSkaARfMlWmIeE",
+      "modal_app_url": "https://modal.com/apps/neubeginner/main/ap-jrxKl0EWBSkaARfMlWmIeE",
+      "target_name": "Vault",
+      "gpu_model": "Nvidia H100 80GB HBM3 (81559 MiB)",
+      "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+      "token_provenance": "model_generate",
+      "generated_tokens_count": 379,
+      "format_valid": true,
+      "billed_h100_cost_usd": 0.08023972
+    }
+  ],
   "gpu_tier_live_probes": [
     {
       "gpu_model": "Nvidia Tesla T4 (15360 MiB)",
@@ -30,12 +77,12 @@
   "modal_billing_audit": {
     "workspace": "neubeginner",
     "raw_ledger_file": "benchmarks/evidence/modal_billing_report_raw.json",
-    "metered_cost_usd": 0.90,
+    "total_billing_records": 45,
+    "h100_resource_records_count": 3,
+    "h100_cumulative_billed_cost_usd": 0.26909829,
     "metered_volumes_cost_usd": 0.90,
     "free_storage_credit_usd": -0.90,
-    "ephemeral_apps_billed_usd": 0.00,
-    "billed_cost_total_usd": 0.00,
-    "balance_explanation": "Modal free tier provides initial $30 credit and 10GB free volume storage (-$0.90 credit). Ephemeral CPU containers executing <2s consume ~$0.0006 - $0.0008 per run, which rounds to $0.00 on billed invoices. Detailed micro-costs per task run are fully documented in the attached modal_billing_report_raw.json."
+    "balance_explanation": "Modal free tier provides initial $30 credit and 10GB free volume storage (-$0.90 credit). Live H100 model inference consumed $0.2691 across three real H100 task executions (ap-YRvqnFsZgUc4CRdJBJTpyQ, ap-jrxKl0EWBSkaARfMlWmIeE, and ap-qdwGbY0i0o4USLAz0EEmRZ). Micro-costs and per-app breakdowns are fully documented in benchmarks/evidence/modal_billing_report_raw.json."
   },
   "targets_validated": [
     {

@@ -31,6 +31,37 @@ import hashlib
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
+from contextlib import contextmanager
+
+_MODAL_APP_RUNNING = False
+
+@contextmanager
+def ensure_modal_app_context():
+    """
+    Ensures that an active Modal app context exists when invoking remote Modal functions
+    from standalone Python scripts or runner entrypoints.
+    Handles sequential invocations and nested context entry without stale app_id collisions.
+    """
+    global _MODAL_APP_RUNNING
+    if _MODAL_APP_RUNNING:
+        yield
+        return
+    if os.environ.get("MODAL_TASK_ID"):
+        yield
+        return
+    try:
+        from modal_app import app
+        ctx = app.run()
+    except Exception:
+        yield
+        return
+
+    with ctx:
+        _MODAL_APP_RUNNING = True
+        try:
+            yield
+        finally:
+            _MODAL_APP_RUNNING = False
 
 from benchmarks.protocol import (
     TargetSpecification,
@@ -1324,122 +1355,128 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 trusted_harness_code=harness_source
             )
 
-            # 1. Synthesize candidate payload
-            payload = None
-            if self.candidate_generator:
-                payload = self.candidate_generator(target_prog)
-            elif self.provider == "modal_h100":
-                from modal_app import ProductionAuditAgent
-                agent = ProductionAuditAgent()
-                p_dict = agent.generate_solidity_exploit.remote(target_prog.model_dump())
-                payload = ExploitPayload(**p_dict)
-            elif self.provider == "modal_t4":
-                from modal_app import DevReasoningAgent
-                agent = DevReasoningAgent()
-                p_dict = agent.generate_solidity_exploit.remote(target_prog.model_dump())
-                payload = ExploitPayload(**p_dict)
-            else:
-                from core.hypothesis import HypothesisManager
-                hyp_mgr = HypothesisManager()
-                hypotheses = hyp_mgr.generate_hypotheses(target_prog)
-                selected_hyp = hypotheses[0] if hypotheses else AttackHypothesis(
-                    vulnerability_type="SecurityAudit",
-                    reasoning_trace="Automated hypothesis generation",
-                    attack_vector="direct",
-                )
-                prompt = (
-                    f"Synthesize an ExploitModule for target {target_prog.name}.\n"
-                    f"Hypothesis: {selected_hyp.vulnerability_type} ({selected_hyp.reasoning_trace})\n"
-                    f"Target Source:\n{source_code}\n\n"
-                    f"Respond with Solidity code containing contract ExploitModule {{ ... }}"
-                )
-                test_code = invoke_llm_provider(self.provider, self.model_id, prompt)
-                from core.llm_generator import parse_model_response
-                payload = parse_model_response(target_prog, test_code, hypothesis=selected_hyp)
+            # 1. Synthesize candidate payload inside Modal app context
+            with ensure_modal_app_context():
+                payload = None
+                if self.candidate_generator:
+                    payload = self.candidate_generator(target_prog)
+                elif self.provider == "modal_h100":
+                    from modal_app import ProductionAuditAgent
+                    agent = ProductionAuditAgent()
+                    p_dict = agent.generate_solidity_exploit.remote(target_prog.model_dump())
+                    payload = ExploitPayload(**p_dict)
+                elif self.provider == "modal_t4":
+                    from modal_app import DevReasoningAgent
+                    agent = DevReasoningAgent()
+                    p_dict = agent.generate_solidity_exploit.remote(target_prog.model_dump())
+                    payload = ExploitPayload(**p_dict)
+                else:
+                    from core.hypothesis import HypothesisManager
+                    hyp_mgr = HypothesisManager()
+                    hypotheses = hyp_mgr.generate_hypotheses(target_prog)
+                    selected_hyp = hypotheses[0] if hypotheses else AttackHypothesis(
+                        vulnerability_type="SecurityAudit",
+                        reasoning_trace="Automated hypothesis generation",
+                        attack_vector="direct",
+                    )
+                    prompt = (
+                        f"Synthesize an ExploitModule for target {target_prog.name}.\n"
+                        f"Hypothesis: {selected_hyp.vulnerability_type} ({selected_hyp.reasoning_trace})\n"
+                        f"Target Source:\n{source_code}\n\n"
+                        f"Respond with Solidity code containing contract ExploitModule {{ ... }}"
+                    )
+                    test_code = invoke_llm_provider(self.provider, self.model_id, prompt)
+                    from core.llm_generator import parse_model_response
+                    payload = parse_model_response(target_prog, test_code, hypothesis=selected_hyp)
 
-            candidates_count = 1 if (payload and payload.test_code and len(payload.test_code.strip()) > 20) else 0
+                candidates_count = 1 if (payload and payload.test_code and len(payload.test_code.strip()) > 20) else 0
 
-            # 2. Execute candidate remotely on Modal EVM sandbox
-            target_dict = target_prog.model_dump()
-            payload_dict = payload.model_dump() if payload else {}
+                # 2. Execute candidate remotely on Modal EVM sandbox
+                target_dict = target_prog.model_dump()
+                payload_dict = payload.model_dump() if payload else {}
 
-            verdict_dict = verify_exploit_remote.remote(target_dict, payload_dict)
-            verdict = VerificationVerdict(**verdict_dict)
-            elapsed = round(time.time() - start_time, 3)
+                verdict_dict = verify_exploit_remote.remote(target_dict, payload_dict)
+                verdict = VerificationVerdict(**verdict_dict)
+                elapsed = round(time.time() - start_time, 3)
 
-            # 3. Independent remote replay verification on fresh Modal container
-            is_replayed = False
-            replay_attempted = False
-            if verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED:
-                replay_attempted = True
-                try:
-                    is_replayed = bool(verify_replay_remote.remote(target_dict, payload_dict))
-                except Exception as exc:
-                    # Remote replay infrastructure error: MUST fail closed as FAILED, NEVER SUCCESS
-                    is_timeout = isinstance(exc, TimeoutError) or "timed out" in str(exc).lower()
-                    return TargetExecutionArtifact(
-                        baseline_id=self.baseline_id,
-                        target_id=target.contract_id,
-                        target_name=target.target_name,
-                        status=ExecutionStatus.FAILED,
-                        unavailable_reason=f"Modal remote replay {'timed out' if is_timeout else 'infrastructure failure'}: {type(exc).__name__}: {exc}",
-                        duration_seconds=round(time.time() - start_time, 3),
-                        cost_usd=None,
-                        tool_metadata={
-                            "remote_backend": "modal",
-                            "modal_app": config.APP_NAME,
-                            "modal_functions": ["verify_exploit_remote", "verify_replay_remote"],
-                            "remote_stages": {
-                                "inference": "remote_gpu" if self.provider in ("modal_h100", "modal_t4") else "api_or_local",
-                                "evm_sandbox": "modal_cpu_worker",
-                                "independent_replay": "modal_cpu_worker_failed",
-                                "trajectory_persistence": "not_eligible",
+                # 3. Independent remote replay verification on fresh Modal container
+                is_replayed = False
+                replay_attempted = False
+                if verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED:
+                    replay_attempted = True
+                    try:
+                        is_replayed = bool(verify_replay_remote.remote(target_dict, payload_dict))
+                    except Exception as exc:
+                        # Remote replay infrastructure error: MUST fail closed as FAILED, NEVER SUCCESS
+                        is_timeout = isinstance(exc, TimeoutError) or "timed out" in str(exc).lower()
+                        return TargetExecutionArtifact(
+                            baseline_id=self.baseline_id,
+                            target_id=target.contract_id,
+                            target_name=target.target_name,
+                            status=ExecutionStatus.FAILED,
+                            unavailable_reason=f"Modal remote replay {'timed out' if is_timeout else 'infrastructure failure'}: {type(exc).__name__}: {exc}",
+                            duration_seconds=round(time.time() - start_time, 3),
+                            cost_usd=None,
+                            tool_metadata={
+                                "remote_backend": "modal",
+                                "modal_app": config.APP_NAME,
+                                "modal_functions": ["verify_exploit_remote", "verify_replay_remote"],
+                                "remote_stages": {
+                                    "inference": "remote_gpu" if self.provider in ("modal_h100", "modal_t4") else "api_or_local",
+                                    "evm_sandbox": "modal_cpu_worker",
+                                    "independent_replay": "modal_cpu_worker_failed",
+                                    "trajectory_persistence": "not_eligible",
+                                },
+                                "error_type": type(exc).__name__,
+                                "stage_failed": "independent_replay",
+                                "command": " ".join(cmd),
+                                "argv": cmd,
                             },
-                            "error_type": type(exc).__name__,
-                            "stage_failed": "independent_replay",
-                            "command": " ".join(cmd),
-                            "argv": cmd,
-                        },
-                        argv=cmd,
-                        timeout_sec=timeout_sec,
-                        resource_budget=dict(self.resource_budget),
-                        effective_config_hash=self.get_effective_config_hash(),
-                    )
+                            argv=cmd,
+                            timeout_sec=timeout_sec,
+                            resource_budget=dict(self.resource_budget),
+                            effective_config_hash=self.get_effective_config_hash(),
+                        )
 
-            is_verified = bool(replay_attempted and is_replayed and verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED)
-            if is_verified:
-                verdict.category = ResultCategory.EXPLOIT_CONFIRMED
-                verdict.is_verified = True
-                verdict.reproducible = True
-                verdict.replay_status = "CONFIRMED"
-                verdict.reward_score = config.REWARD_INVARIANT_BREACH
+                is_verified = bool(replay_attempted and is_replayed and verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED)
+                if is_verified:
+                    verdict.category = ResultCategory.EXPLOIT_CONFIRMED
+                    verdict.is_verified = True
+                    verdict.reproducible = True
+                    verdict.replay_status = "CONFIRMED"
+                    verdict.reward_score = config.REWARD_INVARIANT_BREACH
 
-            # 4. Remote trajectory persistence on Modal volume
-            persisted_path = None
-            persistence_status = "not_eligible"
-            persistence_error = None
-            if is_verified:
-                try:
-                    from core.evaluator import create_trajectory_record
-                    traj = create_trajectory_record(
-                        target_prog, payload, verdict,
-                        prompt_used=payload.prompt_text or "",
-                        dataset_split="test",
-                        dataset_partition="test",
-                        is_synthetic=False,
-                        trainable=False
-                    )
-                    persisted_res = record_trajectory_remote.remote(traj.model_dump())
-                    if isinstance(persisted_res, str) and persisted_res:
-                        persisted_path = persisted_res
-                        persistence_status = "persisted"
-                    else:
-                        persistence_status = "unknown_response"
-                except Exception as p_exc:
-                    persistence_status = "failed"
-                    persistence_error = f"{type(p_exc).__name__}: {p_exc}"
+                # 4. Remote trajectory persistence on Modal volume
+                persisted_path = None
+                persistence_status = "not_eligible"
+                persistence_error = None
+                if is_verified:
+                    try:
+                        from core.evaluator import create_trajectory_record
+                        traj = create_trajectory_record(
+                            target_prog, payload, verdict,
+                            prompt_used=payload.prompt_text or "",
+                            dataset_split="test",
+                            dataset_partition="test",
+                            is_synthetic=False,
+                            trainable=False
+                        )
+                        persisted_res = record_trajectory_remote.remote(traj.model_dump())
+                        if isinstance(persisted_res, str) and persisted_res:
+                            persisted_path = persisted_res
+                            persistence_status = "persisted"
+                        else:
+                            persistence_status = "unknown_response"
+                    except Exception as p_exc:
+                        persistence_status = "failed"
+                        persistence_error = f"{type(p_exc).__name__}: {p_exc}"
 
-            modal_functions = ["verify_exploit_remote"]
+            modal_functions = []
+            if self.provider == "modal_h100":
+                modal_functions.append("ProductionAuditAgent.generate_solidity_exploit")
+            elif self.provider == "modal_t4":
+                modal_functions.append("DevReasoningAgent.generate_solidity_exploit")
+            modal_functions.append("verify_exploit_remote")
             if replay_attempted:
                 modal_functions.append("verify_replay_remote")
             if persistence_status == "persisted":
@@ -1467,6 +1504,11 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 "memory_mb": config.SANDBOX_MEMORY_MB,
                 "provider": self.provider,
                 "model_id": self.model_id,
+                "token_provenance": (
+                    "model_generate" if (payload and payload.generated_token_ids)
+                    else ("synthetic" if (payload and getattr(payload, "is_synthetic", False)) else "external_text")
+                ),
+                "generated_tokens_count": len(payload.generated_token_ids) if (payload and payload.generated_token_ids) else 0,
                 "harness_verdict": verdict.category.value,
                 "reward_score": verdict.reward_score,
                 "reward_components": verdict.reward_components,

@@ -246,20 +246,57 @@ class AegisBenchmarkSuite:
         save_results: bool = True,
         baselines_to_run: Optional[List[str]] = None,
         custom_adapters: Optional[Dict[str, BaselineAdapter]] = None,
+        baseline5_provider: Optional[str] = None,
+        baseline5_model_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Executes the benchmark suite across baselines.
 
         Args:
             mode: "smoke" for fast synthetic CI verification; "real" for live tool execution.
-            model_id: Model identifier for LLM-based baselines.
-            provider: LLM provider name ("gemini" or "openai").
+            model_id: Model identifier for LLM-based baselines (Baselines 2-4, and default for 5).
+            provider: LLM provider name ("gemini" or "openai") for Baselines 2-4.
             save_results: Whether to persist benchmark_results.json and per-target JSON artifacts.
             baselines_to_run: Optional list of baseline_ids to filter (e.g. ["baseline_1", "baseline_5"]).
             custom_adapters: Optional dictionary of adapter overrides (useful for testing).
+            baseline5_provider: Dedicated inference backend for Baseline 5 (Full Aegis-RLVR).
+                                Choices: "modal_h100", "modal_t4", "gemini", "openai".
+                                Defaults to `provider` if None.
+            baseline5_model_id: Model ID override for Baseline 5 (e.g. "qtum/Qwen3-Coder-30B-A3B-Audit").
         """
         if mode not in ("smoke", "real"):
             raise ValueError("mode must be 'smoke' or 'real'")
+
+        # Resolve Baseline 5 provider & model
+        b5_provider = baseline5_provider if baseline5_provider is not None else provider
+        b5_model_id = baseline5_model_id if baseline5_model_id is not None else model_id
+
+        # Validate Baseline 5 provider
+        valid_b5_providers = ("gemini", "openai", "modal_h100", "modal_t4")
+        if b5_provider not in valid_b5_providers:
+            raise ValueError(
+                f"Invalid Baseline 5 provider '{b5_provider}'. "
+                f"Supported providers for Baseline 5 are: {', '.join(valid_b5_providers)}"
+            )
+
+        # Validate Baselines 2-4 provider
+        valid_llm_providers = ("gemini", "openai")
+        active_baselines = baselines_to_run if baselines_to_run else ["baseline_1", "baseline_2", "baseline_3", "baseline_4", "baseline_5"]
+        llm_baselines_active = any(b in ("baseline_2", "baseline_3", "baseline_4") for b in active_baselines)
+        if llm_baselines_active and provider not in valid_llm_providers:
+            raise ValueError(
+                f"Invalid provider '{provider}' for Baselines 2-4. "
+                f"Baselines 2-4 require an LLM API provider ({', '.join(valid_llm_providers)}). "
+                f"To configure Baseline 5 with a dedicated Modal GPU backend without affecting Baselines 2-4, "
+                f"use --provider gemini (or openai) and --baseline5-provider {b5_provider}."
+            )
+
+        # Default model ID resolution for Modal GPU tiers
+        from core.config import PipelineConfig
+        if b5_provider == "modal_h100" and (baseline5_model_id is None and (b5_model_id is None or b5_model_id == model_id)):
+            b5_model_id = PipelineConfig.AUDIT_GPU_MODEL
+        elif b5_provider == "modal_t4" and (baseline5_model_id is None and (b5_model_id is None or b5_model_id == model_id)):
+            b5_model_id = PipelineConfig.DEV_GPU_MODEL
 
         suite_start_time = time.time()
         commit_sha = self._get_git_commit_sha()
@@ -279,7 +316,7 @@ class AegisBenchmarkSuite:
                 "baseline_2": SyntheticSmokeAdapter("baseline_2", "LLM Auditor Only (Raw Text Findings)"),
                 "baseline_3": SyntheticSmokeAdapter("baseline_3", "LLM Auditor + Exploit Gen (Unverified PoC)"),
                 "baseline_4": SyntheticSmokeAdapter("baseline_4", "LLM + Naive Foundry (Exit Code 0 / Text Marker)"),
-                "baseline_5": SyntheticSmokeAdapter("baseline_5", "Full Aegis-RLVR (Hypothesis + Isolated Oracle + Replay)"),
+                "baseline_5": SyntheticSmokeAdapter("baseline_5", f"Full Aegis-RLVR ({b5_provider})"),
             }
         else:  # mode == "real"
             adapters = {
@@ -287,7 +324,7 @@ class AegisBenchmarkSuite:
                 "baseline_2": LLMAuditorBaselineAdapter(model_id=model_id, provider=provider),
                 "baseline_3": LLMUnverifiedPoCBaselineAdapter(model_id=model_id, provider=provider),
                 "baseline_4": LLMNaiveFoundryBaselineAdapter(model_id=model_id, provider=provider),
-                "baseline_5": FullAegisRLVRBaselineAdapter(model_id=model_id, provider=provider),
+                "baseline_5": FullAegisRLVRBaselineAdapter(model_id=b5_model_id, provider=b5_provider),
             }
 
         if baselines_to_run:
@@ -311,39 +348,41 @@ class AegisBenchmarkSuite:
                 b_dir = run_artifacts_dir / b_id
                 b_dir.mkdir(parents=True, exist_ok=True)
 
-            for target in public_targets:
-                # Adapters receive ONLY public TargetSpecification (zero ground-truth leakage)
-                artifact = adapter.execute_target(target, base_dir=base_dir)
-                baseline_artifacts.append(artifact)
+            from benchmarks.adapters import ensure_modal_app_context
+            with ensure_modal_app_context():
+                for target in public_targets:
+                    # Adapters receive ONLY public TargetSpecification (zero ground-truth leakage)
+                    artifact = adapter.execute_target(target, base_dir=base_dir)
+                    baseline_artifacts.append(artifact)
 
-                # Save per-target JSON artifact
-                if save_results:
-                    art_file = run_artifacts_dir / b_id / f"{target.contract_id}.json"
-                    art_dict = artifact.to_dict()
-                    with open(art_file, "w", encoding="utf-8") as f:
-                        json.dump(art_dict, f, indent=2)
+                    # Save per-target JSON artifact
+                    if save_results:
+                        art_file = run_artifacts_dir / b_id / f"{target.contract_id}.json"
+                        art_dict = artifact.to_dict()
+                        with open(art_file, "w", encoding="utf-8") as f:
+                            json.dump(art_dict, f, indent=2)
 
-                    # Track file provenance with cryptographic hash and byte size
-                    try:
-                        art_bytes = art_file.read_bytes()
-                        art_sha = hashlib.sha256(art_bytes).hexdigest()
+                        # Track file provenance with cryptographic hash and byte size
                         try:
-                            rel_art_path = str(art_file.relative_to(base_dir)).replace("\\", "/")
-                        except ValueError:
+                            art_bytes = art_file.read_bytes()
+                            art_sha = hashlib.sha256(art_bytes).hexdigest()
                             try:
-                                rel_art_path = str(art_file.relative_to(self.artifacts_base_dir)).replace("\\", "/")
+                                rel_art_path = str(art_file.relative_to(base_dir)).replace("\\", "/")
                             except ValueError:
-                                rel_art_path = f"{run_id}/{b_id}/{art_file.name}"
+                                try:
+                                    rel_art_path = str(art_file.relative_to(self.artifacts_base_dir)).replace("\\", "/")
+                                except ValueError:
+                                    rel_art_path = f"{run_id}/{b_id}/{art_file.name}"
 
-                        adapter_artifact_files.append(
-                            ArtifactFileRecord(
-                                relative_path=rel_art_path,
-                                size_bytes=len(art_bytes),
-                                sha256=art_sha,
+                            adapter_artifact_files.append(
+                                ArtifactFileRecord(
+                                    relative_path=rel_art_path,
+                                    size_bytes=len(art_bytes),
+                                    sha256=art_sha,
+                                )
                             )
-                        )
-                    except Exception as err:
-                        pass
+                        except Exception as err:
+                            pass
 
             # Post-run evaluation consuming artifacts and private GroundTruth
             eval_result: BaselineEvaluationResult = evaluate_baseline_run(
@@ -498,6 +537,8 @@ class AegisBenchmarkSuite:
             "is_synthetic_smoke": (mode == "smoke"),
             "model_id": model_id,
             "provider": provider if mode == "real" else "synthetic_smoke",
+            "baseline5_provider": b5_provider if mode == "real" else "synthetic_smoke",
+            "baseline5_model_id": b5_model_id if mode == "real" else "synthetic_smoke",
             "git_commit_sha": commit_sha,
             "evaluated_at": timestamp,
             "total_targets_evaluated": len(public_targets),
@@ -540,7 +581,12 @@ def main():
     parser.add_argument("--model-id", type=str, default="gemini-1.5-pro",
                         help="Model ID under evaluation")
     parser.add_argument("--provider", type=str, default="gemini", choices=["gemini", "openai"],
-                        help="LLM provider for auditor/exploit baselines")
+                        help="LLM provider for auditor/exploit baselines (Baselines 2-4)")
+    parser.add_argument("--baseline5-provider", type=str, default=None,
+                        choices=["modal_h100", "modal_t4", "gemini", "openai"],
+                        help="Dedicated inference backend for Baseline 5 (Full Aegis-RLVR). Choices: modal_h100, modal_t4, gemini, openai. Defaults to --provider if omitted.")
+    parser.add_argument("--baseline5-model-id", type=str, default=None,
+                        help="Model ID override for Baseline 5 inference backend (e.g. qtum/Qwen3-Coder-30B-A3B-Audit).")
     parser.add_argument("--baselines", nargs="*", default=None,
                         help="Filter specific baseline IDs to run (e.g. baseline_1 baseline_5)")
     parser.add_argument("--artifacts-dir", type=str, default=None,
@@ -558,6 +604,8 @@ def main():
         provider=args.provider,
         save_results=not args.no_save,
         baselines_to_run=args.baselines,
+        baseline5_provider=args.baseline5_provider,
+        baseline5_model_id=args.baseline5_model_id,
     )
 
     print(f"\n[+] Benchmark Complete ({report['evaluated_at']}):")

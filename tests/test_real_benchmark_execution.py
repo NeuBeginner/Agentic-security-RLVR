@@ -2007,3 +2007,200 @@ def test_real_foundry_integration_is_not_run_when_binary_missing():
     art = adapter.execute_target(target, base_dir=Path(__file__).parent.parent)
     assert art.tool_metadata["forge_version"] != "unknown"
 
+
+# =============================================================================
+# Baseline 5 Dedicated Inference Backend & CLI Routing Tests
+# =============================================================================
+
+def test_runner_routes_baseline5_provider_explicitly(tmpdir, monkeypatch):
+    """
+    Tests that AegisBenchmarkSuite correctly routes dedicated Baseline 5
+    provider options (modal_h100, modal_t4) without affecting Baselines 2-4.
+    """
+    suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+
+    # Test modal_h100 routing
+    instantiated_adapters = {}
+    orig_full_init = FullAegisRLVRBaselineAdapter.__init__
+
+    def mock_init(self, *args, **kwargs):
+        orig_full_init(self, *args, **kwargs)
+        instantiated_adapters["baseline_5"] = self
+
+    monkeypatch.setattr(FullAegisRLVRBaselineAdapter, "__init__", mock_init)
+
+    # Fast mock of execution to prevent live calls during routing verification
+    monkeypatch.setattr(
+        FullAegisRLVRBaselineAdapter,
+        "execute_target",
+        lambda self, target, base_dir=None: TargetExecutionArtifact(
+            baseline_id="baseline_5",
+            target_id=target.contract_id,
+            target_name=target.target_name,
+            status=ExecutionStatus.SUCCESS,
+            detected=False,
+            candidates_generated=0,
+            verified_breaches=0,
+            replayed_breaches=0,
+            duration_seconds=0.01,
+            argv=None,
+            timeout_sec=None,
+            resource_budget={},
+            effective_config_hash=None,
+        )
+    )
+
+    report = suite.run_benchmark(
+        mode="real",
+        provider="gemini",
+        baseline5_provider="modal_h100",
+        baselines_to_run=["baseline_5"],
+        save_results=False,
+    )
+
+    b5_adapter = instantiated_adapters["baseline_5"]
+    assert b5_adapter.provider == "modal_h100"
+    assert b5_adapter.model_id == "qtum/Qwen3-Coder-30B-A3B-Audit"
+    assert "Modal H100 Reasoning" in b5_adapter.baseline_name
+    assert report["baseline5_provider"] == "modal_h100"
+    assert report["baseline5_model_id"] == "qtum/Qwen3-Coder-30B-A3B-Audit"
+
+
+def test_runner_cli_rejects_ambiguous_provider_configurations(tmpdir):
+    """
+    Tests that ambiguous or invalid provider configurations are rejected with clear ValueErrors.
+    """
+    suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+
+    # 1. Reject invalid Baseline 5 provider
+    with pytest.raises(ValueError, match="Invalid Baseline 5 provider 'unsupported_backend'"):
+        suite.run_benchmark(
+            mode="real",
+            provider="gemini",
+            baseline5_provider="unsupported_backend",
+            baselines_to_run=["baseline_5"],
+            save_results=False,
+        )
+
+    # 2. Reject passing modal_h100 as global provider when Baselines 2-4 are active
+    with pytest.raises(ValueError, match="Invalid provider 'modal_h100' for Baselines 2-4"):
+        suite.run_benchmark(
+            mode="real",
+            provider="modal_h100",
+            baselines_to_run=["baseline_2", "baseline_5"],
+            save_results=False,
+        )
+
+
+def test_runner_preserves_distinct_providers_for_baselines_2_4_and_baseline_5(tmpdir, monkeypatch):
+    """
+    Tests that when running mixed baselines, Baselines 2-4 use standard API provider (e.g. gemini)
+    while Baseline 5 uses dedicated Modal H100 provider.
+    """
+    suite = AegisBenchmarkSuite(artifacts_dir=Path(tmpdir))
+    created = {}
+
+    orig_b2_init = LLMAuditorBaselineAdapter.__init__
+    def mock_b2(self, *args, **kwargs):
+        orig_b2_init(self, *args, **kwargs)
+        created["baseline_2"] = self
+
+    orig_b5_init = FullAegisRLVRBaselineAdapter.__init__
+    def mock_b5(self, *args, **kwargs):
+        orig_b5_init(self, *args, **kwargs)
+        created["baseline_5"] = self
+
+    monkeypatch.setattr(LLMAuditorBaselineAdapter, "__init__", mock_b2)
+    monkeypatch.setattr(FullAegisRLVRBaselineAdapter, "__init__", mock_b5)
+
+    # Mock execute_target for fast routing check
+    dummy_art = lambda b_id, target: TargetExecutionArtifact(
+        baseline_id=b_id,
+        target_id=target.contract_id,
+        target_name=target.target_name,
+        status=ExecutionStatus.SUCCESS,
+        detected=False,
+        candidates_generated=0,
+        verified_breaches=0,
+        replayed_breaches=0,
+        duration_seconds=0.01,
+        argv=None,
+        timeout_sec=None,
+        resource_budget={},
+        effective_config_hash=None,
+    )
+    monkeypatch.setattr(LLMAuditorBaselineAdapter, "execute_target", lambda self, target, base_dir=None: dummy_art("baseline_2", target))
+    monkeypatch.setattr(FullAegisRLVRBaselineAdapter, "execute_target", lambda self, target, base_dir=None: dummy_art("baseline_5", target))
+
+    report = suite.run_benchmark(
+        mode="real",
+        provider="gemini",
+        model_id="gemini-2.5-pro",
+        baseline5_provider="modal_h100",
+        baselines_to_run=["baseline_2", "baseline_5"],
+        save_results=False,
+    )
+
+    assert created["baseline_2"].provider == "gemini"
+    assert created["baseline_2"].model_id == "gemini-2.5-pro"
+    assert created["baseline_5"].provider == "modal_h100"
+    assert created["baseline_5"].model_id == "qtum/Qwen3-Coder-30B-A3B-Audit"
+    assert report["provider"] == "gemini"
+    assert report["baseline5_provider"] == "modal_h100"
+
+
+def test_full_aegis_rlvr_modal_h100_records_audit_agent_function_and_token_provenance(monkeypatch):
+    """
+    Tests that FullAegisRLVRBaselineAdapter on modal_h100 provider:
+    - Lists ProductionAuditAgent.generate_solidity_exploit in modal_functions
+    - Records token_provenance='model_generate' and exact generated_tokens_count
+    """
+    adapter = FullAegisRLVRBaselineAdapter(provider="modal_h100")
+    monkeypatch.setattr(adapter, "check_availability", lambda: (True, None))
+
+    class MockAgent:
+        def generate_solidity_exploit(self):
+            pass
+
+    class RemoteMock:
+        @staticmethod
+        def remote(target_dict):
+            return {
+                "candidate_id": "test_h100_cand",
+                "target_name": "Vault",
+                "hypothesis": {"vulnerability_type": "Reentrancy", "reasoning_trace": "test", "attack_vector": "direct"},
+                "test_code": "contract ExploitModule { function runExploit() external {} }",
+                "format_valid": True,
+                "generated_token_ids": [101, 102, 103, 104, 105],
+                "prompt_text": "analysis prompt",
+            }
+
+    import modal_app
+    class MockProdAgent:
+        generate_solidity_exploit = RemoteMock()
+    monkeypatch.setattr(modal_app, "ProductionAuditAgent", MockProdAgent)
+    monkeypatch.setattr(
+        modal_app,
+        "verify_exploit_remote",
+        type("obj", (), {"remote": staticmethod(lambda t, p: {
+            "target_name": "Vault",
+            "vulnerability_type": "Reentrancy",
+            "poc_code": "contract ExploitModule { function runExploit() external {} }",
+            "category": "SAFE_RUN",
+            "reward_score": -0.1,
+            "is_verified": False,
+            "feedback": "Safe",
+        })})()
+    )
+
+    dataset = BenchmarkDataset()
+    target = dataset.get_public_targets()[0]
+    art = adapter.execute_target(target, base_dir=Path(__file__).parent.parent)
+
+    assert art.unavailable_reason is None
+    assert art.status == ExecutionStatus.SUCCESS
+    assert "ProductionAuditAgent.generate_solidity_exploit" in art.tool_metadata["modal_functions"]
+    assert art.tool_metadata["token_provenance"] == "model_generate"
+    assert art.tool_metadata["generated_tokens_count"] == 5
+    assert art.tool_metadata["inference_backend"] == "modal_h100"
+

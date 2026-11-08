@@ -56,6 +56,18 @@ Executes live toolchains against the 16 target benchmark dataset (12 vulnerabili
 python benchmarks/benchmark_runner.py --mode real --model-id gemini-1.5-pro --provider gemini
 ```
 
+### Baseline 5 with Dedicated Modal H100 GPU Inference
+Executes Baseline 5 with Modal H100 80GB GPU reasoning (`ProductionAuditAgent`) while Baselines 2–4 use standard LLM APIs:
+```bash
+python benchmarks/benchmark_runner.py --mode real --provider gemini --baseline5-provider modal_h100
+```
+
+### Dedicated Baseline 5 Run on Modal H100
+Runs only Baseline 5 using the Modal H100 Web3 security model (`qtum/Qwen3-Coder-30B-A3B-Audit`):
+```bash
+python benchmarks/benchmark_runner.py --mode real --baselines baseline_5 --baseline5-provider modal_h100
+```
+
 ### With OpenAI Provider
 ```bash
 python benchmarks/benchmark_runner.py --mode real --model-id gpt-4o --provider openai
