@@ -35,45 +35,59 @@ from contextlib import contextmanager
 
 _MODAL_APP_RUNNING = False
 
-@contextmanager
-def ensure_modal_app_context():
+
+class ModalAppContext:
     """
-    Ensures that an active Modal app context exists when invoking remote Modal functions
-    from standalone Python scripts or runner entrypoints.
+    Context manager that ensures an active Modal app context exists when invoking
+    remote Modal functions from standalone Python scripts or runner entrypoints.
     Handles sequential invocations and nested context entry without stale app_id collisions.
     Fails safely as a no-op when running without Modal credentials (e.g. CI runners).
+    Class-based implementation eliminates generator throw-yield protocol collisions.
     """
-    global _MODAL_APP_RUNNING
-    if _MODAL_APP_RUNNING:
-        yield
-        return
-    if os.environ.get("MODAL_TASK_ID"):
-        yield
-        return
-    try:
-        import modal
-        token_id = os.environ.get("MODAL_TOKEN_ID")
-        if not token_id:
-            try:
-                token_id = modal.config.config.get("token_id")
-            except Exception:
-                token_id = None
-        if not token_id:
-            yield
-            return
 
-        from modal_app import app
-        ctx = app.run()
-    except Exception:
-        yield
-        return
+    def __init__(self):
+        self._owned = False
+        self._ctx = None
 
-    with ctx:
-        _MODAL_APP_RUNNING = True
+    def __enter__(self):
+        global _MODAL_APP_RUNNING
+        self._owned = False
+        self._ctx = None
+        if _MODAL_APP_RUNNING or os.environ.get("MODAL_TASK_ID"):
+            return self
         try:
-            yield
-        finally:
-            _MODAL_APP_RUNNING = False
+            import modal
+            token_id = os.environ.get("MODAL_TOKEN_ID")
+            if not token_id:
+                try:
+                    token_id = modal.config.config.get("token_id")
+                except Exception:
+                    token_id = None
+            if not token_id:
+                return self
+
+            from modal_app import app
+            self._ctx = app.run()
+            self._ctx.__enter__()
+            _MODAL_APP_RUNNING = True
+            self._owned = True
+        except Exception:
+            self._ctx = None
+            self._owned = False
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        global _MODAL_APP_RUNNING
+        if self._owned and self._ctx is not None:
+            try:
+                self._ctx.__exit__(exc_type, exc_val, exc_tb)
+            finally:
+                _MODAL_APP_RUNNING = False
+        return False
+
+
+def ensure_modal_app_context() -> ModalAppContext:
+    return ModalAppContext()
 
 from benchmarks.protocol import (
     TargetSpecification,
