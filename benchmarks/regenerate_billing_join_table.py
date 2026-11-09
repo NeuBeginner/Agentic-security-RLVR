@@ -1,22 +1,30 @@
 """
 benchmarks/regenerate_billing_join_table.py
+=============================================
 
 Regenerate the Modal billing join table from the immutable raw provider export
-(Iteration 14 P0.1).
+(Iteration 14 P0.1, hardened in Iteration 15).
 
 The previous table (schema 1.0.0) bound every one of the 16 targets to a single
 Modal application id and repeated the *aggregated* application-level charge on
 every target row, so the same raw line item was accounted for many times. It
 also published fabricated ``modal-app://`` provider log URIs.
 
-This generator produces schema 2.0.0:
+This generator produces schema 3.0.0:
 
 * ``app_session_level`` accounts for **every** raw billing line item exactly
   once, grouped by (app id, resource, interval);
-* ``target_level`` keeps ``cost_usd = null`` because no invocation-level join
-  between a target execution and a specific billing line item exists;
+* ``target_level`` keeps ``cost_usd = null`` unless an *exact* provider-backed
+  join to a single raw line item was proven: the join must name a documented
+  provider correlation field whose value occurs on exactly one raw record, and
+  that record must belong to the application the target claims;
+* every unattributed target carries a machine-readable ``cost_reason_code``;
 * every referenced application id is checked against the raw export;
 * the aggregates are reconciled with :class:`decimal.Decimal` arithmetic.
+
+The raw export carries no provider-level correlation identifier, so every
+target stays unattributed with the reason ``NO_JOIN_PROVIDED``. That is the
+honest state of the data, not a defect of the generator.
 
 Usage::
 
@@ -111,6 +119,53 @@ def _canonical_run_app_session(validation_path: Path) -> Tuple[Optional[str], Di
     return str(app_id), evidence_ref
 
 
+def _provider_joins(
+    artifacts: Dict[str, Dict[str, Any]],
+    targets: List[Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Collect the provider-backed joins the saved artifacts really support.
+
+    A join is only attempted when the target artifact records an observed
+    provider correlation identifier (a function-call id or another documented
+    provider key) that the raw export can be searched for. Nothing is
+    invented here: a target without such an identifier simply gets no join.
+    """
+    from benchmarks.evidence_integrity import PROVIDER_JOIN_FIELDS
+
+    joins: Dict[str, Dict[str, Any]] = {}
+    for target in targets:
+        target_id = str(target.get("contract_id", ""))
+        artifact = artifacts.get(target_id) or {}
+        provenance = artifact.get("modal_invocation_provenance") or {}
+        stages = provenance.get("stages") or {}
+        if not isinstance(stages, dict):
+            continue
+
+        for stage in stages.values():
+            if not isinstance(stage, dict):
+                continue
+            for provider_field in PROVIDER_JOIN_FIELDS:
+                fact = stage.get(provider_field)
+                if not isinstance(fact, dict) or fact.get("status") != "OBSERVED":
+                    continue
+                value = fact.get("value")
+                if not value:
+                    continue
+                joins[target_id] = {
+                    "provider_field": provider_field,
+                    "provider_value": str(value),
+                    "app_id": stage.get("app_id", {}).get("value")
+                    if isinstance(stage.get("app_id"), dict)
+                    else None,
+                }
+                break
+            if target_id in joins:
+                break
+
+    return joins
+
+
 def generate_join_table(
     *,
     raw_export_path: Path,
@@ -119,7 +174,7 @@ def generate_join_table(
     run_dir: Path,
     baseline_id: str,
 ) -> Dict[str, Any]:
-    """Build the schema 2.0.0 billing join table."""
+    """Build the schema 3.0.0 billing join table."""
     line_items = load_raw_billing_line_items(raw_export_path)
     targets = _dataset_targets(dataset_path)
     artifacts = _run_artifact_rows(run_dir, baseline_id)
@@ -145,9 +200,15 @@ def generate_join_table(
             }
         )
 
-    # No invocation-level join exists between a target execution and a specific
-    # billing line item, so no target receives a cost.
-    attribution = build_billing_attribution(line_items, target_rows=target_rows)
+    # Only a provider-backed, exact join may give a target a cost. The raw
+    # export of this run carries no provider correlation identifier, so no
+    # target receives one.
+    invocation_joins = _provider_joins(artifacts, targets)
+    attribution = build_billing_attribution(
+        line_items,
+        target_rows=target_rows,
+        invocation_joins=invocation_joins,
+    )
 
     for row in attribution.app_session_level:
         row["belongs_to_canonical_run_app_session"] = (
@@ -169,12 +230,12 @@ def generate_join_table(
         row["app_id_evidence_ref"] = run_app_evidence if row.get("app_id") else None
 
     join_table: Dict[str, Any] = {
-        "schema_version": "2.0.0",
+        "schema_version": "3.0.0",
         "generated_by": "benchmarks/regenerate_billing_join_table.py",
         "description": (
             "Modal billing attribution split into application/session level (every raw line "
-            "item accounted for exactly once) and target level (cost stays null because no "
-            "invocation-level join exists)."
+            "item accounted for exactly once) and target level (a cost is only published for an "
+            "exact, unique provider-backed join to a single raw billing record)."
         ),
         "source_raw_export": {
             "path": str(raw_export_path.relative_to(_ROOT)).replace("\\", "/"),
@@ -224,7 +285,9 @@ def generate_join_table(
             "no raw line item is counted twice",
             "every referenced application id exists in the raw export",
             "aggregates reconcile exactly with the raw export",
-            "no target carries a cost without a proven invocation-level join",
+            "no target carries a cost without an exact provider-backed join",
+            "no two targets claim the same billing record",
+            "every unattributed target carries a machine-readable cost_reason_code",
         ],
     }
     if not ok:

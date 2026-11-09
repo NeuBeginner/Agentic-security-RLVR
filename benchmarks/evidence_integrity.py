@@ -173,6 +173,70 @@ def observed(value: Any, *, source: str) -> Dict[str, Any]:
     }
 
 
+def attach_evidence_ref(fact: Any, evidence_ref: Any) -> Any:
+    """
+    Attach an evidence reference to a fact.
+
+    The reference is added to a copy of the fact; the original fact is left
+    untouched so that a shared fact object cannot be mutated by accident.
+    """
+    if not isinstance(fact, dict):
+        return fact
+    if evidence_ref is None:
+        return fact
+    updated = dict(fact)
+    updated["evidence_ref"] = (
+        evidence_ref.to_dict() if hasattr(evidence_ref, "to_dict") else dict(evidence_ref)
+    )
+    return updated
+
+
+def build_evidence_ref_from_bytes(
+    path: str,
+    data: bytes,
+    *,
+    description: str = "",
+) -> Dict[str, Any]:
+    """
+    Describe bytes that were written to ``path``.
+
+    The digest always describes the exact bytes that were written, so the
+    reference can be re-verified against the file on disk.
+    """
+    return {
+        "path": path,
+        "sha256": sha256_bytes(data),
+        "byte_length": len(data),
+        "description": description,
+    }
+
+
+def attach_evidence_ref_to_facts(payload: Any, evidence_ref: Any) -> Any:
+    """
+    Attach an evidence reference to every ``NOT_AVAILABLE`` fact in a payload.
+
+    The payload is copied, never mutated in place. Facts that already carry
+    their own evidence reference keep it: a worker-side reference always
+    describes the bytes that back exactly that statement.
+    """
+    if isinstance(payload, dict):
+        updated: Dict[str, Any] = {}
+        for key, value in payload.items():
+            if (
+                isinstance(value, dict)
+                and value.get("status") == NOT_AVAILABLE
+                and not value.get("evidence_ref")
+            ):
+                value = attach_evidence_ref(value, evidence_ref)
+            updated[key] = attach_evidence_ref_to_facts(value, evidence_ref)
+        return updated
+    if isinstance(payload, list):
+        return [attach_evidence_ref_to_facts(item, evidence_ref) for item in payload]
+    if isinstance(payload, tuple):
+        return tuple(attach_evidence_ref_to_facts(item, evidence_ref) for item in payload)
+    return payload
+
+
 def fact_value(fact: Any) -> Any:
     """Return the observed value of a fact, or ``None`` when unavailable."""
     if isinstance(fact, dict):
@@ -187,6 +251,122 @@ def fact_is_observed(fact: Any) -> bool:
     if isinstance(fact, dict):
         return fact.get("status") == OBSERVED and fact.get("value") is not None
     return fact is not None
+
+
+# ---------------------------------------------------------------------------
+# Independently verifiable evidence references (Iteration 15)
+# ---------------------------------------------------------------------------
+
+def resolve_evidence_path(
+    relative_path: str,
+    *,
+    evidence_root: os.PathLike | str,
+) -> Optional[Path]:
+    """
+    Resolve an evidence reference path inside the evidence root.
+
+    The path must stay inside the root: an absolute path or a path that
+    escapes the root via ``..`` is rejected. ``None`` is returned when the
+    reference cannot be resolved safely.
+    """
+    if not relative_path or not isinstance(relative_path, str):
+        return None
+    candidate = Path(relative_path)
+    if candidate.is_absolute():
+        return None
+    root = Path(evidence_root).resolve()
+    try:
+        resolved = (root / candidate).resolve()
+        resolved.relative_to(root)
+    except (ValueError, OSError):
+        return None
+    return resolved
+
+
+def validate_evidence_ref_bytes(
+    evidence_ref: Any,
+    *,
+    evidence_root: os.PathLike | str,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Verify that an evidence reference really points at the bytes it claims.
+
+    The reference must name a path and a well-formed SHA-256 digest, the path
+    must resolve inside the evidence root, the artifact must exist, and the
+    digest of the stored bytes must equal the declared digest.
+
+    A reference to a tampered, missing or malformed artifact is rejected: the
+    claim is only verifiable when the bytes confirm it.
+    """
+    if not isinstance(evidence_ref, dict) or not evidence_ref:
+        return False, "Evidence reference is missing or empty"
+
+    path = evidence_ref.get("path")
+    digest = evidence_ref.get("sha256")
+
+    if not isinstance(path, str) or not path.strip():
+        return False, "Evidence reference has no path"
+    if not is_sha256(digest):
+        return False, f"Evidence reference has no valid SHA-256 digest: {digest!r}"
+
+    resolved = resolve_evidence_path(path, evidence_root=evidence_root)
+    if resolved is None:
+        return False, (
+            f"Evidence reference path {path!r} is not a relative path inside the evidence root"
+        )
+    if not resolved.is_file():
+        return False, f"Evidence reference points at a missing artifact: {path}"
+
+    data = resolved.read_bytes()
+    actual = sha256_bytes(data)
+    if actual != digest:
+        return False, (
+            f"Evidence reference digest {digest} does not match the digest of the referenced "
+            f"bytes ({actual})"
+        )
+
+    declared_length = evidence_ref.get("byte_length")
+    if declared_length is not None:
+        if not isinstance(declared_length, int) or isinstance(declared_length, bool):
+            return False, "Evidence reference has no valid byte length"
+        if declared_length != len(data):
+            return False, (
+                f"Evidence reference byte length {declared_length} does not match the referenced "
+                f"bytes ({len(data)})"
+            )
+
+    return True, None
+
+
+def require_verified_evidence_ref(
+    fact: Any,
+    *,
+    evidence_root: os.PathLike | str,
+    label: str,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Require that a ``NOT_AVAILABLE`` fact carries verifiable evidence.
+
+    A reason string alone is not sufficient: the fact must reference an
+    existing evidence artifact whose SHA-256 digest matches the stored bytes.
+    """
+    if not isinstance(fact, dict):
+        return False, f"{label} is not a fact object"
+
+    evidence_ref = fact.get("evidence_ref")
+    if not isinstance(evidence_ref, dict) or not evidence_ref:
+        return False, f"{label} has no evidence reference"
+
+    if evidence_root is None:
+        return False, (
+            f"{label}: the referenced evidence bytes cannot be verified because no evidence "
+            "root was provided"
+        )
+
+    ok, error = validate_evidence_ref_bytes(evidence_ref, evidence_root=evidence_root)
+    if not ok:
+        return False, f"{label}: {error}"
+    return True, None
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +461,7 @@ def validate_modal_invocation_provenance(
     artifact: Dict[str, Any],
     *,
     known_app_ids: Optional[Iterable[str]] = None,
+    evidence_root: Optional[os.PathLike | str] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
     Validate the Modal invocation provenance of one target artifact.
@@ -291,7 +472,14 @@ def validate_modal_invocation_provenance(
       * a hardcoded-looking application id that is not a plausible Modal id;
       * an observed application id that is absent from the raw billing export;
       * a NOT_AVAILABLE fact without a reason;
+      * a NOT_AVAILABLE fact without an evidence reference, or whose evidence
+        reference does not verify against the referenced bytes (a reason string
+        alone is never sufficient);
       * an observed function-call id that is not a plausible Modal id.
+
+    ``evidence_root`` is the directory the evidence references are resolved
+    against. Without it the referenced bytes cannot be verified and a
+    NOT_AVAILABLE fact is therefore rejected.
     """
     provenance = artifact.get("modal_invocation_provenance")
     if not isinstance(provenance, dict) or not provenance:
@@ -302,6 +490,18 @@ def validate_modal_invocation_provenance(
         return False, "modal_invocation_provenance has no stages"
 
     known = set(known_app_ids or ())
+
+    # The run-level application id is a fact of the same kind as the stage
+    # facts: an unavailable one must carry verifiable evidence as well.
+    run_app_fact = provenance.get("modal_app_id")
+    if isinstance(run_app_fact, dict) and run_app_fact.get("status") == NOT_AVAILABLE:
+        ok, error = require_verified_evidence_ref(
+            run_app_fact,
+            evidence_root=evidence_root,
+            label="Modal provenance records 'modal_app_id' as NOT_AVAILABLE",
+        )
+        if not ok:
+            return False, error
 
     for stage_name, stage in stages.items():
         if not isinstance(stage, dict):
@@ -320,6 +520,16 @@ def validate_modal_invocation_provenance(
                             f"Modal provenance stage '{stage_name}' records '{key}' as NOT_AVAILABLE "
                             "without an explicit reason"
                         )
+                    ok, error = require_verified_evidence_ref(
+                        fact,
+                        evidence_root=evidence_root,
+                        label=(
+                            f"Modal provenance stage '{stage_name}' records '{key}' as "
+                            "NOT_AVAILABLE"
+                        ),
+                    )
+                    if not ok:
+                        return False, error
                     continue
                 if fact.get("status") != OBSERVED:
                     return False, (
@@ -378,6 +588,107 @@ def validate_modal_invocation_provenance(
                     f"Modal provenance stage '{stage_name}' contains the synthetic log URI {legacy!r}"
                 )
 
+    # Cross-check the recorded application ids against the raw billing export.
+    # A mismatch is rejected; an unavailable id is reported explicitly instead
+    # of being skipped silently.
+    if known:
+        report = cross_check_app_ids(artifact, known)
+        if report["status"] == "FAILED":
+            return False, report["error"]
+
+    return True, None
+
+
+#: Status of a single App ID comparison between the invocation evidence and
+#: the raw billing export.
+APP_ID_MATCHED = "MATCHED"
+APP_ID_MISMATCHED = "MISMATCHED"
+APP_ID_NOT_COMPARED = "NOT_AVAILABLE_NOT_COMPARED"
+
+
+def cross_check_app_ids(
+    artifact: Dict[str, Any],
+    billing_app_ids: Optional[Iterable[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Cross-check the App IDs of the invocation evidence against the billing export.
+
+    Every App ID the evidence records is compared with the App IDs the raw
+    billing export contains. An App ID that was observed must be present in the
+    export; an App ID that could not be observed is reported explicitly as
+    ``NOT_AVAILABLE_NOT_COMPARED`` instead of being skipped silently.
+
+    The returned report carries one comparison record per scope so that a
+    skipped comparison is visible in the evidence.
+    """
+    provenance = artifact.get("modal_invocation_provenance")
+    report: Dict[str, Any] = {
+        "status": "PASSED",
+        "error": None,
+        "billing_app_ids_present": bool(billing_app_ids),
+        "comparisons": [],
+    }
+    if not isinstance(provenance, dict):
+        report["status"] = "NOT_APPLICABLE"
+        report["error"] = "Missing modal_invocation_provenance"
+        return report
+
+    known = set(billing_app_ids or ())
+    stages = provenance.get("stages")
+    if not isinstance(stages, dict):
+        stages = {}
+
+    scopes: List[Tuple[str, Any]] = [("modal_app_id", provenance.get("modal_app_id"))]
+    for stage_name, stage in stages.items():
+        if isinstance(stage, dict):
+            scopes.append((f"stages.{stage_name}.app_id", stage.get("app_id")))
+
+    for scope, fact in scopes:
+        record: Dict[str, Any] = {"scope": scope, "observed_app_id": None, "status": APP_ID_NOT_COMPARED}
+        if isinstance(fact, dict):
+            if fact.get("status") == OBSERVED:
+                record["observed_app_id"] = fact.get("value")
+            elif fact.get("status") == NOT_AVAILABLE:
+                record["reason"] = fact.get("reason")
+        elif isinstance(fact, str) and fact:
+            # Legacy flat value: a real id is only acceptable when it looks
+            # like one; the NOT_AVAILABLE marker is an explicit absence.
+            if fact != NOT_AVAILABLE:
+                record["observed_app_id"] = fact
+
+        observed = record["observed_app_id"]
+        if not observed:
+            record["status"] = APP_ID_NOT_COMPARED
+            record["reason"] = record.get(
+                "reason", "the invocation evidence does not record an observed application id"
+            )
+        elif not known:
+            record["status"] = APP_ID_NOT_COMPARED
+            record["reason"] = "the raw billing export carries no application id to compare against"
+        elif observed in known:
+            record["status"] = APP_ID_MATCHED
+        else:
+            record["status"] = APP_ID_MISMATCHED
+            record["reason"] = (
+                f"application id {observed!r} is absent from the raw billing export"
+            )
+
+        report["comparisons"].append(record)
+        if record["status"] == APP_ID_MISMATCHED:
+            report["status"] = "FAILED"
+            report["error"] = f"{scope}: {record['reason']}"
+
+    return report
+
+
+def validate_modal_app_id_consistency(
+    artifact: Dict[str, Any],
+    billing_app_ids: Optional[Iterable[str]] = None,
+) -> Tuple[bool, Optional[str]]:
+    """Validate the App ID cross-check between evidence and billing export."""
+    report = cross_check_app_ids(artifact, billing_app_ids)
+    if report["status"] == "FAILED":
+        return False, report["error"]
     return True, None
 
 
@@ -398,6 +709,62 @@ def has_synthetic_modal_uri(payload: Any) -> bool:
 # P0.1 - Billing attribution
 # ---------------------------------------------------------------------------
 
+#: Provider-issued correlation fields that may identify a single billing record.
+#:
+#: A target-level cost may only be derived from a billing record that carries one
+#: of these identifiers **and** whose value occurs on exactly one raw line item.
+#: Any other shape (a bare invocation id, an App id, an App/resource/interval
+#: bucket) is not an exact correlation and is therefore never sufficient.
+PROVIDER_JOIN_FIELDS = ("invocation_id", "function_call_id", "task_id")
+
+#: Machine-readable reasons why a target could not be attributed to a billing
+#: record. Every unattributed target carries one of these.
+JOIN_REASON_NO_JOIN = "NO_JOIN_PROVIDED"
+JOIN_REASON_MISSING_KEY = "MISSING_JOIN_KEY"
+JOIN_REASON_MISSING_VALUE = "MISSING_JOIN_VALUE"
+JOIN_REASON_UNSUPPORTED_FIELD = "UNSUPPORTED_PROVIDER_FIELD"
+JOIN_REASON_BUCKET = "AGGREGATE_BUCKET_JOIN_REJECTED"
+JOIN_REASON_NO_MATCH = "NO_MATCHING_LINE_ITEM"
+JOIN_REASON_AMBIGUOUS = "AMBIGUOUS_MATCH"
+JOIN_REASON_APP_MISMATCH = "APP_ID_MISMATCH"
+JOIN_REASON_ALREADY_CLAIMED = "ALREADY_CLAIMED_BY_ANOTHER_TARGET"
+
+#: Human-readable text for every machine-readable join reason code.
+JOIN_REASON_TEXT: Dict[str, str] = {
+    JOIN_REASON_NO_JOIN: (
+        "no provider-backed invocation-level join was provided for this target; Modal billing "
+        "exposes no target-level correlation"
+    ),
+    JOIN_REASON_MISSING_KEY: (
+        "the join names no documented provider correlation field, so it identifies no billing "
+        "record"
+    ),
+    JOIN_REASON_MISSING_VALUE: "the join names a provider correlation field but no value",
+    JOIN_REASON_UNSUPPORTED_FIELD: (
+        "the join names a field that is not a documented provider correlation identifier"
+    ),
+    JOIN_REASON_BUCKET: (
+        "the join describes an App/resource/interval aggregate bucket; an aggregate is never "
+        "allocated to an individual target"
+    ),
+    JOIN_REASON_NO_MATCH: (
+        "the join value occurs on no raw billing line item, so the identifier is not backed by "
+        "the billing record"
+    ),
+    JOIN_REASON_AMBIGUOUS: (
+        "the join value occurs on more than one raw billing line item, so the correlation is not "
+        "unique"
+    ),
+    JOIN_REASON_APP_MISMATCH: (
+        "the matched billing record belongs to a different application than the join claims"
+    ),
+    JOIN_REASON_ALREADY_CLAIMED: (
+        "the billing record is already attributed to another target, so the correlation is "
+        "not unique"
+    ),
+}
+
+
 @dataclass
 class BillingLineItem:
     """A single raw billing line item as exported by the provider."""
@@ -408,24 +775,52 @@ class BillingLineItem:
     interval_start: str
     description: str = ""
     environment: str = ""
+    index: int = -1
+    provider_join_keys: Dict[str, str] = field(default_factory=dict)
 
     @property
     def key(self) -> str:
-        """Stable identity of the line item inside the raw export."""
+        """
+        Stable identity of the line item inside the raw export.
+
+        The row index is part of the key so that two rows with identical
+        content stay distinguishable. Without it a duplicated billing row
+        would silently collapse into one and the join could not detect the
+        ambiguity.
+        """
+        return (
+            f"{self.index}|{self.object_id}|{self.resource}|{self.interval_start}"
+            f"|{self.description}|{self.environment}"
+        )
+
+    @property
+    def content_key(self) -> str:
+        """Identity of the line item without the row index."""
         return f"{self.object_id}|{self.resource}|{self.interval_start}|{self.description}|{self.environment}"
 
 
 def load_raw_billing_line_items(path: os.PathLike | str) -> List[BillingLineItem]:
-    """Load the raw provider billing export into :class:`BillingLineItem` objects."""
+    """
+    Load the raw provider billing export into :class:`BillingLineItem` objects.
+
+    Every row keeps its index in the export and every documented provider
+    correlation field it carries. The provider keys are what makes an exact
+    target-level join possible at all.
+    """
     with open(path, "r", encoding="utf-8") as handle:
         raw = json.load(handle)
     if not isinstance(raw, list):
         raise ValueError("Raw billing export must be a list of line items")
 
     items: List[BillingLineItem] = []
-    for entry in raw:
+    for index, entry in enumerate(raw):
         if not isinstance(entry, dict):
             continue
+        provider_keys = {
+            field_name: str(entry[field_name])
+            for field_name in PROVIDER_JOIN_FIELDS
+            if entry.get(field_name) not in (None, "")
+        }
         items.append(
             BillingLineItem(
                 object_id=str(entry.get("object_id", "")),
@@ -434,6 +829,8 @@ def load_raw_billing_line_items(path: os.PathLike | str) -> List[BillingLineItem
                 interval_start=str(entry.get("interval_start", "")),
                 description=str(entry.get("description", "")),
                 environment=str(entry.get("environment", "")),
+                index=index,
+                provider_join_keys=provider_keys,
             )
         )
     return items
@@ -446,7 +843,7 @@ class BillingAttribution:
 
     ``app_session_level`` accounts for every raw line item exactly once.
     ``target_level`` holds one row per target; its cost stays ``None`` unless
-    an invocation-level join was actually proven.
+    an *exact* provider-backed join to a single raw line item was proven.
     """
 
     app_session_level: List[Dict[str, Any]] = field(default_factory=list)
@@ -465,6 +862,74 @@ class BillingAttribution:
         }
 
 
+def resolve_billing_join(
+    join: Any,
+    line_items: Sequence[BillingLineItem],
+) -> Tuple[Optional[BillingLineItem], Optional[str]]:
+    """
+    Resolve one target-level join against the raw billing export.
+
+    A join is only resolved when it carries a documented provider correlation
+    field and a value that occurs on **exactly one** raw line item, and when
+    that record belongs to the application the join claims.
+
+    Everything else is rejected with a machine-readable reason code:
+
+    ``MISSING_JOIN_KEY``
+        the join names no provider correlation field;
+    ``MISSING_JOIN_VALUE``
+        the join names a field but no value;
+    ``UNSUPPORTED_PROVIDER_FIELD``
+        the join names a field that is not a documented provider identifier;
+    ``AGGREGATE_BUCKET_JOIN_REJECTED``
+        the join describes an App/resource/interval bucket, which is an
+        aggregate and never identifies a single billing record;
+    ``NO_MATCHING_LINE_ITEM``
+        the join value occurs on no raw line item (a fabricated identifier);
+    ``AMBIGUOUS_MATCH``
+        the join value occurs on more than one raw line item (a duplicated
+        billing row or a non-unique identifier);
+    ``APP_ID_MISMATCH``
+        the matched billing record belongs to a different application.
+    """
+    if not isinstance(join, dict) or not join:
+        return None, JOIN_REASON_MISSING_KEY
+
+    provider_field = join.get("provider_field")
+    provider_value = join.get("provider_value")
+
+    if provider_field in (None, ""):
+        # A join that only names an App, a resource or an interval describes
+        # an aggregate bucket. Such a bucket is never allocated to a target.
+        bucket_keys = {"app_id", "resource", "interval_start", "line_item_key", "invocation_id"}
+        if any(key in join for key in bucket_keys):
+            return None, JOIN_REASON_BUCKET
+        return None, JOIN_REASON_MISSING_KEY
+
+    if provider_value in (None, ""):
+        return None, JOIN_REASON_MISSING_VALUE
+
+    if provider_field not in PROVIDER_JOIN_FIELDS:
+        return None, JOIN_REASON_UNSUPPORTED_FIELD
+
+    matches = [
+        item
+        for item in line_items
+        if item.provider_join_keys.get(provider_field) == provider_value
+    ]
+    if not matches:
+        return None, JOIN_REASON_NO_MATCH
+    if len(matches) > 1:
+        return None, JOIN_REASON_AMBIGUOUS
+
+    matched = matches[0]
+    claimed_app_id = join.get("app_id")
+    if claimed_app_id not in (None, "") and matched.object_id != claimed_app_id:
+        return None, JOIN_REASON_APP_MISMATCH
+
+    return matched, None
+
+
 def build_billing_attribution(
     line_items: Sequence[BillingLineItem],
     *,
@@ -475,9 +940,10 @@ def build_billing_attribution(
     Build the billing attribution from the raw export.
 
     Each raw line item is assigned to exactly one app/session bucket. The
-    target rows receive the app/session reference only; their cost stays
-    ``None`` unless ``invocation_joins`` proves that a specific invocation was
-    billed for that target.
+    target rows receive an app/session reference only; their cost stays
+    ``None`` unless an *exact* provider-backed join to a single raw line item
+    was proven. An App/resource/interval bucket is never allocated to an
+    individual target, and no aggregate is ever prorated or duplicated.
 
     All aggregates are computed with :class:`decimal.Decimal` so that the
     reconciliation with the raw export is exact and not a floating-point
@@ -520,6 +986,7 @@ def build_billing_attribution(
         app_session_level.append(bucket)
 
     joins = invocation_joins or {}
+    claimed: Dict[str, str] = {}
     target_level: List[Dict[str, Any]] = []
     for row in target_rows or []:
         target_id = str(row.get("target_id", ""))
@@ -527,25 +994,46 @@ def build_billing_attribution(
         cost: Optional[float] = None
         cost_exact: Optional[str] = None
         join_evidence: Optional[Dict[str, Any]] = None
-        if join:
-            # A join is only honoured when it names a real line item bucket.
-            bucket_key = (
-                str(join.get("app_id", "")),
-                str(join.get("resource", "")),
-                str(join.get("interval_start", "")),
+
+        if join is None:
+            cost_status = "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN"
+            reason_code: Optional[str] = JOIN_REASON_NO_JOIN
+            reason = (
+                "no provider-backed invocation-level join was provided for this target; "
+                "Modal billing exposes no target-level correlation"
             )
-            bucket = buckets.get(bucket_key)
-            if bucket is not None:
-                exact = bucket["cost_usd"]
+        else:
+            matched, failure = resolve_billing_join(join, line_items)
+            if matched is None:
+                cost_status = "UNATTRIBUTED_JOIN_NOT_PROVEN"
+                reason_code = failure
+                reason = JOIN_REASON_TEXT.get(failure or "", failure)
+            elif matched.key in claimed:
+                cost_status = "UNATTRIBUTED_JOIN_NOT_PROVEN"
+                reason_code = JOIN_REASON_ALREADY_CLAIMED
+                reason = (
+                    f"the billing record {matched.key} is already attributed to target "
+                    f"{claimed[matched.key]!r}"
+                )
+            else:
+                exact = Decimal(str(matched.cost_usd))
                 cost = float(exact)
                 cost_exact = format(exact, "f")
+                cost_status = "ATTRIBUTED"
+                reason_code = None
+                reason = None
+                claimed[matched.key] = target_id
                 join_evidence = {
-                    "app_id": bucket_key[0],
-                    "resource": bucket_key[1],
-                    "interval_start": bucket_key[2],
-                    "invocation_id": join.get("invocation_id"),
-                    "line_item_key": join.get("line_item_key"),
+                    "provider_field": join.get("provider_field"),
+                    "provider_value": join.get("provider_value"),
+                    "app_id": matched.object_id,
+                    "line_item_key": matched.key,
+                    "line_item_content_key": matched.content_key,
+                    "resource": matched.resource,
+                    "interval_start": matched.interval_start,
+                    "cost_usd_exact": cost_exact,
                 }
+
         target_level.append(
             {
                 "target_id": target_id,
@@ -553,7 +1041,9 @@ def build_billing_attribution(
                 "app_id": row.get("app_id"),
                 "cost_usd": cost,
                 "cost_usd_exact": cost_exact,
-                "cost_status": "ATTRIBUTED" if cost is not None else "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+                "cost_status": cost_status,
+                "cost_reason_code": reason_code,
+                "cost_reason": reason,
                 "invocation_join": join_evidence,
             }
         )
@@ -568,9 +1058,12 @@ def build_billing_attribution(
             "per_target_cost_usd": None,
             "policy_reason": (
                 "Modal billing is reported at app-session and interval granularity. A target-level "
-                "cost is assigned only when an invocation-level join to a specific billing line "
-                "item is proven; otherwise the target-level cost stays null."
+                "cost is assigned only when a documented provider correlation key resolves to "
+                "exactly one raw billing line item of the claimed application; otherwise the "
+                "target-level cost stays null and the reason is machine-readable."
             ),
+            "provider_join_fields": list(PROVIDER_JOIN_FIELDS),
+            "aggregate_bucket_allocation": "FORBIDDEN",
         },
     )
 
@@ -589,8 +1082,11 @@ def validate_billing_attribution(
       * every raw line item is accounted for exactly once (no double counting,
         no silently dropped item);
       * the aggregates reconcile exactly with the raw export;
-      * a target-level cost is only present when a proven invocation-level
-        join accompanies it.
+      * a target-level cost is only present when an exact, unique
+        provider-backed join accompanies it, and that join resolves to the
+        very same raw line item;
+      * a raw line item is never attributed to more than one target;
+      * an unattributed target carries a machine-readable reason code.
     """
     if not isinstance(attribution, dict):
         return False, "Billing attribution must be an object"
@@ -664,23 +1160,64 @@ def validate_billing_attribution(
         except Exception:
             return False, "Billing attribution total_cost_usd is not a number"
 
+    claimed_line_items: Dict[str, str] = {}
     for row in target_level:
         if not isinstance(row, dict):
             return False, "target_level contains a non-object row"
+        target_id = row.get("target_id")
         cost = row.get("cost_usd")
         join = row.get("invocation_join")
-        if cost is not None:
-            if not isinstance(join, dict) or not join.get("invocation_id"):
+
+        if cost is None:
+            if not row.get("cost_reason_code"):
                 return False, (
-                    f"Target {row.get('target_id')!r} has a target-level cost without a proven "
-                    "invocation-level join"
+                    f"Target {target_id!r} has no target-level cost and no machine-readable "
+                    "cost_reason_code"
                 )
-            join_app = join.get("app_id")
-            if known and join_app not in known:
-                return False, (
-                    f"Target {row.get('target_id')!r} joins to application id {join_app!r} which "
-                    "is absent from the raw billing export"
-                )
+            continue
+
+        if not isinstance(join, dict) or not join.get("provider_value"):
+            return False, (
+                f"Target {target_id!r} has a target-level cost without a proven "
+                "invocation-level join"
+            )
+
+        resolved, failure = resolve_billing_join(
+            {
+                "provider_field": join.get("provider_field"),
+                "provider_value": join.get("provider_value"),
+                "app_id": join.get("app_id"),
+            },
+            line_items,
+        )
+        if resolved is None:
+            return False, (
+                f"Target {target_id!r} has a target-level cost without a proven invocation-level "
+                f"join: {failure}"
+            )
+
+        if join.get("line_item_key") != resolved.key:
+            return False, (
+                f"Target {target_id!r} claims a target-level cost for a billing record that is "
+                "not the one its join resolves to"
+            )
+
+        try:
+            declared = Decimal(str(row.get("cost_usd_exact") or cost))
+        except Exception:
+            return False, f"Target {target_id!r} has a non-numeric target-level cost"
+        if declared != Decimal(str(resolved.cost_usd)):
+            return False, (
+                f"Target {target_id!r} has a target-level cost that does not equal the cost of "
+                "the joined billing record"
+            )
+
+        if resolved.key in claimed_line_items:
+            return False, (
+                f"Target {target_id!r} attributes the billing record {resolved.key} that is "
+                f"already attributed to target {claimed_line_items[resolved.key]!r}"
+            )
+        claimed_line_items[resolved.key] = str(target_id)
 
     return True, None
 

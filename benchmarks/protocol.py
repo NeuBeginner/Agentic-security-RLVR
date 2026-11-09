@@ -15,7 +15,7 @@ import hashlib
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Iterable, Optional, Tuple
 
 
 class ExecutionStatus(str, Enum):
@@ -450,5 +450,48 @@ def validate_safe_control_sentinel_semantics(
         target_name=target_name,
         harness_suite=harness_suite,
     )
+
+
+def validate_modal_invocation_provenance(
+    artifact_dict: Dict[str, Any],
+    *,
+    known_app_ids: Optional[Iterable[str]] = None,
+    evidence_root: Optional[Any] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validates the Modal invocation provenance (Iteration 13 Requirement 1).
+
+    Since Iteration 15 every ``NOT_AVAILABLE`` fact must carry an evidence
+    reference whose SHA-256 digest is validated against the referenced bytes:
+    a reason string alone is not sufficient. ``evidence_root`` is the directory
+    the references are resolved against.
+    """
+    from benchmarks.evidence_integrity import (
+        validate_modal_invocation_provenance as _validate,
+    )
+
+    return _validate(
+        artifact_dict,
+        known_app_ids=known_app_ids,
+        evidence_root=evidence_root,
+    )
+
+
+def validate_modal_app_id_consistency(
+    artifact_dict: Dict[str, Any],
+    billing_app_ids: Optional[Iterable[str]] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validates the App ID cross-check between the invocation evidence and the
+    raw billing export (Iteration 15).
+
+    An observed App ID that the billing export does not contain is rejected;
+    an unavailable App ID is reported explicitly instead of being skipped.
+    """
+    from benchmarks.evidence_integrity import (
+        validate_modal_app_id_consistency as _validate,
+    )
+
+    return _validate(artifact_dict, billing_app_ids)
 
 

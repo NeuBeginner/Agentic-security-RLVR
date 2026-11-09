@@ -1901,19 +1901,50 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 remote_evm_provenance["target_id"] = target.contract_id
 
             # ------------------------------------------------------------------
-            # Modal invocation provenance (Iteration 14 P0.1)
+            # Modal invocation provenance (Iteration 14 P0.1, hardened in Iteration 15)
             # ------------------------------------------------------------------
             # The identifiers are the ones the Modal runtime reported. There is
             # no hardcoded application id and no fabricated log URI: when the
             # runtime does not expose a fact, the fact is NOT_AVAILABLE with
-            # the exact reason.
+            # the exact reason AND with an evidence reference whose SHA-256
+            # digest describes the bytes that are stored on disk.
             from benchmarks.evidence_integrity import (
+                attach_evidence_ref_to_facts,
+                build_evidence_ref_from_bytes,
                 build_modal_stage_provenance,
                 not_available,
             )
 
             evm_runtime = verdict_dict.get("modal_runtime") or {}
             replay_runtime = replay_details.get("modal_runtime") or {}
+
+            # The runtime payload the workers really returned is stored as its
+            # own byte-exact artifact. It is the evidence that backs every
+            # "the runtime did not report this" statement: the file contains
+            # exactly what the provider answered, and its digest proves that
+            # the stored bytes were not altered.
+            runtime_evidence_payload = {
+                "target_id": target.contract_id,
+                "correlation_id": correlation_id,
+                "evm_runtime": evm_runtime,
+                "replay_runtime": replay_runtime,
+                "note": (
+                    "the exact runtime identity payloads the Modal workers returned for this "
+                    "target; a field that is absent here was not reported by the provider"
+                ),
+            }
+            runtime_evidence_bytes = json.dumps(
+                runtime_evidence_payload, indent=2, sort_keys=True, ensure_ascii=False
+            ).encode("utf-8")
+            runtime_evidence_name = f"{target.contract_id}_modal_provenance_evidence.json"
+            runtime_evidence_path = Path(replay_artifact_dir) / runtime_evidence_name
+            runtime_evidence_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_evidence_path.write_bytes(runtime_evidence_bytes)
+            runtime_evidence_ref = build_evidence_ref_from_bytes(
+                runtime_evidence_name,
+                runtime_evidence_bytes,
+                description="the runtime identity payload the Modal workers returned for this target",
+            )
 
             def _runtime_fact(runtime: Dict[str, Any], key: str) -> Any:
                 """Return the observed fact for a runtime key, or a NOT_AVAILABLE fact."""
@@ -1923,7 +1954,8 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 if isinstance(fact, dict) and fact.get("status") == "NOT_AVAILABLE":
                     return fact
                 return not_available(
-                    f"the Modal runtime did not report '{key}' for this stage"
+                    f"the Modal runtime did not report '{key}' for this stage",
+                    evidence_ref=runtime_evidence_ref,
                 )
 
             inference_runtime: Dict[str, Any] = {}
@@ -1936,15 +1968,18 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                         function_name=modal_functions[0] if modal_functions else "generate_solidity_exploit",
                         app_id=not_available(
                             "the inference stage runs on a GPU worker whose runtime identity is not "
-                            "reported back to this client"
+                            "reported back to this client",
+                            evidence_ref=runtime_evidence_ref,
                         ),
                         function_call_id=not_available(
                             "the inference stage runs on a GPU worker whose function-call id is not "
-                            "reported back to this client"
+                            "reported back to this client",
+                            evidence_ref=runtime_evidence_ref,
                         ),
                         container_id=not_available(
                             "the inference stage runs on a GPU worker whose container id is not "
-                            "reported back to this client"
+                            "reported back to this client",
+                            evidence_ref=runtime_evidence_ref,
                         ),
                         resource="H100" if self.provider == "modal_h100" else "DEV_GPU",
                         attempted=True,
@@ -1960,13 +1995,16 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     "independent_replay": build_modal_stage_provenance(
                         function_name="verify_replay_remote" if replay_attempted else None,
                         app_id=_runtime_fact(replay_runtime, "app_id") if replay_attempted else not_available(
-                            "the independent replay stage was not attempted"
+                            "the independent replay stage was not attempted",
+                            evidence_ref=runtime_evidence_ref,
                         ),
                         function_call_id=_runtime_fact(replay_runtime, "function_call_id") if replay_attempted else not_available(
-                            "the independent replay stage was not attempted"
+                            "the independent replay stage was not attempted",
+                            evidence_ref=runtime_evidence_ref,
                         ),
                         container_id=_runtime_fact(replay_runtime, "container_id") if replay_attempted else not_available(
-                            "the independent replay stage was not attempted"
+                            "the independent replay stage was not attempted",
+                            evidence_ref=runtime_evidence_ref,
                         ),
                         resource="CPU",
                         attempted=replay_attempted,
@@ -1975,19 +2013,29 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                         function_name="record_trajectory_remote" if persistence_status == "persisted" else None,
                         app_id=not_available(
                             "the trajectory persistence stage does not report a container-scoped "
-                            "application id"
+                            "application id",
+                            evidence_ref=runtime_evidence_ref,
                         ),
                         function_call_id=not_available(
-                            "the trajectory persistence stage does not report a function-call id"
+                            "the trajectory persistence stage does not report a function-call id",
+                            evidence_ref=runtime_evidence_ref,
                         ),
                         container_id=not_available(
-                            "the trajectory persistence stage does not report a container id"
+                            "the trajectory persistence stage does not report a container id",
+                            evidence_ref=runtime_evidence_ref,
                         ),
                         resource="Storage",
                         attempted=persistence_status == "persisted",
                     ),
                 },
             }
+            # Worker-side NOT_AVAILABLE facts describe a fact the provider did
+            # not report. They are backed by the same runtime evidence artifact,
+            # so the stored bytes confirm the absence.
+            modal_invocation_provenance = attach_evidence_ref_to_facts(
+                modal_invocation_provenance,
+                runtime_evidence_ref,
+            )
             modal_invocation_provenance["persisted_path"] = persisted_path
 
             if is_verified:

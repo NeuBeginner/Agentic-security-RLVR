@@ -1,7 +1,7 @@
 {
-  "schema_version": "2.0.0",
+  "schema_version": "3.0.0",
   "generated_by": "benchmarks/regenerate_billing_join_table.py",
-  "description": "Modal billing attribution split into application/session level (every raw line item accounted for exactly once) and target level (cost stays null because no invocation-level join exists).",
+  "description": "Modal billing attribution split into application/session level (every raw line item accounted for exactly once) and target level (a cost is only published for an exact, unique provider-backed join to a single raw billing record).",
   "source_raw_export": {
     "path": "benchmarks/evidence/modal_billing_report_raw.json",
     "sha256": "1529b1b90ad609332d77837e3ee2f13e674dcdb90db401324f2b710e7662fc18",
@@ -38,7 +38,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-1HyKJ36RL77ZqYazFSctJ0|CPU|2026-11-05T00:00:00|purge-unwanted-models|main"
+        "1|ap-1HyKJ36RL77ZqYazFSctJ0|CPU|2026-11-05T00:00:00|purge-unwanted-models|main"
       ],
       "cost_usd": 3.28e-06,
       "cost_usd_exact": "0.00000328",
@@ -56,7 +56,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-1HyKJ36RL77ZqYazFSctJ0|Memory|2026-11-05T00:00:00|purge-unwanted-models|main"
+        "0|ap-1HyKJ36RL77ZqYazFSctJ0|Memory|2026-11-05T00:00:00|purge-unwanted-models|main"
       ],
       "cost_usd": 5.6e-07,
       "cost_usd_exact": "0.00000056",
@@ -74,7 +74,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-EDUitOwWeMrIdYbTh4kB63|CPU|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "5|ap-EDUitOwWeMrIdYbTh4kB63|CPU|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.03001687,
       "cost_usd_exact": "0.03001687",
@@ -92,7 +92,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-EDUitOwWeMrIdYbTh4kB63|H100|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "4|ap-EDUitOwWeMrIdYbTh4kB63|H100|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.74323683,
       "cost_usd_exact": "0.74323683",
@@ -110,7 +110,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-EDUitOwWeMrIdYbTh4kB63|Memory|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "2|ap-EDUitOwWeMrIdYbTh4kB63|Memory|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.00696753,
       "cost_usd_exact": "0.00696753",
@@ -128,7 +128,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-EDUitOwWeMrIdYbTh4kB63|Network Egress|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "3|ap-EDUitOwWeMrIdYbTh4kB63|Network Egress|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 2.6e-07,
       "cost_usd_exact": "0.00000026",
@@ -146,7 +146,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-L3wq4VVUBVKKSNf2ZLrtGd|CPU|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "8|ap-L3wq4VVUBVKKSNf2ZLrtGd|CPU|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.00320238,
       "cost_usd_exact": "0.00320238",
@@ -164,7 +164,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-L3wq4VVUBVKKSNf2ZLrtGd|Memory|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "7|ap-L3wq4VVUBVKKSNf2ZLrtGd|Memory|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.00013702,
       "cost_usd_exact": "0.00013702",
@@ -182,7 +182,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-L3wq4VVUBVKKSNf2ZLrtGd|Network Egress|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "6|ap-L3wq4VVUBVKKSNf2ZLrtGd|Network Egress|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.00013117,
       "cost_usd_exact": "0.00013117",
@@ -200,7 +200,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-U2RnBP52bKiPtyGkNwxTDh|CPU|2026-11-09T00:00:00|test-sandbox-build|main"
+        "10|ap-U2RnBP52bKiPtyGkNwxTDh|CPU|2026-11-09T00:00:00|test-sandbox-build|main"
       ],
       "cost_usd": 3.28e-06,
       "cost_usd_exact": "0.00000328",
@@ -218,7 +218,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-U2RnBP52bKiPtyGkNwxTDh|Memory|2026-11-09T00:00:00|test-sandbox-build|main"
+        "9|ap-U2RnBP52bKiPtyGkNwxTDh|Memory|2026-11-09T00:00:00|test-sandbox-build|main"
       ],
       "cost_usd": 5.6e-07,
       "cost_usd_exact": "0.00000056",
@@ -236,7 +236,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-VHU67DPTwU55ifH11fqXR5|CPU|2026-11-09T00:00:00|comfyui-fast|main"
+        "13|ap-VHU67DPTwU55ifH11fqXR5|CPU|2026-11-09T00:00:00|comfyui-fast|main"
       ],
       "cost_usd": 0.01639738,
       "cost_usd_exact": "0.01639738",
@@ -254,7 +254,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-VHU67DPTwU55ifH11fqXR5|Memory|2026-11-09T00:00:00|comfyui-fast|main"
+        "12|ap-VHU67DPTwU55ifH11fqXR5|Memory|2026-11-09T00:00:00|comfyui-fast|main"
       ],
       "cost_usd": 0.01109336,
       "cost_usd_exact": "0.01109336",
@@ -272,7 +272,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-VHU67DPTwU55ifH11fqXR5|Network Egress|2026-11-09T00:00:00|comfyui-fast|main"
+        "11|ap-VHU67DPTwU55ifH11fqXR5|Network Egress|2026-11-09T00:00:00|comfyui-fast|main"
       ],
       "cost_usd": 0.03751206,
       "cost_usd_exact": "0.03751206",
@@ -290,7 +290,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-apQN7A8mIFzNea2aevxlbt|CPU|2026-11-09T00:00:00|comfyui-fast|main"
+        "16|ap-apQN7A8mIFzNea2aevxlbt|CPU|2026-11-09T00:00:00|comfyui-fast|main"
       ],
       "cost_usd": 0.00694988,
       "cost_usd_exact": "0.00694988",
@@ -308,7 +308,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-apQN7A8mIFzNea2aevxlbt|Memory|2026-11-09T00:00:00|comfyui-fast|main"
+        "14|ap-apQN7A8mIFzNea2aevxlbt|Memory|2026-11-09T00:00:00|comfyui-fast|main"
       ],
       "cost_usd": 0.00027077,
       "cost_usd_exact": "0.00027077",
@@ -326,7 +326,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-apQN7A8mIFzNea2aevxlbt|Network Egress|2026-11-09T00:00:00|comfyui-fast|main"
+        "15|ap-apQN7A8mIFzNea2aevxlbt|Network Egress|2026-11-09T00:00:00|comfyui-fast|main"
       ],
       "cost_usd": 0.00039323,
       "cost_usd_exact": "0.00039323",
@@ -344,7 +344,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-binXZAE9bIMbsJZrYavbP0|CPU|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "20|ap-binXZAE9bIMbsJZrYavbP0|CPU|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.00522721,
       "cost_usd_exact": "0.00522721",
@@ -362,7 +362,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-binXZAE9bIMbsJZrYavbP0|H100|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "17|ap-binXZAE9bIMbsJZrYavbP0|H100|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.13359894,
       "cost_usd_exact": "0.13359894",
@@ -380,7 +380,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-binXZAE9bIMbsJZrYavbP0|Memory|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "19|ap-binXZAE9bIMbsJZrYavbP0|Memory|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.00080545,
       "cost_usd_exact": "0.00080545",
@@ -398,7 +398,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-binXZAE9bIMbsJZrYavbP0|Network Egress|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "18|ap-binXZAE9bIMbsJZrYavbP0|Network Egress|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.02657469,
       "cost_usd_exact": "0.02657469",
@@ -416,7 +416,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-jWAtiLAS2vzvZRy61raOrG|CPU|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "24|ap-jWAtiLAS2vzvZRy61raOrG|CPU|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.006686,
       "cost_usd_exact": "0.006686",
@@ -434,7 +434,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-jWAtiLAS2vzvZRy61raOrG|H100|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "23|ap-jWAtiLAS2vzvZRy61raOrG|H100|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.28324992,
       "cost_usd_exact": "0.28324992",
@@ -452,7 +452,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-jWAtiLAS2vzvZRy61raOrG|Memory|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "21|ap-jWAtiLAS2vzvZRy61raOrG|Memory|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.00173057,
       "cost_usd_exact": "0.00173057",
@@ -470,7 +470,7 @@
       ],
       "line_item_count": 1,
       "line_item_keys": [
-        "ap-jWAtiLAS2vzvZRy61raOrG|Network Egress|2026-11-09T00:00:00|aegis-rlvr-security|main"
+        "22|ap-jWAtiLAS2vzvZRy61raOrG|Network Egress|2026-11-09T00:00:00|aegis-rlvr-security|main"
       ],
       "cost_usd": 0.01548871,
       "cost_usd_exact": "0.01548871",
@@ -485,6 +485,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -499,6 +501,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -513,6 +517,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -527,6 +533,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -541,6 +549,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -555,6 +565,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -569,6 +581,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -583,6 +597,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -597,6 +613,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -611,6 +629,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -625,6 +645,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -639,6 +661,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -653,6 +677,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -667,6 +693,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -681,6 +709,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -695,6 +725,8 @@
       "cost_usd": null,
       "cost_usd_exact": null,
       "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
       "invocation_join": null,
       "app_id_evidence_ref": {
         "path": "benchmarks/evidence/modal_control_harness_validation.json",
@@ -714,7 +746,13 @@
   "attribution_policy": {
     "status": "APP_SESSION_LEVEL_ONLY",
     "per_target_cost_usd": null,
-    "policy_reason": "Modal billing is reported at app-session and interval granularity. A target-level cost is assigned only when an invocation-level join to a specific billing line item is proven; otherwise the target-level cost stays null."
+    "policy_reason": "Modal billing is reported at app-session and interval granularity. A target-level cost is assigned only when a documented provider correlation key resolves to exactly one raw billing line item of the claimed application; otherwise the target-level cost stays null and the reason is machine-readable.",
+    "provider_join_fields": [
+      "invocation_id",
+      "function_call_id",
+      "task_id"
+    ],
+    "aggregate_bucket_allocation": "FORBIDDEN"
   },
   "validation": {
     "status": "PASSED",
@@ -724,7 +762,9 @@
       "no raw line item is counted twice",
       "every referenced application id exists in the raw export",
       "aggregates reconcile exactly with the raw export",
-      "no target carries a cost without a proven invocation-level join"
+      "no target carries a cost without an exact provider-backed join",
+      "no two targets claim the same billing record",
+      "every unattributed target carries a machine-readable cost_reason_code"
     ]
   }
 }
