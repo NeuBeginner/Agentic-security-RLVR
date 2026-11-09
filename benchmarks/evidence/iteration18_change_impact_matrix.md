@@ -252,7 +252,10 @@ all of them `NOT_RUN`, because the binaries are not on the local PATH. The four
 locally, because `solc-0.8.20.exe` is installed on this machine; in CI they
 are skipped, because the CI runner has no `solc` on its PATH.
 
-### 6.2 The CI run (run `42720282390`, head `845f474`)
+### 6.2 The CI run (run `42721064881`, head `a3167c0`)
+
+The run of the code commit itself is `42720282390` (head `845f474`); it reports
+the same numbers as the run of the final head.
 
 | step | result |
 | --- | --- |
