@@ -723,7 +723,7 @@ def test_iteration15_validation_evidence_reports_the_saved_run_honestly():
         assert report["interpretation"][key]
 
     # No Modal runtime validation may be claimed.
-    assert "modal runtime validation is not claimed" in report["interpretation"]["reported"].lower()
+    assert "no modal runtime validation is claimed" in report["interpretation"]["reported"].lower()
 
 
 def test_iteration15_validation_evidence_check_mode_detects_a_foreign_code_sha(tmp_path):
