@@ -1483,9 +1483,10 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
 
             # 1. Synthesize candidate payload inside Modal app context
             correlation_id = f"corr-{target.contract_id}-{int(time.time())}-{uuid.uuid4().hex[:8]}"
-            # The exact response of the inference stage, kept verbatim: the
-            # stage evidence must hold the bytes the provider returned
-            # (Iteration 16 P0.1).
+            # The response of the inference stage, kept as it was returned: the
+            # stage evidence stores the object and hashes its canonical JSON
+            # serialization - not the raw transport bytes of the provider
+            # (Iteration 16 P0.1, Iteration 17 wording).
             inference_response: Any = None
             with ensure_modal_app_context():
                 payload = None
@@ -1583,8 +1584,10 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 is_replayed = False
                 replay_attempted = False
                 replay_details: Dict[str, Any] = {}
-                # The exact response of the replay stage, kept verbatim even
-                # when it is not a dict: a non-dict response is evidence too.
+                # The response of the replay stage, kept as it was returned
+                # even when it is not a dict: a non-dict response is evidence
+                # too (Iteration 17 wording: the payload digest is over the
+                # canonical JSON serialization, not over transport bytes).
                 replay_provider_response: Any = None
                 if verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED:
                     replay_attempted = True
@@ -1920,12 +1923,14 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             # no hardcoded application id and no fabricated log URI.
             #
             # Iteration 16 gives every stage its OWN evidence artifact: the
-            # exact response that stage returned, in the bytes the provider
-            # sent them. A fact may only cite the artifact of its own stage,
-            # and a missing fact states which kind of absence it is - the
-            # provider omitting a field, a stage that never ran, a stage that
-            # returned no runtime envelope, or a field this client never
-            # asked for.
+            # response that stage returned, stored as the object the SDK
+            # returned it. The digest of that payload is computed over its
+            # canonical JSON serialization - it is not the raw transport bytes
+            # the provider sent over the wire (Iteration 17 wording). A fact
+            # may only cite the artifact of its own stage, and a missing fact
+            # states which kind of absence it is - the provider omitting a
+            # field, a stage that never ran, a stage that returned no runtime
+            # envelope, or a field this client never asked for.
             from benchmarks.evidence_integrity import (
                 MODAL_IDENTITY_FIELDS,
                 StageResponseCapture,

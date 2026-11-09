@@ -50,12 +50,15 @@ Each artifact carries:
 | `response_received` | a response came back to this client |
 | `runtime_envelope_received` | the response carried a runtime-identity envelope |
 | `requested_fields` | the identity fields this client asked the stage to report |
-| `provider_response` | the **exact returned payload**, verbatim |
-| `provider_response_metadata` | `response_source`, the SHA-256 and the byte length of the returned payload, the keys of the enclosing response |
+| `provider_response` | the returned payload object, serialized canonically — **not** the raw transport bytes of the provider |
+| `provider_response_metadata` | `response_source`, the SHA-256 and the byte length of the canonical JSON serialization of the returned payload, the keys of the enclosing response |
 | `absence_records` | one typed record per absent identity field |
 
 The digest of the returned payload is computed over a canonical encoding, so a
-verifier can recompute it from the bytes stored inside the artifact.
+verifier can recompute it from the bytes stored inside the artifact. The
+payload itself is the object the SDK returned; the digest describes its
+canonical JSON serialization and **not** the raw transport bytes the provider
+sent over the wire.
 
 ### 2.2 Four (five) kinds of absence
 
@@ -96,7 +99,7 @@ artifact (`absence_records[].kind`). The validator rejects any disagreement.
 | # | Requirement | Producer (evidence is created here) | Validator (evidence is enforced here) | Evidence location | Accepted when | Positive test | Negative (adversarial) tests |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Every stage captures **its own** provider response, separately | `benchmarks/adapters.py` builds one `StageResponseCapture` per stage (inference, evm_sandbox, independent_replay, trajectory_persistence); `benchmarks/evidence_integrity.py::build_stage_evidence_artifact` / `write_stage_evidence_artifact` | `benchmarks/evidence_integrity.py::validate_stage_evidence_binding` | `benchmarks/artifacts/<run>/<target>_stage_evidence_<stage>.json` | one artifact per stage, each declaring its own `stage` | `test_iteration16_producer_writes_one_evidence_artifact_per_stage` | `test_iteration16_missing_stage_artifact_is_rejected` |
-| 2 | The artifact records stage name, attempted/executed status, provider response metadata and the exact returned payload bytes | `StageResponseCapture` (attempted / executed / response_received / runtime_envelope_received / provider_response / response_source) | `validate_stage_evidence_artifact` | same | the metadata is complete and the payload digest is recomputable from the stored bytes | `test_iteration16_stage_artifact_records_the_returned_payload_bytes` | `test_iteration16_tampered_provider_response_is_rejected` |
+| 2 | The artifact records stage name, attempted/executed status, provider response metadata and the returned payload (canonical JSON serialization, not raw transport bytes) | `StageResponseCapture` (attempted / executed / response_received / runtime_envelope_received / provider_response / response_source) | `validate_stage_evidence_artifact` | same | the metadata is complete and the payload digest is recomputable from the stored bytes | `test_iteration16_stage_artifact_records_the_returned_payload_bytes` | `test_iteration16_tampered_provider_response_is_rejected` |
 | 3 | An inference fact may not cite EVM-only evidence | the inference facts carry the inference stage's `evidence_ref` | `validate_stage_evidence_binding` (fact path must equal the stage's own artifact path) | `modal_invocation_provenance.stages.inference.*.evidence_ref` | the fact references the artifact of its own stage | `test_iteration16_producer_binds_every_fact_to_its_own_stage` | `test_iteration16_inference_fact_cannot_reference_the_evm_artifact`, `test_iteration16_persistence_fact_cannot_reference_the_replay_artifact` |
 | 4 | A wrong stage label is rejected | the artifact's `stage` field is written by the producer from the capture | `validate_stage_evidence_artifact(expected_stage=...)` | `…_stage_evidence_<stage>.json` → `stage` | the label equals the stage the facts live in | `test_iteration16_stage_label_must_match_the_stage` | `test_iteration16_mislabelled_stage_artifact_is_rejected` |
 | 5 | The four kinds of absence are distinguishable and honest | `build_stage_identity_facts` classifies every missing field | `validate_stage_evidence_binding` (kind ↔ artifact record ↔ artifact flags) | fact `absence_kind`, artifact `absence_records[]` | the kind matches the situation that actually occurred | `test_iteration16_absence_kinds_are_distinguishable` | `test_iteration16_absence_kind_must_match_the_artifact_record`, `test_iteration16_not_attempted_may_not_claim_provider_omission` |

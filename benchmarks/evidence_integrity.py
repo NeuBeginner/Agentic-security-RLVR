@@ -491,6 +491,99 @@ PROVIDER_OMISSION_PHRASE_RE = re.compile(
     r"did not expose|was not reported|provider did not|runtime did not report)\b"
 )
 
+# ---------------------------------------------------------------------------
+#
+# Iteration 17 closes the last gap of the stage-evidence contract: the flags of
+# an artifact and the kind of absence it records were checked one by one, so
+# combinations that cannot happen could still pass. A stage that was never
+# attempted could claim to have "executed"; a provider omission could be
+# claimed for a field the client never asked for; a response without a runtime
+# envelope could be recorded as a stage that received no response at all.
+#
+# The fix is a single state table. The four flags of a stage describe exactly
+# one state, every state allows exactly the kinds of absence that can honestly
+# occur in it, and the kind that is allowed also fixes what ``requested_fields``
+# must say about the field in question.
+
+#: The four flags that describe the state of a stage.
+STAGE_FLAG_NAMES = ("attempted", "executed", "response_received", "runtime_envelope_received")
+
+#: The stage was never invoked for this target.
+STAGE_STATE_NOT_ATTEMPTED = "NOT_ATTEMPTED"
+
+#: The stage was invoked, but no response came back.
+STAGE_STATE_ATTEMPT_FAILED_NO_RESPONSE = "ATTEMPT_FAILED_NO_RESPONSE"
+
+#: The stage answered, but it did not complete: the client holds the response
+#: and the response carries no runtime-identity envelope.
+STAGE_STATE_RESPONSE_RECEIVED_NOT_EXECUTED = "RESPONSE_RECEIVED_NOT_EXECUTED"
+
+#: The stage answered and completed, but the response carried no
+#: runtime-identity envelope.
+STAGE_STATE_EXECUTED_NO_RUNTIME_ENVELOPE = "EXECUTED_NO_RUNTIME_ENVELOPE"
+
+#: The stage answered, completed, and its response carried a runtime-identity
+#: envelope.
+STAGE_STATE_EXECUTED_WITH_RUNTIME_ENVELOPE = "EXECUTED_WITH_RUNTIME_ENVELOPE"
+
+#: THE state table of a stage: the key is the tuple of the four flags
+#: ``(attempted, executed, response_received, runtime_envelope_received)``, the
+#: value is the name of the state. A combination that is not in this table
+#: cannot happen and is rejected - there is no third way for a stage to be.
+STAGE_STATE_TABLE = {
+    (False, False, False, False): STAGE_STATE_NOT_ATTEMPTED,
+    (True, False, False, False): STAGE_STATE_ATTEMPT_FAILED_NO_RESPONSE,
+    (True, False, True, False): STAGE_STATE_RESPONSE_RECEIVED_NOT_EXECUTED,
+    (True, True, True, False): STAGE_STATE_EXECUTED_NO_RUNTIME_ENVELOPE,
+    (True, True, True, True): STAGE_STATE_EXECUTED_WITH_RUNTIME_ENVELOPE,
+}
+
+#: The states in which the stage answered, so the client holds a response of
+#: that stage.
+STAGE_STATES_WITH_RESPONSE = (
+    STAGE_STATE_RESPONSE_RECEIVED_NOT_EXECUTED,
+    STAGE_STATE_EXECUTED_NO_RUNTIME_ENVELOPE,
+    STAGE_STATE_EXECUTED_WITH_RUNTIME_ENVELOPE,
+)
+
+#: ``requested_fields`` may say anything about the field.
+ABSENCE_REQUESTED_IRRELEVANT = "irrelevant"
+
+#: The field must be listed in ``requested_fields``: the client asked for it.
+ABSENCE_REQUESTED_PRESENT = "present"
+
+#: The field must NOT be listed in ``requested_fields``: the client never
+#: asked for it.
+ABSENCE_REQUESTED_ABSENT = "absent"
+
+#: The rules of every kind of absence: the states the kind may describe and
+#: what ``requested_fields`` must say about the field in question.
+ABSENCE_KIND_RULES = {
+    ABSENCE_STAGE_NOT_ATTEMPTED: {
+        "states": (STAGE_STATE_NOT_ATTEMPTED,),
+        "requested": ABSENCE_REQUESTED_IRRELEVANT,
+    },
+    ABSENCE_STAGE_ATTEMPT_FAILED_NO_RESPONSE: {
+        "states": (STAGE_STATE_ATTEMPT_FAILED_NO_RESPONSE,),
+        "requested": ABSENCE_REQUESTED_IRRELEVANT,
+    },
+    ABSENCE_CLIENT_NEVER_CAPTURED_FIELD: {
+        "states": STAGE_STATES_WITH_RESPONSE,
+        "requested": ABSENCE_REQUESTED_ABSENT,
+    },
+    ABSENCE_STAGE_EXECUTED_NO_RUNTIME_ENVELOPE: {
+        "states": (
+            STAGE_STATE_RESPONSE_RECEIVED_NOT_EXECUTED,
+            STAGE_STATE_EXECUTED_NO_RUNTIME_ENVELOPE,
+        ),
+        "requested": ABSENCE_REQUESTED_PRESENT,
+    },
+    ABSENCE_PROVIDER_FIELD_OMITTED: {
+        "states": (STAGE_STATE_EXECUTED_WITH_RUNTIME_ENVELOPE,),
+        "requested": ABSENCE_REQUESTED_PRESENT,
+    },
+}
+
 
 def _json_default(value: Any) -> Any:
     """Encode the values a provider payload may contain into canonical JSON."""
@@ -528,8 +621,13 @@ class StageResponseCapture:
     What one stage's provider response actually was for this client.
 
     The capture is the raw material of a per-stage evidence artifact: it holds
-    the exact payload the provider returned, the runtime-identity envelope that
-    was (or was not) part of it, and the flags that describe the stage.
+    the payload the provider returned (as the object the SDK returned it), the
+    runtime-identity envelope that was (or was not) part of it, and the flags
+    that describe the stage.
+
+    The digest of the payload is computed over the **canonical JSON
+    serialization** of that object, not over the raw transport bytes the
+    provider sent over the wire.
     """
 
     stage: str
@@ -573,6 +671,76 @@ def _provider_absence_reason(
     return ""
 
 
+def classify_absence_kind(
+    *,
+    attempted: bool,
+    response_received: bool,
+    requested_fields: Sequence[str],
+    runtime_identity: Optional[Dict[str, Any]],
+    field_name: str,
+) -> Optional[str]:
+    """
+    The kind of absence of one identity field, derived from the state.
+
+    This is the single classifier of the evidence chain. The producer uses it
+    to write the absence records of an artifact, and the validator uses it to
+    check them. Because both sides call this one function, a record can never
+    claim a kind that the state of its own artifact does not allow.
+
+    ``None`` means the field was observed - there is no absence at all.
+    """
+    value, _source = _observed_identity_value(runtime_identity, field_name)
+    if value is not None:
+        return None
+
+    if not attempted:
+        return ABSENCE_STAGE_NOT_ATTEMPTED
+
+    if not response_received:
+        return ABSENCE_STAGE_ATTEMPT_FAILED_NO_RESPONSE
+
+    if field_name not in tuple(requested_fields):
+        return ABSENCE_CLIENT_NEVER_CAPTURED_FIELD
+
+    if runtime_identity is None:
+        return ABSENCE_STAGE_EXECUTED_NO_RUNTIME_ENVELOPE
+
+    return ABSENCE_PROVIDER_FIELD_OMITTED
+
+
+def _absence_reason(capture: StageResponseCapture, field_name: str, kind: str) -> str:
+    """The reason that belongs to one kind of absence."""
+    if kind == ABSENCE_STAGE_NOT_ATTEMPTED:
+        return (
+            f"the {capture.stage} stage was not attempted for this target, so no response was "
+            f"ever requested for '{field_name}'"
+        )
+
+    if kind == ABSENCE_STAGE_ATTEMPT_FAILED_NO_RESPONSE:
+        return (
+            f"the {capture.stage} stage was attempted but returned no response, so this client "
+            f"holds no '{field_name}' for this target"
+        )
+
+    if kind == ABSENCE_CLIENT_NEVER_CAPTURED_FIELD:
+        return (
+            f"this client never requested '{field_name}' from the {capture.stage} stage, so the "
+            f"field was never captured"
+        )
+
+    if kind == ABSENCE_STAGE_EXECUTED_NO_RUNTIME_ENVELOPE:
+        return (
+            f"the {capture.stage} stage returned a response that carried no runtime-identity "
+            f"envelope, so this client holds no '{field_name}' for this target"
+        )
+
+    provider_reason = _provider_absence_reason(capture.runtime_identity, field_name)
+    return provider_reason or (
+        f"the provider's response for the {capture.stage} stage does not contain "
+        f"'{field_name}'"
+    )
+
+
 def classify_stage_absence(
     capture: StageResponseCapture,
     field_name: str,
@@ -587,47 +755,16 @@ def classify_stage_absence(
     cannot have been refused by the provider, and a field the client never
     asked for was never refused by anybody.
     """
-    value, _source = _observed_identity_value(capture.runtime_identity, field_name)
-    if value is not None:
-        return None, ""
-
-    if not capture.attempted:
-        return (
-            ABSENCE_STAGE_NOT_ATTEMPTED,
-            f"the {capture.stage} stage was not attempted for this target, so no response was "
-            f"ever requested for '{field_name}'",
-        )
-
-    if not capture.response_received:
-        return (
-            ABSENCE_STAGE_ATTEMPT_FAILED_NO_RESPONSE,
-            f"the {capture.stage} stage was attempted but returned no response, so this client "
-            f"holds no '{field_name}' for this target",
-        )
-
-    if field_name not in tuple(capture.requested_fields):
-        return (
-            ABSENCE_CLIENT_NEVER_CAPTURED_FIELD,
-            f"this client never requested '{field_name}' from the {capture.stage} stage, so the "
-            f"field was never captured",
-        )
-
-    if capture.runtime_identity is None:
-        return (
-            ABSENCE_STAGE_EXECUTED_NO_RUNTIME_ENVELOPE,
-            f"the {capture.stage} stage returned a response that carried no runtime-identity "
-            f"envelope, so this client holds no '{field_name}' for this target",
-        )
-
-    provider_reason = _provider_absence_reason(capture.runtime_identity, field_name)
-    return (
-        ABSENCE_PROVIDER_FIELD_OMITTED,
-        provider_reason
-        or (
-            f"the provider's response for the {capture.stage} stage does not contain "
-            f"'{field_name}'"
-        ),
+    kind = classify_absence_kind(
+        attempted=capture.attempted,
+        response_received=capture.response_received,
+        requested_fields=capture.requested_fields,
+        runtime_identity=capture.runtime_identity,
+        field_name=field_name,
     )
+    if kind is None:
+        return None, ""
+    return kind, _absence_reason(capture, field_name, kind)
 
 
 def build_stage_evidence_artifact(
@@ -639,10 +776,15 @@ def build_stage_evidence_artifact(
     """
     Build the evidence artifact of exactly one stage.
 
-    The artifact holds the exact payload the provider returned, the metadata
-    that describes it, and one typed absence record per identity field that is
+    The artifact holds the payload that stage returned, the metadata that
+    describes it, and one typed absence record per identity field that is
     missing. The ``stage`` field is what binds the artifact to the facts that
     are allowed to cite it.
+
+    The digest of the payload is computed over the canonical JSON
+    serialization of the returned object - it describes the bytes that are
+    stored inside the artifact and can be recomputed from them. It is **not**
+    the digest of the raw transport bytes the provider sent.
     """
     absence_records: List[Dict[str, Any]] = []
     for field_name in MODAL_IDENTITY_FIELDS:
@@ -744,51 +886,90 @@ def build_stage_identity_facts(
     return facts
 
 
+def _stage_state_of(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """
+    The state the four flags of an artifact describe.
+
+    Returns ``(state, None)`` for a state the table knows and ``(None, error)``
+    for a combination of the flags that cannot happen.
+    """
+    flags = (
+        bool(payload.get("attempted")),
+        bool(payload.get("executed")),
+        bool(payload.get("response_received")),
+        bool(payload.get("runtime_envelope_received")),
+    )
+    state = STAGE_STATE_TABLE.get(flags)
+    if state is None:
+        possible = ", ".join(sorted(STAGE_STATE_TABLE.values()))
+        return None, (
+            "The stage evidence artifact describes an impossible state: attempted={attempted}, "
+            "executed={executed}, response_received={response_received}, "
+            "runtime_envelope_received={envelope}. The possible states are: {states}.".format(
+                attempted=flags[0],
+                executed=flags[1],
+                response_received=flags[2],
+                envelope=flags[3],
+                states=possible,
+            )
+        )
+    return state, None
+
+
 def _check_absence_record_against_flags(
     payload: Dict[str, Any],
     record: Dict[str, Any],
 ) -> Tuple[bool, Optional[str]]:
-    """Check that one absence record agrees with the flags of its artifact."""
+    """
+    Check that one absence record agrees with the state of its artifact.
+
+    Three things are checked: the kind must be one the state of the stage
+    allows, the ``requested_fields`` of the artifact must agree with the kind,
+    and a provider omission must really be an omission in the captured
+    envelope.
+    """
     kind = record["kind"]
     field_name = record["field"]
-    attempted = bool(payload.get("attempted"))
-    executed = bool(payload.get("executed"))
-    response_received = bool(payload.get("response_received"))
-    envelope_received = bool(payload.get("runtime_envelope_received"))
     requested_fields = payload.get("requested_fields") or []
 
-    if kind == ABSENCE_STAGE_NOT_ATTEMPTED:
-        if attempted or executed or response_received:
+    state, state_error = _stage_state_of(payload)
+    if state_error is not None:
+        return False, state_error
+
+    rule = ABSENCE_KIND_RULES.get(kind)
+    if rule is None:
+        return False, f"A stage evidence absence record has the unknown kind {kind!r}"
+
+    if state not in rule["states"]:
+        return False, (
+            f"The stage evidence artifact records '{field_name}' as {kind} although the state "
+            f"of the stage is {state}"
+        )
+
+    if rule["requested"] == ABSENCE_REQUESTED_PRESENT and field_name not in requested_fields:
+        return False, (
+            f"The stage evidence artifact records '{field_name}' as omitted by the provider "
+            "although this client never requested that field"
+        )
+    if rule["requested"] == ABSENCE_REQUESTED_ABSENT and field_name in requested_fields:
+        return False, (
+            f"The stage evidence artifact records '{field_name}' as never requested although "
+            "the client asked for it"
+        )
+
+    if kind == ABSENCE_PROVIDER_FIELD_OMITTED:
+        if not payload.get("response_received"):
             return False, (
-                f"The stage evidence artifact records '{field_name}' as not attempted although "
-                "the stage was attempted"
+                f"The stage evidence artifact records '{field_name}' as omitted by the provider "
+                "although the stage received no response"
             )
-    elif kind == ABSENCE_STAGE_ATTEMPT_FAILED_NO_RESPONSE:
-        if not attempted or response_received:
-            return False, (
-                f"The stage evidence artifact records '{field_name}' as a failed attempt "
-                "although the stage was not attempted or did return a response"
-            )
-    elif kind == ABSENCE_CLIENT_NEVER_CAPTURED_FIELD:
-        if field_name in requested_fields:
-            return False, (
-                f"The stage evidence artifact records '{field_name}' as never requested although "
-                "the client asked for it"
-            )
-    elif kind == ABSENCE_STAGE_EXECUTED_NO_RUNTIME_ENVELOPE:
-        if not executed or envelope_received:
-            return False, (
-                f"The stage evidence artifact records '{field_name}' as a response without a "
-                "runtime-identity envelope although the stage did not run or did return one"
-            )
-    elif kind == ABSENCE_PROVIDER_FIELD_OMITTED:
-        if not response_received or not envelope_received:
+        envelope = payload.get("runtime_identity")
+        if not isinstance(envelope, dict):
             return False, (
                 f"The stage evidence artifact records '{field_name}' as omitted by the provider "
                 "although no runtime-identity envelope was received"
             )
-        envelope = payload.get("runtime_identity")
-        if isinstance(envelope, dict) and field_name in envelope:
+        if field_name in envelope:
             value = envelope.get(field_name)
             if (
                 isinstance(value, dict)
@@ -841,6 +1022,13 @@ def validate_stage_evidence_artifact(
     for key in ("attempted", "executed", "response_received", "runtime_envelope_received"):
         if not isinstance(payload.get(key), bool):
             return False, f"The stage evidence artifact has no boolean '{key}'"
+
+    # The four flags must describe a state that can exist. This is the state
+    # table of the stage: every combination that is not in it is impossible and
+    # is rejected before any absence record is looked at.
+    state, state_error = _stage_state_of(payload)
+    if state_error is not None:
+        return False, state_error
 
     requested_fields = payload.get("requested_fields")
     if not isinstance(requested_fields, list) or not all(
@@ -912,6 +1100,7 @@ def validate_stage_evidence_artifact(
     if not isinstance(absence_records, list):
         return False, "The stage evidence artifact has no 'absence_records' list"
 
+    records_by_field: Dict[str, List[Dict[str, Any]]] = {}
     for record in absence_records:
         if not isinstance(record, dict):
             return False, "A stage evidence absence record is not an object"
@@ -930,6 +1119,45 @@ def validate_stage_evidence_artifact(
         ok, error = _check_absence_record_against_flags(payload, record)
         if not ok:
             return False, error
+        records_by_field.setdefault(field_name, []).append(record)
+
+    # The set of absence records must be complete and unique: every identity
+    # field that the state of the artifact leaves unavailable has exactly one
+    # record with exactly the kind the state allows, and every field the
+    # provider reported has none. An artifact may not leave a field
+    # unaccounted for, and it may not account for the same field twice.
+    for field_name in MODAL_IDENTITY_FIELDS:
+        expected_kind = classify_absence_kind(
+            attempted=bool(payload.get("attempted")),
+            response_received=bool(payload.get("response_received")),
+            requested_fields=requested_fields,
+            runtime_identity=payload.get("runtime_identity"),
+            field_name=field_name,
+        )
+        field_records = records_by_field.get(field_name, [])
+        if len(field_records) > 1:
+            return False, (
+                f"The stage evidence artifact holds {len(field_records)} absence records for "
+                f"'{field_name}' although every field has exactly one kind of absence"
+            )
+        if expected_kind is None:
+            if field_records:
+                return False, (
+                    f"The stage evidence artifact holds an absence record for '{field_name}' "
+                    "although the provider reported that field"
+                )
+            continue
+        if not field_records:
+            return False, (
+                f"The stage evidence artifact holds no absence record for '{field_name}' "
+                f"although the state of the stage makes it {expected_kind}"
+            )
+        recorded_kind = field_records[0].get("kind")
+        if recorded_kind != expected_kind:
+            return False, (
+                f"The stage evidence artifact records '{field_name}' as {recorded_kind!r} "
+                f"although the state of the stage makes it {expected_kind!r}"
+            )
 
     return True, None
 
