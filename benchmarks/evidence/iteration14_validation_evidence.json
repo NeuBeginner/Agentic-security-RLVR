@@ -1,0 +1,476 @@
+{
+  "schema_version": "1.0.0",
+  "generator": "benchmarks/validate_iteration14_evidence.py",
+  "code_sha": "43436b0266254d2504b2521f8499aa1604e11280",
+  "generated_at_utc": "2026-11-09T11:50:25Z",
+  "scope": {
+    "run_id": "run_1794209615_70f5d22",
+    "baseline_id": "baseline_5",
+    "run_dir": "benchmarks/artifacts/run_1794209615_70f5d22",
+    "artifact_count": 16,
+    "raw_billing_export": "benchmarks/evidence/modal_billing_report_raw.json",
+    "billing_join_table": "benchmarks/evidence/modal_billing_join_table.json"
+  },
+  "git": {
+    "head": "43436b0266254d2504b2521f8499aa1604e11280",
+    "branch": "minimax/iteration-14-evidence-integrity",
+    "dirty": false
+  },
+  "checks": [
+    {
+      "check": "P0.1.billing_attribution",
+      "status": "PASSED",
+      "error": null,
+      "planned": "every raw billing line item is accounted for exactly once; aggregates reconcile exactly; no target carries a cost without a proven invocation-level join",
+      "attempted": true,
+      "executed": true,
+      "raw_line_item_count": 25,
+      "app_session_row_count": 25,
+      "target_row_count": 16,
+      "synthetic_uri_present": false
+    }
+  ],
+  "per_target": [
+    {
+      "target_id": "AC-01",
+      "target_name": "AccessControlVault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/AC-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "FAILED",
+        "error": "Replay evidence envelope is missing required key 'stdout_artifact'"
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      }
+    },
+    {
+      "target_id": "BIZ-01",
+      "target_name": "FeeShareYieldVault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BIZ-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      }
+    },
+    {
+      "target_id": "BRIDGE-01",
+      "target_name": "CrossContractBridge",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BRIDGE-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      }
+    },
+    {
+      "target_id": "DOS-01",
+      "target_name": "AuctionDoS",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/DOS-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      }
+    },
+    {
+      "target_id": "ERC4626-01",
+      "target_name": "ERC4626Vault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ERC4626-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      }
+    },
+    {
+      "target_id": "FLASH-01",
+      "target_name": "FlashLoanRewardPool",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/FLASH-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "PASSED",
+        "error": "SAFE_RUN"
+      }
+    },
+    {
+      "target_id": "LIQ-01",
+      "target_name": "LendingLiquidation",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/LIQ-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      }
+    },
+    {
+      "target_id": "ORACLE-01",
+      "target_name": "OracleLendingPool",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ORACLE-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      }
+    },
+    {
+      "target_id": "PREC-01",
+      "target_name": "PrecisionStakingPool",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/PREC-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      }
+    },
+    {
+      "target_id": "REENT-01",
+      "target_name": "Vault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/REENT-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "FAILED",
+        "error": "Replay evidence envelope is missing required key 'stdout_artifact'"
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      }
+    },
+    {
+      "target_id": "SAFE-01",
+      "target_name": "SecureVault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "PASSED",
+        "error": "SAFE_RUN"
+      }
+    },
+    {
+      "target_id": "SAFE-02",
+      "target_name": "SecureAccessControlVault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-02.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "PASSED",
+        "error": "SAFE_RUN"
+      }
+    },
+    {
+      "target_id": "SAFE-03",
+      "target_name": "SecureERC4626Vault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-03.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "PASSED",
+        "error": "SAFE_RUN"
+      }
+    },
+    {
+      "target_id": "SAFE-04",
+      "target_name": "SecureOraclePool",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-04.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "PASSED",
+        "error": "SAFE_RUN"
+      }
+    },
+    {
+      "target_id": "SIG-01",
+      "target_name": "SignatureReplayWallet",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SIG-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      }
+    },
+    {
+      "target_id": "STATE-01",
+      "target_name": "RewardDistributorLogic",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/STATE-01.json",
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      }
+    }
+  ],
+  "summary": {
+    "targets_checked": 16,
+    "targets_failed": 16,
+    "failed_target_ids": [
+      "AC-01",
+      "BIZ-01",
+      "BRIDGE-01",
+      "DOS-01",
+      "ERC4626-01",
+      "FLASH-01",
+      "LIQ-01",
+      "ORACLE-01",
+      "PREC-01",
+      "REENT-01",
+      "SAFE-01",
+      "SAFE-02",
+      "SAFE-03",
+      "SAFE-04",
+      "SIG-01",
+      "STATE-01"
+    ],
+    "overall_status": "FAILED"
+  },
+  "interpretation": {
+    "planned": "validate the saved benchmark evidence with the Iteration 14 validators",
+    "attempted": "per-target Modal provenance, replay envelope, EVM provenance and sentinel checks plus the billing reconciliation",
+    "executed": "the validators were executed against the artifacts stored on disk",
+    "observed": "the saved run predates the Iteration 14 fix; the artifacts that carry the old hardcoded remote environment and the old synthetic container identities are reported as FAILED",
+    "reported": "PASSED means every checked artifact satisfies the Iteration 14 validators; FAILED means at least one artifact does not. The report never claims more than the artifacts prove."
+  }
+}
