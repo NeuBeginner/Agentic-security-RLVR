@@ -477,6 +477,32 @@ def validate_modal_invocation_provenance(
     )
 
 
+def validate_stage_evidence_binding(
+    stage_name: str,
+    stage: Dict[str, Any],
+    *,
+    evidence_root: Optional[Any] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validates that a stage is backed by the evidence artifact of that stage.
+
+    Since Iteration 16 the evidence of a stage must declare the stage it
+    belongs to, and every unavailable field of the stage must cite that very
+    artifact: a digest-valid file of another stage proves nothing here.
+    """
+    from benchmarks.evidence_integrity import (
+        validate_stage_evidence_binding as _validate,
+    )
+
+    if evidence_root is None:
+        return False, (
+            f"the stage evidence of '{stage_name}' cannot be validated because no evidence "
+            "root was provided"
+        )
+
+    return _validate(stage_name, stage, evidence_root=evidence_root)
+
+
 def validate_modal_app_id_consistency(
     artifact_dict: Dict[str, Any],
     billing_app_ids: Optional[Iterable[str]] = None,

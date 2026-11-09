@@ -1483,6 +1483,10 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
 
             # 1. Synthesize candidate payload inside Modal app context
             correlation_id = f"corr-{target.contract_id}-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+            # The exact response of the inference stage, kept verbatim: the
+            # stage evidence must hold the bytes the provider returned
+            # (Iteration 16 P0.1).
+            inference_response: Any = None
             with ensure_modal_app_context():
                 payload = None
                 if self.candidate_generator:
@@ -1493,6 +1497,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     t_payload = target_prog.model_dump()
                     t_payload["correlation_id"] = correlation_id
                     p_dict = agent.generate_solidity_exploit.remote(t_payload)
+                    inference_response = p_dict
                     payload = ExploitPayload(**p_dict)
                 elif self.provider == "modal_t4":
                     from modal_app import DevReasoningAgent
@@ -1500,6 +1505,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     t_payload = target_prog.model_dump()
                     t_payload["correlation_id"] = correlation_id
                     p_dict = agent.generate_solidity_exploit.remote(t_payload)
+                    inference_response = p_dict
                     payload = ExploitPayload(**p_dict)
                 else:
                     from core.hypothesis import HypothesisManager
@@ -1563,6 +1569,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                         ref_payload = ExploitPayload(**rp_dict)
                         if ref_payload and ref_payload.test_code and len(ref_payload.test_code.strip()) > 20:
                             candidates_count += 1
+                            inference_response = rp_dict
                             payload = ref_payload
                             payload_dict = payload.model_dump()
                             verdict_dict = verify_exploit_remote.remote(target_dict, payload_dict)
@@ -1576,10 +1583,14 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 is_replayed = False
                 replay_attempted = False
                 replay_details: Dict[str, Any] = {}
+                # The exact response of the replay stage, kept verbatim even
+                # when it is not a dict: a non-dict response is evidence too.
+                replay_provider_response: Any = None
                 if verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED:
                     replay_attempted = True
                     try:
                         raw_replay = verify_replay_remote.remote(target_dict, payload_dict)
+                        replay_provider_response = raw_replay
                         if isinstance(raw_replay, dict):
                             replay_details = dict(raw_replay)
                             is_replayed = bool(raw_replay.get("reproduced", False))
@@ -1823,6 +1834,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
 
                 # 4. Remote trajectory persistence on Modal volume
                 persisted_path = None
+                persisted_res: Any = None
                 persistence_status = "not_eligible"
                 persistence_error = None
                 if is_verified:
@@ -1901,141 +1913,158 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 remote_evm_provenance["target_id"] = target.contract_id
 
             # ------------------------------------------------------------------
-            # Modal invocation provenance (Iteration 14 P0.1, hardened in Iteration 15)
+            # Modal invocation provenance (Iteration 14 P0.1, hardened in
+            # Iteration 15, per-stage evidence in Iteration 16)
             # ------------------------------------------------------------------
             # The identifiers are the ones the Modal runtime reported. There is
-            # no hardcoded application id and no fabricated log URI: when the
-            # runtime does not expose a fact, the fact is NOT_AVAILABLE with
-            # the exact reason AND with an evidence reference whose SHA-256
-            # digest describes the bytes that are stored on disk.
+            # no hardcoded application id and no fabricated log URI.
+            #
+            # Iteration 16 gives every stage its OWN evidence artifact: the
+            # exact response that stage returned, in the bytes the provider
+            # sent them. A fact may only cite the artifact of its own stage,
+            # and a missing fact states which kind of absence it is - the
+            # provider omitting a field, a stage that never ran, a stage that
+            # returned no runtime envelope, or a field this client never
+            # asked for.
             from benchmarks.evidence_integrity import (
-                attach_evidence_ref_to_facts,
-                build_evidence_ref_from_bytes,
+                MODAL_IDENTITY_FIELDS,
+                StageResponseCapture,
                 build_modal_stage_provenance,
-                not_available,
+                build_stage_identity_facts,
+                write_stage_evidence_artifact,
             )
 
-            evm_runtime = verdict_dict.get("modal_runtime") or {}
-            replay_runtime = replay_details.get("modal_runtime") or {}
+            evm_runtime = verdict_dict.get("modal_runtime")
+            replay_runtime = replay_details.get("modal_runtime")
 
-            # The runtime payload the workers really returned is stored as its
-            # own byte-exact artifact. It is the evidence that backs every
-            # "the runtime did not report this" statement: the file contains
-            # exactly what the provider answered, and its digest proves that
-            # the stored bytes were not altered.
-            runtime_evidence_payload = {
-                "target_id": target.contract_id,
-                "correlation_id": correlation_id,
-                "evm_runtime": evm_runtime,
-                "replay_runtime": replay_runtime,
-                "note": (
-                    "the exact runtime identity payloads the Modal workers returned for this "
-                    "target; a field that is absent here was not reported by the provider"
+            inference_function_name = (
+                "ProductionAuditAgent.generate_solidity_exploit"
+                if self.provider == "modal_h100"
+                else (
+                    "DevReasoningAgent.generate_solidity_exploit"
+                    if self.provider == "modal_t4"
+                    else None
+                )
+            )
+            persistence_attempted = persistence_status != "not_eligible"
+
+            # What each stage actually returned. The captures are the raw
+            # material of the per-stage evidence artifacts below.
+            stage_captures: Dict[str, StageResponseCapture] = {
+                "inference": StageResponseCapture(
+                    stage="inference",
+                    attempted=inference_response is not None,
+                    executed=inference_response is not None,
+                    response_received=inference_response is not None,
+                    provider_response=inference_response,
+                    runtime_identity=(
+                        inference_response.get("modal_runtime")
+                        if isinstance(inference_response, dict)
+                        else None
+                    ),
+                    runtime_identity_source="modal_runtime",
+                    response_source="the response of the inference worker this client invoked",
+                    requested_fields=MODAL_IDENTITY_FIELDS,
+                ),
+                "evm_sandbox": StageResponseCapture(
+                    stage="evm_sandbox",
+                    attempted=True,
+                    executed=True,
+                    response_received=True,
+                    provider_response=verdict_dict,
+                    runtime_identity=evm_runtime if isinstance(evm_runtime, dict) else None,
+                    runtime_identity_source="modal_runtime",
+                    response_source="the response of verify_exploit_remote",
+                    requested_fields=MODAL_IDENTITY_FIELDS,
+                ),
+                "independent_replay": StageResponseCapture(
+                    stage="independent_replay",
+                    attempted=replay_attempted,
+                    executed=replay_attempted and replay_provider_response is not None,
+                    response_received=replay_provider_response is not None,
+                    provider_response=replay_provider_response,
+                    runtime_identity=(
+                        replay_runtime if isinstance(replay_runtime, dict) else None
+                    ),
+                    runtime_identity_source="modal_runtime",
+                    response_source="the response of verify_replay_remote",
+                    requested_fields=MODAL_IDENTITY_FIELDS,
+                ),
+                "trajectory_persistence": StageResponseCapture(
+                    stage="trajectory_persistence",
+                    attempted=persistence_attempted,
+                    executed=persistence_status == "persisted",
+                    response_received=persisted_res is not None,
+                    provider_response=persisted_res,
+                    runtime_identity=None,
+                    runtime_identity_source="",
+                    response_source="the response of record_trajectory_remote",
+                    # The persistence worker answers with the stored path only:
+                    # this client never asked it for a runtime identity.
+                    requested_fields=(),
                 ),
             }
-            runtime_evidence_bytes = json.dumps(
-                runtime_evidence_payload, indent=2, sort_keys=True, ensure_ascii=False
-            ).encode("utf-8")
-            runtime_evidence_name = f"{target.contract_id}_modal_provenance_evidence.json"
-            runtime_evidence_path = Path(replay_artifact_dir) / runtime_evidence_name
-            runtime_evidence_path.parent.mkdir(parents=True, exist_ok=True)
-            runtime_evidence_path.write_bytes(runtime_evidence_bytes)
-            runtime_evidence_ref = build_evidence_ref_from_bytes(
-                runtime_evidence_name,
-                runtime_evidence_bytes,
-                description="the runtime identity payload the Modal workers returned for this target",
-            )
 
-            def _runtime_fact(runtime: Dict[str, Any], key: str) -> Any:
-                """Return the observed fact for a runtime key, or a NOT_AVAILABLE fact."""
-                fact = runtime.get(key)
-                if isinstance(fact, dict) and fact.get("status") == "OBSERVED":
-                    return fact
-                if isinstance(fact, dict) and fact.get("status") == "NOT_AVAILABLE":
-                    return fact
-                return not_available(
-                    f"the Modal runtime did not report '{key}' for this stage",
-                    evidence_ref=runtime_evidence_ref,
+            # One artifact per stage: the exact bytes that stage returned.
+            stage_evidence: Dict[str, Dict[str, Any]] = {}
+            for stage_name, capture in stage_captures.items():
+                _stage_path, evidence_ref = write_stage_evidence_artifact(
+                    replay_artifact_dir,
+                    capture,
+                    target_id=target.contract_id,
+                    correlation_id=correlation_id,
+                )
+                stage_evidence[stage_name] = evidence_ref
+
+            def _stage_facts(stage_name: str) -> Dict[str, Any]:
+                """The identity facts of one stage, bound to that stage's evidence."""
+                return build_stage_identity_facts(
+                    stage_captures[stage_name],
+                    evidence_ref=stage_evidence[stage_name],
                 )
 
-            inference_runtime: Dict[str, Any] = {}
             modal_invocation_provenance = {
-                "modal_app_id": _runtime_fact(evm_runtime, "app_id"),
+                # The run-level application id is the one the EVM sandbox stage
+                # reported, so it is backed by that stage's evidence and by no
+                # other.
+                "modal_app_id": _stage_facts("evm_sandbox")["app_id"],
                 "target_id": target.contract_id,
                 "correlation_id": correlation_id,
                 "stages": {
                     "inference": build_modal_stage_provenance(
-                        function_name=modal_functions[0] if modal_functions else "generate_solidity_exploit",
-                        app_id=not_available(
-                            "the inference stage runs on a GPU worker whose runtime identity is not "
-                            "reported back to this client",
-                            evidence_ref=runtime_evidence_ref,
-                        ),
-                        function_call_id=not_available(
-                            "the inference stage runs on a GPU worker whose function-call id is not "
-                            "reported back to this client",
-                            evidence_ref=runtime_evidence_ref,
-                        ),
-                        container_id=not_available(
-                            "the inference stage runs on a GPU worker whose container id is not "
-                            "reported back to this client",
-                            evidence_ref=runtime_evidence_ref,
-                        ),
+                        function_name=inference_function_name,
                         resource="H100" if self.provider == "modal_h100" else "DEV_GPU",
-                        attempted=True,
+                        attempted=stage_captures["inference"].attempted,
+                        evidence_ref=stage_evidence["inference"],
+                        **_stage_facts("inference"),
                     ),
                     "evm_sandbox": build_modal_stage_provenance(
                         function_name="verify_exploit_remote",
-                        app_id=_runtime_fact(evm_runtime, "app_id"),
-                        function_call_id=_runtime_fact(evm_runtime, "function_call_id"),
-                        container_id=_runtime_fact(evm_runtime, "container_id"),
                         resource="CPU",
                         attempted=True,
+                        evidence_ref=stage_evidence["evm_sandbox"],
+                        **_stage_facts("evm_sandbox"),
                     ),
                     "independent_replay": build_modal_stage_provenance(
-                        function_name="verify_replay_remote" if replay_attempted else None,
-                        app_id=_runtime_fact(replay_runtime, "app_id") if replay_attempted else not_available(
-                            "the independent replay stage was not attempted",
-                            evidence_ref=runtime_evidence_ref,
-                        ),
-                        function_call_id=_runtime_fact(replay_runtime, "function_call_id") if replay_attempted else not_available(
-                            "the independent replay stage was not attempted",
-                            evidence_ref=runtime_evidence_ref,
-                        ),
-                        container_id=_runtime_fact(replay_runtime, "container_id") if replay_attempted else not_available(
-                            "the independent replay stage was not attempted",
-                            evidence_ref=runtime_evidence_ref,
+                        function_name=(
+                            "verify_replay_remote" if replay_attempted else None
                         ),
                         resource="CPU",
                         attempted=replay_attempted,
+                        evidence_ref=stage_evidence["independent_replay"],
+                        **_stage_facts("independent_replay"),
                     ),
                     "trajectory_persistence": build_modal_stage_provenance(
-                        function_name="record_trajectory_remote" if persistence_status == "persisted" else None,
-                        app_id=not_available(
-                            "the trajectory persistence stage does not report a container-scoped "
-                            "application id",
-                            evidence_ref=runtime_evidence_ref,
-                        ),
-                        function_call_id=not_available(
-                            "the trajectory persistence stage does not report a function-call id",
-                            evidence_ref=runtime_evidence_ref,
-                        ),
-                        container_id=not_available(
-                            "the trajectory persistence stage does not report a container id",
-                            evidence_ref=runtime_evidence_ref,
+                        function_name=(
+                            "record_trajectory_remote" if persistence_attempted else None
                         ),
                         resource="Storage",
-                        attempted=persistence_status == "persisted",
+                        attempted=persistence_attempted,
+                        evidence_ref=stage_evidence["trajectory_persistence"],
+                        **_stage_facts("trajectory_persistence"),
                     ),
                 },
             }
-            # Worker-side NOT_AVAILABLE facts describe a fact the provider did
-            # not report. They are backed by the same runtime evidence artifact,
-            # so the stored bytes confirm the absence.
-            modal_invocation_provenance = attach_evidence_ref_to_facts(
-                modal_invocation_provenance,
-                runtime_evidence_ref,
-            )
             modal_invocation_provenance["persisted_path"] = persisted_path
 
             if is_verified:

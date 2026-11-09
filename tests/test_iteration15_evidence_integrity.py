@@ -24,6 +24,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -119,8 +120,39 @@ def _observed_stage(**overrides):
     return stage
 
 
-def _evidence_artifact(tmp_path: Path, payload: bytes = b'{"reported": {}}\n'):
-    """Write a byte-exact evidence artifact and describe it."""
+def _evidence_artifact(tmp_path: Path, payload: Optional[bytes] = None):
+    """
+    Write a byte-exact stage evidence artifact and describe it.
+
+    Since Iteration 16 the evidence of a stage must declare the stage it
+    belongs to and must carry the typed absence record of the field the fact
+    claims to be missing. The file name and the digest semantics are the ones
+    of Iteration 15, so every adversarial check of this suite keeps its intent.
+    """
+    from benchmarks.evidence_integrity import (
+        StageResponseCapture,
+        build_stage_evidence_artifact,
+    )
+
+    if payload is None:
+        artifact = build_stage_evidence_artifact(
+            StageResponseCapture(
+                stage="evm_sandbox",
+                attempted=True,
+                executed=True,
+                response_received=True,
+                provider_response={"modal_runtime": {}},
+                runtime_identity={},
+                runtime_identity_source="modal_runtime",
+                response_source="the response of verify_exploit_remote",
+            ),
+            target_id="REENT-01",
+            correlation_id="corr-test",
+        )
+        payload = json.dumps(
+            artifact, indent=2, sort_keys=True, ensure_ascii=False
+        ).encode("utf-8")
+
     path = tmp_path / "runtime_evidence.json"
     path.write_bytes(payload)
     return build_evidence_ref_from_bytes(

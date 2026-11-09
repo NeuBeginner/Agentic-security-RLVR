@@ -71,6 +71,12 @@ jobs:
           TOKENIZERS_PARALLELISM: "false"
         run: python -m pytest -q tests/test_iteration15_evidence_integrity.py
 
+      - name: Run Iteration 16 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration16_evidence_integrity.py
+
       - name: Run GRPO and trajectory integrity tests
         env:
           PYTHONPATH: .
@@ -157,6 +163,12 @@ jobs:
         run: |
           python -m benchmarks.regenerate_billing_join_table --check
           python -m benchmarks.validate_iteration15_evidence --check
+
+      - name: Validate Iteration 16 per-stage evidence binding
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_iteration16_evidence --check
 
       - name: Upload Foundry test report
         if: always()

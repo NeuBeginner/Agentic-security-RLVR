@@ -53,12 +53,14 @@ been observed.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -140,6 +142,7 @@ def not_available(
     reason: str,
     *,
     evidence_ref: Optional[Dict[str, Any]] = None,
+    absence_kind: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Build an explicit "not available" fact.
@@ -147,6 +150,11 @@ def not_available(
     The fact never pretends to hold data. It states the exact reason and, when
     the caller can point at an existing immutable evidence artifact, the
     artifact's path together with its SHA-256 so the claim stays checkable.
+
+    ``absence_kind`` names *why* the fact is missing (Iteration 16). It is
+    mandatory for every fact that is produced by the stage-evidence layer,
+    because "the provider did not report it" and "this client never asked for
+    it" are very different statements.
     """
     if not reason or not str(reason).strip():
         raise ValueError("A NOT_AVAILABLE fact requires an explicit reason")
@@ -155,6 +163,10 @@ def not_available(
         "value": None,
         "reason": str(reason).strip(),
     }
+    if absence_kind:
+        if absence_kind not in ABSENCE_KINDS:
+            raise ValueError(f"Unknown absence kind: {absence_kind!r}")
+        fact["absence_kind"] = absence_kind
     if evidence_ref:
         fact["evidence_ref"] = (
             evidence_ref.to_dict() if hasattr(evidence_ref, "to_dict") else dict(evidence_ref)
@@ -424,6 +436,635 @@ def build_evidence_ref(
 
 
 # ---------------------------------------------------------------------------
+# Per-stage evidence (Iteration 16)
+# ---------------------------------------------------------------------------
+#
+# Iteration 15 made every NOT_AVAILABLE fact point at a digest-verifiable
+# artifact - but all four stages pointed at ONE shared file that held the
+# bytes of the EVM and the replay stage only. An inference fact and a
+# persistence fact were therefore "proved" with bytes of a different stage.
+#
+# Iteration 16 gives every stage its own artifact, and every artifact declares
+# the stage it belongs to. A fact may only cite the artifact of its own stage,
+# and a missing fact must say honestly WHICH of the different kinds of absence
+# it is.
+
+#: Schema version of a per-stage evidence artifact.
+STAGE_EVIDENCE_SCHEMA_VERSION = "1.0.0"
+
+#: The identity fields a stage may report.
+MODAL_IDENTITY_FIELDS = ("app_id", "function_call_id", "container_id")
+
+#: The provider returned a response and the field is absent from it.
+ABSENCE_PROVIDER_FIELD_OMITTED = "PROVIDER_FIELD_OMITTED"
+
+#: The stage was never invoked for this target.
+ABSENCE_STAGE_NOT_ATTEMPTED = "STAGE_NOT_ATTEMPTED"
+
+#: The stage ran and returned a response, but that response carried no
+#: runtime-identity envelope.
+ABSENCE_STAGE_EXECUTED_NO_RUNTIME_ENVELOPE = "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE"
+
+#: This client never requested the field from that stage.
+ABSENCE_CLIENT_NEVER_CAPTURED_FIELD = "CLIENT_NEVER_CAPTURED_FIELD"
+
+#: The stage was invoked but failed, so no response was received at all.
+ABSENCE_STAGE_ATTEMPT_FAILED_NO_RESPONSE = "STAGE_ATTEMPT_FAILED_NO_RESPONSE"
+
+#: Every kind of absence the producer may record.
+ABSENCE_KINDS = (
+    ABSENCE_PROVIDER_FIELD_OMITTED,
+    ABSENCE_STAGE_NOT_ATTEMPTED,
+    ABSENCE_STAGE_EXECUTED_NO_RUNTIME_ENVELOPE,
+    ABSENCE_CLIENT_NEVER_CAPTURED_FIELD,
+    ABSENCE_STAGE_ATTEMPT_FAILED_NO_RESPONSE,
+)
+
+#: Only this kind may claim that the provider did not report a field. The
+#: other kinds describe a situation in which the provider was never asked.
+ABSENCE_KINDS_THAT_MAY_CLAIM_PROVIDER_OMISSION = (ABSENCE_PROVIDER_FIELD_OMITTED,)
+
+#: Wording that blames the provider for a field the provider was never asked
+#: about. It is only allowed for ``PROVIDER_FIELD_OMITTED``.
+PROVIDER_OMISSION_PHRASE_RE = re.compile(
+    r"(?i)\b(?:never reported|did not report|does not report|not reported|"
+    r"did not expose|was not reported|provider did not|runtime did not report)\b"
+)
+
+
+def _json_default(value: Any) -> Any:
+    """Encode the values a provider payload may contain into canonical JSON."""
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (set, frozenset)):
+        return sorted(value, key=lambda item: str(item))
+    if isinstance(value, bytes):
+        return base64.b64encode(value).decode("ascii")
+    if isinstance(value, Path):
+        return str(value)
+    return str(value)
+
+
+def canonical_json_bytes(value: Any) -> bytes:
+    """
+    The deterministic UTF-8 encoding every evidence digest is computed over.
+
+    Enumerations become their value, sets become sorted lists and bytes become
+    base64 text, so the same provider payload always produces the same bytes
+    and therefore the same digest - no matter where it is re-serialized.
+    """
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=_json_default,
+    ).encode("utf-8")
+
+
+@dataclass
+class StageResponseCapture:
+    """
+    What one stage's provider response actually was for this client.
+
+    The capture is the raw material of a per-stage evidence artifact: it holds
+    the exact payload the provider returned, the runtime-identity envelope that
+    was (or was not) part of it, and the flags that describe the stage.
+    """
+
+    stage: str
+    attempted: bool
+    executed: bool
+    response_received: bool
+    provider_response: Any = None
+    runtime_identity: Optional[Dict[str, Any]] = None
+    runtime_identity_source: str = ""
+    response_source: str = ""
+    requested_fields: Sequence[str] = MODAL_IDENTITY_FIELDS
+
+
+def _observed_identity_value(
+    runtime_identity: Optional[Dict[str, Any]],
+    field_name: str,
+) -> Tuple[Optional[Any], str]:
+    """Return the observed value of an identity field, or ``(None, "")``."""
+    if not isinstance(runtime_identity, dict):
+        return None, ""
+    fact = runtime_identity.get(field_name)
+    if isinstance(fact, dict) and fact.get("status") == OBSERVED:
+        value = fact.get("value")
+        if value is None:
+            return None, ""
+        source = fact.get("source") or ""
+        return value, source
+    return None, ""
+
+
+def _provider_absence_reason(
+    runtime_identity: Optional[Dict[str, Any]],
+    field_name: str,
+) -> str:
+    """Return the provider's own reason for a field it marked unavailable."""
+    if not isinstance(runtime_identity, dict):
+        return ""
+    fact = runtime_identity.get(field_name)
+    if isinstance(fact, dict) and fact.get("status") == NOT_AVAILABLE:
+        return str(fact.get("reason") or "").strip()
+    return ""
+
+
+def classify_stage_absence(
+    capture: StageResponseCapture,
+    field_name: str,
+) -> Tuple[Optional[str], str]:
+    """
+    Classify why an identity field is missing from one stage's response.
+
+    Returns ``(None, "")`` when the field was actually observed, otherwise the
+    machine-readable kind of the absence together with the reason.
+
+    The order of the checks is the order of the truth: a stage that never ran
+    cannot have been refused by the provider, and a field the client never
+    asked for was never refused by anybody.
+    """
+    value, _source = _observed_identity_value(capture.runtime_identity, field_name)
+    if value is not None:
+        return None, ""
+
+    if not capture.attempted:
+        return (
+            ABSENCE_STAGE_NOT_ATTEMPTED,
+            f"the {capture.stage} stage was not attempted for this target, so no response was "
+            f"ever requested for '{field_name}'",
+        )
+
+    if not capture.response_received:
+        return (
+            ABSENCE_STAGE_ATTEMPT_FAILED_NO_RESPONSE,
+            f"the {capture.stage} stage was attempted but returned no response, so this client "
+            f"holds no '{field_name}' for this target",
+        )
+
+    if field_name not in tuple(capture.requested_fields):
+        return (
+            ABSENCE_CLIENT_NEVER_CAPTURED_FIELD,
+            f"this client never requested '{field_name}' from the {capture.stage} stage, so the "
+            f"field was never captured",
+        )
+
+    if capture.runtime_identity is None:
+        return (
+            ABSENCE_STAGE_EXECUTED_NO_RUNTIME_ENVELOPE,
+            f"the {capture.stage} stage returned a response that carried no runtime-identity "
+            f"envelope, so this client holds no '{field_name}' for this target",
+        )
+
+    provider_reason = _provider_absence_reason(capture.runtime_identity, field_name)
+    return (
+        ABSENCE_PROVIDER_FIELD_OMITTED,
+        provider_reason
+        or (
+            f"the provider's response for the {capture.stage} stage does not contain "
+            f"'{field_name}'"
+        ),
+    )
+
+
+def build_stage_evidence_artifact(
+    capture: StageResponseCapture,
+    *,
+    target_id: str,
+    correlation_id: str,
+) -> Dict[str, Any]:
+    """
+    Build the evidence artifact of exactly one stage.
+
+    The artifact holds the exact payload the provider returned, the metadata
+    that describes it, and one typed absence record per identity field that is
+    missing. The ``stage`` field is what binds the artifact to the facts that
+    are allowed to cite it.
+    """
+    absence_records: List[Dict[str, Any]] = []
+    for field_name in MODAL_IDENTITY_FIELDS:
+        kind, reason = classify_stage_absence(capture, field_name)
+        if kind is None:
+            continue
+        absence_records.append({"kind": kind, "field": field_name, "reason": reason})
+
+    provider_bytes = canonical_json_bytes(capture.provider_response)
+    runtime_bytes = (
+        canonical_json_bytes(capture.runtime_identity)
+        if capture.runtime_identity is not None
+        else None
+    )
+
+    return {
+        "schema_version": STAGE_EVIDENCE_SCHEMA_VERSION,
+        "stage": capture.stage,
+        "target_id": target_id,
+        "correlation_id": correlation_id,
+        "attempted": bool(capture.attempted),
+        "executed": bool(capture.executed),
+        "response_received": bool(capture.response_received),
+        "runtime_envelope_received": capture.runtime_identity is not None,
+        "requested_fields": list(capture.requested_fields),
+        "provider_response": capture.provider_response,
+        "runtime_identity": capture.runtime_identity,
+        "runtime_identity_source": capture.runtime_identity_source,
+        "provider_response_metadata": {
+            "response_source": capture.response_source,
+            "response_sha256": sha256_bytes(provider_bytes),
+            "response_byte_length": len(provider_bytes),
+            "runtime_identity_sha256": sha256_bytes(runtime_bytes) if runtime_bytes else None,
+            "runtime_identity_byte_length": len(runtime_bytes) if runtime_bytes else None,
+        },
+        "absence_records": absence_records,
+    }
+
+
+def write_stage_evidence_artifact(
+    directory: os.PathLike | str,
+    capture: StageResponseCapture,
+    *,
+    target_id: str,
+    correlation_id: str,
+) -> Tuple[Path, Dict[str, Any]]:
+    """Write one stage's evidence artifact and describe its exact bytes."""
+    artifact = build_stage_evidence_artifact(
+        capture, target_id=target_id, correlation_id=correlation_id
+    )
+    data = json.dumps(
+        artifact,
+        indent=2,
+        sort_keys=True,
+        ensure_ascii=False,
+        default=_json_default,
+    ).encode("utf-8")
+    name = f"{target_id}_stage_evidence_{capture.stage}.json"
+    path = Path(directory) / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    evidence_ref = build_evidence_ref_from_bytes(
+        name,
+        data,
+        description=(
+            f"the exact response the {capture.stage} stage returned for this target"
+        ),
+    )
+    return path, evidence_ref
+
+
+def build_stage_identity_facts(
+    capture: StageResponseCapture,
+    *,
+    evidence_ref: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Build the identity facts of one stage.
+
+    Every missing field carries its kind of absence and the evidence reference
+    of the artifact that proves the absence - the artifact of this stage and of
+    no other stage.
+    """
+    facts: Dict[str, Any] = {}
+    for field_name in MODAL_IDENTITY_FIELDS:
+        kind, reason = classify_stage_absence(capture, field_name)
+        if kind is None:
+            value, source = _observed_identity_value(capture.runtime_identity, field_name)
+            facts[field_name] = observed(
+                value,
+                source=source or f"the provider response of the {capture.stage} stage",
+            )
+            continue
+        facts[field_name] = not_available(
+            reason,
+            evidence_ref=evidence_ref,
+            absence_kind=kind,
+        )
+    return facts
+
+
+def _check_absence_record_against_flags(
+    payload: Dict[str, Any],
+    record: Dict[str, Any],
+) -> Tuple[bool, Optional[str]]:
+    """Check that one absence record agrees with the flags of its artifact."""
+    kind = record["kind"]
+    field_name = record["field"]
+    attempted = bool(payload.get("attempted"))
+    executed = bool(payload.get("executed"))
+    response_received = bool(payload.get("response_received"))
+    envelope_received = bool(payload.get("runtime_envelope_received"))
+    requested_fields = payload.get("requested_fields") or []
+
+    if kind == ABSENCE_STAGE_NOT_ATTEMPTED:
+        if attempted or executed or response_received:
+            return False, (
+                f"The stage evidence artifact records '{field_name}' as not attempted although "
+                "the stage was attempted"
+            )
+    elif kind == ABSENCE_STAGE_ATTEMPT_FAILED_NO_RESPONSE:
+        if not attempted or response_received:
+            return False, (
+                f"The stage evidence artifact records '{field_name}' as a failed attempt "
+                "although the stage was not attempted or did return a response"
+            )
+    elif kind == ABSENCE_CLIENT_NEVER_CAPTURED_FIELD:
+        if field_name in requested_fields:
+            return False, (
+                f"The stage evidence artifact records '{field_name}' as never requested although "
+                "the client asked for it"
+            )
+    elif kind == ABSENCE_STAGE_EXECUTED_NO_RUNTIME_ENVELOPE:
+        if not executed or envelope_received:
+            return False, (
+                f"The stage evidence artifact records '{field_name}' as a response without a "
+                "runtime-identity envelope although the stage did not run or did return one"
+            )
+    elif kind == ABSENCE_PROVIDER_FIELD_OMITTED:
+        if not response_received or not envelope_received:
+            return False, (
+                f"The stage evidence artifact records '{field_name}' as omitted by the provider "
+                "although no runtime-identity envelope was received"
+            )
+        envelope = payload.get("runtime_identity")
+        if isinstance(envelope, dict) and field_name in envelope:
+            value = envelope.get(field_name)
+            if (
+                isinstance(value, dict)
+                and value.get("status") == OBSERVED
+                and value.get("value") is not None
+            ):
+                return False, (
+                    f"The stage evidence artifact records '{field_name}' as omitted by the "
+                    "provider although the provider reported it"
+                )
+
+    if kind not in ABSENCE_KINDS_THAT_MAY_CLAIM_PROVIDER_OMISSION:
+        if PROVIDER_OMISSION_PHRASE_RE.search(str(record.get("reason") or "")):
+            return False, (
+                f"The stage evidence artifact claims the provider did not report '{field_name}', "
+                "but the provider was never asked for that field"
+            )
+    return True, None
+
+
+def validate_stage_evidence_artifact(
+    payload: Any,
+    *,
+    expected_stage: str,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validate the internal consistency of one per-stage evidence artifact.
+
+    The artifact must declare the stage it is used for, must describe the
+    returned payload in a way that can be recomputed from the stored bytes, and
+    every absence record must agree with the flags of the artifact itself.
+    """
+    if not isinstance(payload, dict) or not payload:
+        return False, "The stage evidence artifact is missing or empty"
+
+    schema_version = payload.get("schema_version")
+    if schema_version != STAGE_EVIDENCE_SCHEMA_VERSION:
+        return False, (
+            f"The stage evidence artifact has schema version {schema_version!r}, expected "
+            f"{STAGE_EVIDENCE_SCHEMA_VERSION!r}"
+        )
+
+    stage = payload.get("stage")
+    if stage != expected_stage:
+        return False, (
+            f"The stage evidence artifact declares the stage {stage!r} but is used for the "
+            f"stage {expected_stage!r}"
+        )
+
+    for key in ("attempted", "executed", "response_received", "runtime_envelope_received"):
+        if not isinstance(payload.get(key), bool):
+            return False, f"The stage evidence artifact has no boolean '{key}'"
+
+    requested_fields = payload.get("requested_fields")
+    if not isinstance(requested_fields, list) or not all(
+        isinstance(item, str) for item in requested_fields
+    ):
+        return False, "The stage evidence artifact has no valid 'requested_fields' list"
+
+    metadata = payload.get("provider_response_metadata")
+    if not isinstance(metadata, dict):
+        return False, "The stage evidence artifact has no 'provider_response_metadata'"
+
+    provider_response = payload.get("provider_response")
+    if payload.get("response_received") and provider_response is None:
+        return False, (
+            "The stage evidence artifact claims that a response was received but holds none"
+        )
+
+    expected_digest = sha256_bytes(canonical_json_bytes(provider_response))
+    if metadata.get("response_sha256") != expected_digest:
+        return False, (
+            "The recorded digest of the returned payload does not match the payload stored in "
+            "the stage evidence artifact"
+        )
+    expected_length = len(canonical_json_bytes(provider_response))
+    if metadata.get("response_byte_length") != expected_length:
+        return False, (
+            "The recorded byte length of the returned payload does not match the payload stored "
+            "in the stage evidence artifact"
+        )
+
+    runtime_identity = payload.get("runtime_identity")
+    if payload.get("runtime_envelope_received"):
+        if not isinstance(runtime_identity, dict):
+            return False, (
+                "The stage evidence artifact claims a runtime-identity envelope but holds none"
+            )
+        expected_runtime_digest = sha256_bytes(canonical_json_bytes(runtime_identity))
+        if metadata.get("runtime_identity_sha256") != expected_runtime_digest:
+            return False, (
+                "The recorded digest of the runtime-identity envelope does not match the "
+                "envelope stored in the stage evidence artifact"
+            )
+        source = payload.get("runtime_identity_source")
+        if not source:
+            return False, (
+                "The stage evidence artifact holds a runtime-identity envelope but does not say "
+                "where it came from"
+            )
+        if isinstance(provider_response, dict):
+            if source not in provider_response:
+                return False, (
+                    f"The returned payload of the stage does not contain the runtime-identity "
+                    f"envelope at {source!r}"
+                )
+            if canonical_json_bytes(provider_response[source]) != canonical_json_bytes(
+                runtime_identity
+            ):
+                return False, (
+                    "The runtime-identity envelope of the stage evidence artifact is not the "
+                    "one the returned payload carries"
+                )
+    elif runtime_identity is not None:
+        return False, (
+            "The stage evidence artifact holds a runtime-identity envelope although it claims "
+            "that none was received"
+        )
+
+    absence_records = payload.get("absence_records")
+    if not isinstance(absence_records, list):
+        return False, "The stage evidence artifact has no 'absence_records' list"
+
+    for record in absence_records:
+        if not isinstance(record, dict):
+            return False, "A stage evidence absence record is not an object"
+        kind = record.get("kind")
+        if kind not in ABSENCE_KINDS:
+            return False, f"A stage evidence absence record has the unknown kind {kind!r}"
+        field_name = record.get("field")
+        if field_name not in MODAL_IDENTITY_FIELDS:
+            return False, (
+                f"A stage evidence absence record names the unknown field {field_name!r}"
+            )
+        if not str(record.get("reason") or "").strip():
+            return False, (
+                f"A stage evidence absence record for '{field_name}' has no reason"
+            )
+        ok, error = _check_absence_record_against_flags(payload, record)
+        if not ok:
+            return False, error
+
+    return True, None
+
+
+def validate_stage_evidence_binding(
+    stage_name: str,
+    stage: Dict[str, Any],
+    *,
+    evidence_root: os.PathLike | str,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validate that a stage is backed by the evidence artifact of that stage.
+
+    Three things are checked:
+
+    1. the artifact of the stage exists, its digest matches the stored bytes and
+       the artifact declares this very stage;
+    2. every unavailable field of the stage cites *that* artifact - an EVM
+       artifact can never back an inference fact;
+    3. the kind of absence on the fact agrees with the artifact's own absence
+       record, and only a provider omission may blame the provider.
+    """
+    if not isinstance(stage, dict):
+        return False, f"Modal provenance stage '{stage_name}' is not an object"
+
+    identity_facts = {key: stage.get(key) for key in MODAL_IDENTITY_FIELDS}
+    unavailable_facts = {
+        key: fact
+        for key, fact in identity_facts.items()
+        if isinstance(fact, dict) and fact.get("status") == NOT_AVAILABLE
+    }
+
+    declared_ref = stage.get("evidence_ref")
+    if not (isinstance(declared_ref, dict) and declared_ref.get("path")):
+        declared_ref = None
+
+    fact_refs = {
+        key: fact.get("evidence_ref")
+        for key, fact in unavailable_facts.items()
+        if isinstance(fact.get("evidence_ref"), dict) and fact["evidence_ref"].get("path")
+    }
+
+    if declared_ref is not None:
+        stage_ref: Optional[Dict[str, Any]] = declared_ref
+    elif fact_refs:
+        distinct_paths = {ref.get("path") for ref in fact_refs.values()}
+        if len(distinct_paths) > 1:
+            return False, (
+                f"Modal provenance stage '{stage_name}' cites {len(distinct_paths)} different "
+                "evidence artifacts; every unavailable field of a stage must be backed by the "
+                "evidence of that stage"
+            )
+        stage_ref = next(iter(fact_refs.values()))
+    elif unavailable_facts:
+        return False, (
+            f"Modal provenance stage '{stage_name}' records an unavailable field without an "
+            "evidence reference for its own stage"
+        )
+    else:
+        # Nothing is claimed to be missing in this stage: there is nothing to bind.
+        return True, None
+
+    ok, error = validate_evidence_ref_bytes(stage_ref, evidence_root=evidence_root)
+    if not ok:
+        return False, f"Modal provenance stage '{stage_name}': {error}"
+
+    resolved = resolve_evidence_path(stage_ref.get("path"), evidence_root=evidence_root)
+    if resolved is None or not resolved.is_file():
+        return False, (
+            f"Modal provenance stage '{stage_name}': the stage evidence artifact cannot be read"
+        )
+    try:
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False, (
+            f"Modal provenance stage '{stage_name}': the stage evidence artifact is not readable "
+            "JSON"
+        )
+
+    ok, error = validate_stage_evidence_artifact(payload, expected_stage=stage_name)
+    if not ok:
+        return False, f"Modal provenance stage '{stage_name}': {error}"
+
+    records = {
+        record["field"]: record
+        for record in payload.get("absence_records", [])
+        if isinstance(record, dict) and "field" in record
+    }
+
+    for key, fact in unavailable_facts.items():
+        fact_ref = fact.get("evidence_ref")
+        if not isinstance(fact_ref, dict) or not fact_ref.get("path"):
+            return False, (
+                f"Modal provenance stage '{stage_name}' records '{key}' as NOT_AVAILABLE without "
+                "an evidence reference"
+            )
+        if fact_ref.get("path") != stage_ref.get("path"):
+            return False, (
+                f"Modal provenance stage '{stage_name}' records '{key}' as NOT_AVAILABLE but "
+                "references the evidence of another stage"
+            )
+
+        record = records.get(key)
+        if record is None:
+            return False, (
+                f"The stage evidence artifact of stage '{stage_name}' holds no absence record "
+                f"for '{key}'"
+            )
+
+        kind = fact.get("absence_kind")
+        if kind is not None and kind not in ABSENCE_KINDS:
+            return False, (
+                f"Modal provenance stage '{stage_name}' records the absence of '{key}' with the "
+                f"unknown kind {kind!r}"
+            )
+        if kind and kind != record.get("kind"):
+            return False, (
+                f"Modal provenance stage '{stage_name}' classifies the absence of '{key}' as "
+                f"{kind!r} while its own evidence records {record.get('kind')!r}"
+            )
+        # A fact that does not name its kind inherits the one its own stage
+        # evidence records - the digest-verified artifact is the authority.
+        effective_kind = kind or record.get("kind")
+        if effective_kind not in ABSENCE_KINDS_THAT_MAY_CLAIM_PROVIDER_OMISSION:
+            if PROVIDER_OMISSION_PHRASE_RE.search(str(fact.get("reason") or "")):
+                return False, (
+                    f"Modal provenance stage '{stage_name}' claims the provider did not report "
+                    f"'{key}', but the stage's own evidence says the field was never requested "
+                    "from the provider"
+                )
+
+    return True, None
+
+
+# ---------------------------------------------------------------------------
 # P0.1 - Modal invocation provenance
 # ---------------------------------------------------------------------------
 
@@ -439,6 +1080,7 @@ def build_modal_stage_provenance(
     container_id: Any,
     resource: Optional[str],
     attempted: bool,
+    evidence_ref: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Build the provenance block of a single Modal stage.
@@ -446,8 +1088,11 @@ def build_modal_stage_provenance(
     ``app_id`` / ``function_call_id`` / ``container_id`` are either observed
     values or :func:`not_available` facts produced by the caller. No value is
     ever synthesised here.
+
+    ``evidence_ref`` points at the evidence artifact of *this* stage (the exact
+    response the stage returned). It is what binds the stage to its own bytes.
     """
-    return {
+    stage: Dict[str, Any] = {
         "attempted": bool(attempted),
         "function_name": function_name,
         "resource": resource,
@@ -455,6 +1100,11 @@ def build_modal_stage_provenance(
         "function_call_id": function_call_id,
         "container_id": container_id,
     }
+    if evidence_ref:
+        stage["evidence_ref"] = (
+            evidence_ref.to_dict() if hasattr(evidence_ref, "to_dict") else dict(evidence_ref)
+        )
+    return stage
 
 
 def validate_modal_invocation_provenance(
@@ -475,7 +1125,11 @@ def validate_modal_invocation_provenance(
       * a NOT_AVAILABLE fact without an evidence reference, or whose evidence
         reference does not verify against the referenced bytes (a reason string
         alone is never sufficient);
-      * an observed function-call id that is not a plausible Modal id.
+      * an observed function-call id that is not a plausible Modal id;
+      * (Iteration 16) a stage that is backed by the evidence artifact of
+        another stage, an artifact that declares a different stage, an absence
+        whose kind disagrees with the stage's own evidence, and a missing field
+        that blames the provider although the provider was never asked for it.
 
     ``evidence_root`` is the directory the evidence references are resolved
     against. Without it the referenced bytes cannot be verified and a
@@ -502,6 +1156,28 @@ def validate_modal_invocation_provenance(
         )
         if not ok:
             return False, error
+
+        # The run-level application id is the one the EVM sandbox stage
+        # reported, so it may only be backed by that stage's evidence.
+        evm_stage = stages.get("evm_sandbox") if isinstance(stages, dict) else None
+        if isinstance(evm_stage, dict):
+            evm_ref = evm_stage.get("evidence_ref")
+            run_ref = run_app_fact.get("evidence_ref")
+            if not (isinstance(evm_ref, dict) and evm_ref.get("path")):
+                return False, (
+                    "Modal provenance records 'modal_app_id' as NOT_AVAILABLE but the EVM "
+                    "sandbox stage has no evidence of its own"
+                )
+            if not (isinstance(run_ref, dict) and run_ref.get("path")):
+                return False, (
+                    "Modal provenance records 'modal_app_id' as NOT_AVAILABLE without an "
+                    "evidence reference"
+                )
+            if run_ref.get("path") != evm_ref.get("path"):
+                return False, (
+                    "Modal provenance records 'modal_app_id' as NOT_AVAILABLE but references the "
+                    "evidence of another stage"
+                )
 
     for stage_name, stage in stages.items():
         if not isinstance(stage, dict):
@@ -587,6 +1263,15 @@ def validate_modal_invocation_provenance(
                 return False, (
                     f"Modal provenance stage '{stage_name}' contains the synthetic log URI {legacy!r}"
                 )
+
+        # The stage must be backed by the evidence artifact of that very
+        # stage: a digest-valid file of another stage proves nothing here.
+        if evidence_root is not None:
+            ok, error = validate_stage_evidence_binding(
+                stage_name, stage, evidence_root=evidence_root
+            )
+            if not ok:
+                return False, error
 
     # Cross-check the recorded application ids against the raw billing export.
     # A mismatch is rejected; an unavailable id is reported explicitly instead
