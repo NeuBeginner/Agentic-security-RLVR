@@ -157,3 +157,33 @@ artifact (`absence_records[].kind`). The validator rejects any disagreement.
 | `tests/test_iteration16_evidence_integrity.py` | adversarial test suite |
 | `tests/test_iteration15_evidence_integrity.py` | two tests updated to the strengthened evidence contract (same adversarial intent) |
 | `.github/workflows/ci.yml` | run the Iteration 16 suite and the Iteration 16 validator |
+
+---
+
+## 6. Results of this iteration
+
+| item | value |
+| --- | --- |
+| code SHA | `b1946536959e8977967d3cbaf161baf337bfd653` |
+| evidence commit | `45c86d5` (the validation report, bound to the code SHA above) |
+| new tests | 27 (`tests/test_iteration16_evidence_integrity.py`) |
+| Iteration 16 suite | 27 passed |
+| Iteration 15 suite | 33 passed (2 tests adapted to the stronger evidence contract) |
+| Iteration 14 suite | 73 passed, 3 skipped |
+| full suite with real Foundry | **524 passed, 1 skipped** (the only skip is the known "Slither executable not found") |
+| real Foundry probes | 4 passed (`test_real_foundry_integration*`) + 3 passed (`test_iteration14_evidence_integrity -k real_foundry`) |
+| validation artifact | `benchmarks/evidence/iteration16_validation_evidence.json` - billing PASSED, producer rehearsal PASSED, the saved run FAILED 16/16 because it predates the fix |
+| live Modal run | **none** - no H100, no paid GPU, no Modal runtime validation is claimed |
+
+The kinds of absence the producer now distinguishes, and where each of them
+occurs in the offline producer rehearsal:
+
+| stage | outcome of the rehearsal | kind of absence |
+| --- | --- | --- |
+| `inference` | the stage was not a Modal stage of that run | `STAGE_NOT_ATTEMPTED` |
+| `evm_sandbox` | the worker answered without a runtime-identity envelope | `STAGE_EXECUTED_NO_RUNTIME_ENVELOPE` |
+| `independent_replay` | the worker answered with a full runtime identity | observed |
+| `trajectory_persistence` | the worker answered with the stored path only | `CLIENT_NEVER_CAPTURED_FIELD` |
+
+`PROVIDER_FIELD_OMITTED` is the fifth kind: it is what the EVM stage produces
+when a worker returns a runtime-identity envelope that does not carry a field.
