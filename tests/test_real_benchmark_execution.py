@@ -197,7 +197,59 @@ def test_full_aegis_rlvr_modal_absent_fails_closed_no_local_fallback(monkeypatch
     assert artifact.replayed_breaches == 0
 
 
-def test_full_aegis_rlvr_invokes_modal_remote_functions(monkeypatch):
+def _mock_replay_response(payload_dict, *, container_id="hokkglpxczflmxlcnxxg"):
+    """
+    Build a complete replay response exactly as the Modal replay worker returns it.
+
+    Since Iteration 14 the client refuses to accept a replay that does not carry
+    the byte-exact artifacts, the real container identity and replay-specific
+    timestamps, so the mock has to be a faithful worker response.
+    """
+    import base64
+
+    candidate = (payload_dict.get("test_code") or "").encode("utf-8")
+    harness = b"// repository-owned harness\ncontract VaultHarness {}\n"
+    stdout = b'{"test/VaultHarness.t.sol:testExploit":{"status":"Success","reason":null}}\n'
+    stderr = b""
+
+    return {
+        "reproduced": True,
+        "container_id": container_id,
+        "modal_runtime": {
+            "app_id": {
+                "status": "OBSERVED",
+                "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+                "source": "modal.running_app().app_id",
+            },
+            "function_call_id": {
+                "status": "OBSERVED",
+                "value": "fc-8Hq2ZpQrVt3Lb",
+                "source": "modal.current_function_call_id()",
+            },
+            "container_id": {
+                "status": "OBSERVED",
+                "value": container_id,
+                "source": "MODAL_WORKER_ID of the running container",
+            },
+        },
+        "command": "forge test --offline --json -vvvv",
+        "argv": ["forge", "test", "--offline", "--json", "-vvvv"],
+        "return_code": 0,
+        "exit_code": 0,
+        "harness_verdict": "BREACH",
+        "harness_suite": "test/VaultHarness.t.sol",
+        "invariant_violated": True,
+        "category": "EXPLOIT_CONFIRMED",
+        "stdout_b64": base64.b64encode(stdout).decode("ascii"),
+        "stderr_b64": base64.b64encode(stderr).decode("ascii"),
+        "candidate_b64": base64.b64encode(candidate).decode("ascii"),
+        "harness_b64": base64.b64encode(harness).decode("ascii"),
+        "utc_start_time": "2026-11-09T03:17:41Z",
+        "utc_end_time": "2026-11-09T03:19:20Z",
+    }
+
+
+def test_full_aegis_rlvr_invokes_modal_remote_functions(monkeypatch, tmp_path):
     """When Modal is available, Baseline 5 must invoke real Modal remote functions and record remote provenance."""
     import modal_app
     from core.schemas import ResultCategory, ExploitPayload, AttackHypothesis
@@ -224,7 +276,7 @@ def test_full_aegis_rlvr_invokes_modal_remote_functions(monkeypatch):
 
     def mock_verify_replay_remote(target_dict, payload_dict):
         remote_replay_calls.append((target_dict, payload_dict))
-        return True
+        return _mock_replay_response(payload_dict)
 
     def mock_record_trajectory_remote(traj_dict):
         remote_trajectory_calls.append(traj_dict)
@@ -244,7 +296,7 @@ def test_full_aegis_rlvr_invokes_modal_remote_functions(monkeypatch):
         format_valid=True,
     )
     adapter = FullAegisRLVRBaselineAdapter(candidate_generator=lambda prog: dummy_payload)
-    artifact = adapter.execute_target(vault_target)
+    artifact = adapter.execute_target(vault_target, replay_artifact_dir=tmp_path)
 
     assert len(remote_exploit_calls) == 1
     assert len(remote_replay_calls) == 1
@@ -260,6 +312,12 @@ def test_full_aegis_rlvr_invokes_modal_remote_functions(monkeypatch):
     assert artifact.tool_metadata["remote_stages"]["independent_replay"] == "modal_cpu_worker"
     assert artifact.tool_metadata["remote_stages"]["trajectory_persistence"] == "modal_volume"
     assert artifact.tool_metadata["reproduced"] is True
+    # The replay envelope must be complete and re-validated by the client.
+    assert artifact.tool_metadata["replay_envelope_valid"] is True
+    assert artifact.replay_status == "CONFIRMED"
+    assert artifact.replay_evidence["container_id"] == "hokkglpxczflmxlcnxxg"
+    assert (tmp_path / "REENT-01_replay_stdout.txt").is_file()
+    assert (tmp_path / "REENT-01_replay_candidate.sol").is_file()
 
 
 def test_full_aegis_rlvr_remote_timeout_fails_closed(monkeypatch):
@@ -416,7 +474,7 @@ def test_full_aegis_rlvr_replay_infrastructure_exception_fails_closed(monkeypatc
     assert artifact.tool_metadata["stage_failed"] == "independent_replay"
 
 
-def test_full_aegis_rlvr_trajectory_persistence_failure_recorded_properly(monkeypatch):
+def test_full_aegis_rlvr_trajectory_persistence_failure_recorded_properly(monkeypatch, tmp_path):
     """When trajectory persistence raises an exception, it must be recorded as failed, not reported as completed."""
     import modal_app
     from core.schemas import ResultCategory, ExploitPayload, AttackHypothesis
@@ -437,7 +495,7 @@ def test_full_aegis_rlvr_trajectory_persistence_failure_recorded_properly(monkey
         }
 
     monkeypatch.setattr(modal_app.verify_exploit_remote, "remote", mock_verify_exploit_remote)
-    monkeypatch.setattr(modal_app.verify_replay_remote, "remote", lambda td, pd: True)
+    monkeypatch.setattr(modal_app.verify_replay_remote, "remote", lambda td, pd: _mock_replay_response(pd))
 
     def mock_record_trajectory_throw(traj_dict):
         raise OSError("Modal volume disk quota exceeded (/vol/models full)")
@@ -454,7 +512,7 @@ def test_full_aegis_rlvr_trajectory_persistence_failure_recorded_properly(monkey
         format_valid=True,
     )
     adapter = FullAegisRLVRBaselineAdapter(candidate_generator=lambda prog: dummy_payload)
-    artifact = adapter.execute_target(vault_target)
+    artifact = adapter.execute_target(vault_target, replay_artifact_dir=tmp_path)
 
     assert artifact.status == ExecutionStatus.SUCCESS
     assert artifact.detected is True
@@ -466,7 +524,7 @@ def test_full_aegis_rlvr_trajectory_persistence_failure_recorded_properly(monkey
     assert artifact.tool_metadata["persisted_trajectory_path"] is None
 
 
-def test_full_aegis_rlvr_trajectory_persistence_success_recorded(monkeypatch):
+def test_full_aegis_rlvr_trajectory_persistence_success_recorded(monkeypatch, tmp_path):
     """When trajectory persistence succeeds, persisted path must be recorded and included in modal_functions."""
     import modal_app
     from core.schemas import ResultCategory, ExploitPayload, AttackHypothesis
@@ -487,7 +545,7 @@ def test_full_aegis_rlvr_trajectory_persistence_success_recorded(monkeypatch):
         }
 
     monkeypatch.setattr(modal_app.verify_exploit_remote, "remote", mock_verify_exploit_remote)
-    monkeypatch.setattr(modal_app.verify_replay_remote, "remote", lambda td, pd: True)
+    monkeypatch.setattr(modal_app.verify_replay_remote, "remote", lambda td, pd: _mock_replay_response(pd))
     monkeypatch.setattr(modal_app.record_trajectory_remote, "remote", lambda td: "/vol/models/trajectories/traj_vault_pass.json")
 
     dataset = BenchmarkDataset()
@@ -500,7 +558,7 @@ def test_full_aegis_rlvr_trajectory_persistence_success_recorded(monkeypatch):
         format_valid=True,
     )
     adapter = FullAegisRLVRBaselineAdapter(candidate_generator=lambda prog: dummy_payload)
-    artifact = adapter.execute_target(vault_target)
+    artifact = adapter.execute_target(vault_target, replay_artifact_dir=tmp_path)
 
     assert artifact.status == ExecutionStatus.SUCCESS
     assert artifact.detected is True
@@ -2838,38 +2896,69 @@ def test_status_semantics_and_normalized_stage_outcomes():
 
 def test_safe_control_sentinel_semantics_and_rejection_of_unrelated_failures():
     """
-    Iteration 13 Blocker 4:
-    Verifies that deliberate sentinel revert 'EXPLOIT_FAILED: Safe control held'
-    is accepted as proof of safe control, whereas generic EVM reverts, compiler
-    errors, panic codes, or empty reasons are rejected from SAFE classification.
+    Iteration 13 Blocker 4, hardened by Iteration 14 P0.4:
+    Only the EXACT documented sentinel of the repository-owned harness, for the
+    matching target/harness context, is accepted as proof of a safe control.
+    Generic EVM reverts, compiler errors, panic codes, arbitrary
+    'EXPLOIT_FAILED...' strings and empty reasons are rejected.
     """
     from benchmarks.protocol import validate_safe_control_sentinel_semantics
+    from benchmarks.evidence_integrity import SAFE_CONTROL_SENTINELS
 
-    # 1. Deliberate sentinel proves safe control
-    valid, verdict = validate_safe_control_sentinel_semantics("EXPLOIT_FAILED: Safe control held")
+    # 1. The exact documented sentinel proves the safe control.
+    valid, verdict = validate_safe_control_sentinel_semantics(
+        SAFE_CONTROL_SENTINELS["SecureVault"], "NO_BREACH", "SecureVault"
+    )
     assert valid is True
     assert verdict == "SAFE_RUN"
 
-    valid, verdict = validate_safe_control_sentinel_semantics("EXPLOIT_FAILED: Safe control held (Invariant balance >= deposit)", "NO_BREACH")
+    valid, verdict = validate_safe_control_sentinel_semantics(
+        SAFE_CONTROL_SENTINELS["SecureOraclePool"],
+        "NO_BREACH",
+        "SecureOraclePool",
+        harness_suite="test/SecureOraclePoolHarness.t.sol",
+    )
     assert valid is True
     assert verdict == "SAFE_RUN"
 
-    # 2. Reject generic EVM revert
-    valid, reason = validate_safe_control_sentinel_semantics("EvmError: Revert")
+    # 2. A near-match (suffix) is NOT the documented sentinel.
+    valid, reason = validate_safe_control_sentinel_semantics(
+        SAFE_CONTROL_SENTINELS["SecureVault"] + " (Invariant balance >= deposit)",
+        "NO_BREACH",
+        "SecureVault",
+    )
+    assert valid is False
+    assert "SENTINEL_SUFFIX_MISMATCH" in reason
+
+    # 3. An arbitrary EXPLOIT_FAILED string is rejected (the old defect).
+    valid, reason = validate_safe_control_sentinel_semantics(
+        "EXPLOIT_FAILED: Safe control held", "NO_BREACH", "SecureVault"
+    )
+    assert valid is False
+    assert reason.startswith(("SENTINEL_", "UNRECOGNIZED_"))
+
+    # 4. Reject generic EVM revert
+    valid, reason = validate_safe_control_sentinel_semantics(
+        "EvmError: Revert", "NO_BREACH", "SecureVault"
+    )
     assert valid is False
     assert "GENERIC_EVM_REVERT" in reason
 
-    # 3. Reject EVM Panic codes (e.g. integer overflow, assert failure)
-    valid, reason = validate_safe_control_sentinel_semantics("Panic(0x11): Arithmetic underflow/overflow")
+    # 5. Reject EVM Panic codes (e.g. integer overflow, assert failure)
+    valid, reason = validate_safe_control_sentinel_semantics(
+        "Panic(0x11): Arithmetic underflow/overflow", "NO_BREACH", "SecureVault"
+    )
     assert valid is False
     assert "EVM_PANIC" in reason
 
-    # 4. Reject Solidity compilation errors
-    valid, reason = validate_safe_control_sentinel_semantics("Compiler run failed: ParserError: Expected ';' but got '}'")
+    # 6. Reject Solidity compilation errors
+    valid, reason = validate_safe_control_sentinel_semantics(
+        "Compiler run failed: ParserError: Expected ';' but got '}'", "NO_BREACH", "SecureVault"
+    )
     assert valid is False
     assert "COMPILATION_ERROR" in reason
 
-    # 5. Reject empty or None revert reasons
+    # 7. Reject empty or None revert reasons
     valid, reason = validate_safe_control_sentinel_semantics(None)
     assert valid is False
     assert reason == "MISSING_REVERT_REASON"
@@ -2878,104 +2967,179 @@ def test_safe_control_sentinel_semantics_and_rejection_of_unrelated_failures():
     assert valid is False
     assert reason == "MISSING_REVERT_REASON"
 
+    # 8. Without target context the sentinel cannot be attributed at all.
+    valid, reason = validate_safe_control_sentinel_semantics(
+        SAFE_CONTROL_SENTINELS["SecureVault"], "NO_BREACH"
+    )
+    assert valid is False
+    assert reason == "MISSING_TARGET_CONTEXT_FOR_SENTINEL"
 
-def test_replay_evidence_envelope_required_for_confirmed_status():
+
+def test_replay_evidence_envelope_required_for_confirmed_status(tmp_path):
     """
-    Iteration 13 Blocker 2:
-    A test must fail if replay is marked CONFIRMED without a complete integrity envelope:
-    - fresh container ID
-    - exact command and argv
-    - exit code 0
-    - invariant_violated=True and reproduced=True
-    - cryptographic SHA-256 digests for candidate, harness, stdout, stderr
-    - UTC start/end timestamps
+    Iteration 13 Blocker 2, hardened by Iteration 14 P0.2:
+    A replay may only be CONFIRMED when the envelope is complete AND every
+    digest can be recomputed from the stored replay bytes.
     """
     from benchmarks.protocol import validate_replay_evidence_envelope
+    from benchmarks.evidence_integrity import persist_replay_artifact, sha256_bytes
+
+    stdout_bytes = b'{"status":"Success"}\n'
+    candidate_bytes = b"contract ExploitModule { function runExploit() external payable {} }"
+    harness_bytes = b"contract VaultHarness {}\n"
+
+    stdout_art = persist_replay_artifact(tmp_path, "REENT-01_replay_stdout.txt", stdout_bytes)
+    stderr_art = persist_replay_artifact(tmp_path, "REENT-01_replay_stderr.txt", b"")
+    candidate_art = persist_replay_artifact(tmp_path, "REENT-01_replay_candidate.sol", candidate_bytes)
+    harness_art = persist_replay_artifact(tmp_path, "REENT-01_replay_harness.t.sol", harness_bytes)
 
     valid_envelope = {
-        "container_id": "modal-cpu-ca9285db97bf",
+        "reproduced": True,
+        "container_id": "hokkglpxczflmxlcnxxg",
         "command": "forge test --offline --json -vvvv",
         "argv": ["forge", "test", "--offline", "--json", "-vvvv"],
         "exit_code": 0,
         "return_code": 0,
         "invariant_violated": True,
-        "reproduced": True,
-        "candidate_sha256": "c67358c90b789d1536f2dfd30c287230789d8397ba004465924c1c214c145aa3",
-        "harness_sha256": "6f405ff57e9bef9b8afd584e97bde96557d0763d3a6d3097c8a75ec51c4ccda6",
-        "stdout_sha256": "8d088711590dc962c2be5d91ebdb5a4fb05f698130ebbaa7135146f80e8281da",
-        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "utc_start_time": "2026-11-09T07:33:41Z",
-        "utc_end_time": "2026-11-09T07:35:20Z",
+        "harness_verdict": "BREACH",
+        "stdout_artifact": stdout_art.to_dict(),
+        "stderr_artifact": stderr_art.to_dict(),
+        "candidate_input_artifact": candidate_art.to_dict(),
+        "harness_input_artifact": harness_art.to_dict(),
+        "stdout_sha256": stdout_art.sha256,
+        "stderr_sha256": stderr_art.sha256,
+        "candidate_sha256": candidate_art.sha256,
+        "harness_sha256": harness_art.sha256,
+        "utc_start_time": "2026-11-09T03:17:41Z",
+        "utc_end_time": "2026-11-09T03:19:20Z",
     }
 
-    # 1. Valid envelope passes
     valid_art = {
         "target_id": "REENT-01",
         "replay_status": "CONFIRMED",
         "replayed_breaches": 1,
         "replay_evidence": valid_envelope,
+        "utc_start_time": "2026-11-09T02:00:00Z",
+        "utc_end_time": "2026-11-09T02:05:00Z",
+        "output_sha256": candidate_art.sha256,
     }
-    is_valid, err = validate_replay_evidence_envelope(valid_art)
+
+    # 1. Valid envelope passes
+    is_valid, err = validate_replay_evidence_envelope(valid_art, artifact_root=tmp_path)
     assert is_valid is True
     assert err is None
 
     # 2. Missing envelope fails
     missing_env_art = {"target_id": "REENT-01", "replay_status": "CONFIRMED", "replayed_breaches": 1}
-    is_valid, err = validate_replay_evidence_envelope(missing_env_art)
+    is_valid, err = validate_replay_evidence_envelope(missing_env_art, artifact_root=tmp_path)
     assert is_valid is False
     assert "missing or empty" in err
 
     # 3. Non-zero exit code fails
     nonzero_env = dict(valid_envelope, exit_code=1)
-    is_valid, err = validate_replay_evidence_envelope({"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": nonzero_env})
+    is_valid, err = validate_replay_evidence_envelope(
+        {"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": nonzero_env},
+        artifact_root=tmp_path,
+    )
     assert is_valid is False
-    assert "exit_code must be 0" in err
+    assert "exit_code must be the integer 0" in err
 
     # 4. Missing container ID fails
     no_container_env = dict(valid_envelope, container_id="")
-    is_valid, err = validate_replay_evidence_envelope({"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": no_container_env})
+    is_valid, err = validate_replay_evidence_envelope(
+        {"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": no_container_env},
+        artifact_root=tmp_path,
+    )
     assert is_valid is False
-    assert "container_id" in err
+    assert "container" in err
 
-    # 5. Missing or invalid hash fails
-    bad_hash_env = dict(valid_envelope, candidate_sha256="not_a_sha256")
-    is_valid, err = validate_replay_evidence_envelope({"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": bad_hash_env})
+    # 5. A synthetic container identity fails
+    synthetic_env = dict(valid_envelope, container_id="modal-cpu-ca9285db97bf")
+    is_valid, err = validate_replay_evidence_envelope(
+        {"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": synthetic_env},
+        artifact_root=tmp_path,
+    )
     assert is_valid is False
-    assert "candidate_sha256" in err
+    assert "synthetic container id" in err
 
-    # 6. reproduced=False fails
+    # 6. A digest that does not describe the stored bytes fails
+    bad_hash_env = dict(valid_envelope)
+    bad_hash_env["stdout_artifact"] = dict(
+        stdout_art.to_dict(), sha256=sha256_bytes(b"tampered")
+    )
+    is_valid, err = validate_replay_evidence_envelope(
+        {"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": bad_hash_env},
+        artifact_root=tmp_path,
+    )
+    assert is_valid is False
+    assert "does not match the recomputed digest" in err
+
+    # 7. Reusing the initial run's timestamps fails
+    reused_ts_env = dict(
+        valid_envelope,
+        utc_start_time="2026-11-09T02:00:00Z",
+        utc_end_time="2026-11-09T02:05:00Z",
+    )
+    is_valid, err = validate_replay_evidence_envelope(
+        {
+            "replay_status": "CONFIRMED",
+            "replayed_breaches": 1,
+            "replay_evidence": reused_ts_env,
+            "utc_start_time": "2026-11-09T02:00:00Z",
+            "utc_end_time": "2026-11-09T02:05:00Z",
+        },
+        artifact_root=tmp_path,
+    )
+    assert is_valid is False
+    assert "initial run" in err
+
+    # 8. reproduced=False fails
     not_reproduced_env = dict(valid_envelope, reproduced=False)
-    is_valid, err = validate_replay_evidence_envelope({"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": not_reproduced_env})
+    is_valid, err = validate_replay_evidence_envelope(
+        {"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": not_reproduced_env},
+        artifact_root=tmp_path,
+    )
     assert is_valid is False
-    assert "reproduced" in err
+    assert "reproduction" in err
 
-    # 7. Non-confirmed replay status does not require envelope
+    # 9. Without the stored artifacts the envelope can never be confirmed.
+    is_valid, err = validate_replay_evidence_envelope(valid_art)
+    assert is_valid is False
+    assert "artifact root" in err
+
+    # 10. Non-confirmed replay status does not require envelope
     unreplayed_art = {"target_id": "BIZ-01", "replay_status": "NOT_ELIGIBLE", "replayed_breaches": 0}
-    is_valid, err = validate_replay_evidence_envelope(unreplayed_art)
+    is_valid, err = validate_replay_evidence_envelope(unreplayed_art, artifact_root=tmp_path)
     assert is_valid is True
 
 
 def test_manifest_rejects_missing_remote_toolchain_provenance():
     """
-    Iteration 13 Blocker 3:
-    Rejects missing remote toolchain provenance for any target whose EVM stage ran.
+    Iteration 13 Blocker 3, hardened by Iteration 14 P0.3:
+    The remote EVM provenance must consist of observed facts only, must name
+    the immutable image digest and must never carry a hardcoded constant.
     """
     from benchmarks.protocol import validate_remote_evm_toolchain_provenance
+    from benchmarks.evidence_integrity import observed, not_available
 
     valid_toolchain = {
-        "remote_os": "Debian GNU/Linux 12 (bookworm)",
-        "remote_platform": "linux",
-        "image_tag": "debian:12-slim-foundry",
-        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
-        "solc_versions": ["0.8.20", "0.8.24"],
-        "exact_forge_argv": ["forge", "test", "--offline", "--json", "-vvvv"],
-        "working_directory": "/tmp/aegis_sandbox",
-        "compiler_settings": {
-            "evm_version": "paris",
-            "optimizer": True,
-            "optimizer_runs": 200,
-            "via_ir": False,
-        },
+        "remote_os": observed("Debian GNU/Linux 12 (bookworm)", source="/etc/os-release:PRETTY_NAME"),
+        "remote_platform": observed("posix", source="os.name"),
+        "image_digest": observed("im-9QaB3xKd7Lm2Np", source="modal.config.image_id"),
+        "forge_version": observed(
+            "forge Version: 1.9.0\nCommit SHA: 6056c5845d34205a83cf7108042adb137325c9df",
+            source="forge --version",
+        ),
+        "solc_versions": observed(["0.8.20"], source="forge config --json:solc"),
+        "exact_forge_argv": observed(
+            ["forge", "test", "--offline", "--json", "-vvvv"], source="the argv that was executed"
+        ),
+        "working_directory": observed("/tmp/tmpab12cd", source="the cwd of the forge process"),
+        "compiler_settings": observed(
+            {"evm_version": "shanghai", "optimizer": True, "optimizer_runs": 200, "via_ir": False},
+            source="forge config --json",
+        ),
+        "observed_exit_code": observed(0, source="the exit code of the forge process"),
     }
 
     # 1. Valid toolchain provenance passes
@@ -3015,7 +3179,41 @@ def test_manifest_rejects_missing_remote_toolchain_provenance():
     assert is_valid is False
     assert "forge_version" in err
 
-    # 4. EVM did NOT run (format error before EVM) -> correctly skipped
+    # 4. A hardcoded constant is rejected even when it is present.
+    hardcoded_toolchain = dict(
+        valid_toolchain,
+        working_directory=observed(
+            "/tmp/aegis_sandbox", source="the cwd of the forge process"
+        ),
+    )
+    art_hardcoded = {
+        "target_id": "REENT-01",
+        "evm_outcome": "BREACH_VERIFIED",
+        "security_verdict": "EXPLOIT_CONFIRMED",
+        "process_exit_code": 0,
+        "remote_evm_provenance": hardcoded_toolchain,
+    }
+    is_valid, err = validate_remote_evm_toolchain_provenance(art_hardcoded)
+    assert is_valid is False
+    assert "legacy hardcoded constant" in err
+
+    # 5. An explicit NOT_AVAILABLE with a reason is accepted.
+    unavailable_toolchain = dict(
+        valid_toolchain,
+        image_digest=not_available("the Modal runtime did not expose an image id"),
+    )
+    art_unavailable = {
+        "target_id": "REENT-01",
+        "evm_outcome": "BREACH_VERIFIED",
+        "security_verdict": "EXPLOIT_CONFIRMED",
+        "process_exit_code": 0,
+        "remote_evm_provenance": unavailable_toolchain,
+    }
+    is_valid, err = validate_remote_evm_toolchain_provenance(art_unavailable)
+    assert is_valid is True
+    assert err is None
+
+    # 6. EVM did NOT run (format error before EVM) -> correctly skipped
     art_not_run = {
         "target_id": "SIG-01",
         "evm_outcome": "NOT_RUN",

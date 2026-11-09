@@ -168,6 +168,20 @@ class ExecutionResult(BaseModel):
     harness_verdict: str = Field(default="", description="Trusted harness verdict: BREACH/NO_BREACH/EXEC_REVERT/UNKNOWN")
     harness_suite: str = Field(default="", description="Forge suite path the trusted verdict was taken from")
     evidence_source: str = Field(default="", description="Which trusted channel produced the verdict")
+    # Observed remote execution facts (Iteration 14 P0.3). Every entry is an
+    # OBSERVED fact or an explicit NOT_AVAILABLE fact with a reason; nothing
+    # here is a templated constant.
+    observed_environment: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Toolchain facts observed inside the worker that executed the EVM",
+    )
+    # Byte-exact digests of the raw captured streams (Iteration 14 P0.2).
+    stdout_sha256: Optional[str] = Field(default=None, description="SHA-256 over the raw stdout bytes")
+    stderr_sha256: Optional[str] = Field(default=None, description="SHA-256 over the raw stderr bytes")
+    stdout_byte_length: Optional[int] = Field(default=None, description="Byte length of the raw stdout")
+    stderr_byte_length: Optional[int] = Field(default=None, description="Byte length of the raw stderr")
+    stdout_bytes_b64: Optional[str] = Field(default=None, description="Lossless base64 of the raw stdout bytes")
+    stderr_bytes_b64: Optional[str] = Field(default=None, description="Lossless base64 of the raw stderr bytes")
 
 
 class VerificationVerdict(BaseModel):

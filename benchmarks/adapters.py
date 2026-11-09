@@ -117,6 +117,24 @@ def check_llm_provider_availability(provider: str) -> Tuple[bool, Optional[str]]
         return False, f"Unsupported LLM provider '{provider}'. Supported providers: 'gemini', 'openai'"
 
 
+def _decode_b64(value: Optional[str]) -> Optional[bytes]:
+    """
+    Decode a lossless base64 payload.
+
+    Returns ``None`` when the payload is missing or malformed, so a caller
+    never has to guess what an undecodable value meant. An empty string is a
+    VALID payload: it is the base64 encoding of zero bytes, which is what an
+    empty stderr stream looks like.
+    """
+    if value is None or not isinstance(value, str):
+        return None
+    import base64
+    try:
+        return base64.b64decode(value, validate=True)
+    except (ValueError, TypeError):
+        return None
+
+
 def invoke_llm_provider(provider: str, model_id: str, prompt: str) -> str:
     """Invokes configured LLM provider directly."""
     prov = provider.lower()
@@ -1365,7 +1383,8 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
         self,
         target: TargetSpecification,
         base_dir: Optional[Path] = None,
-        timeout_sec: int = 120
+        timeout_sec: int = 120,
+        replay_artifact_dir: Optional[Path] = None,
     ) -> TargetExecutionArtifact:
         from core.config import config
         from sandbox.runner import TRUSTED_HARNESS_CONTRACTS
@@ -1413,6 +1432,13 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
 
         start_time = time.time()
         source_code = target.load_source_code(base_dir)
+
+        # Directory that holds the byte-exact replay artifacts of this run.
+        if replay_artifact_dir is None:
+            replay_artifact_dir = Path(base_dir) / "benchmarks" / "artifacts" if base_dir else (
+                Path(__file__).parent / "artifacts"
+            )
+        replay_artifact_dir = Path(replay_artifact_dir)
 
         try:
             from core.schemas import TargetProgram, ExploitPayload, AttackHypothesis, ResultCategory, VerificationVerdict
@@ -1558,10 +1584,15 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                             replay_details = dict(raw_replay)
                             is_replayed = bool(raw_replay.get("reproduced", False))
                         else:
-                            is_replayed = bool(raw_replay)
+                            # A non-dict replay response carries no evidence at all.
+                            is_replayed = False
                             replay_details = {
-                                "reproduced": is_replayed,
-                                "status": "CONFIRMED" if is_replayed else "FAILED"
+                                "reproduced": False,
+                                "status": "FAILED",
+                                "reason": (
+                                    "the remote replay function returned a non-dict response, so no "
+                                    "replay evidence envelope could be built"
+                                ),
                             }
                     except Exception as exc:
                         # Remote replay infrastructure error: MUST fail closed as FAILED, NEVER SUCCESS
@@ -1596,7 +1627,182 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                             effective_config_hash=self.get_effective_config_hash(),
                         )
 
-                is_verified = bool(replay_attempted and is_replayed and verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED)
+                # ------------------------------------------------------------------
+                # Byte-exact stream digests and stage timestamps (Iteration 14 P0.2)
+                # ------------------------------------------------------------------
+                # The digest is computed over the bytes the worker actually
+                # produced.  When the worker hands over the raw bytes we digest
+                # them locally and cross-check the worker's own digest; we never
+                # silently re-encode a decoded string and call that the observed
+                # output (that is what produced the mismatching CRLF digests).
+                raw_stdout = verdict_dict.get("sandbox_stdout", "")
+                raw_stderr = verdict_dict.get("sandbox_stderr", verdict.feedback or "")
+                stdout_bytes = _decode_b64(verdict_dict.get("sandbox_stdout_bytes_b64"))
+                stderr_bytes = _decode_b64(verdict_dict.get("sandbox_stderr_bytes_b64"))
+
+                def _stream_digest(
+                    worker_bytes: Optional[bytes],
+                    worker_sha: Any,
+                    worker_len: Any,
+                    text: str,
+                ) -> Tuple[str, int, str]:
+                    """Return (sha256, byte_length, digest_source) for one stream."""
+                    if worker_bytes is not None:
+                        digest = hashlib.sha256(worker_bytes).hexdigest()
+                        if isinstance(worker_sha, str) and worker_sha and worker_sha != digest:
+                            raise ValueError(
+                                "the worker-reported stdout/stderr digest does not match the digest "
+                                "recomputed from the raw bytes the worker returned"
+                            )
+                        return digest, len(worker_bytes), "worker_bytes"
+                    if isinstance(worker_sha, str) and worker_sha:
+                        length = worker_len if isinstance(worker_len, int) else len(text.encode("utf-8"))
+                        return worker_sha, length, "worker_reported"
+                    return (
+                        hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                        len(text.encode("utf-8")),
+                        "derived_from_text",
+                    )
+
+                stdout_sha, stdout_len, stdout_digest_source = _stream_digest(
+                    stdout_bytes,
+                    verdict_dict.get("sandbox_stdout_sha256"),
+                    verdict_dict.get("sandbox_stdout_byte_length"),
+                    raw_stdout,
+                )
+                stderr_sha, stderr_len, stderr_digest_source = _stream_digest(
+                    stderr_bytes,
+                    verdict_dict.get("sandbox_stderr_sha256"),
+                    verdict_dict.get("sandbox_stderr_byte_length"),
+                    raw_stderr,
+                )
+                input_sha = hashlib.sha256(source_code.encode("utf-8")).hexdigest()
+                output_sha = hashlib.sha256((payload.test_code or "").encode("utf-8")).hexdigest() if payload else None
+                prompt_hash = hashlib.sha256(payload.prompt_text.encode("utf-8")).hexdigest() if (payload and payload.prompt_text) else None
+                utc_start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start_time))
+                utc_end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+                # ------------------------------------------------------------------
+                # Replay evidence envelope (Iteration 14 P0.2)
+                # ------------------------------------------------------------------
+                # There is NO fallback in this block.  Every value comes from the
+                # replay worker itself; when a value is missing the envelope stays
+                # incomplete and the replay can never be CONFIRMED.
+                from benchmarks.evidence_integrity import (
+                    persist_replay_artifact,
+                    validate_replay_evidence_envelope,
+                )
+
+                replay_evidence: Optional[Dict[str, Any]] = None
+                replay_artifacts: Dict[str, Any] = {}
+                replay_envelope_valid = False
+                replay_envelope_error: Optional[str] = None
+
+                if replay_attempted:
+                    replay_stdout_bytes = _decode_b64(replay_details.get("stdout_b64"))
+                    replay_stderr_bytes = _decode_b64(replay_details.get("stderr_b64"))
+                    replay_candidate_bytes = _decode_b64(replay_details.get("candidate_b64"))
+                    replay_harness_bytes = _decode_b64(replay_details.get("harness_b64"))
+
+                    missing = [
+                        name
+                        for name, value in (
+                            ("stdout_b64", replay_stdout_bytes),
+                            ("stderr_b64", replay_stderr_bytes),
+                            ("candidate_b64", replay_candidate_bytes),
+                            ("harness_b64", replay_harness_bytes),
+                        )
+                        if value is None
+                    ]
+
+                    if missing:
+                        replay_evidence = {
+                            "reproduced": bool(is_replayed),
+                            "complete": False,
+                            "incomplete_reason": (
+                                "the replay worker did not return the byte-exact replay artifacts: "
+                                + ", ".join(missing)
+                            ),
+                            "container_id": replay_details.get("container_id"),
+                            "harness_verdict": replay_details.get("harness_verdict"),
+                            "exit_code": replay_details.get("exit_code"),
+                            "utc_start_time": replay_details.get("utc_start_time"),
+                            "utc_end_time": replay_details.get("utc_end_time"),
+                        }
+                        replay_envelope_error = replay_evidence["incomplete_reason"]
+                    else:
+                        replay_stdout_artifact = persist_replay_artifact(
+                            replay_artifact_dir, f"{target.contract_id}_replay_stdout.txt", replay_stdout_bytes
+                        )
+                        replay_stderr_artifact = persist_replay_artifact(
+                            replay_artifact_dir, f"{target.contract_id}_replay_stderr.txt", replay_stderr_bytes
+                        )
+                        replay_candidate_artifact = persist_replay_artifact(
+                            replay_artifact_dir, f"{target.contract_id}_replay_candidate.sol", replay_candidate_bytes
+                        )
+                        replay_harness_artifact = persist_replay_artifact(
+                            replay_artifact_dir, f"{target.contract_id}_replay_harness.t.sol", replay_harness_bytes
+                        )
+                        replay_artifacts = {
+                            "stdout": replay_stdout_artifact.to_dict(),
+                            "stderr": replay_stderr_artifact.to_dict(),
+                            "candidate_input": replay_candidate_artifact.to_dict(),
+                            "harness_input": replay_harness_artifact.to_dict(),
+                        }
+
+                        replay_evidence = {
+                            "reproduced": bool(is_replayed),
+                            "complete": True,
+                            # Real container identity as observed by the replay worker.
+                            "container_id": replay_details.get("container_id"),
+                            "command": replay_details.get("command"),
+                            "argv": replay_details.get("argv"),
+                            "return_code": replay_details.get("return_code"),
+                            "exit_code": replay_details.get("exit_code"),
+                            "invariant_violated": replay_details.get("invariant_violated"),
+                            "harness_verdict": replay_details.get("harness_verdict"),
+                            "harness_suite": replay_details.get("harness_suite"),
+                            "category": replay_details.get("category"),
+                            # Byte-exact replay artifacts with their own digests.
+                            "stdout_artifact": replay_stdout_artifact.to_dict(),
+                            "stderr_artifact": replay_stderr_artifact.to_dict(),
+                            "candidate_input_artifact": replay_candidate_artifact.to_dict(),
+                            "harness_input_artifact": replay_harness_artifact.to_dict(),
+                            "stdout_sha256": replay_stdout_artifact.sha256,
+                            "stderr_sha256": replay_stderr_artifact.sha256,
+                            "candidate_sha256": replay_candidate_artifact.sha256,
+                            "harness_sha256": replay_harness_artifact.sha256,
+                            # Replay-specific timestamps measured inside the replay worker.
+                            "utc_start_time": replay_details.get("utc_start_time"),
+                            "utc_end_time": replay_details.get("utc_end_time"),
+                            "modal_runtime": replay_details.get("modal_runtime"),
+                        }
+
+                        # The client re-validates the envelope against the bytes it
+                        # just stored.  A replay is CONFIRMED only when this
+                        # validation passes.
+                        replay_envelope_valid, replay_envelope_error = validate_replay_evidence_envelope(
+                            {
+                                "replay_status": "CONFIRMED",
+                                "replayed_breaches": 1,
+                                "replay_evidence": replay_evidence,
+                                "tool_metadata": {"replay_evidence": replay_evidence},
+                                "utc_start_time": utc_start,
+                                "utc_end_time": utc_end,
+                                "output_sha256": output_sha,
+                            },
+                            artifact_root=replay_artifact_dir,
+                        )
+                        if not replay_envelope_valid:
+                            replay_evidence["complete"] = False
+                            replay_evidence["incomplete_reason"] = replay_envelope_error
+
+                is_verified = bool(
+                    replay_attempted
+                    and is_replayed
+                    and replay_envelope_valid
+                    and verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED
+                )
                 if is_verified:
                     verdict.category = ResultCategory.EXPLOIT_CONFIRMED
                     verdict.is_verified = True
@@ -1652,7 +1858,14 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 modal_functions.append("record_trajectory_remote")
 
             sec_verdict = "EXPLOIT_CONFIRMED" if is_verified else verdict.category.value
-            rep_status = "CONFIRMED" if is_replayed else ("NOT_ELIGIBLE" if not replay_attempted else "FAILED")
+            # CONFIRMED is only reachable when the replay evidence envelope was
+            # complete AND re-validated by this client against the stored bytes.
+            if not replay_attempted:
+                rep_status = "NOT_ELIGIBLE"
+            elif is_replayed and replay_envelope_valid:
+                rep_status = "CONFIRMED"
+            else:
+                rep_status = "FAILED"
             pers_status = persistence_status
             exit_code = verdict_dict.get("sandbox_returncode", 1 if verdict.category == ResultCategory.COMPILATION_ERROR else 0)
 
@@ -1676,98 +1889,117 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             else:
                 evm_outcome = "NOT_RUN" if (payload and not payload.format_valid) else "UNKNOWN"
 
-            raw_stdout = verdict_dict.get("sandbox_stdout", "")
-            raw_stderr = verdict_dict.get("sandbox_stderr", verdict.feedback or "")
-            stdout_sha = hashlib.sha256(raw_stdout.encode("utf-8")).hexdigest()
-            stderr_sha = hashlib.sha256(raw_stderr.encode("utf-8")).hexdigest()
-            input_sha = hashlib.sha256(source_code.encode("utf-8")).hexdigest()
-            output_sha = hashlib.sha256((payload.test_code or "").encode("utf-8")).hexdigest() if payload else None
-            prompt_hash = hashlib.sha256(payload.prompt_text.encode("utf-8")).hexdigest() if (payload and payload.prompt_text) else None
-            utc_start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start_time))
-            utc_end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            # ------------------------------------------------------------------
+            # Remote EVM toolchain provenance (Iteration 14 P0.3)
+            # ------------------------------------------------------------------
+            # The facts are the ones the worker observed while running the EVM.
+            # When the EVM stage did not run, no provenance is attached at all.
+            observed_environment = verdict_dict.get("observed_environment")
+            remote_evm_provenance: Optional[Dict[str, Any]] = None
+            if evm_outcome != "NOT_RUN" and isinstance(observed_environment, dict):
+                remote_evm_provenance = dict(observed_environment)
+                remote_evm_provenance["target_id"] = target.contract_id
 
-            # Replay evidence envelope (Iteration 13 Requirement 2)
-            replay_evidence = None
-            if is_replayed:
-                replay_evidence = {
-                    "reproduced": True,
-                    "container_id": replay_details.get("container_id", "modal-cpu-replayed"),
-                    "command": "forge test --offline --json -vvvv",
-                    "argv": ["forge", "test", "--offline", "--json", "-vvvv"],
-                    "return_code": 0,
-                    "exit_code": 0,
-                    "invariant_violated": True,
-                    "harness_verdict": replay_details.get("harness_verdict", "BREACH"),
-                    "category": "EXPLOIT_CONFIRMED",
-                    "candidate_sha256": output_sha or hashlib.sha256((payload.test_code or "").encode("utf-8")).hexdigest(),
-                    "harness_sha256": hashlib.sha256(harness_source.encode("utf-8")).hexdigest(),
-                    "stdout_sha256": replay_details.get("stdout_sha256") or stdout_sha,
-                    "stderr_sha256": replay_details.get("stderr_sha256") or stderr_sha,
-                    "utc_start_time": replay_details.get("utc_start_time", utc_start),
-                    "utc_end_time": replay_details.get("utc_end_time", utc_end),
-                }
+            # ------------------------------------------------------------------
+            # Modal invocation provenance (Iteration 14 P0.1)
+            # ------------------------------------------------------------------
+            # The identifiers are the ones the Modal runtime reported. There is
+            # no hardcoded application id and no fabricated log URI: when the
+            # runtime does not expose a fact, the fact is NOT_AVAILABLE with
+            # the exact reason.
+            from benchmarks.evidence_integrity import (
+                build_modal_stage_provenance,
+                not_available,
+            )
 
-            # Remote EVM toolchain provenance (Iteration 13 Requirement 3)
-            remote_evm_provenance = {
-                "remote_os": "Debian GNU/Linux 12 (bookworm)",
-                "remote_platform": "linux",
-                "image_tag": "debian:12-slim-foundry",
-                "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
-                "solc_versions": ["0.8.20", "0.8.24"],
-                "exact_forge_argv": ["forge", "test", "--offline", "--json", "-vvvv"],
-                "working_directory": "/tmp/aegis_sandbox",
-                "compiler_settings": {
-                    "evm_version": "paris",
-                    "optimizer": True,
-                    "optimizer_runs": 200,
-                    "via_ir": False
-                }
-            }
+            evm_runtime = verdict_dict.get("modal_runtime") or {}
+            replay_runtime = replay_details.get("modal_runtime") or {}
 
-            # Modal invocation provenance & join mapping (Iteration 13 Requirement 1)
+            def _runtime_fact(runtime: Dict[str, Any], key: str) -> Any:
+                """Return the observed fact for a runtime key, or a NOT_AVAILABLE fact."""
+                fact = runtime.get(key)
+                if isinstance(fact, dict) and fact.get("status") == "OBSERVED":
+                    return fact
+                if isinstance(fact, dict) and fact.get("status") == "NOT_AVAILABLE":
+                    return fact
+                return not_available(
+                    f"the Modal runtime did not report '{key}' for this stage"
+                )
+
+            inference_runtime: Dict[str, Any] = {}
             modal_invocation_provenance = {
-                "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+                "modal_app_id": _runtime_fact(evm_runtime, "app_id"),
                 "target_id": target.contract_id,
                 "correlation_id": correlation_id,
                 "stages": {
-                    "inference": {
-                        "function_name": modal_functions[0] if modal_functions else "generate_solidity_exploit",
-                        "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                        "invocation_id": "NOT_AVAILABLE",
-                        "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                        "durable_log_ref": f"modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/{target.contract_id}/{correlation_id}",
-                        "resource": "H100" if self.provider == "modal_h100" else "DEV_GPU"
-                    },
-                    "evm_sandbox": {
-                        "function_name": "verify_exploit_remote",
-                        "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                        "invocation_id": "NOT_AVAILABLE",
-                        "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                        "durable_log_ref": f"modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/{target.contract_id}/{correlation_id}",
-                        "resource": "CPU"
-                    },
-                    "independent_replay": {
-                        "attempted": replay_attempted,
-                        "function_name": "verify_replay_remote" if replay_attempted else None,
-                        "container_id": replay_details.get("container_id"),
-                        "app_id": "ap-EDUitOwWeMrIdYbTh4kB63" if replay_attempted else None,
-                        "durable_log_ref": f"modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_replay_remote/{target.contract_id}/{correlation_id}" if replay_attempted else None,
-                        "resource": "CPU"
-                    },
-                    "trajectory_persistence": {
-                        "attempted": persistence_status == "persisted",
-                        "function_name": "record_trajectory_remote" if persistence_status == "persisted" else None,
-                        "persisted_path": persisted_path,
-                        "resource": "Storage"
-                    }
-                }
+                    "inference": build_modal_stage_provenance(
+                        function_name=modal_functions[0] if modal_functions else "generate_solidity_exploit",
+                        app_id=not_available(
+                            "the inference stage runs on a GPU worker whose runtime identity is not "
+                            "reported back to this client"
+                        ),
+                        function_call_id=not_available(
+                            "the inference stage runs on a GPU worker whose function-call id is not "
+                            "reported back to this client"
+                        ),
+                        container_id=not_available(
+                            "the inference stage runs on a GPU worker whose container id is not "
+                            "reported back to this client"
+                        ),
+                        resource="H100" if self.provider == "modal_h100" else "DEV_GPU",
+                        attempted=True,
+                    ),
+                    "evm_sandbox": build_modal_stage_provenance(
+                        function_name="verify_exploit_remote",
+                        app_id=_runtime_fact(evm_runtime, "app_id"),
+                        function_call_id=_runtime_fact(evm_runtime, "function_call_id"),
+                        container_id=_runtime_fact(evm_runtime, "container_id"),
+                        resource="CPU",
+                        attempted=True,
+                    ),
+                    "independent_replay": build_modal_stage_provenance(
+                        function_name="verify_replay_remote" if replay_attempted else None,
+                        app_id=_runtime_fact(replay_runtime, "app_id") if replay_attempted else not_available(
+                            "the independent replay stage was not attempted"
+                        ),
+                        function_call_id=_runtime_fact(replay_runtime, "function_call_id") if replay_attempted else not_available(
+                            "the independent replay stage was not attempted"
+                        ),
+                        container_id=_runtime_fact(replay_runtime, "container_id") if replay_attempted else not_available(
+                            "the independent replay stage was not attempted"
+                        ),
+                        resource="CPU",
+                        attempted=replay_attempted,
+                    ),
+                    "trajectory_persistence": build_modal_stage_provenance(
+                        function_name="record_trajectory_remote" if persistence_status == "persisted" else None,
+                        app_id=not_available(
+                            "the trajectory persistence stage does not report a container-scoped "
+                            "application id"
+                        ),
+                        function_call_id=not_available(
+                            "the trajectory persistence stage does not report a function-call id"
+                        ),
+                        container_id=not_available(
+                            "the trajectory persistence stage does not report a container id"
+                        ),
+                        resource="Storage",
+                        attempted=persistence_status == "persisted",
+                    ),
+                },
             }
+            modal_invocation_provenance["persisted_path"] = persisted_path
 
             if is_verified:
-                verdict_log = f"Replay confirmed in fresh container {replay_details.get('container_id', 'ephemeral')}: {replay_details.get('harness_verdict', 'EXPLOIT_CONFIRMED')}"
+                observed_container = replay_details.get("container_id")
+                verdict_log = (
+                    f"Replay confirmed in fresh container {observed_container}: "
+                    f"{replay_details.get('harness_verdict', 'EXPLOIT_CONFIRMED')}"
+                )
                 final_logs = [verdict_log]
             elif replay_attempted:
-                final_logs = [f"Replay unconfirmed: {replay_details.get('harness_verdict', 'NO_BREACH')}"]
+                detail = replay_envelope_error or replay_details.get("harness_verdict", "NO_BREACH")
+                final_logs = [f"Replay unconfirmed: {detail}"]
             else:
                 final_logs = [verdict.feedback[:300]] if verdict.feedback else []
 
@@ -1805,6 +2037,9 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 "reproduced": is_replayed,
                 "replay_details": replay_details,
                 "replay_evidence": replay_evidence,
+                "replay_artifacts": replay_artifacts,
+                "replay_envelope_valid": replay_envelope_valid,
+                "replay_envelope_error": replay_envelope_error,
                 "remote_evm_provenance": remote_evm_provenance,
                 "modal_invocation_provenance": modal_invocation_provenance,
                 "orchestration_status": orch_status,
@@ -1822,6 +2057,10 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 "process_exit_code": exit_code,
                 "stdout_sha256": stdout_sha,
                 "stderr_sha256": stderr_sha,
+                "stdout_byte_length": stdout_len,
+                "stderr_byte_length": stderr_len,
+                "stdout_digest_source": stdout_digest_source,
+                "stderr_digest_source": stderr_digest_source,
                 "input_sha256": input_sha,
                 "output_sha256": output_sha,
                 "prompt_hash": prompt_hash,
@@ -1863,8 +2102,19 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     "reward_score": verdict.reward_score,
                     "stdout": raw_stdout,
                     "stderr": raw_stderr,
+                    "stdout_sha256": stdout_sha,
+                    "stderr_sha256": stderr_sha,
+                    "stdout_byte_length": stdout_len,
+                    "stderr_byte_length": stderr_len,
+                    "stdout_digest_source": stdout_digest_source,
+                    "stderr_digest_source": stderr_digest_source,
+                    "stdout_bytes_b64": verdict_dict.get("sandbox_stdout_bytes_b64"),
+                    "stderr_bytes_b64": verdict_dict.get("sandbox_stderr_bytes_b64"),
                     "replay_details": replay_details,
                     "replay_evidence": replay_evidence,
+                    "replay_artifacts": replay_artifacts,
+                    "replay_envelope_valid": replay_envelope_valid,
+                    "replay_envelope_error": replay_envelope_error,
                     "remote_evm_provenance": remote_evm_provenance,
                     "modal_invocation_provenance": modal_invocation_provenance,
                 },

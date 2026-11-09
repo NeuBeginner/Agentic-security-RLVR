@@ -362,6 +362,76 @@ class DevReasoningAgent:
 # =============================================================================
 # 3. EPHEMERAL CPU WORKERS (Foundry / Slither / Replay Sandbox)
 # =============================================================================
+def capture_modal_runtime_identity() -> dict:
+    """
+    Capture the provider-issued identity of the running Modal container.
+
+    Every value here comes from the Modal runtime itself. A fact that the
+    runtime does not expose is reported as NOT_AVAILABLE with the exact
+    reason - never as a constant and never as a fabricated URI
+    (Iteration 14 P0.1).
+    """
+    from benchmarks.evidence_integrity import NOT_AVAILABLE, observed, not_available
+
+    identity: dict = {}
+
+    # Application id of the running app (provider-issued).
+    app_id = None
+    try:
+        running = modal.running_app()
+        app_id = getattr(running, "app_id", None)
+    except Exception:
+        app_id = None
+    identity["app_id"] = (
+        observed(str(app_id), source="modal.running_app().app_id")
+        if app_id
+        else not_available(
+            "the Modal runtime did not expose a running application id inside this container"
+        )
+    )
+
+    # Function-call id of the invocation that is currently executing.
+    function_call_id = None
+    try:
+        function_call_id = modal.current_function_call_id()
+    except Exception:
+        function_call_id = None
+    identity["function_call_id"] = (
+        observed(str(function_call_id), source="modal.current_function_call_id()")
+        if function_call_id
+        else not_available(
+            "the Modal runtime did not expose a function-call id inside this container"
+        )
+    )
+
+    # Container identity: the worker id Modal assigns to this container.
+    container_id = os.environ.get("MODAL_WORKER_ID") or os.environ.get("HOSTNAME")
+    identity["container_id"] = (
+        observed(str(container_id), source="MODAL_WORKER_ID/HOSTNAME of the running container")
+        if container_id
+        else not_available(
+            "the container exposed neither MODAL_WORKER_ID nor HOSTNAME, so its identity "
+            "cannot be attested"
+        )
+    )
+    identity["container_id_value"] = container_id
+
+    # Provider-issued dashboard reference for the running app.
+    app_page_url = None
+    try:
+        running = modal.running_app()
+        app_page_url = getattr(running, "app_page_url", None)
+    except Exception:
+        app_page_url = None
+    identity["app_page_url"] = (
+        observed(str(app_page_url), source="modal.running_app().app_page_url")
+        if app_page_url
+        else not_available("the Modal runtime did not expose an application page URL")
+    )
+
+    return identity
+
+
 @app.function(
     image=sandbox_image,
     timeout=60,
@@ -384,16 +454,25 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     """Compiles Solidity exploit and executes forge test --offline --json -vvvv in ephemeral EVM."""
     target = TargetProgram(**target_dict)
     payload = ExploitPayload(**payload_dict)
-    
+
     # 1. Execute in Foundry EVM sandbox
     raw_result = run_payload_in_sandbox(target, payload)
-    
+
     # 2. Evaluate multi-factor verdict
     verdict = evaluate_execution_trace(payload, raw_result)
     res_dict = verdict.model_dump()
     res_dict["sandbox_stdout"] = raw_result.stdout or ""
     res_dict["sandbox_stderr"] = raw_result.stderr or ""
     res_dict["sandbox_returncode"] = raw_result.return_code
+    # Byte-exact streams observed by the worker (Iteration 14 P0.2/P0.3).
+    res_dict["sandbox_stdout_sha256"] = raw_result.stdout_sha256
+    res_dict["sandbox_stderr_sha256"] = raw_result.stderr_sha256
+    res_dict["sandbox_stdout_byte_length"] = raw_result.stdout_byte_length
+    res_dict["sandbox_stderr_byte_length"] = raw_result.stderr_byte_length
+    res_dict["sandbox_stdout_bytes_b64"] = raw_result.stdout_bytes_b64
+    res_dict["sandbox_stderr_bytes_b64"] = raw_result.stderr_bytes_b64
+    res_dict["observed_environment"] = raw_result.observed_environment
+    res_dict["modal_runtime"] = capture_modal_runtime_identity()
     return res_dict
 
 
@@ -405,12 +484,23 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
 )
 def verify_replay_remote(target_dict: dict, payload_dict: dict) -> dict:
     """Runs the candidate independently in a fresh EVM worker and returns structured replay evidence."""
+    import base64
     import hashlib
+    import time
+    from core.schemas import TargetProgram, ExploitPayload
+    from sandbox.runner import verify_independent_replay_result, HARNESS_VERDICT_BREACH
+
     target = TargetProgram(**target_dict)
     payload = ExploitPayload(**payload_dict)
-    from sandbox.runner import verify_independent_replay_result, HARNESS_VERDICT_BREACH
+
+    # Replay-specific timestamps: measured inside the replay worker, never
+    # inherited from the initial run (Iteration 14 P0.2).
+    replay_started_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
     raw_result = verify_independent_replay_result(target, payload)
-    
+
+    replay_finished_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
     is_confirmed = (
         raw_result.harness_verdict == HARNESS_VERDICT_BREACH
         and raw_result.invariant_violated
@@ -418,26 +508,65 @@ def verify_replay_remote(target_dict: dict, payload_dict: dict) -> dict:
         and not raw_result.cheatcode_detected
         and raw_result.category == ResultCategory.EXPLOIT_CONFIRMED
     )
-    
-    container_id = os.environ.get("MODAL_CONTAINER_ID") or os.environ.get("HOSTNAME") or f"modal-cpu-{uuid.uuid4().hex[:12]}"
-    stdout_text = raw_result.stdout or ""
-    stderr_text = raw_result.stderr or ""
-    stdout_sha = hashlib.sha256(stdout_text.encode("utf-8")).hexdigest()
-    stderr_sha = hashlib.sha256(stderr_text.encode("utf-8")).hexdigest()
-    
+
+    stdout_bytes = base64.b64decode(raw_result.stdout_bytes_b64 or "")
+    stderr_bytes = base64.b64decode(raw_result.stderr_bytes_b64 or "")
+    stdout_sha = hashlib.sha256(stdout_bytes).hexdigest()
+    stderr_sha = hashlib.sha256(stderr_bytes).hexdigest()
+
+    # The exact bytes the replay consumed: the candidate source and the
+    # immutable harness source that were compiled in this container.
+    candidate_bytes = (payload.test_code or "").encode("utf-8")
+    harness_source = ""
+    try:
+        from sandbox.runner import load_trusted_harness_code
+        harness_source = load_trusted_harness_code(target.name)
+    except Exception:
+        harness_source = ""
+    harness_bytes = harness_source.encode("utf-8")
+
+    runtime_identity = capture_modal_runtime_identity()
+
+    # The exact command line is the one the worker observed while running the
+    # replay - never a constant that merely looks like it (Iteration 14 P0.2).
+    observed_env = raw_result.observed_environment if isinstance(raw_result.observed_environment, dict) else {}
+    argv_fact = observed_env.get("exact_forge_argv")
+    replay_argv = argv_fact.get("value") if isinstance(argv_fact, dict) and argv_fact.get("status") == "OBSERVED" else None
+    if not isinstance(replay_argv, list) or not replay_argv:
+        replay_argv = None
+    replay_command = " ".join(replay_argv) if replay_argv else None
+
     return {
         "reproduced": bool(is_confirmed),
-        "container_id": container_id,
-        "command": "forge test --offline --json -vvvv",
+        "container_id": runtime_identity.get("container_id_value"),
+        "modal_runtime": runtime_identity,
+        "command": replay_command,
+        "argv": replay_argv,
+        "command_observed": bool(replay_command),
         "return_code": raw_result.return_code,
+        "exit_code": raw_result.return_code,
         "harness_verdict": raw_result.harness_verdict,
+        "harness_suite": raw_result.harness_suite,
         "invariant_violated": raw_result.invariant_violated,
         "category": raw_result.category.value if hasattr(raw_result.category, "value") else str(raw_result.category),
-        "stdout": stdout_text,
-        "stderr": stderr_text,
+        "stdout": raw_result.stdout or "",
+        "stderr": raw_result.stderr or "",
+        "stdout_b64": base64.b64encode(stdout_bytes).decode("ascii"),
+        "stderr_b64": base64.b64encode(stderr_bytes).decode("ascii"),
         "stdout_sha256": stdout_sha,
         "stderr_sha256": stderr_sha,
+        "stdout_byte_length": len(stdout_bytes),
+        "stderr_byte_length": len(stderr_bytes),
+        "candidate_b64": base64.b64encode(candidate_bytes).decode("ascii"),
+        "candidate_sha256": hashlib.sha256(candidate_bytes).hexdigest(),
+        "candidate_byte_length": len(candidate_bytes),
+        "harness_b64": base64.b64encode(harness_bytes).decode("ascii"),
+        "harness_sha256": hashlib.sha256(harness_bytes).hexdigest(),
+        "harness_byte_length": len(harness_bytes),
         "execution_time_sec": raw_result.execution_time_sec,
+        "utc_start_time": replay_started_utc,
+        "utc_end_time": replay_finished_utc,
+        "observed_environment": raw_result.observed_environment,
     }
 
 

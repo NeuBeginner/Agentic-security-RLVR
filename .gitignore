@@ -13,3 +13,5 @@ checkpoints_local/
 # Benchmark execution artifacts and machine-local outputs
 benchmarks/artifacts/
 benchmarks/benchmark_results.json
+# Locally staged Foundry toolchain (solc binary + pre-baked libraries)
+.toolchain/

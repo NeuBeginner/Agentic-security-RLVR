@@ -1,0 +1,1194 @@
+"""
+benchmarks/evidence_integrity.py
+================================
+
+Iteration 14 evidence-integrity primitives (Issue #11).
+
+This module is the single place where the benchmark evidence chain learns to
+tell the truth about what it actually observed. Four P0 defect groups are
+addressed here, each with one producer-side helper and one consumer-side
+validator:
+
+P0.1  Modal provenance and billing attribution
+      - provider-issued identifiers are captured from the real Modal runtime,
+        never hardcoded;
+      - missing provider fields are recorded as an explicit ``NOT_AVAILABLE``
+        fact with a reason and a pointer to an immutable evidence artifact
+        (path + SHA-256) instead of a synthetic URI;
+      - billing is split into app/session level and target level, every raw
+        line item is accounted for exactly once, and target-level cost stays
+        ``None`` until an invocation-level join is actually proven.
+
+P0.2  Replay integrity envelope
+      - no fallback of any kind: no reuse of the initial run's stdout/stderr
+        hashes, no reuse of the initial run's timestamps, no synthetic
+        container identity;
+      - replay stdout/stderr are stored as their own artifacts with byte
+        length and SHA-256, and the validator recomputes the digest from the
+        stored bytes;
+      - candidate and harness digests are checked against the exact replay
+        input artifacts.
+
+P0.3  Remote EVM provenance
+      - the worker reports the OS details, the immutable image digest, the
+        exact Foundry/Solc versions, the exact argv, the working directory and
+        the effective compiler settings it actually observed;
+      - facts that could not be observed are ``NOT_AVAILABLE`` with a reason;
+      - provenance is stored per target/per execution and is never copied onto
+        a target whose EVM stage did not run.
+
+P0.4  Safe-control sentinel
+      - only the exact documented sentinel of the repository-owned harness is
+        accepted, and only for the matching target/harness context;
+      - arbitrary prefixes, suffixes, near-matches, generic reverts, panics,
+        compilation errors, malformed output and infrastructure failures are
+        rejected.
+
+The design rule for the whole module: a fact is either OBSERVED (with the
+bytes or value it came from) or NOT_AVAILABLE (with the reason why it could
+not be observed). There is no third state, and in particular there is no
+state in which a constant, a fallback or a template is presented as if it had
+been observed.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+from dataclasses import dataclass, field
+from decimal import Decimal
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+
+# ---------------------------------------------------------------------------
+# Shared constants
+# ---------------------------------------------------------------------------
+
+#: Marker used for a provider field that the runtime did not expose.
+NOT_AVAILABLE = "NOT_AVAILABLE"
+
+#: Marker for a value that could not be observed.
+OBSERVED = "OBSERVED"
+
+#: A SHA-256 digest is always exactly 64 lowercase hex characters.
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+#: A Modal application id looks like ``ap-<base62>``.
+MODAL_APP_ID_RE = re.compile(r"^ap-[A-Za-z0-9]{8,}$")
+
+#: A Modal function-call id looks like ``fc-<base62>``.
+MODAL_FUNCTION_CALL_ID_RE = re.compile(r"^fc-[A-Za-z0-9]{8,}$")
+
+#: A Modal container/worker id is a UUID-like hex token.
+MODAL_CONTAINER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{7,}$")
+
+#: Immutable Modal image ids look like ``im-<base62>``.
+MODAL_IMAGE_ID_RE = re.compile(r"^im-[A-Za-z0-9]{8,}$")
+
+#: Synthetic container identities that must never be accepted as evidence.
+FORBIDDEN_SYNTHETIC_CONTAINER_IDS = frozenset({
+    "modal-cpu-replayed",
+    "modal-cpu",
+    "ephemeral",
+    "unknown",
+    "container",
+    "fresh-container",
+})
+
+#: Shape of the synthetic fallback the old client code generated:
+#: ``modal-cpu-<12 hex chars of a random uuid>``. It is not a provider-issued
+#: identity even though it looks like one.
+SYNTHETIC_CONTAINER_ID_RE = re.compile(r"^modal-(cpu|gpu|t4|h100)-[0-9a-f]{12}$")
+
+
+# ---------------------------------------------------------------------------
+# Low-level helpers
+# ---------------------------------------------------------------------------
+
+def sha256_bytes(data: bytes) -> str:
+    """SHA-256 over the exact bytes given (no encoding, no normalisation)."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256_text(text: str) -> str:
+    """SHA-256 over the UTF-8 encoding of ``text``."""
+    return sha256_bytes(text.encode("utf-8"))
+
+
+def is_sha256(value: Any) -> bool:
+    """True only for a well-formed lowercase SHA-256 hex digest."""
+    return isinstance(value, str) and bool(SHA256_RE.fullmatch(value))
+
+
+def file_sha256(path: os.PathLike | str) -> Optional[str]:
+    """SHA-256 of a file's exact bytes, or ``None`` when it cannot be read."""
+    try:
+        with open(path, "rb") as handle:
+            return sha256_bytes(handle.read())
+    except OSError:
+        return None
+
+
+def is_not_available(value: Any) -> bool:
+    """True when a recorded fact is the explicit NOT_AVAILABLE marker."""
+    return value == NOT_AVAILABLE
+
+
+def not_available(
+    reason: str,
+    *,
+    evidence_ref: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Build an explicit "not available" fact.
+
+    The fact never pretends to hold data. It states the exact reason and, when
+    the caller can point at an existing immutable evidence artifact, the
+    artifact's path together with its SHA-256 so the claim stays checkable.
+    """
+    if not reason or not str(reason).strip():
+        raise ValueError("A NOT_AVAILABLE fact requires an explicit reason")
+    fact: Dict[str, Any] = {
+        "status": NOT_AVAILABLE,
+        "value": None,
+        "reason": str(reason).strip(),
+    }
+    if evidence_ref:
+        fact["evidence_ref"] = (
+            evidence_ref.to_dict() if hasattr(evidence_ref, "to_dict") else dict(evidence_ref)
+        )
+    return fact
+
+
+def observed(value: Any, *, source: str) -> Dict[str, Any]:
+    """Build an observed fact together with the source it was read from."""
+    if not source or not str(source).strip():
+        raise ValueError("An OBSERVED fact requires an explicit source")
+    return {
+        "status": OBSERVED,
+        "value": value,
+        "source": str(source).strip(),
+    }
+
+
+def fact_value(fact: Any) -> Any:
+    """Return the observed value of a fact, or ``None`` when unavailable."""
+    if isinstance(fact, dict):
+        if fact.get("status") == OBSERVED:
+            return fact.get("value")
+        return None
+    return fact
+
+
+def fact_is_observed(fact: Any) -> bool:
+    """True only when the fact carries an actually observed value."""
+    if isinstance(fact, dict):
+        return fact.get("status") == OBSERVED and fact.get("value") is not None
+    return fact is not None
+
+
+# ---------------------------------------------------------------------------
+# Immutable evidence references
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class EvidenceRef:
+    """A pointer to an existing immutable evidence artifact."""
+
+    path: str
+    sha256: str
+    byte_length: Optional[int] = None
+    description: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"path": self.path, "sha256": self.sha256}
+        if self.byte_length is not None:
+            payload["byte_length"] = self.byte_length
+        if self.description:
+            payload["description"] = self.description
+        return payload
+
+
+def build_evidence_ref(
+    path: os.PathLike | str,
+    *,
+    description: str = "",
+    root: Optional[Path] = None,
+) -> Optional[EvidenceRef]:
+    """
+    Build an :class:`EvidenceRef` for an existing file.
+
+    Returns ``None`` when the artifact does not exist: a reference to a
+    non-existent artifact is worse than no reference at all.
+    """
+    file_path = Path(path)
+    if not file_path.is_file():
+        return None
+    digest = file_sha256(file_path)
+    if digest is None:
+        return None
+    display = str(file_path)
+    if root is not None:
+        try:
+            display = str(file_path.resolve().relative_to(Path(root).resolve())).replace("\\", "/")
+        except (ValueError, OSError):
+            display = str(file_path)
+    return EvidenceRef(
+        path=display,
+        sha256=digest,
+        byte_length=file_path.stat().st_size,
+        description=description,
+    )
+
+
+# ---------------------------------------------------------------------------
+# P0.1 - Modal invocation provenance
+# ---------------------------------------------------------------------------
+
+#: Stages that may appear in the Modal invocation provenance block.
+MODAL_PROVENANCE_STAGES = ("inference", "evm_sandbox", "independent_replay", "trajectory_persistence")
+
+
+def build_modal_stage_provenance(
+    *,
+    function_name: Optional[str],
+    app_id: Any,
+    function_call_id: Any,
+    container_id: Any,
+    resource: Optional[str],
+    attempted: bool,
+) -> Dict[str, Any]:
+    """
+    Build the provenance block of a single Modal stage.
+
+    ``app_id`` / ``function_call_id`` / ``container_id`` are either observed
+    values or :func:`not_available` facts produced by the caller. No value is
+    ever synthesised here.
+    """
+    return {
+        "attempted": bool(attempted),
+        "function_name": function_name,
+        "resource": resource,
+        "app_id": app_id,
+        "function_call_id": function_call_id,
+        "container_id": container_id,
+    }
+
+
+def validate_modal_invocation_provenance(
+    artifact: Dict[str, Any],
+    *,
+    known_app_ids: Optional[Iterable[str]] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validate the Modal invocation provenance of one target artifact.
+
+    Rejects:
+      * a missing or malformed provenance block;
+      * a synthetic ``modal-app://`` style log URI;
+      * a hardcoded-looking application id that is not a plausible Modal id;
+      * an observed application id that is absent from the raw billing export;
+      * a NOT_AVAILABLE fact without a reason;
+      * an observed function-call id that is not a plausible Modal id.
+    """
+    provenance = artifact.get("modal_invocation_provenance")
+    if not isinstance(provenance, dict) or not provenance:
+        return False, "Missing modal_invocation_provenance for the executed target"
+
+    stages = provenance.get("stages")
+    if not isinstance(stages, dict) or not stages:
+        return False, "modal_invocation_provenance has no stages"
+
+    known = set(known_app_ids or ())
+
+    for stage_name, stage in stages.items():
+        if not isinstance(stage, dict):
+            return False, f"Modal provenance stage '{stage_name}' is not an object"
+
+        for key in ("app_id", "function_call_id", "container_id"):
+            if key not in stage:
+                return False, f"Modal provenance stage '{stage_name}' is missing '{key}'"
+
+        for key in ("app_id", "function_call_id", "container_id"):
+            fact = stage[key]
+            if isinstance(fact, dict):
+                if fact.get("status") == NOT_AVAILABLE:
+                    if not fact.get("reason"):
+                        return False, (
+                            f"Modal provenance stage '{stage_name}' records '{key}' as NOT_AVAILABLE "
+                            "without an explicit reason"
+                        )
+                    continue
+                if fact.get("status") != OBSERVED:
+                    return False, (
+                        f"Modal provenance stage '{stage_name}' has an unknown status for '{key}'"
+                    )
+                if not fact.get("source"):
+                    return False, (
+                        f"Modal provenance stage '{stage_name}' records '{key}' without an observation source"
+                    )
+                value = fact.get("value")
+            else:
+                # Legacy flat values are only acceptable when they are real ids.
+                value = fact
+
+            if value is None or value == NOT_AVAILABLE:
+                if not (isinstance(stage[key], dict) and stage[key].get("reason")):
+                    return False, (
+                        f"Modal provenance stage '{stage_name}' has an unexplained missing '{key}'"
+                    )
+                continue
+
+            if key == "app_id":
+                if not isinstance(value, str) or not MODAL_APP_ID_RE.fullmatch(value):
+                    return False, (
+                        f"Modal provenance stage '{stage_name}' has a malformed application id: {value!r}"
+                    )
+                if known and value not in known:
+                    return False, (
+                        f"Modal provenance stage '{stage_name}' references application id {value!r} "
+                        "which is absent from the raw billing export"
+                    )
+            elif key == "function_call_id":
+                if not isinstance(value, str) or not MODAL_FUNCTION_CALL_ID_RE.fullmatch(value):
+                    return False, (
+                        f"Modal provenance stage '{stage_name}' has a malformed function-call id: {value!r}"
+                    )
+            elif key == "container_id":
+                if not isinstance(value, str) or not MODAL_CONTAINER_ID_RE.fullmatch(value):
+                    return False, (
+                        f"Modal provenance stage '{stage_name}' has a malformed container id: {value!r}"
+                    )
+                if value in FORBIDDEN_SYNTHETIC_CONTAINER_IDS:
+                    return False, (
+                        f"Modal provenance stage '{stage_name}' uses the synthetic container id {value!r}"
+                    )
+                if SYNTHETIC_CONTAINER_ID_RE.fullmatch(value):
+                    return False, (
+                        f"Modal provenance stage '{stage_name}' uses the synthetic container id {value!r}; "
+                        "the container identity must be the provider-issued worker id"
+                    )
+
+        for legacy_key in ("durable_log_ref", "provider_log_uri", "log_uri"):
+            legacy = stage.get(legacy_key)
+            if isinstance(legacy, str) and legacy.startswith("modal-app://"):
+                return False, (
+                    f"Modal provenance stage '{stage_name}' contains the synthetic log URI {legacy!r}"
+                )
+
+    return True, None
+
+
+def has_synthetic_modal_uri(payload: Any) -> bool:
+    """True when the payload contains a fabricated ``modal-app://`` URI."""
+    if isinstance(payload, str):
+        return payload.startswith("modal-app://")
+    if isinstance(payload, dict):
+        for value in payload.values():
+            if has_synthetic_modal_uri(value):
+                return True
+    if isinstance(payload, (list, tuple)):
+        return any(has_synthetic_modal_uri(item) for item in payload)
+    return False
+
+
+# ---------------------------------------------------------------------------
+# P0.1 - Billing attribution
+# ---------------------------------------------------------------------------
+
+@dataclass
+class BillingLineItem:
+    """A single raw billing line item as exported by the provider."""
+
+    object_id: str
+    resource: str
+    cost_usd: float
+    interval_start: str
+    description: str = ""
+    environment: str = ""
+
+    @property
+    def key(self) -> str:
+        """Stable identity of the line item inside the raw export."""
+        return f"{self.object_id}|{self.resource}|{self.interval_start}|{self.description}|{self.environment}"
+
+
+def load_raw_billing_line_items(path: os.PathLike | str) -> List[BillingLineItem]:
+    """Load the raw provider billing export into :class:`BillingLineItem` objects."""
+    with open(path, "r", encoding="utf-8") as handle:
+        raw = json.load(handle)
+    if not isinstance(raw, list):
+        raise ValueError("Raw billing export must be a list of line items")
+
+    items: List[BillingLineItem] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        items.append(
+            BillingLineItem(
+                object_id=str(entry.get("object_id", "")),
+                resource=str(entry.get("resource", "")),
+                cost_usd=float(entry.get("cost", 0.0)),
+                interval_start=str(entry.get("interval_start", "")),
+                description=str(entry.get("description", "")),
+                environment=str(entry.get("environment", "")),
+            )
+        )
+    return items
+
+
+@dataclass
+class BillingAttribution:
+    """
+    Billing attribution split by level.
+
+    ``app_session_level`` accounts for every raw line item exactly once.
+    ``target_level`` holds one row per target; its cost stays ``None`` unless
+    an invocation-level join was actually proven.
+    """
+
+    app_session_level: List[Dict[str, Any]] = field(default_factory=list)
+    target_level: List[Dict[str, Any]] = field(default_factory=list)
+    total_cost_usd: float = 0.0
+    total_cost_usd_exact: str = "0"
+    attribution_policy: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "app_session_level": self.app_session_level,
+            "target_level": self.target_level,
+            "total_cost_usd": self.total_cost_usd,
+            "total_cost_usd_exact": self.total_cost_usd_exact,
+            "attribution_policy": self.attribution_policy,
+        }
+
+
+def build_billing_attribution(
+    line_items: Sequence[BillingLineItem],
+    *,
+    target_rows: Optional[Sequence[Dict[str, Any]]] = None,
+    invocation_joins: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> BillingAttribution:
+    """
+    Build the billing attribution from the raw export.
+
+    Each raw line item is assigned to exactly one app/session bucket. The
+    target rows receive the app/session reference only; their cost stays
+    ``None`` unless ``invocation_joins`` proves that a specific invocation was
+    billed for that target.
+
+    All aggregates are computed with :class:`decimal.Decimal` so that the
+    reconciliation with the raw export is exact and not a floating-point
+    approximation.
+    """
+    buckets: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+    for item in line_items:
+        bucket_key = (item.object_id, item.resource, item.interval_start)
+        bucket = buckets.setdefault(
+            bucket_key,
+            {
+                "app_id": item.object_id,
+                "resource": item.resource,
+                "interval_start": item.interval_start,
+                "descriptions": [],
+                "environments": [],
+                "line_item_count": 0,
+                "cost_usd": Decimal("0"),
+                "line_item_keys": [],
+            },
+        )
+        bucket["line_item_count"] += 1
+        bucket["cost_usd"] += Decimal(str(item.cost_usd))
+        bucket["line_item_keys"].append(item.key)
+        if item.description and item.description not in bucket["descriptions"]:
+            bucket["descriptions"].append(item.description)
+        if item.environment and item.environment not in bucket["environments"]:
+            bucket["environments"].append(item.environment)
+
+    app_session_level: List[Dict[str, Any]] = []
+    total = Decimal("0")
+    for bucket_key in sorted(buckets):
+        bucket = buckets[bucket_key]
+        bucket["descriptions"].sort()
+        bucket["environments"].sort()
+        exact = bucket.pop("cost_usd")
+        bucket["cost_usd"] = float(exact)
+        bucket["cost_usd_exact"] = format(exact, "f")
+        total += exact
+        app_session_level.append(bucket)
+
+    joins = invocation_joins or {}
+    target_level: List[Dict[str, Any]] = []
+    for row in target_rows or []:
+        target_id = str(row.get("target_id", ""))
+        join = joins.get(target_id)
+        cost: Optional[float] = None
+        cost_exact: Optional[str] = None
+        join_evidence: Optional[Dict[str, Any]] = None
+        if join:
+            # A join is only honoured when it names a real line item bucket.
+            bucket_key = (
+                str(join.get("app_id", "")),
+                str(join.get("resource", "")),
+                str(join.get("interval_start", "")),
+            )
+            bucket = buckets.get(bucket_key)
+            if bucket is not None:
+                exact = bucket["cost_usd"]
+                cost = float(exact)
+                cost_exact = format(exact, "f")
+                join_evidence = {
+                    "app_id": bucket_key[0],
+                    "resource": bucket_key[1],
+                    "interval_start": bucket_key[2],
+                    "invocation_id": join.get("invocation_id"),
+                    "line_item_key": join.get("line_item_key"),
+                }
+        target_level.append(
+            {
+                "target_id": target_id,
+                "target_name": row.get("target_name"),
+                "app_id": row.get("app_id"),
+                "cost_usd": cost,
+                "cost_usd_exact": cost_exact,
+                "cost_status": "ATTRIBUTED" if cost is not None else "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+                "invocation_join": join_evidence,
+            }
+        )
+
+    return BillingAttribution(
+        app_session_level=app_session_level,
+        target_level=target_level,
+        total_cost_usd=float(total),
+        total_cost_usd_exact=format(total, "f"),
+        attribution_policy={
+            "status": "APP_SESSION_LEVEL_ONLY",
+            "per_target_cost_usd": None,
+            "policy_reason": (
+                "Modal billing is reported at app-session and interval granularity. A target-level "
+                "cost is assigned only when an invocation-level join to a specific billing line "
+                "item is proven; otherwise the target-level cost stays null."
+            ),
+        },
+    )
+
+
+def validate_billing_attribution(
+    attribution: Dict[str, Any],
+    line_items: Sequence[BillingLineItem],
+    *,
+    known_app_ids: Optional[Iterable[str]] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validate a billing attribution against the raw export.
+
+    Checks that
+      * every referenced application id exists in the raw export;
+      * every raw line item is accounted for exactly once (no double counting,
+        no silently dropped item);
+      * the aggregates reconcile exactly with the raw export;
+      * a target-level cost is only present when a proven invocation-level
+        join accompanies it.
+    """
+    if not isinstance(attribution, dict):
+        return False, "Billing attribution must be an object"
+
+    app_level = attribution.get("app_session_level")
+    target_level = attribution.get("target_level")
+    if not isinstance(app_level, list):
+        return False, "Billing attribution has no app_session_level rows"
+    if not isinstance(target_level, list):
+        return False, "Billing attribution has no target_level rows"
+
+    known = set(known_app_ids or ())
+    raw_keys = [item.key for item in line_items]
+    raw_total = sum((Decimal(str(item.cost_usd)) for item in line_items), Decimal("0"))
+
+    seen_keys: List[str] = []
+    app_total = Decimal("0")
+    for row in app_level:
+        if not isinstance(row, dict):
+            return False, "app_session_level contains a non-object row"
+        app_id = row.get("app_id")
+        if not isinstance(app_id, str) or not app_id:
+            return False, "app_session_level row has no application id"
+        if known and app_id not in known:
+            return False, (
+                f"Billing attribution references application id {app_id!r} which is absent from "
+                "the raw billing export"
+            )
+        keys = row.get("line_item_keys")
+        if not isinstance(keys, list) or not keys:
+            return False, f"Billing attribution row for {app_id!r} references no raw line items"
+        for key in keys:
+            if key not in raw_keys:
+                return False, f"Billing attribution row for {app_id!r} references unknown line item {key!r}"
+            seen_keys.append(key)
+        exact = row.get("cost_usd_exact")
+        if exact is None:
+            exact = str(row.get("cost_usd", "0"))
+        try:
+            app_total += Decimal(str(exact))
+        except Exception:
+            return False, f"Billing attribution row for {app_id!r} has a non-numeric cost"
+
+    if len(seen_keys) != len(set(seen_keys)):
+        return False, "Billing attribution double-counts at least one raw billing line item"
+
+    missing = set(raw_keys) - set(seen_keys)
+    if missing:
+        return False, (
+            f"Billing attribution omits {len(missing)} raw billing line item(s); every raw line "
+            "item must be accounted for exactly once"
+        )
+
+    if app_total != raw_total:
+        return False, (
+            f"Billing attribution aggregate {app_total} does not reconcile exactly with the "
+            f"raw export total {raw_total}"
+        )
+
+    declared_total = attribution.get("total_cost_usd")
+    if declared_total is not None:
+        declared_exact = attribution.get("total_cost_usd_exact")
+        if declared_exact is None:
+            declared_exact = str(declared_total)
+        try:
+            if Decimal(str(declared_exact)) != raw_total:
+                return False, (
+                    f"Billing attribution total {declared_exact} does not reconcile exactly with "
+                    f"the raw export total {raw_total}"
+                )
+        except Exception:
+            return False, "Billing attribution total_cost_usd is not a number"
+
+    for row in target_level:
+        if not isinstance(row, dict):
+            return False, "target_level contains a non-object row"
+        cost = row.get("cost_usd")
+        join = row.get("invocation_join")
+        if cost is not None:
+            if not isinstance(join, dict) or not join.get("invocation_id"):
+                return False, (
+                    f"Target {row.get('target_id')!r} has a target-level cost without a proven "
+                    "invocation-level join"
+                )
+            join_app = join.get("app_id")
+            if known and join_app not in known:
+                return False, (
+                    f"Target {row.get('target_id')!r} joins to application id {join_app!r} which "
+                    "is absent from the raw billing export"
+                )
+
+    return True, None
+
+
+# ---------------------------------------------------------------------------
+# P0.2 - Replay integrity envelope
+# ---------------------------------------------------------------------------
+
+#: Keys every replay envelope must carry.
+REPLAY_REQUIRED_KEYS = (
+    "reproduced",
+    "container_id",
+    "command",
+    "argv",
+    "exit_code",
+    "invariant_violated",
+    "harness_verdict",
+    "stdout_artifact",
+    "stderr_artifact",
+    "candidate_input_artifact",
+    "harness_input_artifact",
+    "utc_start_time",
+    "utc_end_time",
+)
+
+
+@dataclass
+class ReplayArtifact:
+    """A stored replay artifact: exact bytes on disk plus their digests."""
+
+    path: str
+    byte_length: int
+    sha256: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"path": self.path, "byte_length": self.byte_length, "sha256": self.sha256}
+
+
+def persist_replay_artifact(
+    directory: os.PathLike | str,
+    name: str,
+    content: bytes,
+) -> ReplayArtifact:
+    """
+    Write replay bytes to disk exactly as given and describe them.
+
+    The bytes are written verbatim (no newline translation, no re-encoding) so
+    that the recorded digest always describes the file that is on disk.
+    """
+    target_dir = Path(directory)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / name
+    with open(target_path, "wb") as handle:
+        handle.write(content)
+    return ReplayArtifact(
+        path=name,
+        byte_length=len(content),
+        sha256=sha256_bytes(content),
+    )
+
+
+def validate_replay_evidence_envelope(
+    artifact: Dict[str, Any],
+    *,
+    artifact_root: Optional[os.PathLike | str] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validate the independent replay evidence envelope (Iteration 14 P0.2).
+
+    The validator is deliberately strict: a replay may only be CONFIRMED when
+    the envelope is complete and every digest can be recomputed from the bytes
+    that were actually stored.
+
+    When ``artifact_root`` is given, the digests of the replay stdout, stderr,
+    candidate input and harness input are recomputed from the stored files. A
+    mismatch, a missing file or a reused initial-run digest is a hard failure.
+    """
+    replay_status = artifact.get("replay_status")
+    replayed_breaches = artifact.get("replayed_breaches", 0)
+
+    if replay_status != "CONFIRMED" and not replayed_breaches:
+        return True, None
+
+    tool_meta = artifact.get("tool_metadata", {}) if isinstance(artifact.get("tool_metadata"), dict) else {}
+    replay_data = (
+        artifact.get("replay_evidence")
+        or tool_meta.get("replay_evidence")
+        or tool_meta.get("replay_details")
+    )
+    if not isinstance(replay_data, dict) or not replay_data:
+        return False, "Replay status is CONFIRMED but the replay evidence envelope is missing or empty"
+
+    for key in REPLAY_REQUIRED_KEYS:
+        if key not in replay_data:
+            return False, f"Replay evidence envelope is missing required key '{key}'"
+
+    # 1. Fresh container identity: must be a real observed container id.
+    container_id = replay_data.get("container_id")
+    if not isinstance(container_id, str) or not container_id:
+        return False, "Replay evidence envelope has no container identity"
+    if container_id in FORBIDDEN_SYNTHETIC_CONTAINER_IDS:
+        return False, f"Replay evidence envelope uses the synthetic container id {container_id!r}"
+    if SYNTHETIC_CONTAINER_ID_RE.fullmatch(container_id):
+        return False, (
+            f"Replay evidence envelope uses the synthetic container id {container_id!r}; the "
+            "container identity must be the provider-issued worker id"
+        )
+    if not MODAL_CONTAINER_ID_RE.fullmatch(container_id):
+        return False, f"Replay evidence envelope has a malformed container id {container_id!r}"
+
+    # 2. Exact command / argv.
+    cmd = replay_data.get("command")
+    argv = replay_data.get("argv")
+    if not isinstance(cmd, str) or not cmd:
+        return False, "Replay evidence envelope has no exact command"
+    if not isinstance(argv, list) or not argv or not all(isinstance(item, str) for item in argv):
+        return False, "Replay evidence envelope has no exact argv list"
+
+    # 3. Exit code must be 0 for a confirmed breach.
+    exit_code = replay_data.get("exit_code", replay_data.get("return_code"))
+    if not isinstance(exit_code, int) or isinstance(exit_code, bool) or exit_code != 0:
+        return False, f"Replay exit_code must be the integer 0 for a confirmed breach, got {exit_code!r}"
+
+    # 4. The trusted harness verdict must be an actual breach.
+    if not replay_data.get("reproduced"):
+        return False, "Replay evidence does not record a reproduction"
+    if not replay_data.get("invariant_violated"):
+        return False, "Replay evidence does not record an invariant violation"
+    if replay_data.get("harness_verdict") != "BREACH":
+        return False, (
+            f"Replay evidence harness_verdict must be 'BREACH', got {replay_data.get('harness_verdict')!r}"
+        )
+
+    # 5. Timestamps must be replay-specific, not the initial run's timestamps.
+    utc_start = replay_data.get("utc_start_time")
+    utc_end = replay_data.get("utc_end_time")
+    if not utc_start or not utc_end:
+        return False, "Replay evidence envelope has no replay-specific timestamps"
+    initial_start = artifact.get("utc_start_time")
+    initial_end = artifact.get("utc_end_time")
+    if initial_start and utc_start == initial_start:
+        return False, "Replay evidence reuses the initial run's start timestamp"
+    if initial_end and utc_end == initial_end:
+        return False, "Replay evidence reuses the initial run's end timestamp"
+
+    # 6. The stored replay artifacts must exist and their digests must match.
+    if artifact_root is None:
+        return False, (
+            "Replay evidence envelope cannot be verified without the stored replay artifacts; "
+            "no artifact root was provided"
+        )
+
+    root = Path(artifact_root)
+    for key in ("stdout_artifact", "stderr_artifact", "candidate_input_artifact", "harness_input_artifact"):
+        descriptor = replay_data.get(key)
+        if not isinstance(descriptor, dict):
+            return False, f"Replay evidence envelope has no '{key}' descriptor"
+        rel_path = descriptor.get("path")
+        declared_sha = descriptor.get("sha256")
+        declared_len = descriptor.get("byte_length")
+        if not isinstance(rel_path, str) or not rel_path:
+            return False, f"Replay evidence '{key}' has no path"
+        if not is_sha256(declared_sha):
+            return False, f"Replay evidence '{key}' has no valid SHA-256 digest"
+        if not isinstance(declared_len, int) or isinstance(declared_len, bool) or declared_len < 0:
+            return False, f"Replay evidence '{key}' has no valid byte length"
+
+        resolved = root / rel_path
+        if not resolved.is_file():
+            return False, f"Replay evidence '{key}' points at a missing artifact: {rel_path}"
+        data = resolved.read_bytes()
+        if len(data) != declared_len:
+            return False, (
+                f"Replay evidence '{key}' byte length {declared_len} does not match the stored "
+                f"artifact ({len(data)} bytes)"
+            )
+        actual_sha = sha256_bytes(data)
+        if actual_sha != declared_sha:
+            return False, (
+                f"Replay evidence '{key}' digest {declared_sha} does not match the recomputed "
+                f"digest of the stored bytes ({actual_sha})"
+            )
+
+    # 7. The candidate/harness digests must describe the exact replay inputs.
+    initial_candidate = artifact.get("output_sha256")
+    if initial_candidate:
+        replay_candidate = replay_data["candidate_input_artifact"]["sha256"]
+        if replay_candidate != initial_candidate:
+            return False, (
+                "Replay candidate input digest does not match the candidate that was executed"
+            )
+
+    return True, None
+
+
+# ---------------------------------------------------------------------------
+# P0.3 - Remote EVM toolchain provenance
+# ---------------------------------------------------------------------------
+
+#: Facts every executed EVM stage must report.
+REMOTE_EVM_REQUIRED_FACTS = (
+    "remote_os",
+    "remote_platform",
+    "image_digest",
+    "forge_version",
+    "solc_versions",
+    "exact_forge_argv",
+    "working_directory",
+    "compiler_settings",
+)
+
+#: Values that only ever appeared as hardcoded constants in the old adapter.
+#: They are rejected so a stale constant cannot masquerade as an observation.
+LEGACY_HARDCODED_EVM_FACTS = {
+    "remote_os": "Debian GNU/Linux 12 (bookworm)",
+    "image_tag": "debian:12-slim-foundry",
+    "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+    "working_directory": "/tmp/aegis_sandbox",
+}
+
+#: The observation source each remote EVM fact must come from.
+#:
+#: A fact is only an observation when the source names the command, file or
+#: runtime value it was read from. This is what separates "the worker read
+#: /etc/os-release" from "the client wrote a constant into the artifact".
+EVM_FACT_REQUIRED_SOURCE_TOKENS = {
+    "remote_os": ("os-release",),
+    "remote_platform": ("os.name", "platform."),
+    "image_digest": ("image_id",),
+    "forge_version": ("forge --version",),
+    "solc_versions": ("forge config",),
+    "exact_forge_argv": ("argv",),
+    "working_directory": ("cwd",),
+    "compiler_settings": ("forge config",),
+}
+
+#: Legacy constants whose value coincides with a genuine observation and must
+#: therefore not be rejected on the value alone (the source carries the proof).
+EVM_FACTS_WITH_COINCIDENT_LEGACY_VALUE = ("remote_os", "remote_platform")
+
+#: The shape of a genuine `forge --version` output.
+FORGE_VERSION_RE = re.compile(r"forge\s+Version:\s*\d+\.\d+\.\d+")
+
+#: The shape of a solc version string.
+SOLC_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+")
+
+
+def validate_remote_evm_toolchain_provenance(
+    artifact: Dict[str, Any],
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validate the remote EVM toolchain provenance of one target artifact.
+
+    The provenance must consist of observed facts only. A missing fact must be
+    an explicit NOT_AVAILABLE with a reason; a target whose EVM stage did not
+    run must carry no EVM provenance at all.
+    """
+    evm_outcome = artifact.get("evm_outcome")
+    sec_verdict = artifact.get("security_verdict")
+    process_exit_code = artifact.get("process_exit_code")
+
+    tool_meta = artifact.get("tool_metadata", {}) if isinstance(artifact.get("tool_metadata"), dict) else {}
+    provenance = artifact.get("remote_evm_provenance") or tool_meta.get("remote_evm_provenance")
+
+    evm_not_run = (
+        evm_outcome == "NOT_RUN"
+        or (sec_verdict == "GENERATION_FORMAT_ERROR" and process_exit_code == -4)
+    )
+    if evm_not_run:
+        if provenance is not None:
+            return False, (
+                "Target did not execute an EVM stage but carries remote_evm_provenance; "
+                "provenance must never be copied onto a target that did not run EVM"
+            )
+        return True, None
+
+    if not isinstance(provenance, dict) or not provenance:
+        return False, "Missing remote_evm_provenance dictionary for the executed EVM stage"
+
+    for fact_name in REMOTE_EVM_REQUIRED_FACTS:
+        if fact_name not in provenance:
+            return False, f"Missing remote EVM provenance fact: '{fact_name}'"
+
+        fact = provenance[fact_name]
+        if isinstance(fact, dict):
+            status = fact.get("status")
+            if status == NOT_AVAILABLE:
+                if not fact.get("reason"):
+                    return False, (
+                        f"Remote EVM provenance fact '{fact_name}' is NOT_AVAILABLE without a reason"
+                    )
+                continue
+            if status != OBSERVED:
+                return False, f"Remote EVM provenance fact '{fact_name}' has an unknown status"
+            if not fact.get("source"):
+                return False, (
+                    f"Remote EVM provenance fact '{fact_name}' is observed without an observation source"
+                )
+            source = str(fact.get("source"))
+            required_tokens = EVM_FACT_REQUIRED_SOURCE_TOKENS.get(fact_name)
+            if required_tokens and not any(token in source for token in required_tokens):
+                return False, (
+                    f"Remote EVM provenance fact '{fact_name}' was not observed from the expected "
+                    f"source (expected one of {list(required_tokens)}, got {source!r})"
+                )
+            value = fact.get("value")
+        else:
+            value = fact
+
+        if value is None or (isinstance(value, (str, list, dict)) and len(value) == 0):
+            return False, f"Remote EVM provenance fact '{fact_name}' is empty"
+
+        legacy = LEGACY_HARDCODED_EVM_FACTS.get(fact_name)
+        if (
+            legacy is not None
+            and value == legacy
+            and fact_name not in EVM_FACTS_WITH_COINCIDENT_LEGACY_VALUE
+        ):
+            return False, (
+                f"Remote EVM provenance fact '{fact_name}' equals the legacy hardcoded constant "
+                f"{legacy!r}; provenance must be observed, not templated"
+            )
+
+    # The image identity must be an immutable digest, never a mutable tag.
+    image_digest = provenance["image_digest"]
+    image_value = fact_value(image_digest)
+    if image_value is not None:
+        if not isinstance(image_value, str) or not MODAL_IMAGE_ID_RE.fullmatch(image_value):
+            return False, (
+                f"Remote EVM provenance image_digest {image_value!r} is not an immutable Modal image id"
+            )
+
+    # The recorded argv must be a real command line.
+    argv = fact_value(provenance["exact_forge_argv"])
+    if argv is not None:
+        if not isinstance(argv, list) or not argv or not all(isinstance(item, str) for item in argv):
+            return False, "Remote EVM provenance exact_forge_argv is not a valid argv list"
+        if Path(argv[0]).name != "forge":
+            return False, (
+                f"Remote EVM provenance exact_forge_argv does not start with the forge executable: "
+                f"{argv[0]!r}"
+            )
+
+    # The Foundry version must look like real `forge --version` output.
+    forge_version = fact_value(provenance["forge_version"])
+    if forge_version is not None:
+        if not isinstance(forge_version, str) or not FORGE_VERSION_RE.search(forge_version):
+            return False, (
+                "Remote EVM provenance forge_version does not look like the output of "
+                f"`forge --version`: {forge_version!r}"
+            )
+
+    # The solc versions must look like real version strings.
+    solc_versions = fact_value(provenance["solc_versions"])
+    if solc_versions is not None:
+        if not isinstance(solc_versions, list) or not solc_versions:
+            return False, "Remote EVM provenance solc_versions is not a non-empty list"
+        for version in solc_versions:
+            if not isinstance(version, str) or not SOLC_VERSION_RE.match(version):
+                return False, (
+                    f"Remote EVM provenance solc_versions contains an implausible version: {version!r}"
+                )
+
+    # The working directory must be an absolute path.
+    working_directory = fact_value(provenance["working_directory"])
+    if working_directory is not None:
+        if not isinstance(working_directory, str) or not os.path.isabs(working_directory):
+            return False, (
+                "Remote EVM provenance working_directory is not an absolute path: "
+                f"{working_directory!r}"
+            )
+
+    # The effective compiler settings must be a mapping.
+    compiler_settings = fact_value(provenance["compiler_settings"])
+    if compiler_settings is not None:
+        if not isinstance(compiler_settings, dict) or not compiler_settings:
+            return False, "Remote EVM provenance compiler_settings is not a non-empty mapping"
+
+    # The recorded exit code must agree with the execution record.
+    observed_exit = fact_value(provenance.get("observed_exit_code")) if isinstance(
+        provenance.get("observed_exit_code"), dict
+    ) else provenance.get("observed_exit_code")
+    if observed_exit is not None and process_exit_code is not None:
+        if int(observed_exit) != int(process_exit_code):
+            return False, (
+                f"Remote EVM provenance exit code {observed_exit} disagrees with the recorded "
+                f"process exit code {process_exit_code}"
+            )
+
+    return True, None
+
+
+# ---------------------------------------------------------------------------
+# P0.4 - Safe-control sentinel
+# ---------------------------------------------------------------------------
+
+#: The exact sentinel emitted by every repository-owned harness.
+#: Keyed by target name; the value is the complete revert reason.
+#: The registry mirrors the immutable ``benchmarks/targets/solidity/*Harness.t.sol``
+#: sources and is verified against them by the test suite.
+HARNESS_SENTINELS: Dict[str, str] = {
+    "AccessControlVault": "EXPLOIT_FAILED: Owner uncompromised and treasury intact",
+    "AuctionDoS": "EXPLOIT_FAILED: Auction liveness maintained",
+    "CrossContractBridge": "EXPLOIT_FAILED: Bridge ledger synchronized",
+    "ERC4626Vault": "EXPLOIT_FAILED: Honest depositor received fair proportional shares",
+    "FeeShareYieldVault": "EXPLOIT_FAILED: Yield fees protected",
+    "FlashLoanRewardPool": "EXPLOIT_FAILED: Reward pool protected against flash loan distortion",
+    "LendingLiquidation": "EXPLOIT_FAILED: Collateral accounting preserved",
+    "OracleLendingPool": "EXPLOIT_FAILED: Pool liquidity remains protected",
+    "PrecisionStakingPool": "EXPLOIT_FAILED: Precision fee calculations preserved",
+    "RewardDistributorLogic": "EXPLOIT_FAILED: Accounting consistency upheld",
+    "SecureAccessControlVault": "EXPLOIT_FAILED: Safe control held. Owner and treasury intact.",
+    "SecureERC4626Vault": "EXPLOIT_FAILED: Safe control held. Virtual offset mitigated inflation.",
+    "SecureOraclePool": "EXPLOIT_FAILED: Safe control held. TWAP prevented oracle manipulation.",
+    "SecureVault": "EXPLOIT_FAILED: Safe control held. Solvency intact.",
+    "SignatureReplayWallet": "EXPLOIT_FAILED: Signature replay prevented",
+    "Vault": "EXPLOIT_FAILED: Vault remains solvent, victim funds are secure",
+}
+
+#: The synthetic safe controls: targets that must never show a breach.
+SAFE_CONTROL_TARGETS = frozenset(
+    name for name in HARNESS_SENTINELS if name.startswith("Secure")
+)
+
+#: The exact sentinel of each of the four synthetic safe controls.
+SAFE_CONTROL_SENTINELS: Dict[str, str] = {
+    name: HARNESS_SENTINELS[name] for name in sorted(SAFE_CONTROL_TARGETS)
+}
+
+#: Failure reasons that must never be classified as a safe control.
+_INFRA_FAILURE_MARKERS = (
+    "INFRA_ERROR",
+    "Compiler run failed",
+    "ParserError",
+    "Security Violation",
+    "GENERATION_FORMAT_ERROR",
+)
+
+
+def validate_safe_control_sentinel_semantics(
+    revert_reason: Optional[str],
+    harness_verdict: Optional[str] = None,
+    target_name: Optional[str] = None,
+    *,
+    harness_suite: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """
+    Validate safe-control sentinel semantics (Iteration 14 P0.4).
+
+    A safe control is only proven when the revert reason is *exactly* the
+    documented sentinel of the repository-owned harness for the given target.
+    Arbitrary prefixes, suffixes and near-matches are rejected, as are generic
+    reverts, panic codes, compilation errors, malformed output and
+    infrastructure failures.
+    """
+    if not revert_reason or not isinstance(revert_reason, str) or not revert_reason.strip():
+        return False, "MISSING_REVERT_REASON"
+
+    reason = revert_reason.strip()
+
+    # Compilation failures are never a safe control.
+    if "Compiler run failed" in reason:
+        return False, "COMPILATION_ERROR_NOT_SENTINEL"
+
+    # Generic EVM failure shapes are never a safe control.
+    if "EvmError: Revert" in reason:
+        return False, "GENERIC_EVM_REVERT_NOT_SENTINEL"
+    if "Panic" in reason:
+        return False, "EVM_PANIC_NOT_SENTINEL"
+
+    # Infrastructure failures are never a safe control.
+    for marker in _INFRA_FAILURE_MARKERS:
+        if marker in reason:
+            return False, f"INFRASTRUCTURE_FAILURE_NOT_SENTINEL: {reason}"
+
+    # A safe control is only meaningful for a documented harness target.
+    if target_name is None:
+        return False, "MISSING_TARGET_CONTEXT_FOR_SENTINEL"
+
+    expected = HARNESS_SENTINELS.get(target_name)
+    if expected is None:
+        return False, f"TARGET_IS_NOT_A_DOCUMENTED_HARNESS_TARGET: {target_name}"
+
+    # The harness context must match the target when it is supplied.
+    if harness_suite is not None:
+        expected_suite = f"test/{target_name}Harness.t.sol"
+        if harness_suite != expected_suite:
+            return False, (
+                f"HARNESS_CONTEXT_MISMATCH: expected {expected_suite!r} for {target_name!r}, "
+                f"got {harness_suite!r}"
+            )
+
+    if harness_verdict is not None and harness_verdict != "NO_BREACH":
+        return False, f"HARNESS_VERDICT_NOT_NO_BREACH: {harness_verdict}"
+
+    if reason == expected:
+        return True, "SAFE_RUN"
+
+    # The exact sentinel of a different target is still a context mismatch.
+    owner = next(
+        (name for name, sentinel in HARNESS_SENTINELS.items() if sentinel == reason),
+        None,
+    )
+    if owner is not None:
+        return False, f"SENTINEL_BELONGS_TO_OTHER_TARGET: {owner}"
+
+    if reason.startswith(expected):
+        return False, f"SENTINEL_SUFFIX_MISMATCH: {reason}"
+    if expected.startswith(reason):
+        return False, f"SENTINEL_PREFIX_MISMATCH: {reason}"
+    return False, f"UNRECOGNIZED_REVERT_REASON: {reason}"

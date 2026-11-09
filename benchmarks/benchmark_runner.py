@@ -41,6 +41,37 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
+
+def _decode_b64_bytes(value: Any) -> Optional[bytes]:
+    """Decode a lossless base64 payload; return None when it is absent/invalid.
+
+    An empty string is a valid payload: it encodes zero bytes, which is what an
+    empty stderr stream looks like.
+    """
+    if value is None or not isinstance(value, str):
+        return None
+    try:
+        import base64
+        return base64.b64decode(value, validate=True)
+    except Exception:
+        return None
+
+
+def _accepts_replay_artifact_dir(adapter: Any) -> bool:
+    """True when the adapter's execute_target accepts a replay artifact directory."""
+    import inspect
+
+    try:
+        parameters = inspect.signature(adapter.execute_target).parameters
+    except (TypeError, ValueError):
+        return False
+    if "replay_artifact_dir" in parameters:
+        return True
+    return any(
+        param.kind is inspect.Parameter.VAR_KEYWORD for param in parameters.values()
+    )
+
+
 from core.schemas import TargetProgram
 from benchmarks.protocol import (
     BenchmarkDataset,
@@ -216,20 +247,21 @@ class AegisBenchmarkSuite:
             },
         }
 
+        # The remote EVM environment is NOT knowable from the client before the
+        # run: it is observed inside the remote worker for every execution and
+        # recorded per target in `remote_evm_provenance`.  The run-level manifest
+        # therefore states NOT_AVAILABLE with the exact reason instead of
+        # broadcasting a constant, fabricated environment (Iteration 14 P0.3).
+        from benchmarks.evidence_integrity import NOT_AVAILABLE
+
         remote_evm_environment = {
-            "remote_os": "Debian GNU/Linux 12 (bookworm)",
-            "remote_platform": "linux",
-            "image_tag": "debian:12-slim-foundry",
-            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
-            "solc_versions": ["0.8.20", "0.8.24"],
-            "exact_forge_argv": ["forge", "test", "--offline", "--json", "-vvvv"],
-            "working_directory": "/tmp/aegis_sandbox",
-            "compiler_settings": {
-                "evm_version": "paris",
-                "optimizer": True,
-                "optimizer_runs": 200,
-                "via_ir": False,
-            },
+            "status": NOT_AVAILABLE,
+            "reason": (
+                "the remote EVM environment is observed inside the remote worker for each "
+                "execution and recorded per target in 'remote_evm_provenance'; it is not "
+                "knowable from the client before the run"
+            ),
+            "per_target_evidence_field": "tool_metadata.remote_evm_provenance",
         }
 
         return EnvironmentManifest(
@@ -380,40 +412,63 @@ class AegisBenchmarkSuite:
     
                 for target in public_targets:
                     # Adapters receive ONLY public TargetSpecification (zero ground-truth leakage)
-                    artifact = adapter.execute_target(target, base_dir=base_dir)
+                    if _accepts_replay_artifact_dir(adapter):
+                        # The replay artifacts are stored next to the target artifact
+                        # of this run so that the replay envelope can be re-verified
+                        # from the run directory alone.
+                        artifact = adapter.execute_target(
+                            target,
+                            base_dir=base_dir,
+                            replay_artifact_dir=run_artifacts_dir / b_id,
+                        )
+                    else:
+                        artifact = adapter.execute_target(target, base_dir=base_dir)
                     baseline_artifacts.append(artifact)
-    
+
                     # Save per-target JSON artifact and stdout/stderr evidence
                     if save_results:
                         stdout_content = ""
                         stderr_content = ""
+                        stdout_bytes: Optional[bytes] = None
+                        stderr_bytes: Optional[bytes] = None
                         if isinstance(artifact.raw_output, dict):
                             stdout_content = str(artifact.raw_output.get("stdout") or "")
                             stderr_content = str(artifact.raw_output.get("stderr") or "")
+                            # Prefer the byte-exact stream the worker produced; a
+                            # re-encoded text is only a last resort.
+                            stdout_bytes = _decode_b64_bytes(artifact.raw_output.get("stdout_bytes_b64"))
+                            stderr_bytes = _decode_b64_bytes(artifact.raw_output.get("stderr_bytes_b64"))
                         elif isinstance(artifact.logs, list) and artifact.logs:
                             stderr_content = "\n".join(str(l) for l in artifact.logs)
-    
+
+                        if stdout_bytes is None:
+                            stdout_bytes = stdout_content.encode("utf-8")
+                        if stderr_bytes is None:
+                            stderr_bytes = stderr_content.encode("utf-8")
+
                         stdout_file = run_artifacts_dir / b_id / f"{target.contract_id}_stdout.txt"
                         stderr_file = run_artifacts_dir / b_id / f"{target.contract_id}_stderr.txt"
-                        stdout_file.write_text(stdout_content, encoding="utf-8")
-                        stderr_file.write_text(stderr_content, encoding="utf-8")
-    
+                        # Byte-exact write: the digest recorded below always
+                        # describes the bytes that are on disk.
+                        stdout_file.write_bytes(stdout_bytes)
+                        stderr_file.write_bytes(stderr_bytes)
+
                         try:
                             rel_stdout_path = str(stdout_file.relative_to(base_dir)).replace("\\", "/")
                         except ValueError:
                             rel_stdout_path = f"{run_id}/{b_id}/{stdout_file.name}"
-    
+
                         try:
                             rel_stderr_path = str(stderr_file.relative_to(base_dir)).replace("\\", "/")
                         except ValueError:
                             rel_stderr_path = f"{run_id}/{b_id}/{stderr_file.name}"
-    
+
                         artifact.stdout_path = rel_stdout_path
                         artifact.stderr_path = rel_stderr_path
-                        if not artifact.stdout_sha256:
-                            artifact.stdout_sha256 = hashlib.sha256(stdout_content.encode("utf-8")).hexdigest()
-                        if not artifact.stderr_sha256:
-                            artifact.stderr_sha256 = hashlib.sha256(stderr_content.encode("utf-8")).hexdigest()
+                        artifact.stdout_sha256 = hashlib.sha256(stdout_bytes).hexdigest()
+                        artifact.stderr_sha256 = hashlib.sha256(stderr_bytes).hexdigest()
+                        artifact.stdout_byte_length = len(stdout_bytes)
+                        artifact.stderr_byte_length = len(stderr_bytes)
     
                         if not artifact.security_verdict:
                             if artifact.status == ExecutionStatus.UNAVAILABLE:
