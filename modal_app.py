@@ -403,11 +403,42 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     cpu=config.SANDBOX_CPU_CORES,
     memory=config.SANDBOX_MEMORY_MB,
 )
-def verify_replay_remote(target_dict: dict, payload_dict: dict) -> bool:
-    """Runs the candidate independently in a fresh EVM worker and checks the trusted verdict."""
+def verify_replay_remote(target_dict: dict, payload_dict: dict) -> dict:
+    """Runs the candidate independently in a fresh EVM worker and returns structured replay evidence."""
+    import hashlib
     target = TargetProgram(**target_dict)
     payload = ExploitPayload(**payload_dict)
-    return verify_independent_replay(target, payload)
+    from sandbox.runner import verify_independent_replay_result, HARNESS_VERDICT_BREACH
+    raw_result = verify_independent_replay_result(target, payload)
+    
+    is_confirmed = (
+        raw_result.harness_verdict == HARNESS_VERDICT_BREACH
+        and raw_result.invariant_violated
+        and raw_result.return_code == 0
+        and not raw_result.cheatcode_detected
+        and raw_result.category == ResultCategory.EXPLOIT_CONFIRMED
+    )
+    
+    container_id = os.environ.get("MODAL_CONTAINER_ID") or os.environ.get("HOSTNAME") or f"modal-cpu-{uuid.uuid4().hex[:12]}"
+    stdout_text = raw_result.stdout or ""
+    stderr_text = raw_result.stderr or ""
+    stdout_sha = hashlib.sha256(stdout_text.encode("utf-8")).hexdigest()
+    stderr_sha = hashlib.sha256(stderr_text.encode("utf-8")).hexdigest()
+    
+    return {
+        "reproduced": bool(is_confirmed),
+        "container_id": container_id,
+        "command": "forge test --offline --json -vvvv",
+        "return_code": raw_result.return_code,
+        "harness_verdict": raw_result.harness_verdict,
+        "invariant_violated": raw_result.invariant_violated,
+        "category": raw_result.category.value if hasattr(raw_result.category, "value") else str(raw_result.category),
+        "stdout": stdout_text,
+        "stderr": stderr_text,
+        "stdout_sha256": stdout_sha,
+        "stderr_sha256": stderr_sha,
+        "execution_time_sec": raw_result.execution_time_sec,
+    }
 
 
 @app.function(

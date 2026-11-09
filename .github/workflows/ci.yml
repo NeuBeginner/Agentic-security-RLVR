@@ -103,13 +103,24 @@ jobs:
         with:
           version: nightly
 
+      - name: Prebake Solc Compilers for Offline Mode
+        run: |
+          python sandbox/prebake_solc.py
+
+      - name: Setup Foundry standard libraries
+        run: |
+          sudo mkdir -p /opt/foundry_base/lib
+          sudo git clone --depth 1 -b v1.9.5 https://github.com/foundry-rs/forge-std.git /opt/foundry_base/lib/forge-std
+          sudo git clone --depth 1 -b v5.0.2 https://github.com/OpenZeppelin/openzeppelin-contracts.git /opt/foundry_base/lib/openzeppelin-contracts
+          sudo chmod -R 777 /opt/foundry_base
+
       - name: Run Live Foundry Integration Tests
         env:
           PYTHONPATH: .
           FOUNDRY_CI: "true"
         run: |
           forge --version
-          python -m pytest -v tests/test_real_benchmark_execution.py -k "test_real_foundry_integration" --junitxml=test-results-foundry.xml
+          python -m pytest -v -rA tests/test_real_benchmark_execution.py -k "test_real_foundry_integration" --junitxml=test-results-foundry.xml
 
       - name: Upload Foundry test report
         if: always()

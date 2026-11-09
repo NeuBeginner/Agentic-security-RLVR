@@ -67,6 +67,7 @@ from benchmarks.adapters import (
     LLMNaiveFoundryBaselineAdapter,
     FullAegisRLVRBaselineAdapter,
     SyntheticSmokeAdapter,
+    ensure_modal_app_context,
 )
 
 
@@ -341,218 +342,230 @@ class AegisBenchmarkSuite:
         adapter_manifests: Dict[str, AdapterRunManifest] = {}
         base_dir = self.dataset_path.parent.parent
 
-        for b_id, adapter in adapters.items():
-            baseline_start_time = time.time()
-            baseline_artifacts: List[TargetExecutionArtifact] = []
-            adapter_artifact_files: List[ArtifactFileRecord] = []
+        from contextlib import nullcontext
 
-            # Create baseline artifact directory
-            if save_results:
-                b_dir = run_artifacts_dir / b_id
-                b_dir.mkdir(parents=True, exist_ok=True)
+        needs_modal = any(
+            isinstance(ad, FullAegisRLVRBaselineAdapter) and getattr(ad, "provider", "") in ("modal_h100", "modal_t4")
+            for ad in adapters.values()
+        )
+        app_ctx = ensure_modal_app_context() if needs_modal else nullcontext()
 
-            for target in public_targets:
-                # Adapters receive ONLY public TargetSpecification (zero ground-truth leakage)
-                artifact = adapter.execute_target(target, base_dir=base_dir)
-                baseline_artifacts.append(artifact)
-
-                # Save per-target JSON artifact and stdout/stderr evidence
+        with app_ctx:
+            for b_id, adapter in adapters.items():
+                baseline_start_time = time.time()
+                baseline_artifacts: List[TargetExecutionArtifact] = []
+                adapter_artifact_files: List[ArtifactFileRecord] = []
+    
+                # Create baseline artifact directory
                 if save_results:
-                    stdout_content = ""
-                    stderr_content = ""
-                    if isinstance(artifact.raw_output, dict):
-                        stdout_content = str(artifact.raw_output.get("stdout") or "")
-                        stderr_content = str(artifact.raw_output.get("stderr") or "")
-                    elif isinstance(artifact.logs, list) and artifact.logs:
-                        stderr_content = "\n".join(str(l) for l in artifact.logs)
-
-                    stdout_file = run_artifacts_dir / b_id / f"{target.contract_id}_stdout.txt"
-                    stderr_file = run_artifacts_dir / b_id / f"{target.contract_id}_stderr.txt"
-                    stdout_file.write_text(stdout_content, encoding="utf-8")
-                    stderr_file.write_text(stderr_content, encoding="utf-8")
-
-                    try:
-                        rel_stdout_path = str(stdout_file.relative_to(base_dir)).replace("\\", "/")
-                    except ValueError:
-                        rel_stdout_path = f"{run_id}/{b_id}/{stdout_file.name}"
-
-                    try:
-                        rel_stderr_path = str(stderr_file.relative_to(base_dir)).replace("\\", "/")
-                    except ValueError:
-                        rel_stderr_path = f"{run_id}/{b_id}/{stderr_file.name}"
-
-                    artifact.stdout_path = rel_stdout_path
-                    artifact.stderr_path = rel_stderr_path
-                    if not artifact.stdout_sha256:
-                        artifact.stdout_sha256 = hashlib.sha256(stdout_content.encode("utf-8")).hexdigest()
-                    if not artifact.stderr_sha256:
-                        artifact.stderr_sha256 = hashlib.sha256(stderr_content.encode("utf-8")).hexdigest()
-
-                    if not artifact.security_verdict:
-                        if artifact.status == ExecutionStatus.UNAVAILABLE:
-                            artifact.security_verdict = "UNAVAILABLE"
-                        elif artifact.status == ExecutionStatus.FAILED:
-                            artifact.security_verdict = "EXECUTION_FAILURE"
-                        elif artifact.detected:
-                            artifact.security_verdict = "DETECTED_POTENTIAL_VULNERABILITY"
-                        else:
-                            artifact.security_verdict = "NO_BREACH"
-
-                    if not artifact.replay_status:
-                        artifact.replay_status = "NOT_ELIGIBLE"
-                    if not artifact.persistence_status:
-                        artifact.persistence_status = "NOT_ELIGIBLE"
-
-                    art_file = run_artifacts_dir / b_id / f"{target.contract_id}.json"
-                    art_dict = artifact.to_dict()
-                    with open(art_file, "w", encoding="utf-8") as f:
-                        json.dump(art_dict, f, indent=2)
-
-
-
-                    # Track file provenance with cryptographic hash and byte size
-                    try:
-                        art_bytes = art_file.read_bytes()
-                        art_sha = hashlib.sha256(art_bytes).hexdigest()
+                    b_dir = run_artifacts_dir / b_id
+                    b_dir.mkdir(parents=True, exist_ok=True)
+    
+                for target in public_targets:
+                    # Adapters receive ONLY public TargetSpecification (zero ground-truth leakage)
+                    artifact = adapter.execute_target(target, base_dir=base_dir)
+                    baseline_artifacts.append(artifact)
+    
+                    # Save per-target JSON artifact and stdout/stderr evidence
+                    if save_results:
+                        stdout_content = ""
+                        stderr_content = ""
+                        if isinstance(artifact.raw_output, dict):
+                            stdout_content = str(artifact.raw_output.get("stdout") or "")
+                            stderr_content = str(artifact.raw_output.get("stderr") or "")
+                        elif isinstance(artifact.logs, list) and artifact.logs:
+                            stderr_content = "\n".join(str(l) for l in artifact.logs)
+    
+                        stdout_file = run_artifacts_dir / b_id / f"{target.contract_id}_stdout.txt"
+                        stderr_file = run_artifacts_dir / b_id / f"{target.contract_id}_stderr.txt"
+                        stdout_file.write_text(stdout_content, encoding="utf-8")
+                        stderr_file.write_text(stderr_content, encoding="utf-8")
+    
                         try:
-                            rel_art_path = str(art_file.relative_to(base_dir)).replace("\\", "/")
+                            rel_stdout_path = str(stdout_file.relative_to(base_dir)).replace("\\", "/")
                         except ValueError:
+                            rel_stdout_path = f"{run_id}/{b_id}/{stdout_file.name}"
+    
+                        try:
+                            rel_stderr_path = str(stderr_file.relative_to(base_dir)).replace("\\", "/")
+                        except ValueError:
+                            rel_stderr_path = f"{run_id}/{b_id}/{stderr_file.name}"
+    
+                        artifact.stdout_path = rel_stdout_path
+                        artifact.stderr_path = rel_stderr_path
+                        if not artifact.stdout_sha256:
+                            artifact.stdout_sha256 = hashlib.sha256(stdout_content.encode("utf-8")).hexdigest()
+                        if not artifact.stderr_sha256:
+                            artifact.stderr_sha256 = hashlib.sha256(stderr_content.encode("utf-8")).hexdigest()
+    
+                        if not artifact.security_verdict:
+                            if artifact.status == ExecutionStatus.UNAVAILABLE:
+                                artifact.security_verdict = "UNAVAILABLE"
+                            elif artifact.status == ExecutionStatus.FAILED:
+                                artifact.security_verdict = "EXECUTION_FAILURE"
+                            elif artifact.detected:
+                                artifact.security_verdict = "DETECTED_POTENTIAL_VULNERABILITY"
+                            else:
+                                artifact.security_verdict = "NO_BREACH"
+    
+                        if not artifact.replay_status:
+                            artifact.replay_status = "NOT_ELIGIBLE"
+                        if not artifact.persistence_status:
+                            artifact.persistence_status = "NOT_ELIGIBLE"
+    
+                        art_file = run_artifacts_dir / b_id / f"{target.contract_id}.json"
+                        art_dict = artifact.to_dict()
+                        with open(art_file, "w", encoding="utf-8") as f:
+                            json.dump(art_dict, f, indent=2)
+    
+    
+    
+                        # Track file provenance with cryptographic hash and byte size
+                        try:
+                            art_bytes = art_file.read_bytes()
+                            art_sha = hashlib.sha256(art_bytes).hexdigest()
                             try:
-                                rel_art_path = str(art_file.relative_to(self.artifacts_base_dir)).replace("\\", "/")
+                                rel_art_path = str(art_file.relative_to(base_dir)).replace("\\", "/")
                             except ValueError:
-                                rel_art_path = f"{run_id}/{b_id}/{art_file.name}"
-
-                        adapter_artifact_files.append(
-                            ArtifactFileRecord(
-                                relative_path=rel_art_path,
-                                size_bytes=len(art_bytes),
-                                sha256=art_sha,
+                                try:
+                                    rel_art_path = str(art_file.relative_to(self.artifacts_base_dir)).replace("\\", "/")
+                                except ValueError:
+                                    rel_art_path = f"{run_id}/{b_id}/{art_file.name}"
+    
+                            adapter_artifact_files.append(
+                                ArtifactFileRecord(
+                                    relative_path=rel_art_path,
+                                    size_bytes=len(art_bytes),
+                                    sha256=art_sha,
+                                )
                             )
-                        )
-                    except Exception as err:
-                        pass
-
-            # Post-run evaluation consuming artifacts and private GroundTruth
-            eval_result: BaselineEvaluationResult = evaluate_baseline_run(
-                baseline_id=b_id,
-                baseline_name=adapter.baseline_name,
-                artifacts=baseline_artifacts,
-                ground_truth_map=ground_truth_map,
-            )
-            results[b_id] = eval_result.to_dict()
-
-            # Build per-adapter execution manifest derived directly from actual execution records
-            is_avail, avail_reason = adapter.check_availability()
-            adapter_duration = round(time.time() - baseline_start_time, 3)
-
-            # Planned command/argv, timeout, resource budget, and config hash (template/intent)
-            default_argv = adapter.get_default_argv()
-            planned_argv = list(default_argv) if default_argv else None
-            planned_cmd = " ".join(planned_argv) if planned_argv else None
-            planned_timeout_sec = adapter.timeout_sec
-            planned_resource_budget = dict(adapter.resource_budget) if adapter.resource_budget else {}
-            planned_config_hash = adapter.get_effective_config_hash()
-
-            # Adapter-level actual execution evidence:
-            # Per Issue #10 Section 7 & reviewer acceptance criteria:
-            # An adapter executes multiple distinct targets with distinct paths and argvs.
-            # Adapter-level actual argv and command are strictly None.
-            # Adapter-level actual timeout_sec, resource_budget, and config_hash must be derived strictly
-            # from actual invocation records. If zero targets were invoked, or if targets have mixed/differing
-            # values, adapter-level actual fields remain None / empty, keeping exact values exclusively
-            # in per_target_provenance.
-            actual_adapter_argv = None
-            actual_adapter_cmd = None
-
-            invoked_artifacts = [
-                art for art in baseline_artifacts
-                if art.status != ExecutionStatus.UNAVAILABLE
-                and art.timeout_sec is not None
-                and (art.argv is not None or art.tool_metadata.get("provider") is not None)
-            ]
-
-            actual_timeout_sec: Optional[int] = None
-            actual_resource_budget: Dict[str, Any] = {}
-            actual_config_hash: Optional[str] = None
-
-            if len(baseline_artifacts) > 0 and len(invoked_artifacts) == len(baseline_artifacts):
-                # Check timeouts
-                invoked_timeouts = {art.timeout_sec for art in invoked_artifacts if art.timeout_sec is not None}
-                if len(invoked_timeouts) == 1 and all(art.timeout_sec is not None for art in invoked_artifacts):
-                    actual_timeout_sec = next(iter(invoked_timeouts))
-
-                # Check resource budgets
-                invoked_budgets = [dict(art.resource_budget) for art in invoked_artifacts if art.resource_budget]
-                if len(invoked_budgets) == len(invoked_artifacts) and all(b == invoked_budgets[0] for b in invoked_budgets):
-                    actual_resource_budget = dict(invoked_budgets[0])
-
-                # Check config hashes
-                invoked_hashes = {art.effective_config_hash for art in invoked_artifacts if art.effective_config_hash is not None}
-                if len(invoked_hashes) == 1 and all(art.effective_config_hash is not None for art in invoked_artifacts):
-                    actual_config_hash = next(iter(invoked_hashes))
-
-            per_target_provenance: Dict[str, Dict[str, Any]] = {}
-            for art in baseline_artifacts:
-                # P1-A: Explicit key presence and None handling for exit code (preserves integer 0)
-                target_exit_code = None
-                if "exit_code" in art.tool_metadata and art.tool_metadata["exit_code"] is not None:
-                    target_exit_code = int(art.tool_metadata["exit_code"])
-                elif "forge_exit_code" in art.tool_metadata and art.tool_metadata["forge_exit_code"] is not None:
-                    target_exit_code = int(art.tool_metadata["forge_exit_code"])
-
-                # P1-B: Actual argv / command comes ONLY from invocation artifact; null if uninvoked
-                if art.argv is not None:
-                    actual_art_argv = list(art.argv)
-                    actual_art_cmd = " ".join(actual_art_argv)
-                else:
-                    actual_art_argv = None
-                    actual_art_cmd = None
-
-                provider_name = art.tool_metadata.get("provider")
-                model_id = art.tool_metadata.get("model_id")
-
-                per_target_provenance[art.target_id] = {
-                    "target_name": art.target_name,
-                    "status": art.status.value,
-                    "unavailable_reason": art.unavailable_reason,
-                    "argv": actual_art_argv,
-                    "command": actual_art_cmd,
-                    "provider": provider_name,
-                    "model_id": model_id,
-                    "timeout_sec": art.timeout_sec,
-                    "resource_budget": dict(art.resource_budget) if art.resource_budget else None,
-                    "effective_config_hash": art.effective_config_hash,
-                    "prompt_hash": art.prompt_hash,
-                    "duration_seconds": art.duration_seconds,
-                    "exit_code": target_exit_code,
-                    "stdout_sha256": art.tool_metadata.get("stdout_sha256"),
-                    "stderr_sha256": art.tool_metadata.get("stderr_sha256"),
-                }
-
-            adapter_manifests[b_id] = AdapterRunManifest(
-                baseline_id=b_id,
-                baseline_name=adapter.baseline_name,
-                availability_status="AVAILABLE" if is_avail else "UNAVAILABLE",
-                availability_reason=avail_reason,
-                command=actual_adapter_cmd,
-                argv=actual_adapter_argv,
-                planned_command=planned_cmd,
-                planned_argv=planned_argv,
-                timeout_sec=actual_timeout_sec,
-                resource_budget=actual_resource_budget,
-                config_hash=actual_config_hash,
-                planned_timeout_sec=planned_timeout_sec,
-                planned_resource_budget=planned_resource_budget,
-                planned_config_hash=planned_config_hash,
-                duration_seconds=adapter_duration,
-                target_count=len(public_targets),
-                completed_targets=sum(1 for a in baseline_artifacts if a.status == ExecutionStatus.SUCCESS),
-                cost_status="unmeasured",
-                cost_usd=None,
-                artifact_files=adapter_artifact_files,
-                per_target_provenance=per_target_provenance,
-            )
-
+                        except Exception as err:
+                            pass
+    
+                # Post-run evaluation consuming artifacts and private GroundTruth
+                eval_result: BaselineEvaluationResult = evaluate_baseline_run(
+                    baseline_id=b_id,
+                    baseline_name=adapter.baseline_name,
+                    artifacts=baseline_artifacts,
+                    ground_truth_map=ground_truth_map,
+                )
+                results[b_id] = eval_result.to_dict()
+    
+                # Build per-adapter execution manifest derived directly from actual execution records
+                is_avail, avail_reason = adapter.check_availability()
+                adapter_duration = round(time.time() - baseline_start_time, 3)
+    
+                # Planned command/argv, timeout, resource budget, and config hash (template/intent)
+                default_argv = adapter.get_default_argv()
+                planned_argv = list(default_argv) if default_argv else None
+                planned_cmd = " ".join(planned_argv) if planned_argv else None
+                planned_timeout_sec = adapter.timeout_sec
+                planned_resource_budget = dict(adapter.resource_budget) if adapter.resource_budget else {}
+                planned_config_hash = adapter.get_effective_config_hash()
+    
+                # Adapter-level actual execution evidence:
+                # Per Issue #10 Section 7 & reviewer acceptance criteria:
+                # An adapter executes multiple distinct targets with distinct paths and argvs.
+                # Adapter-level actual argv and command are strictly None.
+                # Adapter-level actual timeout_sec, resource_budget, and config_hash must be derived strictly
+                # from actual invocation records. If zero targets were invoked, or if targets have mixed/differing
+                # values, adapter-level actual fields remain None / empty, keeping exact values exclusively
+                # in per_target_provenance.
+                actual_adapter_argv = None
+                actual_adapter_cmd = None
+    
+                invoked_artifacts = [
+                    art for art in baseline_artifacts
+                    if art.status != ExecutionStatus.UNAVAILABLE
+                    and art.timeout_sec is not None
+                    and (art.argv is not None or art.tool_metadata.get("provider") is not None)
+                ]
+    
+                actual_timeout_sec: Optional[int] = None
+                actual_resource_budget: Dict[str, Any] = {}
+                actual_config_hash: Optional[str] = None
+    
+                if len(baseline_artifacts) > 0 and len(invoked_artifacts) == len(baseline_artifacts):
+                    # Check timeouts
+                    invoked_timeouts = {art.timeout_sec for art in invoked_artifacts if art.timeout_sec is not None}
+                    if len(invoked_timeouts) == 1 and all(art.timeout_sec is not None for art in invoked_artifacts):
+                        actual_timeout_sec = next(iter(invoked_timeouts))
+    
+                    # Check resource budgets
+                    invoked_budgets = [dict(art.resource_budget) for art in invoked_artifacts if art.resource_budget]
+                    if len(invoked_budgets) == len(invoked_artifacts) and all(b == invoked_budgets[0] for b in invoked_budgets):
+                        actual_resource_budget = dict(invoked_budgets[0])
+    
+                    # Check config hashes
+                    invoked_hashes = {art.effective_config_hash for art in invoked_artifacts if art.effective_config_hash is not None}
+                    if len(invoked_hashes) == 1 and all(art.effective_config_hash is not None for art in invoked_artifacts):
+                        actual_config_hash = next(iter(invoked_hashes))
+    
+                per_target_provenance: Dict[str, Dict[str, Any]] = {}
+                for art in baseline_artifacts:
+                    # P1-A: Explicit key presence and None handling for exit code (preserves integer 0)
+                    target_exit_code = None
+                    if art.process_exit_code is not None:
+                        target_exit_code = int(art.process_exit_code)
+                    elif "exit_code" in art.tool_metadata and art.tool_metadata["exit_code"] is not None:
+                        target_exit_code = int(art.tool_metadata["exit_code"])
+                    elif "forge_exit_code" in art.tool_metadata and art.tool_metadata["forge_exit_code"] is not None:
+                        target_exit_code = int(art.tool_metadata["forge_exit_code"])
+    
+                    # P1-B: Actual argv / command comes ONLY from invocation artifact; null if uninvoked
+                    if art.argv is not None:
+                        actual_art_argv = list(art.argv)
+                        actual_art_cmd = " ".join(actual_art_argv)
+                    else:
+                        actual_art_argv = None
+                        actual_art_cmd = None
+    
+                    provider_name = art.tool_metadata.get("provider")
+                    model_id = art.tool_metadata.get("model_id")
+    
+                    per_target_provenance[art.target_id] = {
+                        "target_name": art.target_name,
+                        "status": art.status.value,
+                        "unavailable_reason": art.unavailable_reason,
+                        "argv": actual_art_argv,
+                        "command": actual_art_cmd,
+                        "provider": provider_name,
+                        "model_id": model_id,
+                        "timeout_sec": art.timeout_sec,
+                        "resource_budget": dict(art.resource_budget) if art.resource_budget else None,
+                        "effective_config_hash": art.effective_config_hash,
+                        "prompt_hash": art.prompt_hash or art.tool_metadata.get("prompt_hash"),
+                        "correlation_id": art.tool_metadata.get("correlation_id"),
+                        "duration_seconds": art.duration_seconds,
+                        "exit_code": target_exit_code,
+                        "stdout_sha256": art.tool_metadata.get("stdout_sha256"),
+                        "stderr_sha256": art.tool_metadata.get("stderr_sha256"),
+                    }
+    
+                adapter_manifests[b_id] = AdapterRunManifest(
+                    baseline_id=b_id,
+                    baseline_name=adapter.baseline_name,
+                    availability_status="AVAILABLE" if is_avail else "UNAVAILABLE",
+                    availability_reason=avail_reason,
+                    command=actual_adapter_cmd,
+                    argv=actual_adapter_argv,
+                    planned_command=planned_cmd,
+                    planned_argv=planned_argv,
+                    timeout_sec=actual_timeout_sec,
+                    resource_budget=actual_resource_budget,
+                    config_hash=actual_config_hash,
+                    planned_timeout_sec=planned_timeout_sec,
+                    planned_resource_budget=planned_resource_budget,
+                    planned_config_hash=planned_config_hash,
+                    duration_seconds=adapter_duration,
+                    target_count=len(public_targets),
+                    completed_targets=sum(1 for a in baseline_artifacts if a.status == ExecutionStatus.SUCCESS),
+                    cost_status="unmeasured",
+                    cost_usd=None,
+                    artifact_files=adapter_artifact_files,
+                    per_target_provenance=per_target_provenance,
+                )
+    
         rel_artifacts_dir = None
         if save_results:
             try:
@@ -579,7 +592,7 @@ class AegisBenchmarkSuite:
         effective_require_clean = (
             require_clean
             if require_clean is not None
-            else ((mode == "real") and not (os.environ.get("AEGIS_ALLOW_DIRTY") == "1"))
+            else ((mode == "real") and save_results and not (os.environ.get("AEGIS_ALLOW_DIRTY") == "1"))
         )
         if commit_sha != "unknown":
             verify_manifest_git_integrity(

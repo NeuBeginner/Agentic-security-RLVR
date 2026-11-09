@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import json
+import uuid
 import shutil
 import tempfile
 import time
@@ -56,6 +57,7 @@ class ModalAppContext:
         if _MODAL_APP_RUNNING or os.environ.get("MODAL_TASK_ID"):
             return self
         try:
+            os.environ.setdefault("MODAL_SERVER_URL", "https://api.modal.com")
             import modal
             token_id = os.environ.get("MODAL_TOKEN_ID")
             if not token_id:
@@ -71,7 +73,9 @@ class ModalAppContext:
             self._ctx.__enter__()
             _MODAL_APP_RUNNING = True
             self._owned = True
-        except Exception:
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("ModalAppContext failed to start Modal app: %s", exc)
             self._ctx = None
             self._owned = False
         return self
@@ -1044,7 +1048,11 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
 
                 with open(os.path.join(src_dir, f"{target.target_name}.sol"), "w", encoding="utf-8") as f:
                     f.write(source_code)
+                with open(os.path.join(test_dir, f"{target.target_name}.sol"), "w", encoding="utf-8") as f:
+                    f.write(source_code)
                 with open(os.path.join(test_dir, "ExploitModule.sol"), "w", encoding="utf-8") as f:
+                    f.write(candidate_code)
+                with open(os.path.join(src_dir, "ExploitModule.sol"), "w", encoding="utf-8") as f:
                     f.write(candidate_code)
 
                 # Run forge
@@ -1448,6 +1456,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             )
 
             # 1. Synthesize candidate payload inside Modal app context
+            correlation_id = f"corr-{target.contract_id}-{int(time.time())}-{uuid.uuid4().hex[:8]}"
             with ensure_modal_app_context():
                 payload = None
                 if self.candidate_generator:
@@ -1455,12 +1464,16 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 elif self.provider == "modal_h100":
                     from modal_app import ProductionAuditAgent
                     agent = ProductionAuditAgent()
-                    p_dict = agent.generate_solidity_exploit.remote(target_prog.model_dump())
+                    t_payload = target_prog.model_dump()
+                    t_payload["correlation_id"] = correlation_id
+                    p_dict = agent.generate_solidity_exploit.remote(t_payload)
                     payload = ExploitPayload(**p_dict)
                 elif self.provider == "modal_t4":
                     from modal_app import DevReasoningAgent
                     agent = DevReasoningAgent()
-                    p_dict = agent.generate_solidity_exploit.remote(target_prog.model_dump())
+                    t_payload = target_prog.model_dump()
+                    t_payload["correlation_id"] = correlation_id
+                    p_dict = agent.generate_solidity_exploit.remote(t_payload)
                     payload = ExploitPayload(**p_dict)
                 else:
                     from core.hypothesis import HypothesisManager
@@ -1536,10 +1549,20 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 # 3. Independent remote replay verification on fresh Modal container
                 is_replayed = False
                 replay_attempted = False
+                replay_details: Dict[str, Any] = {}
                 if verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED:
                     replay_attempted = True
                     try:
-                        is_replayed = bool(verify_replay_remote.remote(target_dict, payload_dict))
+                        raw_replay = verify_replay_remote.remote(target_dict, payload_dict)
+                        if isinstance(raw_replay, dict):
+                            replay_details = dict(raw_replay)
+                            is_replayed = bool(raw_replay.get("reproduced", False))
+                        else:
+                            is_replayed = bool(raw_replay)
+                            replay_details = {
+                                "reproduced": is_replayed,
+                                "status": "CONFIRMED" if is_replayed else "FAILED"
+                            }
                     except Exception as exc:
                         # Remote replay infrastructure error: MUST fail closed as FAILED, NEVER SUCCESS
                         is_timeout = isinstance(exc, TimeoutError) or "timed out" in str(exc).lower()
@@ -1554,6 +1577,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                             tool_metadata={
                                 "remote_backend": "modal",
                                 "modal_app": config.APP_NAME,
+                                "correlation_id": correlation_id,
                                 "modal_functions": ["verify_exploit_remote", "verify_replay_remote"],
                                 "remote_stages": {
                                     "inference": "remote_gpu" if self.provider in ("modal_h100", "modal_t4") else "api_or_local",
@@ -1578,7 +1602,18 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     verdict.is_verified = True
                     verdict.reproducible = True
                     verdict.replay_status = "CONFIRMED"
-                    verdict.reward_score = config.REWARD_INVARIANT_BREACH
+                    from core.reward_shaping import RewardEvidence, compute_reward_breakdown
+                    rev_evidence = RewardEvidence(
+                        format_valid=True,
+                        compiled=True,
+                        executed=True,
+                        invariant_confirmed=True,
+                        replay_confirmed=True,
+                        timed_out=False
+                    )
+                    rb = compute_reward_breakdown(ResultCategory.EXPLOIT_CONFIRMED, rev_evidence)
+                    verdict.reward_score = rb.total
+                    verdict.reward_components = rb.components
 
                 # 4. Remote trajectory persistence on Modal volume
                 persisted_path = None
@@ -1627,12 +1662,22 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             stderr_sha = hashlib.sha256(raw_stderr.encode("utf-8")).hexdigest()
             input_sha = hashlib.sha256(source_code.encode("utf-8")).hexdigest()
             output_sha = hashlib.sha256((payload.test_code or "").encode("utf-8")).hexdigest() if payload else None
+            prompt_hash = hashlib.sha256(payload.prompt_text.encode("utf-8")).hexdigest() if (payload and payload.prompt_text) else None
             utc_start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start_time))
             utc_end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+            if is_verified:
+                verdict_log = f"Replay confirmed in fresh container {replay_details.get('container_id', 'ephemeral')}: {replay_details.get('harness_verdict', 'EXPLOIT_CONFIRMED')}"
+                final_logs = [verdict_log]
+            elif replay_attempted:
+                final_logs = [f"Replay unconfirmed: {replay_details.get('harness_verdict', 'NO_BREACH')}"]
+            else:
+                final_logs = [verdict.feedback[:300]] if verdict.feedback else []
 
             base_tool_metadata = {
                 "remote_backend": "modal",
                 "modal_app": config.APP_NAME,
+                "correlation_id": correlation_id,
                 "modal_functions": modal_functions,
                 "remote_stages": {
                     "inference": "remote_gpu" if self.provider in ("modal_h100", "modal_t4") else "api_or_local",
@@ -1661,6 +1706,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 "reward_score": verdict.reward_score,
                 "reward_components": verdict.reward_components,
                 "reproduced": is_replayed,
+                "replay_details": replay_details,
                 "cost_status": "unmeasured",
                 "command": " ".join(cmd),
                 "argv": cmd,
@@ -1669,11 +1715,13 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 "effective_config_hash": self.get_effective_config_hash(),
                 "security_verdict": sec_verdict,
                 "replay_status": rep_status,
+                "exit_code": exit_code,
                 "process_exit_code": exit_code,
                 "stdout_sha256": stdout_sha,
                 "stderr_sha256": stderr_sha,
                 "input_sha256": input_sha,
                 "output_sha256": output_sha,
+                "prompt_hash": prompt_hash,
                 "utc_start_time": utc_start,
                 "utc_end_time": utc_end,
             }
@@ -1691,6 +1739,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 input_sha256=input_sha,
                 output_sha256=output_sha,
                 process_exit_code=exit_code,
+                prompt_hash=prompt_hash,
                 utc_start_time=utc_start,
                 utc_end_time=utc_end,
                 detected=bool(is_verified),
@@ -1700,8 +1749,14 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 duration_seconds=elapsed,
                 cost_usd=None,
                 tool_metadata=base_tool_metadata,
-                raw_output={"category": verdict.category.value, "reward_score": verdict.reward_score, "stdout": raw_stdout, "stderr": raw_stderr},
-                logs=[verdict.feedback[:300]] if verdict.feedback else [],
+                raw_output={
+                    "category": verdict.category.value,
+                    "reward_score": verdict.reward_score,
+                    "stdout": raw_stdout,
+                    "stderr": raw_stderr,
+                    "replay_details": replay_details,
+                },
+                logs=final_logs,
                 argv=cmd,
                 timeout_sec=timeout_sec,
                 resource_budget=dict(self.resource_budget),

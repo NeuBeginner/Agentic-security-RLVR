@@ -154,7 +154,8 @@ def load_trusted_harness_code(target_name: str, harness_dir=None) -> str:
     if target_name not in TRUSTED_HARNESS_CONTRACTS:
         raise FileNotFoundError(f"No allowlisted repository harness for target {target_name}")
 
-    root = os.path.realpath(harness_dir or TRUSTED_HARNESSES_DIR)
+    default_dir = TRUSTED_HARNESSES_DIR if os.path.isdir(TRUSTED_HARNESSES_DIR) else LOCAL_TRUSTED_HARNESSES_DIR
+    root = os.path.realpath(harness_dir or default_dir)
     harness_path = os.path.realpath(os.path.join(root, f"{target_name}Harness.t.sol"))
     if os.path.dirname(harness_path) != root:
         raise ValueError("trusted harness path escaped its immutable directory")
@@ -543,9 +544,16 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
         with open(os.path.join(tmpdir, "foundry.toml"), "w", encoding="utf-8") as f:
             f.write(FOUNDRY_TOML_CONTENT)
             
-        # Write target contract: src/{target.name}.sol
-        target_path = os.path.join(src_dir, f"{target.name}.sol")
-        with open(target_path, "w", encoding="utf-8") as f:
+        # Write target contract into both src/ and test/ so that both:
+        # 1. import {Target} from "../src/Target.sol" (src-relative)
+        # 2. import {Target} from "./Target.sol" (test-relative)
+        # resolve seamlessly across all repository harnesses and candidate exploits.
+        target_src_path = os.path.join(src_dir, f"{target.name}.sol")
+        with open(target_src_path, "w", encoding="utf-8") as f:
+            f.write(target.source_code)
+            
+        target_test_path = os.path.join(test_dir, f"{target.name}.sol")
+        with open(target_test_path, "w", encoding="utf-8") as f:
             f.write(target.source_code)
             
         # Write only the repository-owned harness loaded from the immutable Modal image.

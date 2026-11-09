@@ -120,6 +120,13 @@ Auditor Finding Hypothesis ({vulnerability_type} - {severity} Severity):
         if failure_lines:
             failure_context = "\nPREVIOUS FAILED CANDIDATES:\n" + "\n".join(failure_lines) + "\n"
 
+    if target.name == "SignatureReplayWallet":
+        entrypoint_doc = "6. Entrypoint signature: For SignatureReplayWallet, you MUST implement `function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external` that replays the given signature against `targetContract.executeWithSignature(...)` to drain wallet funds."
+        entrypoint_code = "    function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external {\n        // Replay signature against targetContract.executeWithSignature(...)\n    }"
+    else:
+        entrypoint_doc = "6. Implement `function runExploit() external payable` that executes transactions with the target to breach the invariant."
+        entrypoint_code = "    function runExploit() external payable {\n        // Exploit transactions here\n    }"
+
     return f"""Target Contract File: src/{target.name}.sol
 Target Contract Name: {target.name}
 Language: Solidity 0.8.20
@@ -139,7 +146,7 @@ Instructions:
 4. Import the target: `import {{{target.name}}} from "../src/{target.name}.sol";` (do not redefine it).
 5. Declare the target variable `{target.name} public targetContract;` and initialize it in the constructor:
    `constructor(address _target) payable {{ targetContract = {target.name}(payable(_target)); }}`
-6. Implement `function runExploit() external payable` that executes transactions with the target to breach the invariant.
+{entrypoint_doc}
 7. If attacking via callbacks or reentrancy, implement `receive() external payable` or other fallback handlers.
 8. Strictly unprivileged: Do NOT use Foundry cheatcodes (vm.*) or test harnesses.
 9. Return clean, compilable Solidity code in a single ```solidity ... ``` block.
@@ -158,9 +165,7 @@ contract ExploitModule {{
         targetContract = {target.name}(payable(_target));
     }}
 
-    function runExploit() external payable {{
-        // Exploit transactions here
-    }}
+{entrypoint_code}
 
     receive() external payable {{
         // Reentrancy / callback handling if applicable

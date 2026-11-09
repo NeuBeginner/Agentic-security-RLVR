@@ -45,12 +45,13 @@ def download_and_verify_solc():
         binary_url = BASE_BINARY_URL + rel_path
 
         # Target directory for Foundry svm: ~/.svm/{version}/solc-{version}
-        svm_dir = f"/root/.svm/{v}"
+        home_dir = os.path.expanduser("~")
+        svm_dir = os.path.join(home_dir, ".svm", v)
         os.makedirs(svm_dir, exist_ok=True)
         dest_binary = os.path.join(svm_dir, f"solc-{v}")
 
         # Target directory for solc-select: ~/.solc-select/artifacts/solc-{v}/solc-{v}
-        solc_select_dir = f"/root/.solc-select/artifacts/solc-{v}"
+        solc_select_dir = os.path.join(home_dir, ".solc-select", "artifacts", f"solc-{v}")
         os.makedirs(solc_select_dir, exist_ok=True)
         solc_select_binary = os.path.join(solc_select_dir, f"solc-{v}")
 
