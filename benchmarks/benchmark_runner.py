@@ -219,7 +219,8 @@ class AegisBenchmarkSuite:
         remote_evm_environment = {
             "remote_os": "Debian GNU/Linux 12 (bookworm)",
             "remote_platform": "linux",
-            "image_tag": "debian:12-slim-foundry",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
             "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
             "solc_versions": ["0.8.20", "0.8.24"],
             "exact_forge_argv": ["forge", "test", "--offline", "--json", "-vvvv"],

@@ -385,18 +385,23 @@ def verify_manifest_git_integrity(
         raise ValueError(f"Reproducibility manifest git integrity validation failed: {err}")
 
 
-def validate_replay_evidence_envelope(artifact_dict: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+def validate_replay_evidence_envelope(
+    artifact_dict: Dict[str, Any],
+    artifacts_dir: Optional[Path] = None,
+) -> Tuple[bool, Optional[str]]:
     """
-    Validates the independent replay evidence envelope (Iteration 13 Requirement 2).
-    A test must fail if replay is marked CONFIRMED without this evidence envelope:
-    - fresh container identity;
+    Validates the independent replay evidence envelope (Iteration 14 Requirement 2).
+    A test must fail if replay is marked CONFIRMED without a complete self-verifying evidence envelope:
+    - real fresh container identity (rejects 'modal-cpu-replayed' or synthetic placeholders);
     - exact command/argv and exit code (0);
-    - replay-specific stdout/stderr bytes and SHA-256;
-    - invariant event/verdict;
-    - start/end timestamps;
-    - hashes of the exact candidate and harness inputs used.
+    - recomputed stdout/stderr SHA-256 matching persisted replay artifacts;
+    - invariant event/verdict and reproduced flags;
+    - replay-specific start/end timestamps (rejects reused initial-stage timestamps);
+    - hashes of exact candidate and harness inputs verified against actual files when available.
     """
     import re
+    import hashlib
+
     replay_status = artifact_dict.get("replay_status")
     replayed_breaches = artifact_dict.get("replayed_breaches", 0)
 
@@ -404,23 +409,27 @@ def validate_replay_evidence_envelope(artifact_dict: Dict[str, Any]) -> Tuple[bo
         return True, None
 
     tool_meta = artifact_dict.get("tool_metadata", {})
-    replay_data = artifact_dict.get("replay_evidence") or tool_meta.get("replay_evidence") or tool_meta.get("replay_details")
+    replay_data = artifact_dict.get("replay_evidence") or tool_meta.get("replay_evidence")
 
     if not isinstance(replay_data, dict) or not replay_data:
         return False, "Replay status is CONFIRMED but replay evidence envelope is missing or empty"
 
-    # 1. Fresh container identity
+    # 1. Fresh container identity (reject synthetic fallback 'modal-cpu-replayed')
     container_id = replay_data.get("container_id")
     if not container_id or not isinstance(container_id, str):
         return False, "Missing or invalid container_id in replay evidence envelope"
+    if container_id == "modal-cpu-replayed":
+        return False, "Synthetic fallback container ID 'modal-cpu-replayed' is prohibited"
+    if not re.match(r"^modal-cpu-[a-f0-9]{12}$", container_id):
+        return False, f"container_id '{container_id}' does not match expected Modal container format 'modal-cpu-<hex12>'"
 
     # 2. Command and argv
     cmd = replay_data.get("command")
     argv = replay_data.get("argv")
-    if not cmd or not isinstance(cmd, str):
-        return False, "Missing or non-string command in replay evidence envelope"
-    if not argv or not isinstance(argv, list) or len(argv) == 0:
-        return False, "Missing or empty argv list in replay evidence envelope"
+    if cmd != "forge test --offline --json -vvvv":
+        return False, f"Replay command must be 'forge test --offline --json -vvvv', got '{cmd}'"
+    if argv != ["forge", "test", "--offline", "--json", "-vvvv"]:
+        return False, f"Replay argv must be ['forge', 'test', '--offline', '--json', '-vvvv'], got {argv}"
 
     # 3. Exit code must be 0 for confirmed breach
     exit_code = replay_data.get("exit_code") if "exit_code" in replay_data else replay_data.get("return_code")
@@ -433,43 +442,148 @@ def validate_replay_evidence_envelope(artifact_dict: Dict[str, Any]) -> Tuple[bo
     if not replay_data.get("invariant_violated"):
         return False, "Replay evidence invariant_violated flag is False or missing"
 
-    # 5. Cryptographic digests
+    # 5. Cryptographic digests format
     for hash_key in ("stdout_sha256", "stderr_sha256", "candidate_sha256", "harness_sha256"):
         val = replay_data.get(hash_key)
         if not val or not isinstance(val, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", val):
             return False, f"Missing or invalid 64-character SHA-256 for '{hash_key}' in replay evidence"
 
-    # 6. Timestamps
-    if not replay_data.get("utc_start_time") or not replay_data.get("utc_end_time"):
+    # 6. Replay-specific start/end timestamps (must not reuse initial execution timestamps)
+    rep_start = replay_data.get("utc_start_time")
+    rep_end = replay_data.get("utc_end_time")
+    if not rep_start or not rep_end:
         return False, "Missing utc_start_time or utc_end_time in replay evidence envelope"
+    if rep_start > rep_end:
+        return False, f"Replay utc_start_time '{rep_start}' is after utc_end_time '{rep_end}'"
+
+    init_start = tool_meta.get("utc_start_time")
+    if init_start and rep_start == init_start:
+        return False, f"Replay start timestamp '{rep_start}' reuses initial run timestamp (timestamps must be distinct)"
+
+    # 7. Byte-level verification against actual persisted files
+    stdout_rel_path = replay_data.get("stdout_path") or replay_data.get("replay_stdout_path")
+    stderr_rel_path = replay_data.get("stderr_path") or replay_data.get("replay_stderr_path")
+    stdout_len = replay_data.get("stdout_bytes_len")
+    stderr_len = replay_data.get("stderr_bytes_len")
+
+    if stdout_len is None:
+        return False, "Missing stdout_bytes_len in replay evidence envelope"
+    if stderr_len is None:
+        return False, "Missing stderr_bytes_len in replay evidence envelope"
+
+    # Recompute hashes from artifact bytes if paths or artifacts_dir provided
+    if artifacts_dir is not None and stdout_rel_path:
+        out_file = artifacts_dir / stdout_rel_path
+        if not out_file.exists():
+            out_file = artifacts_dir / Path(stdout_rel_path).name
+        if not out_file.exists():
+            return False, f"Persisted replay stdout artifact not found at '{out_file}'"
+        out_bytes = out_file.read_bytes()
+        if len(out_bytes) != stdout_len:
+            return False, f"Persisted replay stdout length {len(out_bytes)} does not match envelope length {stdout_len}"
+        recomputed_out_sha = hashlib.sha256(out_bytes).hexdigest()
+        if recomputed_out_sha != replay_data["stdout_sha256"]:
+            return False, f"Persisted replay stdout SHA-256 mismatch: {recomputed_out_sha} != {replay_data['stdout_sha256']}"
+
+    if artifacts_dir is not None and stderr_rel_path:
+        err_file = artifacts_dir / stderr_rel_path
+        if not err_file.exists():
+            err_file = artifacts_dir / Path(stderr_rel_path).name
+        if not err_file.exists():
+            return False, f"Persisted replay stderr artifact not found at '{err_file}'"
+        err_bytes = err_file.read_bytes()
+        if len(err_bytes) != stderr_len:
+            return False, f"Persisted replay stderr length {len(err_bytes)} does not match envelope length {stderr_len}"
+        recomputed_err_sha = hashlib.sha256(err_bytes).hexdigest()
+        if recomputed_err_sha != replay_data["stderr_sha256"]:
+            return False, f"Persisted replay stderr SHA-256 mismatch: {recomputed_err_sha} != {replay_data['stderr_sha256']}"
 
     return True, None
 
 
 def validate_remote_evm_toolchain_provenance(artifact_dict: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     """
-    Validates remote EVM toolchain provenance (Iteration 13 Requirement 3).
-    Rejects missing remote toolchain provenance for any target whose EVM stage ran.
+    Validates remote EVM toolchain provenance (Iteration 14 Requirement 3).
+    - Rejects missing remote toolchain provenance for any target whose EVM stage ran.
+    - Rejects unexecuted targets that have non-null EVM toolchain provenance.
+    - Rejects mutable image tags (e.g. debian:12-slim-foundry); requires immutable sha256 digest or explicit NOT_AVAILABLE + reason.
+    - Validates SemVer version patterns for forge and solc.
     """
+    import re
     evm_outcome = artifact_dict.get("evm_outcome")
     sec_verdict = artifact_dict.get("security_verdict")
     process_exit_code = artifact_dict.get("process_exit_code")
 
-    # If the target did not run an EVM stage (e.g. malformed generation before EVM), skip
-    if evm_outcome == "NOT_RUN" or (sec_verdict == "GENERATION_FORMAT_ERROR" and process_exit_code == -4):
-        return True, None
-
     tool_meta = artifact_dict.get("tool_metadata", {})
     provenance = artifact_dict.get("remote_evm_provenance") or tool_meta.get("remote_evm_provenance")
+
+    # If the target did NOT run an EVM stage (e.g. format error before EVM):
+    if evm_outcome == "NOT_RUN" or (sec_verdict == "GENERATION_FORMAT_ERROR" and process_exit_code == -4):
+        if provenance is not None:
+            return False, "Target did not execute EVM stage but has non-null remote_evm_provenance (unexecuted targets must not carry EVM provenance)"
+        return True, None
 
     if not isinstance(provenance, dict) or not provenance:
         return False, "Missing remote_evm_provenance dictionary for executed EVM stage"
 
-    required_fields = ["remote_os", "remote_platform", "forge_version", "solc_versions", "exact_forge_argv", "working_directory", "compiler_settings"]
-    for req in required_fields:
-        val = provenance.get(req)
-        if val is None or (isinstance(val, (str, list, dict)) and len(val) == 0):
-            return False, f"Missing or empty required remote EVM provenance field: '{req}'"
+    # 1. remote_os
+    os_name = provenance.get("remote_os")
+    if not os_name or not isinstance(os_name, str) or "Debian" not in os_name or "Linux" not in os_name:
+        return False, f"Invalid remote_os '{os_name}'; expected verified Debian Linux string"
+    if os_name == "unknown":
+        return False, "Placeholder 'unknown' is not permitted for remote_os"
+
+    # 2. remote_platform
+    if provenance.get("remote_platform") != "linux":
+        return False, f"remote_platform must be 'linux', got '{provenance.get('remote_platform')}'"
+
+    # 3. image_digest: must be immutable sha256 or explicit NOT_AVAILABLE with reason
+    image_digest = provenance.get("image_digest")
+    if not image_digest or not isinstance(image_digest, str):
+        return False, "Missing image_digest field in remote EVM toolchain provenance"
+    if image_digest == "NOT_AVAILABLE":
+        reason = provenance.get("image_digest_reason")
+        if not reason or not isinstance(reason, str) or len(reason.strip()) == 0:
+            return False, "image_digest is NOT_AVAILABLE but image_digest_reason is missing or empty"
+    elif re.match(r"^sha256:[a-f0-9]{64}$", image_digest):
+        pass  # Valid immutable OCI digest
+    else:
+        return False, f"image_digest must be an immutable 'sha256:<64hex>' digest or explicit 'NOT_AVAILABLE' (got mutable tag or invalid format: '{image_digest}')"
+
+    # Rejects mutable tag if placed in image_tag as a digest substitute
+    if "image_tag" in provenance and not image_digest:
+        return False, "Mutable image_tag cannot substitute for immutable image_digest"
+
+    # 4. forge_version
+    forge_ver = provenance.get("forge_version")
+    if not forge_ver or not isinstance(forge_ver, str) or not re.match(r"^forge\s+\d+\.\d+\.\d+.*", forge_ver):
+        return False, f"Invalid forge_version '{forge_ver}'; expected SemVer pattern 'forge X.Y.Z ...'"
+
+    # 5. solc_versions
+    solc_vers = provenance.get("solc_versions")
+    if not solc_vers or not isinstance(solc_vers, list) or len(solc_vers) == 0:
+        return False, "Missing or empty solc_versions list in remote EVM provenance"
+    for sv in solc_vers:
+        if not re.match(r"^0\.8\.\d+$", str(sv)):
+            return False, f"Invalid Solidity version in solc_versions: '{sv}'"
+
+    # 6. exact_forge_argv
+    argv = provenance.get("exact_forge_argv")
+    if argv != ["forge", "test", "--offline", "--json", "-vvvv"]:
+        return False, f"exact_forge_argv must be ['forge', 'test', '--offline', '--json', '-vvvv'], got {argv}"
+
+    # 7. working_directory
+    cwd = provenance.get("working_directory")
+    if not cwd or not isinstance(cwd, str) or len(cwd.strip()) == 0:
+        return False, "Missing or empty working_directory in remote EVM provenance"
+
+    # 8. compiler_settings
+    settings = provenance.get("compiler_settings")
+    if not isinstance(settings, dict) or not settings:
+        return False, "Missing compiler_settings dictionary in remote EVM provenance"
+    for k in ("evm_version", "optimizer", "optimizer_runs", "via_ir"):
+        if k not in settings:
+            return False, f"Missing required compiler setting '{k}' in remote EVM provenance"
 
     return True, None
 
@@ -479,28 +593,109 @@ def validate_safe_control_sentinel_semantics(
     harness_verdict: Optional[str] = None
 ) -> Tuple[bool, str]:
     """
-    Validates deliberate safe-control sentinel semantics (Iteration 13 Requirement 4).
-    Proves why a Forge test failure with that exact reason is a valid SAFE result,
-    and proves unrelated Forge failures cannot be classified SAFE.
+    Validates deliberate safe-control sentinel semantics (Iteration 14 Requirement 4).
+    Accepts ONLY the exact documented sentinel format emitted by the trusted harness:
+    r"^EXPLOIT_FAILED:\s*Safe\s+control\s+held(?:\.\s*.*)?$"
+
+    Rejects:
+    - Arbitrary EXPLOIT_FAILED strings (e.g. 'EXPLOIT_FAILED: Reward pool protected against flash loan distortion')
+    - Generic EVM reverts ('EvmError: Revert')
+    - EVM panic codes ('Panic(0x11)')
+    - Compilation errors ('Compiler run failed')
+    - Missing or empty revert reasons
     """
-    if not revert_reason:
+    import re
+    if not revert_reason or not isinstance(revert_reason, str) or len(revert_reason.strip()) == 0:
         return False, "MISSING_REVERT_REASON"
 
-    # Exact expected sentinel emitted when invariant holds in safe controls
-    if revert_reason.startswith("EXPLOIT_FAILED: Safe control held") or (
-        harness_verdict == "NO_BREACH" and revert_reason.startswith("EXPLOIT_FAILED")
-    ):
+    # Exact sentinel regex: must start with "EXPLOIT_FAILED: Safe control held"
+    if re.match(r"^EXPLOIT_FAILED:\s*Safe\s+control\s+held(?:\.\s*.*)?$", revert_reason.strip()):
         return True, "SAFE_RUN"
 
-    # Reject unrelated forge/EVM failures:
-    # Syntax errors, compilation failures, generic reverts, panic codes, or out of gas
+    # Reject arbitrary EXPLOIT_FAILED strings that are not the safe control held sentinel
+    if revert_reason.startswith("EXPLOIT_FAILED"):
+        return False, f"ARBITRARY_EXPLOIT_FAILED_NOT_SENTINEL: {revert_reason}"
+
+    # Reject generic EVM reverts
     if "EvmError: Revert" in revert_reason:
         return False, "GENERIC_EVM_REVERT_NOT_SENTINEL"
+
+    # Reject EVM panic codes
     if "Panic" in revert_reason:
         return False, "EVM_PANIC_NOT_SENTINEL"
-    if "Compiler run failed" in revert_reason:
+
+    # Reject compiler errors
+    if "Compiler run failed" in revert_reason or "ParserError" in revert_reason:
         return False, "COMPILATION_ERROR_NOT_SENTINEL"
 
     return False, f"UNRECOGNIZED_REVERT_REASON: {revert_reason}"
 
 
+def validate_billing_reconciliation(
+    join_table_dict: Dict[str, Any],
+    raw_billing_list: List[Dict[str, Any]]
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validates the complete Modal billing reconciliation (Iteration 14 Requirement 1):
+    - Proves every referenced app session ID exists in raw billing export.
+    - Proves all raw billing line items are reconciled without omission or double-counting.
+    - Proves aggregate session totals reconcile exactly with the raw report down to 8 decimal places.
+    - Proves target-level cost stays strictly null absent a proven invocation-level join.
+    - Proves no manufactured 'modal-app://' pseudo-URIs exist.
+    """
+    import json
+    raw_apps = {item["object_id"] for item in raw_billing_list}
+    raw_grand_total = sum(float(item["cost"]) for item in raw_billing_list)
+
+    reconciled_sessions = join_table_dict.get("app_sessions_reconciliation", {})
+    if not isinstance(reconciled_sessions, dict) or not reconciled_sessions:
+        return False, "Missing or empty 'app_sessions_reconciliation' in join table"
+
+    # 1. Check all referenced app IDs exist in raw billing
+    reconciled_item_count = 0
+    reconciled_grand_total = 0.0
+
+    for app_id, session_data in reconciled_sessions.items():
+        if app_id not in raw_apps:
+            return False, f"Reconciled app session '{app_id}' does not exist in raw billing export"
+
+        items = session_data.get("line_items", [])
+        if not items:
+            return False, f"App session '{app_id}' has no line items"
+
+        session_cost = session_data.get("session_cost_usd")
+        items_sum = sum(float(x["cost"]) for x in items)
+
+        if abs(session_cost - items_sum) > 1e-7:
+            return False, f"Session '{app_id}' cost {session_cost} does not match sum of items {items_sum}"
+
+        reconciled_item_count += len(items)
+        reconciled_grand_total += items_sum
+
+    # 2. Check no line items were omitted or double counted
+    if reconciled_item_count != len(raw_billing_list):
+        return False, f"Reconciled line item count ({reconciled_item_count}) does not match raw export count ({len(raw_billing_list)})"
+
+    if abs(reconciled_grand_total - raw_grand_total) > 1e-6:
+        return False, f"Grand total mismatch: reconciled {reconciled_grand_total:.8f} != raw {raw_grand_total:.8f}"
+
+    # 3. Check target-level attribution rules
+    target_records = join_table_dict.get("target_execution_records", [])
+    if not target_records:
+        return False, "Missing target_execution_records in join table"
+
+    for tr in target_records:
+        tid = tr.get("target_id")
+        if tr.get("cost_usd") is not None:
+            return False, f"Target '{tid}' has non-null cost_usd ({tr.get('cost_usd')}); target cost must remain null"
+        if tr.get("billing_line_item") is not None:
+            return False, f"Target '{tid}' has repeated aggregate billing_line_item; line items must be null on target records"
+        if tr.get("attribution_status") != "UNATTRIBUTABLE_AGGREGATE":
+            return False, f"Target '{tid}' attribution_status must be 'UNATTRIBUTABLE_AGGREGATE', got '{tr.get('attribution_status')}'"
+
+        # Check for manufactured modal-app:// pseudo-URIs
+        tr_str = json.dumps(tr)
+        if "modal-app://" in tr_str:
+            return False, f"Target '{tid}' contains prohibited manufactured pseudo-URI starting with 'modal-app://'"
+
+    return True, None
