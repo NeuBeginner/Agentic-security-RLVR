@@ -1,6 +1,6 @@
 {
   "evidence_type": "TRUSTED_HARNESS_CONTROL_VALIDATION",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "timestamp_utc": "2026-11-09T08:45:00Z",
   "git_commit_sha": "70f5d22668bb5ebf72aa9de230fe91790d0e57c8",
   "branch": "feat/empirical-benchmark-runner",
@@ -40,7 +40,57 @@
         "record_trajectory_remote"
       ],
       "reproduced": true,
-      "replay_container_id": "modal-cpu-c89a89057453"
+      "replay_container_id": "modal-cpu-c89a89057453",
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "BREACH_VERIFIED",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": {
+        "reproduced": true,
+        "container_id": "modal-cpu-c89a89057453",
+        "command": "forge test --offline --json -vvvv",
+        "argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "return_code": 0,
+        "exit_code": 0,
+        "invariant_violated": true,
+        "harness_verdict": "BREACH",
+        "category": "EXPLOIT_CONFIRMED",
+        "candidate_sha256": "c7b1c65e77177e7baf61f1926f0661141456bf113e5389a71d2c7fe1fbb76de0",
+        "harness_sha256": "11125af44361d8978b9ce2cebdcc59b2125c31e058b329eb0f0cefe4cdbd651b",
+        "stdout_sha256": "43aabfd8fd380e4adaf834afbd91a0839f8ff7469ca464cee2d66e9e9bec7212",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utc_start_time": "2026-11-09T07:36:24Z",
+        "utc_end_time": "2026-11-09T07:36:57Z"
+      }
     },
     {
       "target_id": "BIZ-01",
@@ -67,7 +117,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     },
     {
       "target_id": "BRIDGE-01",
@@ -94,7 +172,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     },
     {
       "target_id": "DOS-01",
@@ -121,7 +227,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     },
     {
       "target_id": "ERC4626-01",
@@ -148,7 +282,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     },
     {
       "target_id": "FLASH-01",
@@ -175,7 +337,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "SAFE_CONTROL_HELD",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     },
     {
       "target_id": "LIQ-01",
@@ -202,7 +392,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     },
     {
       "target_id": "ORACLE-01",
@@ -229,7 +447,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     },
     {
       "target_id": "PREC-01",
@@ -256,7 +502,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     },
     {
       "target_id": "REENT-01",
@@ -285,7 +559,57 @@
         "record_trajectory_remote"
       ],
       "reproduced": true,
-      "replay_container_id": "modal-cpu-ca9285db97bf"
+      "replay_container_id": "modal-cpu-ca9285db97bf",
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "BREACH_VERIFIED",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": {
+        "reproduced": true,
+        "container_id": "modal-cpu-ca9285db97bf",
+        "command": "forge test --offline --json -vvvv",
+        "argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "return_code": 0,
+        "exit_code": 0,
+        "invariant_violated": true,
+        "harness_verdict": "BREACH",
+        "category": "EXPLOIT_CONFIRMED",
+        "candidate_sha256": "c67358c90b789d1536f2dfd30c287230789d8397ba004465924c1c214c145aa3",
+        "harness_sha256": "6f405ff57e9bef9b8afd584e97bde96557d0763d3a6d3097c8a75ec51c4ccda6",
+        "stdout_sha256": "8d088711590dc962c2be5d91ebdb5a4fb05f698130ebbaa7135146f80e8281da",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utc_start_time": "2026-11-09T07:33:41Z",
+        "utc_end_time": "2026-11-09T07:35:20Z"
+      }
     },
     {
       "target_id": "SAFE-01",
@@ -312,7 +636,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "SAFE_CONTROL_HELD",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     },
     {
       "target_id": "SAFE-02",
@@ -339,7 +691,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "SAFE_CONTROL_HELD",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     },
     {
       "target_id": "SAFE-03",
@@ -366,7 +746,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "SAFE_CONTROL_HELD",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     },
     {
       "target_id": "SAFE-04",
@@ -393,7 +801,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "SAFE_CONTROL_HELD",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     },
     {
       "target_id": "SIG-01",
@@ -420,7 +856,12 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "GENERATION_FORMAT_ERROR",
+      "evm_outcome": "NOT_RUN",
+      "remote_evm_provenance": null,
+      "replay_evidence": null
     },
     {
       "target_id": "STATE-01",
@@ -447,7 +888,35 @@
         "verify_exploit_remote"
       ],
       "reproduced": null,
-      "replay_container_id": null
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
     }
   ],
   "modal_billing_audit": {
@@ -465,7 +934,9 @@
     "total_account_month_cost_usd": 1.3297,
     "total_h100_gpu_items_billed": 3,
     "total_h100_gpu_cost_usd": 1.1601,
-    "billing_reconciliation_verdict": "VERIFIED_ACCURATE: All live Modal H100 inference and CPU EVM container executions reconcile directly with upstream Modal billing ledger for app session ap-EDUitOwWeMrIdYbTh4kB63."
+    "billing_reconciliation_verdict": "VERIFIED_ACCURATE: All live Modal H100 inference and CPU EVM container executions reconcile directly with upstream Modal billing ledger for app session ap-EDUitOwWeMrIdYbTh4kB63 via machine-readable join table modal_billing_join_table.json.",
+    "join_table_file": "benchmarks/evidence/modal_billing_join_table.json",
+    "attribution_policy": "UNATTRIBUTABLE_AGGREGATE: Per-target cost_usd is strictly null as upstream Modal SDK synchronous remote execution aggregates resource usage at the application session level (ap-EDUitOwWeMrIdYbTh4kB63)."
   },
   "summary_metrics": {
     "baseline_id": "baseline_5",

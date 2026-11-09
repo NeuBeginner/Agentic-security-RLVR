@@ -107,7 +107,90 @@
     "output_sha256": "9b02137610db0462613dc8a2b934b5655c2ecdcf64022f8f4d402aa306569542",
     "prompt_hash": "ef6f9ceeeed1cc53c531a978743d7ed62fd80d5e2949c3b50d34072ffbcff458",
     "utc_start_time": "2026-11-09T07:35:20Z",
-    "utc_end_time": "2026-11-09T07:36:24Z"
+    "utc_end_time": "2026-11-09T07:36:24Z",
+    "orchestration_status": "COMPLETED",
+    "generation_outcome": "CANDIDATE_GENERATED",
+    "evm_outcome": "RUNTIME_REVERT",
+    "replay_evidence": null,
+    "remote_evm_provenance": {
+      "remote_os": "Debian GNU/Linux 12 (bookworm)",
+      "remote_platform": "linux",
+      "image_tag": "debian:12-slim-foundry",
+      "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+      "solc_versions": [
+        "0.8.20",
+        "0.8.24"
+      ],
+      "exact_forge_argv": [
+        "forge",
+        "test",
+        "--offline",
+        "--json",
+        "-vvvv"
+      ],
+      "working_directory": "/tmp/aegis_sandbox",
+      "compiler_settings": {
+        "evm_version": "paris",
+        "optimizer": true,
+        "optimizer_runs": 200,
+        "via_ir": false
+      }
+    },
+    "modal_invocation_provenance": {
+      "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "target_id": "ERC4626-01",
+      "correlation_id": "corr-ERC4626-01-1794209720-ebb36a77",
+      "stages": {
+        "inference": {
+          "function_name": "generate_solidity_exploit",
+          "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+          "invocation_id": "NOT_AVAILABLE",
+          "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
+          "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/ERC4626-01/corr-ERC4626-01-1794209720-ebb36a77",
+          "resource": "H100",
+          "resource_interval": "2026-11-09T00:00:00",
+          "billing_line_item": {
+            "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "resource": "H100",
+            "aggregate_interval_cost_usd": 0.74323683
+          },
+          "cost_usd": null
+        },
+        "evm_sandbox": {
+          "function_name": "verify_exploit_remote",
+          "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+          "invocation_id": "NOT_AVAILABLE",
+          "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
+          "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/ERC4626-01/corr-ERC4626-01-1794209720-ebb36a77",
+          "resource": "CPU",
+          "resource_interval": "2026-11-09T00:00:00",
+          "billing_line_item": {
+            "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "resource": "CPU",
+            "aggregate_interval_cost_usd": 0.03001687
+          },
+          "cost_usd": null
+        },
+        "independent_replay": {
+          "attempted": false,
+          "function_name": null,
+          "container_id": null,
+          "app_id": null,
+          "durable_log_ref": null,
+          "resource": null,
+          "resource_interval": null,
+          "cost_usd": null
+        },
+        "trajectory_persistence": {
+          "attempted": true,
+          "function_name": "record_trajectory_remote",
+          "persisted_path": "/vol/aegis_trajectories/baseline_5/ERC4626-01_corr-ERC4626-01-1794209720-ebb36a77.json",
+          "resource": "Storage",
+          "cost_usd": null
+        }
+      },
+      "target_cost_usd": null
+    }
   },
   "raw_output": {
     "category": "RUNTIME_REVERT",
@@ -154,5 +237,88 @@
   },
   "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
   "prompt_hash": "ef6f9ceeeed1cc53c531a978743d7ed62fd80d5e2949c3b50d34072ffbcff458",
-  "execution_status": "SUCCESS"
+  "execution_status": "SUCCESS",
+  "orchestration_status": "COMPLETED",
+  "generation_outcome": "CANDIDATE_GENERATED",
+  "evm_outcome": "RUNTIME_REVERT",
+  "replay_evidence": null,
+  "remote_evm_provenance": {
+    "remote_os": "Debian GNU/Linux 12 (bookworm)",
+    "remote_platform": "linux",
+    "image_tag": "debian:12-slim-foundry",
+    "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+    "solc_versions": [
+      "0.8.20",
+      "0.8.24"
+    ],
+    "exact_forge_argv": [
+      "forge",
+      "test",
+      "--offline",
+      "--json",
+      "-vvvv"
+    ],
+    "working_directory": "/tmp/aegis_sandbox",
+    "compiler_settings": {
+      "evm_version": "paris",
+      "optimizer": true,
+      "optimizer_runs": 200,
+      "via_ir": false
+    }
+  },
+  "modal_invocation_provenance": {
+    "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+    "target_id": "ERC4626-01",
+    "correlation_id": "corr-ERC4626-01-1794209720-ebb36a77",
+    "stages": {
+      "inference": {
+        "function_name": "generate_solidity_exploit",
+        "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+        "invocation_id": "NOT_AVAILABLE",
+        "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
+        "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/ERC4626-01/corr-ERC4626-01-1794209720-ebb36a77",
+        "resource": "H100",
+        "resource_interval": "2026-11-09T00:00:00",
+        "billing_line_item": {
+          "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+          "resource": "H100",
+          "aggregate_interval_cost_usd": 0.74323683
+        },
+        "cost_usd": null
+      },
+      "evm_sandbox": {
+        "function_name": "verify_exploit_remote",
+        "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+        "invocation_id": "NOT_AVAILABLE",
+        "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
+        "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/ERC4626-01/corr-ERC4626-01-1794209720-ebb36a77",
+        "resource": "CPU",
+        "resource_interval": "2026-11-09T00:00:00",
+        "billing_line_item": {
+          "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+          "resource": "CPU",
+          "aggregate_interval_cost_usd": 0.03001687
+        },
+        "cost_usd": null
+      },
+      "independent_replay": {
+        "attempted": false,
+        "function_name": null,
+        "container_id": null,
+        "app_id": null,
+        "durable_log_ref": null,
+        "resource": null,
+        "resource_interval": null,
+        "cost_usd": null
+      },
+      "trajectory_persistence": {
+        "attempted": true,
+        "function_name": "record_trajectory_remote",
+        "persisted_path": "/vol/aegis_trajectories/baseline_5/ERC4626-01_corr-ERC4626-01-1794209720-ebb36a77.json",
+        "resource": "Storage",
+        "cost_usd": null
+      }
+    },
+    "target_cost_usd": null
+  }
 }
