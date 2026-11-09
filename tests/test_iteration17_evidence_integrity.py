@@ -140,9 +140,21 @@ def _capture(
     runtime_identity_source: str = "modal_runtime",
     requested_fields: Any = MODAL_IDENTITY_FIELDS,
 ) -> StageResponseCapture:
-    """Build the capture of one stage."""
+    """
+    Build the capture of one stage.
+
+    The capture keeps its flags, its payload and its envelope consistent with
+    each other: a stage that received no response holds no payload, and a
+    stage that holds no envelope names no source (Iteration 18). The helper
+    always claimed to build an internally consistent artifact - this is what
+    that means now that the payload is part of the state of a stage.
+    """
     if provider_response is None and runtime_identity is not None:
         provider_response = {"modal_runtime": runtime_identity}
+    if not response_received:
+        provider_response = None
+    if runtime_identity is None:
+        runtime_identity_source = ""
     return StageResponseCapture(
         stage=stage,
         attempted=attempted,
@@ -164,11 +176,25 @@ def _recompute_digests(payload: Dict[str, Any]) -> Dict[str, Any]:
     envelope are recomputed from the mutated content, so the artifact stays
     internally consistent and the validator can only reject it on the state
     machine itself.
+
+    A stage that received no response holds no payload and therefore carries
+    no response digest either - the digest of the JSON literal ``null`` is not
+    the digest of a captured response (Iteration 18).
     """
-    provider_bytes = canonical_json_bytes(payload.get("provider_response"))
     metadata = payload["provider_response_metadata"]
-    metadata["response_sha256"] = sha256_bytes(provider_bytes)
-    metadata["response_byte_length"] = len(provider_bytes)
+    provider_response = payload.get("provider_response")
+    if provider_response is None:
+        metadata["response_sha256"] = None
+        metadata["response_byte_length"] = None
+        metadata["response_source"] = ""
+    else:
+        provider_bytes = canonical_json_bytes(provider_response)
+        metadata["response_sha256"] = sha256_bytes(provider_bytes)
+        metadata["response_byte_length"] = len(provider_bytes)
+        if not str(metadata.get("response_source") or "").strip():
+            # A mutation that hands the artifact a payload it never had also
+            # has to say where that payload came from (Iteration 18).
+            metadata["response_source"] = f"the response of the {payload.get('stage')} stage"
     runtime_identity = payload.get("runtime_identity")
     if runtime_identity is not None:
         runtime_bytes = canonical_json_bytes(runtime_identity)

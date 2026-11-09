@@ -83,6 +83,12 @@ jobs:
           TOKENIZERS_PARALLELISM: "false"
         run: python -m pytest -q tests/test_iteration17_evidence_integrity.py
 
+      - name: Run Iteration 18 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration18_evidence_integrity.py
+
       - name: Run GRPO and trajectory integrity tests
         env:
           PYTHONPATH: .
@@ -181,6 +187,12 @@ jobs:
           PYTHONPATH: .
         run: |
           python -m benchmarks.validate_iteration17_evidence --check
+
+      - name: Validate Iteration 18 response/envelope binding
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_iteration18_evidence --check
 
       - name: Upload Foundry test report
         if: always()

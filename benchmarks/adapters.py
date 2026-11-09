@@ -1936,11 +1936,22 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 StageResponseCapture,
                 build_modal_stage_provenance,
                 build_stage_identity_facts,
+                validate_stage_capture,
                 write_stage_evidence_artifact,
             )
 
             evm_runtime = verdict_dict.get("modal_runtime")
             replay_runtime = replay_details.get("modal_runtime")
+            # The runtime envelope of the inference stage is read from the
+            # response it came from, and only when it really is an envelope:
+            # a value that is not an object is not an envelope (Iteration 18).
+            inference_runtime = (
+                inference_response.get("modal_runtime")
+                if isinstance(inference_response, dict)
+                else None
+            )
+            if not isinstance(inference_runtime, dict):
+                inference_runtime = None
 
             inference_function_name = (
                 "ProductionAuditAgent.generate_solidity_exploit"
@@ -1962,11 +1973,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     executed=inference_response is not None,
                     response_received=inference_response is not None,
                     provider_response=inference_response,
-                    runtime_identity=(
-                        inference_response.get("modal_runtime")
-                        if isinstance(inference_response, dict)
-                        else None
-                    ),
+                    runtime_identity=inference_runtime,
                     runtime_identity_source="modal_runtime",
                     response_source="the response of the inference worker this client invoked",
                     requested_fields=MODAL_IDENTITY_FIELDS,
@@ -2009,6 +2016,40 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     requested_fields=(),
                 ),
             }
+
+            # The captures are checked before anything is written. A capture
+            # whose flags, its payload and its runtime envelope contradict each
+            # other must not produce an evidence artifact: the target fails
+            # closed instead of writing evidence that misrepresents the stage
+            # (Iteration 18).
+            for _stage_name, _stage_capture in stage_captures.items():
+                _capture_ok, _capture_error = validate_stage_capture(_stage_capture)
+                if _capture_ok:
+                    continue
+                return TargetExecutionArtifact(
+                    baseline_id=self.baseline_id,
+                    target_id=target.contract_id,
+                    target_name=target.target_name,
+                    status=ExecutionStatus.FAILED,
+                    unavailable_reason=(
+                        "The evidence of the stage could not be produced, so the target fails "
+                        f"closed: {_capture_error}"
+                    ),
+                    duration_seconds=round(time.time() - start_time, 3),
+                    cost_usd=None,
+                    tool_metadata={
+                        "remote_backend": "modal",
+                        "modal_app": config.APP_NAME,
+                        "correlation_id": correlation_id,
+                        "modal_functions": modal_functions,
+                        "error_type": "EvidenceContractError",
+                        "stage_failed": _stage_name,
+                        "evidence_contract_error": _capture_error,
+                    },
+                    timeout_sec=timeout_sec,
+                    resource_budget=dict(self.resource_budget),
+                    effective_config_hash=self.get_effective_config_hash(),
+                )
 
             # One artifact per stage: the exact bytes that stage returned.
             stage_evidence: Dict[str, Dict[str, Any]] = {}

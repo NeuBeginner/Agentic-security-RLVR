@@ -834,8 +834,17 @@ def test_iteration16_runtime_envelope_must_come_from_the_returned_payload(tmp_pa
         capture, target_id="T-01", correlation_id="corr-test"
     )
     # The envelope is swapped, but its own digest is kept consistent, so only
-    # the relation to the returned payload can give the tampering away.
-    artifact_payload["runtime_identity"] = _runtime_identity(container_id="other-container")
+    # the relation to the returned payload can give the tampering away. The
+    # swapped envelope is well-formed on purpose (Iteration 18): the check
+    # that catches the swap is the binding to the returned payload, not the
+    # schema of the envelope.
+    artifact_payload["runtime_identity"] = _runtime_identity(
+        container_id={
+            "status": OBSERVED,
+            "value": "other-container",
+            "source": "MODAL_WORKER_ID of the running container",
+        }
+    )
     artifact_payload["provider_response_metadata"]["runtime_identity_sha256"] = sha256_bytes(
         canonical_json_bytes(artifact_payload["runtime_identity"])
     )

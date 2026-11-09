@@ -585,6 +585,198 @@ ABSENCE_KIND_RULES = {
 }
 
 
+# ---------------------------------------------------------------------------
+#
+# Iteration 18 binds the captured response to the runtime envelope.
+#
+# Iteration 17 made the four flags of a stage a state machine, but the payload
+# the artifact stores was still checked in one direction only: an artifact that
+# claimed "no response" could still hold a provider response, and the runtime
+# envelope could be detached from the response it is supposed to come from. A
+# malformed identity fact in the envelope was even treated as if the provider
+# had simply omitted the field.
+#
+# Iteration 18 therefore binds three things together: the flag of the stage,
+# the payload the artifact stores and the runtime-identity envelope. They are
+# three descriptions of one event, so they may not contradict each other.
+#
+# The producer refuses to write an artifact in which they do not agree, and the
+# validator rejects such an artifact even when every digest in it is
+# internally consistent.
+
+#: The statuses a documented identity fact may carry.
+IDENTITY_FACT_STATUSES = (OBSERVED, NOT_AVAILABLE)
+
+
+class EvidenceContractError(ValueError):
+    """
+    The producer was asked to write evidence that would be ambiguous.
+
+    The evidence chain never writes an artifact that says one thing and stores
+    another: a contradictory capture, an envelope that the captured response
+    does not carry, or an envelope with a malformed identity fact is refused
+    instead of being written down.
+    """
+
+
+def _is_observed_fact(fact: Any) -> bool:
+    """
+    True when a fact is a well-formed ``OBSERVED`` fact with a value.
+
+    The identity fields of a runtime envelope are provider-issued identifiers,
+    so an observed value is a non-empty string that names the source it was
+    read from.
+    """
+    if not isinstance(fact, dict) or fact.get("status") != OBSERVED:
+        return False
+    value = fact.get("value")
+    if not isinstance(value, str) or not value.strip():
+        return False
+    source = fact.get("source")
+    return isinstance(source, str) and bool(source.strip())
+
+
+def validate_runtime_identity_envelope(
+    envelope: Any,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validate the schema of a runtime-identity envelope.
+
+    Every identity field the envelope carries must be a **documented typed
+    fact**: an object with a known status and the payload that belongs to that
+    status.
+
+    * ``OBSERVED`` needs a non-empty string value and a named source;
+    * ``NOT_AVAILABLE`` needs no value and an explicit reason.
+
+    A field that is present but malformed is an **error**. It is never treated
+    as a field the provider omitted - the provider did answer, and the answer
+    is what has to be checked.
+
+    Only the identity fields of the envelope are validated. The additional
+    provider keys the Modal worker returns (``app_page_url``,
+    ``container_id_value``) are not identity fields, are not classified and
+    are therefore not part of this contract.
+    """
+    if envelope is None:
+        return True, None
+    if not isinstance(envelope, dict):
+        return False, "The runtime-identity envelope is not an object"
+
+    for field_name in MODAL_IDENTITY_FIELDS:
+        if field_name not in envelope:
+            continue
+        fact = envelope[field_name]
+        if not isinstance(fact, dict):
+            return False, (
+                f"The runtime-identity envelope carries a malformed fact for '{field_name}': "
+                f"it is {type(fact).__name__} instead of a typed fact"
+            )
+        status = fact.get("status")
+        if status not in IDENTITY_FACT_STATUSES:
+            return False, (
+                f"The runtime-identity envelope carries a malformed fact for '{field_name}': "
+                f"its status {status!r} is neither {OBSERVED!r} nor {NOT_AVAILABLE!r}"
+            )
+        if status == OBSERVED:
+            value = fact.get("value")
+            if not isinstance(value, str) or not value.strip():
+                return False, (
+                    f"The runtime-identity envelope carries a malformed fact for '{field_name}': "
+                    "an observed identity value must be a non-empty string"
+                )
+            source = fact.get("source")
+            if not isinstance(source, str) or not source.strip():
+                return False, (
+                    f"The runtime-identity envelope carries a malformed fact for '{field_name}': "
+                    "an observed fact must name the source it was read from"
+                )
+            continue
+        if fact.get("value") is not None:
+            return False, (
+                f"The runtime-identity envelope carries a malformed fact for '{field_name}': "
+                f"a {NOT_AVAILABLE} fact must not hold a value"
+            )
+        reason = fact.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            return False, (
+                f"The runtime-identity envelope carries a malformed fact for '{field_name}': "
+                f"a {NOT_AVAILABLE} fact must state the reason"
+            )
+    return True, None
+
+
+def _validate_capture(capture: StageResponseCapture) -> None:
+    """
+    Check that the capture of a stage describes one coherent thing.
+
+    The capture is the raw material of the stage evidence artifact: the flags,
+    the payload and the runtime-identity envelope have to agree before
+    anything is written. A capture that contradicts itself is refused - the
+    producer never writes an artifact that says one thing and stores another.
+    """
+    if capture.response_received and capture.provider_response is None:
+        raise EvidenceContractError(
+            f"The {capture.stage} stage claims that a response was received but the capture "
+            "holds no payload"
+        )
+    if not capture.response_received and capture.provider_response is not None:
+        raise EvidenceContractError(
+            f"The {capture.stage} stage claims that no response was received but the capture "
+            "holds a payload"
+        )
+
+    if capture.runtime_identity is not None:
+        if not capture.response_received:
+            raise EvidenceContractError(
+                f"The {capture.stage} stage holds a runtime-identity envelope although it "
+                "received no response"
+            )
+        source = capture.runtime_identity_source
+        if not source:
+            raise EvidenceContractError(
+                f"The {capture.stage} stage holds a runtime-identity envelope but does not say "
+                "where it came from"
+            )
+        if not isinstance(capture.provider_response, dict):
+            raise EvidenceContractError(
+                f"The {capture.stage} stage holds a runtime-identity envelope but its captured "
+                "response is not an object and can therefore not carry it"
+            )
+        if source not in capture.provider_response:
+            raise EvidenceContractError(
+                f"The captured response of the {capture.stage} stage does not contain the "
+                f"runtime-identity envelope at {source!r}"
+            )
+        if canonical_json_bytes(capture.provider_response[source]) != canonical_json_bytes(
+            capture.runtime_identity
+        ):
+            raise EvidenceContractError(
+                f"The runtime-identity envelope of the {capture.stage} stage is not the one its "
+                "captured response carries"
+            )
+
+    ok, error = validate_runtime_identity_envelope(capture.runtime_identity)
+    if not ok:
+        raise EvidenceContractError(f"The {capture.stage} stage: {error}")
+
+
+def validate_stage_capture(
+    capture: StageResponseCapture,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Check that the capture of a stage describes one coherent thing.
+
+    The public counterpart of the producer-side contract: a caller that wants
+    to know whether a capture may be written down asks this function first.
+    """
+    try:
+        _validate_capture(capture)
+    except EvidenceContractError as exc:
+        return False, str(exc)
+    return True, None
+
+
 def _json_default(value: Any) -> Any:
     """Encode the values a provider payload may contain into canonical JSON."""
     if isinstance(value, Enum):
@@ -645,16 +837,19 @@ def _observed_identity_value(
     runtime_identity: Optional[Dict[str, Any]],
     field_name: str,
 ) -> Tuple[Optional[Any], str]:
-    """Return the observed value of an identity field, or ``(None, "")``."""
+    """
+    Return the observed value of an identity field, or ``(None, "")``.
+
+    Only a well-formed ``OBSERVED`` fact counts as an observation. A fact that
+    is present but malformed is not an observation - and the envelope check of
+    Iteration 18 rejects the artifact that carries it, so it can never be
+    mistaken for a field the provider omitted.
+    """
     if not isinstance(runtime_identity, dict):
         return None, ""
     fact = runtime_identity.get(field_name)
-    if isinstance(fact, dict) and fact.get("status") == OBSERVED:
-        value = fact.get("value")
-        if value is None:
-            return None, ""
-        source = fact.get("source") or ""
-        return value, source
+    if _is_observed_fact(fact):
+        return fact.get("value"), str(fact.get("source") or "")
     return None, ""
 
 
@@ -785,7 +980,13 @@ def build_stage_evidence_artifact(
     serialization of the returned object - it describes the bytes that are
     stored inside the artifact and can be recomputed from them. It is **not**
     the digest of the raw transport bytes the provider sent.
+
+    The capture is validated before anything is written: a capture whose flags,
+    payload and envelope contradict each other is refused
+    (``EvidenceContractError``) instead of being written down.
     """
+    _validate_capture(capture)
+
     absence_records: List[Dict[str, Any]] = []
     for field_name in MODAL_IDENTITY_FIELDS:
         kind, reason = classify_stage_absence(capture, field_name)
@@ -793,7 +994,11 @@ def build_stage_evidence_artifact(
             continue
         absence_records.append({"kind": kind, "field": field_name, "reason": reason})
 
-    provider_bytes = canonical_json_bytes(capture.provider_response)
+    provider_bytes = (
+        canonical_json_bytes(capture.provider_response)
+        if capture.response_received
+        else None
+    )
     runtime_bytes = (
         canonical_json_bytes(capture.runtime_identity)
         if capture.runtime_identity is not None
@@ -812,11 +1017,20 @@ def build_stage_evidence_artifact(
         "requested_fields": list(capture.requested_fields),
         "provider_response": capture.provider_response,
         "runtime_identity": capture.runtime_identity,
-        "runtime_identity_source": capture.runtime_identity_source,
+        # The source of the envelope is recorded only when an envelope was
+        # received: an artifact that names the source of an envelope it does
+        # not hold would leave the reader guessing (Iteration 18).
+        "runtime_identity_source": (
+            capture.runtime_identity_source if capture.runtime_identity is not None else ""
+        ),
         "provider_response_metadata": {
-            "response_source": capture.response_source,
-            "response_sha256": sha256_bytes(provider_bytes),
-            "response_byte_length": len(provider_bytes),
+            # The metadata of a response describes a response that was really
+            # captured. A stage that received no response has no digest, no
+            # byte length and no source - the digest of the JSON literal
+            # ``null`` is not the digest of a captured response (Iteration 18).
+            "response_source": capture.response_source if capture.response_received else "",
+            "response_sha256": sha256_bytes(provider_bytes) if provider_bytes is not None else None,
+            "response_byte_length": len(provider_bytes) if provider_bytes is not None else None,
             "runtime_identity_sha256": sha256_bytes(runtime_bytes) if runtime_bytes else None,
             "runtime_identity_byte_length": len(runtime_bytes) if runtime_bytes else None,
         },
@@ -867,7 +1081,13 @@ def build_stage_identity_facts(
     Every missing field carries its kind of absence and the evidence reference
     of the artifact that proves the absence - the artifact of this stage and of
     no other stage.
+
+    The capture is validated first: a capture whose flags, payload and
+    envelope contradict each other is refused (``EvidenceContractError``), so
+    no fact is ever derived from a capture that contradicts itself.
     """
+    _validate_capture(capture)
+
     facts: Dict[str, Any] = {}
     for field_name in MODAL_IDENTITY_FIELDS:
         kind, reason = classify_stage_absence(capture, field_name)
@@ -971,14 +1191,20 @@ def _check_absence_record_against_flags(
             )
         if field_name in envelope:
             value = envelope.get(field_name)
-            if (
-                isinstance(value, dict)
-                and value.get("status") == OBSERVED
-                and value.get("value") is not None
-            ):
+            if _is_observed_fact(value):
                 return False, (
                     f"The stage evidence artifact records '{field_name}' as omitted by the "
                     "provider although the provider reported it"
+                )
+            if not (isinstance(value, dict) and value.get("status") == NOT_AVAILABLE):
+                # A field that is present but malformed is not an omission:
+                # the provider answered something that cannot be checked, and
+                # that must never be re-labelled as "the provider omitted it"
+                # (Iteration 18).
+                return False, (
+                    f"The stage evidence artifact records '{field_name}' as omitted by the "
+                    "provider although the runtime-identity envelope carries a malformed fact "
+                    "for it"
                 )
 
     if kind not in ABSENCE_KINDS_THAT_MAY_CLAIM_PROVIDER_OMISSION:
@@ -1041,23 +1267,50 @@ def validate_stage_evidence_artifact(
         return False, "The stage evidence artifact has no 'provider_response_metadata'"
 
     provider_response = payload.get("provider_response")
-    if payload.get("response_received") and provider_response is None:
+    if payload.get("response_received"):
+        if provider_response is None:
+            return False, (
+                "The stage evidence artifact claims that a response was received but holds none"
+            )
+    elif provider_response is not None:
+        # The flag and the payload are two descriptions of one fact: a stage
+        # that received no response may not store one (Iteration 18).
         return False, (
-            "The stage evidence artifact claims that a response was received but holds none"
+            "The stage evidence artifact claims that no response was received but holds a "
+            "provider response"
         )
 
-    expected_digest = sha256_bytes(canonical_json_bytes(provider_response))
-    if metadata.get("response_sha256") != expected_digest:
-        return False, (
-            "The recorded digest of the returned payload does not match the payload stored in "
-            "the stage evidence artifact"
-        )
-    expected_length = len(canonical_json_bytes(provider_response))
-    if metadata.get("response_byte_length") != expected_length:
-        return False, (
-            "The recorded byte length of the returned payload does not match the payload stored "
-            "in the stage evidence artifact"
-        )
+    if payload.get("response_received"):
+        expected_digest = sha256_bytes(canonical_json_bytes(provider_response))
+        if metadata.get("response_sha256") != expected_digest:
+            return False, (
+                "The recorded digest of the returned payload does not match the payload stored in "
+                "the stage evidence artifact"
+            )
+        expected_length = len(canonical_json_bytes(provider_response))
+        if metadata.get("response_byte_length") != expected_length:
+            return False, (
+                "The recorded byte length of the returned payload does not match the payload "
+                "stored in the stage evidence artifact"
+            )
+        if not str(metadata.get("response_source") or "").strip():
+            return False, (
+                "The stage evidence artifact holds a provider response but does not say where "
+                "that response came from"
+            )
+    else:
+        # The metadata of a response describes a response that was really
+        # captured. A stage that received none has no digest, no byte length
+        # and no source (Iteration 18).
+        if (
+            metadata.get("response_sha256") is not None
+            or metadata.get("response_byte_length") is not None
+            or str(metadata.get("response_source") or "").strip()
+        ):
+            return False, (
+                "The stage evidence artifact claims that no response was received but its "
+                "response metadata implies that a response was captured"
+            )
 
     runtime_identity = payload.get("runtime_identity")
     if payload.get("runtime_envelope_received"):
@@ -1065,6 +1318,12 @@ def validate_stage_evidence_artifact(
             return False, (
                 "The stage evidence artifact claims a runtime-identity envelope but holds none"
             )
+        # The schema of the envelope is checked before a single absence record
+        # is classified: a malformed identity fact is an error and must never
+        # be downgraded to "the provider omitted this field" (Iteration 18).
+        envelope_ok, envelope_error = validate_runtime_identity_envelope(runtime_identity)
+        if not envelope_ok:
+            return False, envelope_error
         expected_runtime_digest = sha256_bytes(canonical_json_bytes(runtime_identity))
         if metadata.get("runtime_identity_sha256") != expected_runtime_digest:
             return False, (
@@ -1077,24 +1336,37 @@ def validate_stage_evidence_artifact(
                 "The stage evidence artifact holds a runtime-identity envelope but does not say "
                 "where it came from"
             )
-        if isinstance(provider_response, dict):
-            if source not in provider_response:
-                return False, (
-                    f"The returned payload of the stage does not contain the runtime-identity "
-                    f"envelope at {source!r}"
-                )
-            if canonical_json_bytes(provider_response[source]) != canonical_json_bytes(
-                runtime_identity
-            ):
-                return False, (
-                    "The runtime-identity envelope of the stage evidence artifact is not the "
-                    "one the returned payload carries"
-                )
-    elif runtime_identity is not None:
-        return False, (
-            "The stage evidence artifact holds a runtime-identity envelope although it claims "
-            "that none was received"
-        )
+        # The envelope belongs to the captured response. The binding is checked
+        # for EVERY shape of the response: a payload that is not an object
+        # cannot carry an envelope and is rejected, not skipped (Iteration 18).
+        if not isinstance(provider_response, dict):
+            return False, (
+                "The captured response of the stage is not an object and can therefore not "
+                f"carry the runtime-identity envelope at {source!r}"
+            )
+        if source not in provider_response:
+            return False, (
+                f"The returned payload of the stage does not contain the runtime-identity "
+                f"envelope at {source!r}"
+            )
+        if canonical_json_bytes(provider_response[source]) != canonical_json_bytes(
+            runtime_identity
+        ):
+            return False, (
+                "The runtime-identity envelope of the stage evidence artifact is not the "
+                "one the returned payload carries"
+            )
+    else:
+        if runtime_identity is not None:
+            return False, (
+                "The stage evidence artifact holds a runtime-identity envelope although it claims "
+                "that none was received"
+            )
+        if str(payload.get("runtime_identity_source") or "").strip():
+            return False, (
+                "The stage evidence artifact names the source of a runtime-identity envelope it "
+                "does not hold"
+            )
 
     absence_records = payload.get("absence_records")
     if not isinstance(absence_records, list):
