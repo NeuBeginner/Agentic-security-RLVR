@@ -114,55 +114,43 @@
     "replay_evidence": null,
     "remote_evm_provenance": null,
     "modal_invocation_provenance": {
-      "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
       "target_id": "SIG-01",
       "correlation_id": "corr-SIG-01-1794209902-419b7d24",
+      "invocation_id_status": "NOT_AVAILABLE",
+      "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+      "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (SIG-01_stdout.txt).",
       "stages": {
         "inference": {
           "function_name": "generate_solidity_exploit",
-          "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-          "invocation_id": "NOT_AVAILABLE",
-          "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-          "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/SIG-01/corr-SIG-01-1794209902-419b7d24",
           "resource": "H100",
-          "resource_interval": "2026-11-09T00:00:00",
-          "billing_line_item": {
-            "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-            "resource": "H100",
-            "aggregate_interval_cost_usd": 0.74323683
-          },
-          "cost_usd": null
+          "invocation_id": "NOT_AVAILABLE",
+          "durable_log_ref": "NOT_AVAILABLE"
         },
         "evm_sandbox": {
           "function_name": null,
-          "app_id": null,
-          "invocation_id": null,
-          "invocation_id_reason": null,
-          "durable_log_ref": null,
           "resource": null,
-          "resource_interval": null,
-          "billing_line_item": null,
-          "cost_usd": null
+          "invocation_id": null,
+          "durable_log_ref": "NOT_AVAILABLE"
         },
         "independent_replay": {
           "attempted": false,
           "function_name": null,
-          "container_id": null,
-          "app_id": null,
-          "durable_log_ref": null,
           "resource": null,
-          "resource_interval": null,
-          "cost_usd": null
+          "container_id": null,
+          "invocation_id": null,
+          "durable_log_ref": "NOT_AVAILABLE"
         },
         "trajectory_persistence": {
           "attempted": true,
           "function_name": "record_trajectory_remote",
-          "persisted_path": "/vol/aegis_trajectories/baseline_5/SIG-01_corr-SIG-01-1794209902-419b7d24.json",
           "resource": "Storage",
-          "cost_usd": null
+          "persisted_path": "/vol/aegis_trajectories/baseline_5/SIG-01_corr-SIG-01-1794209902-419b7d24.json"
         }
       },
-      "target_cost_usd": null
+      "billing_line_item": null,
+      "cost_usd": null,
+      "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
     }
   },
   "raw_output": {
@@ -217,54 +205,42 @@
   "replay_evidence": null,
   "remote_evm_provenance": null,
   "modal_invocation_provenance": {
-    "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+    "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
     "target_id": "SIG-01",
     "correlation_id": "corr-SIG-01-1794209902-419b7d24",
+    "invocation_id_status": "NOT_AVAILABLE",
+    "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+    "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (SIG-01_stdout.txt).",
     "stages": {
       "inference": {
         "function_name": "generate_solidity_exploit",
-        "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-        "invocation_id": "NOT_AVAILABLE",
-        "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-        "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/SIG-01/corr-SIG-01-1794209902-419b7d24",
         "resource": "H100",
-        "resource_interval": "2026-11-09T00:00:00",
-        "billing_line_item": {
-          "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-          "resource": "H100",
-          "aggregate_interval_cost_usd": 0.74323683
-        },
-        "cost_usd": null
+        "invocation_id": "NOT_AVAILABLE",
+        "durable_log_ref": "NOT_AVAILABLE"
       },
       "evm_sandbox": {
         "function_name": null,
-        "app_id": null,
-        "invocation_id": null,
-        "invocation_id_reason": null,
-        "durable_log_ref": null,
         "resource": null,
-        "resource_interval": null,
-        "billing_line_item": null,
-        "cost_usd": null
+        "invocation_id": null,
+        "durable_log_ref": "NOT_AVAILABLE"
       },
       "independent_replay": {
         "attempted": false,
         "function_name": null,
-        "container_id": null,
-        "app_id": null,
-        "durable_log_ref": null,
         "resource": null,
-        "resource_interval": null,
-        "cost_usd": null
+        "container_id": null,
+        "invocation_id": null,
+        "durable_log_ref": "NOT_AVAILABLE"
       },
       "trajectory_persistence": {
         "attempted": true,
         "function_name": "record_trajectory_remote",
-        "persisted_path": "/vol/aegis_trajectories/baseline_5/SIG-01_corr-SIG-01-1794209902-419b7d24.json",
         "resource": "Storage",
-        "cost_usd": null
+        "persisted_path": "/vol/aegis_trajectories/baseline_5/SIG-01_corr-SIG-01-1794209902-419b7d24.json"
       }
     },
-    "target_cost_usd": null
+    "billing_line_item": null,
+    "cost_usd": null,
+    "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
   }
 }

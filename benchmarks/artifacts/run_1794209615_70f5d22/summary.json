@@ -51,7 +51,8 @@
       "remote_evm_environment": {
         "remote_os": "Debian GNU/Linux 12 (bookworm)",
         "remote_platform": "linux",
-        "image_tag": "debian:12-slim-foundry",
+        "image_digest": "NOT_AVAILABLE",
+        "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
         "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
         "solc_versions": [
           "0.8.20",
@@ -169,83 +170,93 @@
         "artifact_files": [
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/AC-01.json",
-            "size_bytes": 106544,
-            "sha256": "079ec83c107e98ff9086ca4dde72a70bcaa38c5641fc17c71a00c7cebb77c5c9"
+            "size_bytes": 106038,
+            "sha256": "e56a3ee7fc6fd81740e96a338d970583e1050ae48096c13fa50a724a9490266d"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/BIZ-01.json",
-            "size_bytes": 44216,
-            "sha256": "2e72121accf4cd233a2c34d6fe9c98ef5f75b05bfcb40e047bd580ae6f20e460"
+            "size_bytes": 43504,
+            "sha256": "4dbdfc0e4896a458b431e385bca819a1c3ce5bbf9213a647cc6547a9dc271f71"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/BRIDGE-01.json",
-            "size_bytes": 55196,
-            "sha256": "9d083ada5b26e424d88c23d53cad6c53399ecc9cb70091ca1195f051e21adf17"
+            "size_bytes": 54466,
+            "sha256": "e77a5cbb122411c9f81748ae6a8fe33a679342b2edc029bf02bee73401490c7b"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/DOS-01.json",
-            "size_bytes": 45931,
-            "sha256": "56fd83c37f7d003b5bcbe69157ae9d26cfe8c4e665d84ae86979dbc74d824ec1"
+            "size_bytes": 45219,
+            "sha256": "b3b05465990cd34eb0604fa51c21ac9470a49ddbac8fed4ccf4157d0a07857a3"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/ERC4626-01.json",
-            "size_bytes": 58672,
-            "sha256": "51e0b03d8a204fc27603c7a2522434184dd334af71a720c2602d8ff7314c87b5"
+            "size_bytes": 57936,
+            "sha256": "e19e354c44f6d2f637c66f7fd5a2375193ab7d8a405f2b0fb00eec935b2ee8b3"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/FLASH-01.json",
-            "size_bytes": 59828,
-            "sha256": "ea68f9ee78774a7a031d9363fb83f5e5b9944a598e6d6e0bfe791b2330bdd9d3"
+            "size_bytes": 59110,
+            "sha256": "550232c1ef8dac2252fd49ff80b9c8d7f5180b267ef24e7dfefc0542ea97db84"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/LIQ-01.json",
-            "size_bytes": 47521,
-            "sha256": "08e00b6f302f23f820779acad029f5c8c1fde3100b7b052bcc7cbbde11642099"
+            "size_bytes": 46809,
+            "sha256": "1ffe8ae9d84b2089c69caaddc9eb5a0777dc9baaa7f512a2c28399fef7393cef"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/ORACLE-01.json",
-            "size_bytes": 59259,
-            "sha256": "527f853cd7258e1e9135a04bed110059af0c4f1d1350ec40770617ba76b6eace"
+            "size_bytes": 58529,
+            "sha256": "55285f5ef40187cc835c33214b22f272df491415e82bef9601390b0866f0239c"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/PREC-01.json",
-            "size_bytes": 47338,
-            "sha256": "90e0da4bc06eb2e2f4fa3d3a23b9596bba207b39c357151759bae2081ae7a275"
+            "size_bytes": 46620,
+            "sha256": "eab4804de207c5d22d2ba2dc5fea5be708d829d8337c18be3b0ac89ae998bc24"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/REENT-01.json",
-            "size_bytes": 151280,
-            "sha256": "d5db7df4437174e3d71313705669db2a2bdfa775df4b3eb737be36cee24275b0"
+            "size_bytes": 150756,
+            "sha256": "84d3a3ba7d23f14804cc761954c00eb8575d72c9c0120107fbc316906aef3cc6"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-01.json",
-            "size_bytes": 54905,
-            "sha256": "71cafda6b447a2ae035e82cc6a6b832713b2d26796f8c28e7f3cfe202fcaa15a"
+            "size_bytes": 54187,
+            "sha256": "6e557a0a53334ffb8b33eee703df4cf2b1f3e609b301728b814c4a6ec15cfd2e"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-02.json",
-            "size_bytes": 51858,
-            "sha256": "57b9e48868bc92316811dbf378efb539e208fb770cf2be8277d523ea35d8680e"
+            "size_bytes": 51140,
+            "sha256": "dc06b1d9d2878bdee285a2da7ecf70af109e7b913102aacf268899a76b8213ff"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-03.json",
-            "size_bytes": 57285,
-            "sha256": "b137aaffe8b4effb89e54f1d2e9d88c537970e11361fa788a0560838d77e6c30"
+            "size_bytes": 56567,
+            "sha256": "ae181827ec82a4bfb1de13e4b77ad08a2f383634bb6912da32ac6ff526475a89"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-04.json",
-            "size_bytes": 52403,
-            "sha256": "938db2b0cb0388b09c539c443dc812e6570dabd4e3cff43089b834b5def7c49c"
+            "size_bytes": 51685,
+            "sha256": "097939ea2b1a7f169e70447a2ec837d4f0452bb4ac1cb1bbebd9476e7273d2e0"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/SIG-01.json",
-            "size_bytes": 9677,
-            "sha256": "d53eda7d8b5966ed1910289398e517acc1bff8318973258f9895bf4986fab330"
+            "size_bytes": 9295,
+            "sha256": "097df29b3deaf03a74810ce5226c64517939478e3e4a80090175c0f212f09270"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/STATE-01.json",
-            "size_bytes": 49926,
-            "sha256": "c43ac5d6e303fd577bd679a9224649f62241a80896ac2c437ee9294b07a6ec2a"
+            "size_bytes": 49202,
+            "sha256": "27117b01731e23795d21de8a0b27b204c7466461ace58b633c7c75793d2f44ac"
+          },
+          {
+            "relative_path": "run_1794209615_70f5d22/baseline_5/AC-01_replay_stderr.txt",
+            "size_bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "relative_path": "run_1794209615_70f5d22/baseline_5/AC-01_replay_stdout.txt",
+            "size_bytes": 44660,
+            "sha256": "43aabfd8fd380e4adaf834afbd91a0839f8ff7469ca464cee2d66e9e9bec7212"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/AC-01_stderr.txt",
@@ -336,6 +347,16 @@
             "relative_path": "run_1794209615_70f5d22/baseline_5/PREC-01_stdout.txt",
             "size_bytes": 35201,
             "sha256": "dafe96a43daeb1971cbe4698b1568d043a806ec6e67fcd67887897a342881716"
+          },
+          {
+            "relative_path": "run_1794209615_70f5d22/baseline_5/REENT-01_replay_stderr.txt",
+            "size_bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "relative_path": "run_1794209615_70f5d22/baseline_5/REENT-01_replay_stdout.txt",
+            "size_bytes": 64905,
+            "sha256": "8d088711590dc962c2be5d91ebdb5a4fb05f698130ebbaa7135146f80e8281da"
           },
           {
             "relative_path": "run_1794209615_70f5d22/baseline_5/REENT-01_stderr.txt",
@@ -477,15 +498,20 @@
               "category": "EXPLOIT_CONFIRMED",
               "candidate_sha256": "c67358c90b789d1536f2dfd30c287230789d8397ba004465924c1c214c145aa3",
               "harness_sha256": "6f405ff57e9bef9b8afd584e97bde96557d0763d3a6d3097c8a75ec51c4ccda6",
+              "stdout_path": "run_1794209615_70f5d22/baseline_5/REENT-01_replay_stdout.txt",
+              "stderr_path": "run_1794209615_70f5d22/baseline_5/REENT-01_replay_stderr.txt",
+              "stdout_bytes_len": 64905,
+              "stderr_bytes_len": 0,
               "stdout_sha256": "8d088711590dc962c2be5d91ebdb5a4fb05f698130ebbaa7135146f80e8281da",
               "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-              "utc_start_time": "2026-11-09T07:33:41Z",
-              "utc_end_time": "2026-11-09T07:35:20Z"
+              "utc_start_time": "2026-11-09T07:35:06Z",
+              "utc_end_time": "2026-11-09T07:35:09Z"
             },
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -507,60 +533,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "REENT-01",
               "correlation_id": "corr-REENT-01-1794209621-7c51dfb0",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (REENT-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/REENT-01/corr-REENT-01-1794209621-7c51dfb0",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/REENT-01/corr-REENT-01-1794209621-7c51dfb0",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": true,
                   "function_name": "verify_replay_remote",
-                  "container_id": "modal-cpu-ca9285db97bf",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_replay_remote/REENT-01/corr-REENT-01-1794209621-7c51dfb0",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "cost_usd": null
+                  "container_id": "modal-cpu-ca9285db97bf",
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/REENT-01_corr-REENT-01-1794209621-7c51dfb0.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/REENT-01_corr-REENT-01-1794209621-7c51dfb0.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "EXPLOIT_CONFIRMED"
           },
           "ERC4626-01": {
             "target_name": "ERC4626Vault",
@@ -616,7 +627,8 @@
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -638,60 +650,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "ERC4626-01",
               "correlation_id": "corr-ERC4626-01-1794209720-ebb36a77",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (ERC4626-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/ERC4626-01/corr-ERC4626-01-1794209720-ebb36a77",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/ERC4626-01/corr-ERC4626-01-1794209720-ebb36a77",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/ERC4626-01_corr-ERC4626-01-1794209720-ebb36a77.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/ERC4626-01_corr-ERC4626-01-1794209720-ebb36a77.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "RUNTIME_REVERT"
           },
           "AC-01": {
             "target_name": "AccessControlVault",
@@ -761,15 +758,20 @@
               "category": "EXPLOIT_CONFIRMED",
               "candidate_sha256": "c7b1c65e77177e7baf61f1926f0661141456bf113e5389a71d2c7fe1fbb76de0",
               "harness_sha256": "11125af44361d8978b9ce2cebdcc59b2125c31e058b329eb0f0cefe4cdbd651b",
+              "stdout_path": "run_1794209615_70f5d22/baseline_5/AC-01_replay_stdout.txt",
+              "stderr_path": "run_1794209615_70f5d22/baseline_5/AC-01_replay_stderr.txt",
+              "stdout_bytes_len": 44660,
+              "stderr_bytes_len": 0,
               "stdout_sha256": "43aabfd8fd380e4adaf834afbd91a0839f8ff7469ca464cee2d66e9e9bec7212",
               "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-              "utc_start_time": "2026-11-09T07:36:24Z",
-              "utc_end_time": "2026-11-09T07:36:57Z"
+              "utc_start_time": "2026-11-09T07:36:51Z",
+              "utc_end_time": "2026-11-09T07:36:53Z"
             },
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -791,60 +793,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "AC-01",
               "correlation_id": "corr-AC-01-1794209784-80afc62f",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (AC-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/AC-01/corr-AC-01-1794209784-80afc62f",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/AC-01/corr-AC-01-1794209784-80afc62f",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": true,
                   "function_name": "verify_replay_remote",
-                  "container_id": "modal-cpu-c89a89057453",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_replay_remote/AC-01/corr-AC-01-1794209784-80afc62f",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "cost_usd": null
+                  "container_id": "modal-cpu-c89a89057453",
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/AC-01_corr-AC-01-1794209784-80afc62f.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/AC-01_corr-AC-01-1794209784-80afc62f.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "EXPLOIT_CONFIRMED"
           },
           "ORACLE-01": {
             "target_name": "OracleLendingPool",
@@ -900,7 +887,8 @@
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -922,60 +910,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "ORACLE-01",
               "correlation_id": "corr-ORACLE-01-1794209817-7a2b6ad4",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (ORACLE-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/ORACLE-01/corr-ORACLE-01-1794209817-7a2b6ad4",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/ORACLE-01/corr-ORACLE-01-1794209817-7a2b6ad4",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/ORACLE-01_corr-ORACLE-01-1794209817-7a2b6ad4.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/ORACLE-01_corr-ORACLE-01-1794209817-7a2b6ad4.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "RUNTIME_REVERT"
           },
           "FLASH-01": {
             "target_name": "FlashLoanRewardPool",
@@ -1026,12 +999,13 @@
             "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "orchestration_status": "COMPLETED",
             "generation_outcome": "CANDIDATE_GENERATED",
-            "evm_outcome": "SAFE_CONTROL_HELD",
+            "evm_outcome": "RUNTIME_REVERT",
             "replay_evidence": null,
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -1053,60 +1027,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "FLASH-01",
               "correlation_id": "corr-FLASH-01-1794209875-e5ca1a09",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (FLASH-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/FLASH-01/corr-FLASH-01-1794209875-e5ca1a09",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/FLASH-01/corr-FLASH-01-1794209875-e5ca1a09",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/FLASH-01_corr-FLASH-01-1794209875-e5ca1a09.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/FLASH-01_corr-FLASH-01-1794209875-e5ca1a09.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "RUNTIME_REVERT"
           },
           "SIG-01": {
             "target_name": "SignatureReplayWallet",
@@ -1161,56 +1120,45 @@
             "replay_evidence": null,
             "remote_evm_provenance": null,
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "SIG-01",
               "correlation_id": "corr-SIG-01-1794209902-419b7d24",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (SIG-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/SIG-01/corr-SIG-01-1794209902-419b7d24",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": null,
-                  "app_id": null,
-                  "invocation_id": null,
-                  "invocation_id_reason": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "billing_line_item": null,
-                  "cost_usd": null
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/SIG-01_corr-SIG-01-1794209902-419b7d24.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/SIG-01_corr-SIG-01-1794209902-419b7d24.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "GENERATION_FORMAT_ERROR"
           },
           "STATE-01": {
             "target_name": "RewardDistributorLogic",
@@ -1266,7 +1214,8 @@
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -1288,60 +1237,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "STATE-01",
               "correlation_id": "corr-STATE-01-1794209942-bf641f59",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (STATE-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/STATE-01/corr-STATE-01-1794209942-bf641f59",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/STATE-01/corr-STATE-01-1794209942-bf641f59",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/STATE-01_corr-STATE-01-1794209942-bf641f59.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/STATE-01_corr-STATE-01-1794209942-bf641f59.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "RUNTIME_REVERT"
           },
           "BIZ-01": {
             "target_name": "FeeShareYieldVault",
@@ -1397,7 +1331,8 @@
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -1419,60 +1354,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "BIZ-01",
               "correlation_id": "corr-BIZ-01-1794209972-e6f2b09e",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (BIZ-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/BIZ-01/corr-BIZ-01-1794209972-e6f2b09e",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/BIZ-01/corr-BIZ-01-1794209972-e6f2b09e",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/BIZ-01_corr-BIZ-01-1794209972-e6f2b09e.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/BIZ-01_corr-BIZ-01-1794209972-e6f2b09e.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "RUNTIME_REVERT"
           },
           "LIQ-01": {
             "target_name": "LendingLiquidation",
@@ -1528,7 +1448,8 @@
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -1550,60 +1471,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "LIQ-01",
               "correlation_id": "corr-LIQ-01-1794209999-2926b23b",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (LIQ-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/LIQ-01/corr-LIQ-01-1794209999-2926b23b",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/LIQ-01/corr-LIQ-01-1794209999-2926b23b",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/LIQ-01_corr-LIQ-01-1794209999-2926b23b.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/LIQ-01_corr-LIQ-01-1794209999-2926b23b.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "RUNTIME_REVERT"
           },
           "BRIDGE-01": {
             "target_name": "CrossContractBridge",
@@ -1659,7 +1565,8 @@
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -1681,60 +1588,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "BRIDGE-01",
               "correlation_id": "corr-BRIDGE-01-1794210029-9275e585",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (BRIDGE-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/BRIDGE-01/corr-BRIDGE-01-1794210029-9275e585",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/BRIDGE-01/corr-BRIDGE-01-1794210029-9275e585",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/BRIDGE-01_corr-BRIDGE-01-1794210029-9275e585.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/BRIDGE-01_corr-BRIDGE-01-1794210029-9275e585.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "RUNTIME_REVERT"
           },
           "DOS-01": {
             "target_name": "AuctionDoS",
@@ -1790,7 +1682,8 @@
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -1812,60 +1705,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "DOS-01",
               "correlation_id": "corr-DOS-01-1794210066-e36fb5b4",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (DOS-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/DOS-01/corr-DOS-01-1794210066-e36fb5b4",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/DOS-01/corr-DOS-01-1794210066-e36fb5b4",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/DOS-01_corr-DOS-01-1794210066-e36fb5b4.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/DOS-01_corr-DOS-01-1794210066-e36fb5b4.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "RUNTIME_REVERT"
           },
           "PREC-01": {
             "target_name": "PrecisionStakingPool",
@@ -1921,7 +1799,8 @@
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -1943,60 +1822,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "PREC-01",
               "correlation_id": "corr-PREC-01-1794210095-12ed60f3",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (PREC-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/PREC-01/corr-PREC-01-1794210095-12ed60f3",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/PREC-01/corr-PREC-01-1794210095-12ed60f3",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/PREC-01_corr-PREC-01-1794210095-12ed60f3.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/PREC-01_corr-PREC-01-1794210095-12ed60f3.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "RUNTIME_REVERT"
           },
           "SAFE-01": {
             "target_name": "SecureVault",
@@ -2052,7 +1916,8 @@
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -2074,60 +1939,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "SAFE-01",
               "correlation_id": "corr-SAFE-01-1794210132-764ba5d5",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (SAFE-01_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/SAFE-01/corr-SAFE-01-1794210132-764ba5d5",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/SAFE-01/corr-SAFE-01-1794210132-764ba5d5",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/SAFE-01_corr-SAFE-01-1794210132-764ba5d5.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/SAFE-01_corr-SAFE-01-1794210132-764ba5d5.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "SAFE_RUN"
           },
           "SAFE-02": {
             "target_name": "SecureAccessControlVault",
@@ -2183,7 +2033,8 @@
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -2205,60 +2056,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "SAFE-02",
               "correlation_id": "corr-SAFE-02-1794210190-48086294",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (SAFE-02_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/SAFE-02/corr-SAFE-02-1794210190-48086294",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/SAFE-02/corr-SAFE-02-1794210190-48086294",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/SAFE-02_corr-SAFE-02-1794210190-48086294.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/SAFE-02_corr-SAFE-02-1794210190-48086294.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "SAFE_RUN"
           },
           "SAFE-03": {
             "target_name": "SecureERC4626Vault",
@@ -2314,7 +2150,8 @@
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -2336,60 +2173,45 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "SAFE-03",
               "correlation_id": "corr-SAFE-03-1794210214-0e2b14bf",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (SAFE-03_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/SAFE-03/corr-SAFE-03-1794210214-0e2b14bf",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/SAFE-03/corr-SAFE-03-1794210214-0e2b14bf",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/SAFE-03_corr-SAFE-03-1794210214-0e2b14bf.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/SAFE-03_corr-SAFE-03-1794210214-0e2b14bf.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "SAFE_RUN"
           },
           "SAFE-04": {
             "target_name": "SecureOraclePool",
@@ -2445,7 +2267,8 @@
             "remote_evm_provenance": {
               "remote_os": "Debian GNU/Linux 12 (bookworm)",
               "remote_platform": "linux",
-              "image_tag": "debian:12-slim-foundry",
+              "image_digest": "NOT_AVAILABLE",
+              "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
               "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
               "solc_versions": [
                 "0.8.20",
@@ -2467,66 +2290,52 @@
               }
             },
             "modal_invocation_provenance": {
-              "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+              "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
               "target_id": "SAFE-04",
               "correlation_id": "corr-SAFE-04-1794210239-e2980f82",
+              "invocation_id_status": "NOT_AVAILABLE",
+              "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+              "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (SAFE-04_stdout.txt).",
               "stages": {
                 "inference": {
                   "function_name": "generate_solidity_exploit",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/SAFE-04/corr-SAFE-04-1794210239-e2980f82",
                   "resource": "H100",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "H100",
-                    "aggregate_interval_cost_usd": 0.74323683
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "evm_sandbox": {
                   "function_name": "verify_exploit_remote",
-                  "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                  "invocation_id": "NOT_AVAILABLE",
-                  "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
-                  "durable_log_ref": "modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/SAFE-04/corr-SAFE-04-1794210239-e2980f82",
                   "resource": "CPU",
-                  "resource_interval": "2026-11-09T00:00:00",
-                  "billing_line_item": {
-                    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
-                    "resource": "CPU",
-                    "aggregate_interval_cost_usd": 0.03001687
-                  },
-                  "cost_usd": null
+                  "invocation_id": "NOT_AVAILABLE",
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "independent_replay": {
                   "attempted": false,
                   "function_name": null,
-                  "container_id": null,
-                  "app_id": null,
-                  "durable_log_ref": null,
                   "resource": null,
-                  "resource_interval": null,
-                  "cost_usd": null
+                  "container_id": null,
+                  "invocation_id": null,
+                  "durable_log_ref": "NOT_AVAILABLE"
                 },
                 "trajectory_persistence": {
                   "attempted": true,
                   "function_name": "record_trajectory_remote",
-                  "persisted_path": "/vol/aegis_trajectories/baseline_5/SAFE-04_corr-SAFE-04-1794210239-e2980f82.json",
                   "resource": "Storage",
-                  "cost_usd": null
+                  "persisted_path": "/vol/aegis_trajectories/baseline_5/SAFE-04_corr-SAFE-04-1794210239-e2980f82.json"
                 }
               },
-              "target_cost_usd": null
-            }
+              "billing_line_item": null,
+              "cost_usd": null,
+              "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+            },
+            "security_verdict": "SAFE_RUN"
           }
         },
         "remote_evm_environment": {
           "remote_os": "Debian GNU/Linux 12 (bookworm)",
           "remote_platform": "linux",
-          "image_tag": "debian:12-slim-foundry",
+          "image_digest": "NOT_AVAILABLE",
+          "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
           "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
           "solc_versions": [
             "0.8.20",
@@ -2553,7 +2362,8 @@
     "remote_evm_environment": {
       "remote_os": "Debian GNU/Linux 12 (bookworm)",
       "remote_platform": "linux",
-      "image_tag": "debian:12-slim-foundry",
+      "image_digest": "NOT_AVAILABLE",
+      "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
       "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
       "solc_versions": [
         "0.8.20",
@@ -5257,7 +5067,7 @@
           "target_id": "FLASH-01",
           "is_vulnerable": true,
           "detected": false,
-          "security_verdict": "SAFE_RUN",
+          "security_verdict": "RUNTIME_REVERT",
           "replay_status": "NOT_ELIGIBLE",
           "persistence_status": "not_eligible",
           "candidates_generated": 2,
@@ -5268,7 +5078,7 @@
           "status": "SUCCESS",
           "orchestration_status": "COMPLETED",
           "generation_outcome": "CANDIDATE_GENERATED",
-          "evm_outcome": "SAFE_CONTROL_HELD"
+          "evm_outcome": "RUNTIME_REVERT"
         },
         {
           "target_id": "SIG-01",
