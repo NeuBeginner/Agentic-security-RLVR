@@ -1,0 +1,2371 @@
+{
+  "manifest_version": "1.0.0",
+  "run_id": "run_1794209615_70f5d22",
+  "timestamp_utc": "2026-11-09 07:33:35Z",
+  "execution_mode": "REAL_EXPERIMENT",
+  "is_synthetic_smoke": false,
+  "git": {
+    "commit_sha": "70f5d22668bb5ebf72aa9de230fe91790d0e57c8",
+    "is_dirty": false,
+    "branch": "feat/empirical-benchmark-runner"
+  },
+  "environment": {
+    "python_version": "3.10.11",
+    "os_platform": "win32",
+    "slither_version": null,
+    "forge_version": null,
+    "solc_version": null,
+    "modal_version": "1.5.5",
+    "modal_authenticated": true,
+    "package_versions": {
+      "pydantic": "2.13.4",
+      "torch": "2.5.1+cu121",
+      "pytest": "9.1.1",
+      "google-genai": "2.11.0",
+      "openai": "2.46.0"
+    },
+    "provider_configs": {
+      "gemini": {
+        "available": false
+      },
+      "openai": {
+        "available": false
+      }
+    },
+    "remote_evm_environment": {
+      "remote_os": "Debian GNU/Linux 12 (bookworm)",
+      "remote_platform": "linux",
+      "image_digest": "NOT_AVAILABLE",
+      "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+      "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+      "solc_versions": [
+        "0.8.20",
+        "0.8.24"
+      ],
+      "exact_forge_argv": [
+        "forge",
+        "test",
+        "--offline",
+        "--json",
+        "-vvvv"
+      ],
+      "working_directory": "/tmp/aegis_sandbox",
+      "compiler_settings": {
+        "evm_version": "paris",
+        "optimizer": true,
+        "optimizer_runs": 200,
+        "via_ir": false
+      }
+    }
+  },
+  "dataset": {
+    "version": "1.0.0",
+    "dataset_sha256": "919fe6774a90b719c3be37f0f578323f526e1d4d95e7479f8b5f51b6ab811c89",
+    "target_count": 16,
+    "target_ids": [
+      "REENT-01",
+      "ERC4626-01",
+      "AC-01",
+      "ORACLE-01",
+      "FLASH-01",
+      "SIG-01",
+      "STATE-01",
+      "BIZ-01",
+      "LIQ-01",
+      "BRIDGE-01",
+      "DOS-01",
+      "PREC-01",
+      "SAFE-01",
+      "SAFE-02",
+      "SAFE-03",
+      "SAFE-04"
+    ]
+  },
+  "adapters": {
+    "baseline_5": {
+      "baseline_id": "baseline_5",
+      "baseline_name": "Full Aegis-RLVR (Modal H100 Reasoning + Modal CPU EVM Replay)",
+      "availability_status": "AVAILABLE",
+      "availability_reason": null,
+      "command": null,
+      "argv": null,
+      "planned_command": "modal run modal_app.py --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+      "planned_argv": [
+        "modal",
+        "run",
+        "modal_app.py",
+        "--hypotheses=3",
+        "--provider=modal_h100",
+        "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+      ],
+      "timeout_sec": 120,
+      "resource_budget": {
+        "timeout_sec": 120,
+        "max_hypotheses": 3,
+        "allowlist": [
+          "AccessControlVault",
+          "AuctionDoS",
+          "CrossContractBridge",
+          "ERC4626Vault",
+          "FeeShareYieldVault",
+          "FlashLoanRewardPool",
+          "LendingLiquidation",
+          "OracleLendingPool",
+          "PrecisionStakingPool",
+          "RewardDistributorLogic",
+          "SecureAccessControlVault",
+          "SecureERC4626Vault",
+          "SecureOraclePool",
+          "SecureVault",
+          "SignatureReplayWallet",
+          "Vault"
+        ]
+      },
+      "config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+      "planned_timeout_sec": 120,
+      "planned_resource_budget": {
+        "timeout_sec": 120,
+        "max_hypotheses": 3,
+        "allowlist": [
+          "AccessControlVault",
+          "AuctionDoS",
+          "CrossContractBridge",
+          "ERC4626Vault",
+          "FeeShareYieldVault",
+          "FlashLoanRewardPool",
+          "LendingLiquidation",
+          "OracleLendingPool",
+          "PrecisionStakingPool",
+          "RewardDistributorLogic",
+          "SecureAccessControlVault",
+          "SecureERC4626Vault",
+          "SecureOraclePool",
+          "SecureVault",
+          "SignatureReplayWallet",
+          "Vault"
+        ]
+      },
+      "planned_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+      "duration_seconds": 676.555,
+      "target_count": 16,
+      "completed_targets": 16,
+      "cost_status": "unmeasured",
+      "cost_usd": null,
+      "artifact_files": [
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/AC-01.json",
+          "size_bytes": 106038,
+          "sha256": "e56a3ee7fc6fd81740e96a338d970583e1050ae48096c13fa50a724a9490266d"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/BIZ-01.json",
+          "size_bytes": 43504,
+          "sha256": "4dbdfc0e4896a458b431e385bca819a1c3ce5bbf9213a647cc6547a9dc271f71"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/BRIDGE-01.json",
+          "size_bytes": 54466,
+          "sha256": "e77a5cbb122411c9f81748ae6a8fe33a679342b2edc029bf02bee73401490c7b"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/DOS-01.json",
+          "size_bytes": 45219,
+          "sha256": "b3b05465990cd34eb0604fa51c21ac9470a49ddbac8fed4ccf4157d0a07857a3"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/ERC4626-01.json",
+          "size_bytes": 57936,
+          "sha256": "e19e354c44f6d2f637c66f7fd5a2375193ab7d8a405f2b0fb00eec935b2ee8b3"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/FLASH-01.json",
+          "size_bytes": 59110,
+          "sha256": "550232c1ef8dac2252fd49ff80b9c8d7f5180b267ef24e7dfefc0542ea97db84"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/LIQ-01.json",
+          "size_bytes": 46809,
+          "sha256": "1ffe8ae9d84b2089c69caaddc9eb5a0777dc9baaa7f512a2c28399fef7393cef"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/ORACLE-01.json",
+          "size_bytes": 58529,
+          "sha256": "55285f5ef40187cc835c33214b22f272df491415e82bef9601390b0866f0239c"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/PREC-01.json",
+          "size_bytes": 46620,
+          "sha256": "eab4804de207c5d22d2ba2dc5fea5be708d829d8337c18be3b0ac89ae998bc24"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/REENT-01.json",
+          "size_bytes": 150756,
+          "sha256": "84d3a3ba7d23f14804cc761954c00eb8575d72c9c0120107fbc316906aef3cc6"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-01.json",
+          "size_bytes": 54187,
+          "sha256": "6e557a0a53334ffb8b33eee703df4cf2b1f3e609b301728b814c4a6ec15cfd2e"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-02.json",
+          "size_bytes": 51140,
+          "sha256": "dc06b1d9d2878bdee285a2da7ecf70af109e7b913102aacf268899a76b8213ff"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-03.json",
+          "size_bytes": 56567,
+          "sha256": "ae181827ec82a4bfb1de13e4b77ad08a2f383634bb6912da32ac6ff526475a89"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-04.json",
+          "size_bytes": 51685,
+          "sha256": "097939ea2b1a7f169e70447a2ec837d4f0452bb4ac1cb1bbebd9476e7273d2e0"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SIG-01.json",
+          "size_bytes": 9295,
+          "sha256": "097df29b3deaf03a74810ce5226c64517939478e3e4a80090175c0f212f09270"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/STATE-01.json",
+          "size_bytes": 49202,
+          "sha256": "27117b01731e23795d21de8a0b27b204c7466461ace58b633c7c75793d2f44ac"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/AC-01_replay_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/AC-01_replay_stdout.txt",
+          "size_bytes": 44660,
+          "sha256": "43aabfd8fd380e4adaf834afbd91a0839f8ff7469ca464cee2d66e9e9bec7212"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/AC-01_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/AC-01_stdout.txt",
+          "size_bytes": 44659,
+          "sha256": "dd3277348bdb0b8187b7150e19f4255362713f42abfd9f5dad7681bbd0268162"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/BIZ-01_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/BIZ-01_stdout.txt",
+          "size_bytes": 32277,
+          "sha256": "9ea99c72daa412498e23060b283ac8064b0a8e3f469bc1abbe6f5ff53895e24f"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/BRIDGE-01_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/BRIDGE-01_stdout.txt",
+          "size_bytes": 42921,
+          "sha256": "b6d19d889787a8939f591daff61299a52f259be41277acbb54a86eb8804e571d"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/DOS-01_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/DOS-01_stdout.txt",
+          "size_bytes": 33854,
+          "sha256": "c7e0005b4c6a195a0ae6cb8b971429d4664dea45ec317f9ad8219bb8e45789a8"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/ERC4626-01_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/ERC4626-01_stdout.txt",
+          "size_bytes": 46364,
+          "sha256": "9c69d74d84d4a471e0254e06f3c20787d94d6eabb50cc30454255c4dbee1fbf9"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/FLASH-01_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/FLASH-01_stdout.txt",
+          "size_bytes": 47109,
+          "sha256": "edea9d55c528cbbe2e2a01d3a5644f7f93f9ef07e67070bf28897887dfbaaed3"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/LIQ-01_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/LIQ-01_stdout.txt",
+          "size_bytes": 35378,
+          "sha256": "30d70d82ffe061cfd070f0885c73822db66f8d667a6d865c85a44f7fbdcdfdd5"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/ORACLE-01_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/ORACLE-01_stdout.txt",
+          "size_bytes": 46807,
+          "sha256": "fde9f45f7e98e85e225b7dcd4ef322d610a301dd911a694f35e38ecbbde323c7"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/PREC-01_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/PREC-01_stdout.txt",
+          "size_bytes": 35201,
+          "sha256": "dafe96a43daeb1971cbe4698b1568d043a806ec6e67fcd67887897a342881716"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/REENT-01_replay_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/REENT-01_replay_stdout.txt",
+          "size_bytes": 64905,
+          "sha256": "8d088711590dc962c2be5d91ebdb5a4fb05f698130ebbaa7135146f80e8281da"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/REENT-01_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/REENT-01_stdout.txt",
+          "size_bytes": 64903,
+          "sha256": "b8e80d97ec34aeb66a41fa5500f0c842b64cef25dc5dfaed3e98341679078a8a"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-01_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-01_stdout.txt",
+          "size_bytes": 42352,
+          "sha256": "4f2292668c7cb4d2df21d3a4df598bfedf32c29eaf5633c7e3424a970e6abebd"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-02_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-02_stdout.txt",
+          "size_bytes": 39525,
+          "sha256": "98b1409480a3e429e72cf5a9dae41846ab953765b78e6ffaaecc40ae9f3a75ad"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-03_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-03_stdout.txt",
+          "size_bytes": 44636,
+          "sha256": "9a82b725a3f6838890f24a9aa882bac19ceb70992276a9800f1cd29d1719526c"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-04_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SAFE-04_stdout.txt",
+          "size_bytes": 40170,
+          "sha256": "2db691680d5dade5c0b8d3483a9fde0468e4dd5b05ed577da703406332465170"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SIG-01_stderr.txt",
+          "size_bytes": 114,
+          "sha256": "519608493cd8851b52addfed28f69989363ea446748e02625c47fffda503edc5"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/SIG-01_stdout.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/STATE-01_stderr.txt",
+          "size_bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "relative_path": "run_1794209615_70f5d22/baseline_5/STATE-01_stdout.txt",
+          "size_bytes": 37709,
+          "sha256": "01096b39c6c7cfd69c4a557839eae67dcc6b6cb57d93b40559463e5132af30a7"
+        }
+      ],
+      "per_target_provenance": {
+        "REENT-01": {
+          "target_name": "Vault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "Vault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name Vault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "9e6e9a588cab9549a2abbc5261783f62e3cf40b67a9ce54ff00a43c29d9feebb",
+          "correlation_id": "corr-REENT-01-1794209621-7c51dfb0",
+          "duration_seconds": 88.603,
+          "exit_code": 0,
+          "stdout_sha256": "5a742f3e034cf3e43d0dc4cbd24128dd78afdbe60d436d4d0d46012c34e74cf9",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "BREACH_VERIFIED",
+          "replay_evidence": {
+            "reproduced": true,
+            "container_id": "modal-cpu-ca9285db97bf",
+            "command": "forge test --offline --json -vvvv",
+            "argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "return_code": 0,
+            "exit_code": 0,
+            "invariant_violated": true,
+            "harness_verdict": "BREACH",
+            "category": "EXPLOIT_CONFIRMED",
+            "candidate_sha256": "c67358c90b789d1536f2dfd30c287230789d8397ba004465924c1c214c145aa3",
+            "harness_sha256": "6f405ff57e9bef9b8afd584e97bde96557d0763d3a6d3097c8a75ec51c4ccda6",
+            "stdout_path": "run_1794209615_70f5d22/baseline_5/REENT-01_replay_stdout.txt",
+            "stderr_path": "run_1794209615_70f5d22/baseline_5/REENT-01_replay_stderr.txt",
+            "stdout_bytes_len": 64905,
+            "stderr_bytes_len": 0,
+            "stdout_sha256": "8d088711590dc962c2be5d91ebdb5a4fb05f698130ebbaa7135146f80e8281da",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "utc_start_time": "2026-11-09T07:35:06Z",
+            "utc_end_time": "2026-11-09T07:35:09Z"
+          },
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "REENT-01",
+            "correlation_id": "corr-REENT-01-1794209621-7c51dfb0",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (REENT-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": true,
+                "function_name": "verify_replay_remote",
+                "resource": "CPU",
+                "container_id": "modal-cpu-ca9285db97bf",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/REENT-01_corr-REENT-01-1794209621-7c51dfb0.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "EXPLOIT_CONFIRMED"
+        },
+        "ERC4626-01": {
+          "target_name": "ERC4626Vault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "ERC4626Vault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name ERC4626Vault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "ef6f9ceeeed1cc53c531a978743d7ed62fd80d5e2949c3b50d34072ffbcff458",
+          "correlation_id": "corr-ERC4626-01-1794209720-ebb36a77",
+          "duration_seconds": 41.93,
+          "exit_code": 1,
+          "stdout_sha256": "eff342474aef35e13f0fa2c4cab4b1733d991d4c40f7e5d8cbf15f89940adefd",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "RUNTIME_REVERT",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "ERC4626-01",
+            "correlation_id": "corr-ERC4626-01-1794209720-ebb36a77",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (ERC4626-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/ERC4626-01_corr-ERC4626-01-1794209720-ebb36a77.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "RUNTIME_REVERT"
+        },
+        "AC-01": {
+          "target_name": "AccessControlVault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "AccessControlVault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name AccessControlVault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "961b0dbd12b73ea452f67a78ee17458ee8a4cb3fe45f7b4bf79027176b08644b",
+          "correlation_id": "corr-AC-01-1794209784-80afc62f",
+          "duration_seconds": 29.844,
+          "exit_code": 0,
+          "stdout_sha256": "10efad2fed07dc154a1bc717a60ec4996ed9cae8f59b85b7faaa5309ae1c14f5",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "BREACH_VERIFIED",
+          "replay_evidence": {
+            "reproduced": true,
+            "container_id": "modal-cpu-c89a89057453",
+            "command": "forge test --offline --json -vvvv",
+            "argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "return_code": 0,
+            "exit_code": 0,
+            "invariant_violated": true,
+            "harness_verdict": "BREACH",
+            "category": "EXPLOIT_CONFIRMED",
+            "candidate_sha256": "c7b1c65e77177e7baf61f1926f0661141456bf113e5389a71d2c7fe1fbb76de0",
+            "harness_sha256": "11125af44361d8978b9ce2cebdcc59b2125c31e058b329eb0f0cefe4cdbd651b",
+            "stdout_path": "run_1794209615_70f5d22/baseline_5/AC-01_replay_stdout.txt",
+            "stderr_path": "run_1794209615_70f5d22/baseline_5/AC-01_replay_stderr.txt",
+            "stdout_bytes_len": 44660,
+            "stderr_bytes_len": 0,
+            "stdout_sha256": "43aabfd8fd380e4adaf834afbd91a0839f8ff7469ca464cee2d66e9e9bec7212",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "utc_start_time": "2026-11-09T07:36:51Z",
+            "utc_end_time": "2026-11-09T07:36:53Z"
+          },
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "AC-01",
+            "correlation_id": "corr-AC-01-1794209784-80afc62f",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (AC-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": true,
+                "function_name": "verify_replay_remote",
+                "resource": "CPU",
+                "container_id": "modal-cpu-c89a89057453",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/AC-01_corr-AC-01-1794209784-80afc62f.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "EXPLOIT_CONFIRMED"
+        },
+        "ORACLE-01": {
+          "target_name": "OracleLendingPool",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "OracleLendingPool",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name OracleLendingPool --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "47c8d721c4f96f7e49dfdc5c9b048ec6aa80cada3eb7b2f228086d71810c8256",
+          "correlation_id": "corr-ORACLE-01-1794209817-7a2b6ad4",
+          "duration_seconds": 30.579,
+          "exit_code": 1,
+          "stdout_sha256": "288cd5afe16f4c784a62853dbc20d8753ef485e893dd756123f18170da4346fd",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "RUNTIME_REVERT",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "ORACLE-01",
+            "correlation_id": "corr-ORACLE-01-1794209817-7a2b6ad4",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (ORACLE-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/ORACLE-01_corr-ORACLE-01-1794209817-7a2b6ad4.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "RUNTIME_REVERT"
+        },
+        "FLASH-01": {
+          "target_name": "FlashLoanRewardPool",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "FlashLoanRewardPool",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name FlashLoanRewardPool --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "a0f81af042d23ff892cc4ce2e3279dc3a346789030faa7dfe4e82d25a61c7249",
+          "correlation_id": "corr-FLASH-01-1794209875-e5ca1a09",
+          "duration_seconds": 13.723,
+          "exit_code": 1,
+          "stdout_sha256": "4eb3545ccb225961083c29870db7c44cac7e14fa49e60553ee24d9b51591f833",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "RUNTIME_REVERT",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "FLASH-01",
+            "correlation_id": "corr-FLASH-01-1794209875-e5ca1a09",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (FLASH-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/FLASH-01_corr-FLASH-01-1794209875-e5ca1a09.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "RUNTIME_REVERT"
+        },
+        "SIG-01": {
+          "target_name": "SignatureReplayWallet",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "SignatureReplayWallet",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name SignatureReplayWallet --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "1261851571f2a841a858e9fe9fe8704b4de2b59dbc3c4f35dede5455598dc05f",
+          "correlation_id": "corr-SIG-01-1794209902-419b7d24",
+          "duration_seconds": 14.531,
+          "exit_code": -4,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "519608493cd8851b52addfed28f69989363ea446748e02625c47fffda503edc5",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "GENERATION_FORMAT_ERROR",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "SIG-01",
+            "correlation_id": "corr-SIG-01-1794209902-419b7d24",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (SIG-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": null,
+                "resource": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/SIG-01_corr-SIG-01-1794209902-419b7d24.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "GENERATION_FORMAT_ERROR"
+        },
+        "STATE-01": {
+          "target_name": "RewardDistributorLogic",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "RewardDistributorLogic",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name RewardDistributorLogic --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "796adc52974afe585c9a64e705859d83cb8d78dd43360a9e30f000f128239e9f",
+          "correlation_id": "corr-STATE-01-1794209942-bf641f59",
+          "duration_seconds": 14.546,
+          "exit_code": 1,
+          "stdout_sha256": "ff21e427bf0dedd3d72482c2b1b0a86f974e71aafa3f94451e848b02f78ff456",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "RUNTIME_REVERT",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "STATE-01",
+            "correlation_id": "corr-STATE-01-1794209942-bf641f59",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (STATE-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/STATE-01_corr-STATE-01-1794209942-bf641f59.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "RUNTIME_REVERT"
+        },
+        "BIZ-01": {
+          "target_name": "FeeShareYieldVault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "FeeShareYieldVault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name FeeShareYieldVault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "c38a2be2472677cca724e3299a8e96b3abad40b68b46ac41dcebcc3b5641b843",
+          "correlation_id": "corr-BIZ-01-1794209972-e6f2b09e",
+          "duration_seconds": 13.694,
+          "exit_code": 1,
+          "stdout_sha256": "373c9cec959882cd4148487d9f250530d8977e2aa4b1cd236d8f65aa6dc657a0",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "RUNTIME_REVERT",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "BIZ-01",
+            "correlation_id": "corr-BIZ-01-1794209972-e6f2b09e",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (BIZ-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/BIZ-01_corr-BIZ-01-1794209972-e6f2b09e.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "RUNTIME_REVERT"
+        },
+        "LIQ-01": {
+          "target_name": "LendingLiquidation",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "LendingLiquidation",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name LendingLiquidation --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "bb8c8215b16f5f08865fe422e7f703075120912d32e0d40a6cf0daf6867568d9",
+          "correlation_id": "corr-LIQ-01-1794209999-2926b23b",
+          "duration_seconds": 15.396,
+          "exit_code": 1,
+          "stdout_sha256": "80c679e580e7ce53b84b537daf995f10356f1fc3fb62f3f17e8cceae220377e5",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "RUNTIME_REVERT",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "LIQ-01",
+            "correlation_id": "corr-LIQ-01-1794209999-2926b23b",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (LIQ-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/LIQ-01_corr-LIQ-01-1794209999-2926b23b.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "RUNTIME_REVERT"
+        },
+        "BRIDGE-01": {
+          "target_name": "CrossContractBridge",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "CrossContractBridge",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name CrossContractBridge --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "ab73c4919a096d38d2d51040291d6d76a3b67e6eae0703cf54c26bcc4d68d28f",
+          "correlation_id": "corr-BRIDGE-01-1794210029-9275e585",
+          "duration_seconds": 16.876,
+          "exit_code": 1,
+          "stdout_sha256": "3bb43d774404f0fcfd308f89a682295c8d8d6ee9b1fa3b5a87a58c12659e30f8",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "RUNTIME_REVERT",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "BRIDGE-01",
+            "correlation_id": "corr-BRIDGE-01-1794210029-9275e585",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (BRIDGE-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/BRIDGE-01_corr-BRIDGE-01-1794210029-9275e585.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "RUNTIME_REVERT"
+        },
+        "DOS-01": {
+          "target_name": "AuctionDoS",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "AuctionDoS",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name AuctionDoS --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "cdec2d07f4a94e958a3e0fbc2b5fb489db526bcc1721592d88c10f4ebf56fbfd",
+          "correlation_id": "corr-DOS-01-1794210066-e36fb5b4",
+          "duration_seconds": 15.459,
+          "exit_code": 1,
+          "stdout_sha256": "2f1878edc1a118fca854a66919b0a694494312e8e68eae958a282f1736cb9df2",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "RUNTIME_REVERT",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "DOS-01",
+            "correlation_id": "corr-DOS-01-1794210066-e36fb5b4",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (DOS-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/DOS-01_corr-DOS-01-1794210066-e36fb5b4.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "RUNTIME_REVERT"
+        },
+        "PREC-01": {
+          "target_name": "PrecisionStakingPool",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "PrecisionStakingPool",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name PrecisionStakingPool --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "0373a5882c9a8a7b4f4c46df3937033aa434128a4eed284677f54d0e27db1704",
+          "correlation_id": "corr-PREC-01-1794210095-12ed60f3",
+          "duration_seconds": 18.563,
+          "exit_code": 1,
+          "stdout_sha256": "10277cf9bab229c3b6cbeef1483336bf80d885b3aa00669dbecc1872b27c4ae8",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "RUNTIME_REVERT",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "PREC-01",
+            "correlation_id": "corr-PREC-01-1794210095-12ed60f3",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (PREC-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/PREC-01_corr-PREC-01-1794210095-12ed60f3.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "RUNTIME_REVERT"
+        },
+        "SAFE-01": {
+          "target_name": "SecureVault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "SecureVault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name SecureVault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "2a8c8c504fb060f62a3ba4732e9f906557fa50e3c20d5eb113c88474688aa991",
+          "correlation_id": "corr-SAFE-01-1794210132-764ba5d5",
+          "duration_seconds": 41.157,
+          "exit_code": 1,
+          "stdout_sha256": "7a01164522f677cbc4d2c886fe9fdea136d5884afdf867077c1b8b6052bd7fd6",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "SAFE_CONTROL_HELD",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "SAFE-01",
+            "correlation_id": "corr-SAFE-01-1794210132-764ba5d5",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (SAFE-01_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/SAFE-01_corr-SAFE-01-1794210132-764ba5d5.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "SAFE_RUN"
+        },
+        "SAFE-02": {
+          "target_name": "SecureAccessControlVault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "SecureAccessControlVault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name SecureAccessControlVault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "29398f330caf1b1065a088c54b41874045cf3c53d98e8ed5dcf7807aab4ef79e",
+          "correlation_id": "corr-SAFE-02-1794210190-48086294",
+          "duration_seconds": 12.133,
+          "exit_code": 1,
+          "stdout_sha256": "af34605fef80530dad21877f3cbdd19d5b431ff16fbf28e35e2109b3b5da8294",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "SAFE_CONTROL_HELD",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "SAFE-02",
+            "correlation_id": "corr-SAFE-02-1794210190-48086294",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (SAFE-02_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/SAFE-02_corr-SAFE-02-1794210190-48086294.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "SAFE_RUN"
+        },
+        "SAFE-03": {
+          "target_name": "SecureERC4626Vault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "SecureERC4626Vault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name SecureERC4626Vault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "9d025ae4c652ba5a58b745db1b4e818463b5bfaa1b767da1e1043db8ca3c06c2",
+          "correlation_id": "corr-SAFE-03-1794210214-0e2b14bf",
+          "duration_seconds": 12.561,
+          "exit_code": 1,
+          "stdout_sha256": "145f3949ed3785c9e474af070a3752bab1baadcb499843431fad780b192813bf",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "SAFE_CONTROL_HELD",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "SAFE-03",
+            "correlation_id": "corr-SAFE-03-1794210214-0e2b14bf",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (SAFE-03_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/SAFE-03_corr-SAFE-03-1794210214-0e2b14bf.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "SAFE_RUN"
+        },
+        "SAFE-04": {
+          "target_name": "SecureOraclePool",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "SecureOraclePool",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name SecureOraclePool --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": "13765694345dba05ac33301fe85fa774640f18867d652dc729572bf103a96a9c",
+          "correlation_id": "corr-SAFE-04-1794210239-e2980f82",
+          "duration_seconds": 41.063,
+          "exit_code": 1,
+          "stdout_sha256": "cc3e3b64e616b34e1daa0f376bbf498301285960c0e9b5811bb6004c08749c44",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "CANDIDATE_GENERATED",
+          "evm_outcome": "SAFE_CONTROL_HELD",
+          "replay_evidence": null,
+          "remote_evm_provenance": {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_digest": "NOT_AVAILABLE",
+            "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": [
+              "0.8.20",
+              "0.8.24"
+            ],
+            "exact_forge_argv": [
+              "forge",
+              "test",
+              "--offline",
+              "--json",
+              "-vvvv"
+            ],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+              "evm_version": "paris",
+              "optimizer": true,
+              "optimizer_runs": 200,
+              "via_ir": false
+            }
+          },
+          "modal_invocation_provenance": {
+            "app_session_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "target_id": "SAFE-04",
+            "correlation_id": "corr-SAFE-04-1794210239-e2980f82",
+            "invocation_id_status": "NOT_AVAILABLE",
+            "invocation_id_reason": "Modal Python client .remote() synchronous blocking call executes via gRPC worker and does not expose client-side invocation IDs or dashboard log URLs in the call return object.",
+            "durable_log_ref": "NOT_AVAILABLE: Modal Python client .remote() does not return web dashboard log URLs; execution logs are captured and persisted in repository run artifacts (SAFE-04_stdout.txt).",
+            "stages": {
+              "inference": {
+                "function_name": "generate_solidity_exploit",
+                "resource": "H100",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "evm_sandbox": {
+                "function_name": "verify_exploit_remote",
+                "resource": "CPU",
+                "invocation_id": "NOT_AVAILABLE",
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "independent_replay": {
+                "attempted": false,
+                "function_name": null,
+                "resource": null,
+                "container_id": null,
+                "invocation_id": null,
+                "durable_log_ref": "NOT_AVAILABLE"
+              },
+              "trajectory_persistence": {
+                "attempted": true,
+                "function_name": "record_trajectory_remote",
+                "resource": "Storage",
+                "persisted_path": "/vol/aegis_trajectories/baseline_5/SAFE-04_corr-SAFE-04-1794210239-e2980f82.json"
+              }
+            },
+            "billing_line_item": null,
+            "cost_usd": null,
+            "attribution_status": "UNATTRIBUTABLE_AGGREGATE"
+          },
+          "security_verdict": "SAFE_RUN"
+        }
+      },
+      "remote_evm_environment": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_digest": "NOT_AVAILABLE",
+        "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      }
+    }
+  },
+  "total_duration_seconds": 683.5,
+  "remote_evm_environment": {
+    "remote_os": "Debian GNU/Linux 12 (bookworm)",
+    "remote_platform": "linux",
+    "image_digest": "NOT_AVAILABLE",
+    "image_digest_reason": "Modal container guest environment does not expose underlying OCI image manifest digest inside the container sandbox; worker observed Debian 12 / Linux 4.4+ kernel environment.",
+    "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+    "solc_versions": [
+      "0.8.20",
+      "0.8.24"
+    ],
+    "exact_forge_argv": [
+      "forge",
+      "test",
+      "--offline",
+      "--json",
+      "-vvvv"
+    ],
+    "working_directory": "/tmp/aegis_sandbox",
+    "compiler_settings": {
+      "evm_version": "paris",
+      "optimizer": true,
+      "optimizer_runs": 200,
+      "via_ir": false
+    }
+  }
+}

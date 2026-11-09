@@ -29,6 +29,20 @@ TRUSTED_HARNESSES_DIR = "/opt/aegis/trusted_harnesses"
 TRUSTED_HARNESS_CONTRACTS = {
     "Vault": "VaultTrustedHarness",
     "ERC4626Vault": "ERC4626TrustedHarness",
+    "AccessControlVault": "AccessControlVaultHarness",
+    "AuctionDoS": "AuctionDoSHarness",
+    "CrossContractBridge": "CrossContractBridgeHarness",
+    "FeeShareYieldVault": "FeeShareYieldVaultHarness",
+    "FlashLoanRewardPool": "FlashLoanRewardPoolHarness",
+    "LendingLiquidation": "LendingLiquidationHarness",
+    "OracleLendingPool": "OracleLendingPoolHarness",
+    "PrecisionStakingPool": "PrecisionStakingPoolHarness",
+    "RewardDistributorLogic": "RewardDistributorLogicHarness",
+    "SignatureReplayWallet": "SignatureReplayWalletHarness",
+    "SecureVault": "SecureVaultTrustedHarness",
+    "SecureAccessControlVault": "SecureAccessControlVaultHarness",
+    "SecureERC4626Vault": "SecureERC4626TrustedHarness",
+    "SecureOraclePool": "SecureOraclePoolHarness",
 }
 
 # Optimized, Pinned Foundry + Solc + OpenZeppelin + Slither Execution Image for Modal
@@ -50,7 +64,7 @@ sandbox_image = (
     )
     .env({"PATH": "/root/.foundry/bin:$PATH"})
     .pip_install("pydantic>=2.0.0", "slither-analyzer", "solc-select")
-    .add_local_dir(LOCAL_TRUSTED_HARNESSES_DIR, remote_path=TRUSTED_HARNESSES_DIR, copy=False)
+    .add_local_dir(LOCAL_TRUSTED_HARNESSES_DIR, remote_path=TRUSTED_HARNESSES_DIR, copy=True)
     .add_local_python_source("core", "sandbox")
 )
 
@@ -140,7 +154,8 @@ def load_trusted_harness_code(target_name: str, harness_dir=None) -> str:
     if target_name not in TRUSTED_HARNESS_CONTRACTS:
         raise FileNotFoundError(f"No allowlisted repository harness for target {target_name}")
 
-    root = os.path.realpath(harness_dir or TRUSTED_HARNESSES_DIR)
+    default_dir = TRUSTED_HARNESSES_DIR if os.path.isdir(TRUSTED_HARNESSES_DIR) else LOCAL_TRUSTED_HARNESSES_DIR
+    root = os.path.realpath(harness_dir or default_dir)
     harness_path = os.path.realpath(os.path.join(root, f"{target_name}Harness.t.sol"))
     if os.path.dirname(harness_path) != root:
         raise ValueError("trusted harness path escaped its immutable directory")
@@ -277,17 +292,20 @@ def detect_prohibited_cheatcodes(code: str) -> bool:
     return False
 
 
-def extract_trusted_harness_verdict(
+def extract_trusted_harness_evidence(
     structured_data,
     target_name: str
 ):
-    """Read exactly one immutable repository harness and exact testExploit() result."""
+    """
+    Extract structured verdict, status, reason, deployed harness address,
+    and raw EVM logs for exactly one repository-owned trusted harness suite.
+    """
     if (
         not is_safe_target_name(target_name)
         or target_name not in TRUSTED_HARNESS_CONTRACTS
         or not isinstance(structured_data, dict)
     ):
-        return HARNESS_VERDICT_UNKNOWN, "", None, None
+        return HARNESS_VERDICT_UNKNOWN, "", None, None, None, []
 
     expected_path = trusted_harness_suite_prefix(target_name)
     matches = []
@@ -307,12 +325,26 @@ def extract_trusted_harness_verdict(
             continue
         for test_sig, test_info in test_results.items():
             if str(test_sig).strip() == f"{HARNESS_TEST_NAME}()" and isinstance(test_info, dict):
-                matches.append((path, test_info.get("status"), test_info.get("reason")))
+                status = test_info.get("status")
+                reason = test_info.get("reason")
+                logs = [log for log in test_info.get("logs", []) if isinstance(log, dict)]
+                harness_addr = None
+                traces = test_info.get("traces", [])
+                if isinstance(traces, list):
+                    for stage in traces:
+                        if isinstance(stage, (list, tuple)) and len(stage) == 2 and isinstance(stage[1], dict):
+                            arena = stage[1].get("arena", [])
+                            if arena and isinstance(arena[0], dict):
+                                addr = arena[0].get("trace", {}).get("address")
+                                if addr and isinstance(addr, str):
+                                    harness_addr = addr.strip().lower()
+                                    break
+                matches.append((path, status, reason, harness_addr, logs))
 
     if len(matches) != 1:
-        return HARNESS_VERDICT_UNKNOWN, "", None, None
+        return HARNESS_VERDICT_UNKNOWN, "", None, None, None, []
 
-    suite_path, status, reason = matches[0]
+    suite_path, status, reason, harness_addr, raw_logs = matches[0]
     if status == "Success":
         verdict = HARNESS_VERDICT_BREACH
     elif status == "Failure":
@@ -323,6 +355,17 @@ def extract_trusted_harness_verdict(
         )
     else:
         verdict = HARNESS_VERDICT_UNKNOWN
+    return verdict, suite_path, status, reason, harness_addr, raw_logs
+
+
+def extract_trusted_harness_verdict(
+    structured_data,
+    target_name: str
+):
+    """Read exactly one immutable repository harness and exact testExploit() result."""
+    verdict, suite_path, status, reason, _, _ = extract_trusted_harness_evidence(
+        structured_data, target_name
+    )
     return verdict, suite_path, status, reason
 
 
@@ -501,9 +544,16 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
         with open(os.path.join(tmpdir, "foundry.toml"), "w", encoding="utf-8") as f:
             f.write(FOUNDRY_TOML_CONTENT)
             
-        # Write target contract: src/{target.name}.sol
-        target_path = os.path.join(src_dir, f"{target.name}.sol")
-        with open(target_path, "w", encoding="utf-8") as f:
+        # Write target contract into both src/ and test/ so that both:
+        # 1. import {Target} from "../src/Target.sol" (src-relative)
+        # 2. import {Target} from "./Target.sol" (test-relative)
+        # resolve seamlessly across all repository harnesses and candidate exploits.
+        target_src_path = os.path.join(src_dir, f"{target.name}.sol")
+        with open(target_src_path, "w", encoding="utf-8") as f:
+            f.write(target.source_code)
+            
+        target_test_path = os.path.join(test_dir, f"{target.name}.sol")
+        with open(target_test_path, "w", encoding="utf-8") as f:
             f.write(target.source_code)
             
         # Write only the repository-owned harness loaded from the immutable Modal image.
@@ -555,7 +605,7 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             # repository-owned harness suite. Log text is model-controllable and
             # is therefore never used to decide whether an exploit succeeded -
             # `decoded_logs` is kept for diagnostics only.
-            harness_verdict, harness_suite, verdict_status, verdict_reason = extract_trusted_harness_verdict(
+            harness_verdict, harness_suite, verdict_status, verdict_reason, harness_addr, trusted_raw_logs = extract_trusted_harness_evidence(
                 structured_json, target.name
             )
 
@@ -593,7 +643,9 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                         execution_time_sec=elapsed,
                         revert_reason=effective_revert_reason,
                         cheatcode_detected=False,
-                        structured_json=structured_json,
+                        structured_json=None,
+                        raw_logs=trusted_raw_logs,
+                        trusted_harness_address=harness_addr,
                     )
                 except Exception as oracle_exc:
                     # The authoritative harness result remains intact; preserve a

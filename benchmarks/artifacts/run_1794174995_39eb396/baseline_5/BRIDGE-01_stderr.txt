@@ -1,0 +1,8 @@
+Warning: dynamic test linking disabled for 2 files: error: file ./CrossContractBridge.sol not found
+Error: Compiler run failed:
+Error (6275): Source "test/CrossContractBridge.sol" not found: File not found. Searched the following locations: "/tmp/tmpn1yidm4s".
+ParserError: Source "test/CrossContractBridge.sol" not found: File not found. Searched the following locations: "/tmp/tmpn1yidm4s".
+ --> test/CrossContractBridgeHarness.t.sol:5:1:
+  |
+5 | import {CrossContractBridge, BridgeLedger} from "./CrossContractBridge.sol";
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

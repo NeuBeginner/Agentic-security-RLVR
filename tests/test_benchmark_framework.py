@@ -45,7 +45,7 @@ def test_benchmark_dataset_integrity():
 
 def test_benchmark_runner_executes_all_baselines():
     suite = AegisBenchmarkSuite()
-    report = suite.run_benchmark()
+    report = suite.run_benchmark(mode="smoke", save_results=False)
 
     assert report["total_targets_evaluated"] >= 16
     assert report["vulnerable_targets"] >= 12
@@ -77,6 +77,7 @@ def test_smoke_output_is_explicitly_synthetic_and_stable():
     assert first["execution_mode"] == "SYNTHETIC_SMOKE_TEST"
     assert first["baselines"]["baseline_5"]["details"] == second["baselines"]["baseline_5"]["details"]
 
+
 def test_benchmark_separates_smoke_and_real_experiments():
     """Benchmark runner must explicitly distinguish between synthetic smoke tests and real experiments."""
     suite = AegisBenchmarkSuite()
@@ -84,9 +85,17 @@ def test_benchmark_separates_smoke_and_real_experiments():
     assert smoke_report["is_synthetic_smoke"] is True
     assert smoke_report["execution_mode"] == "SYNTHETIC_SMOKE_TEST"
 
-    # Real mode must fail closed until each baseline has a real executable adapter.
-    with pytest.raises(NotImplementedError, match="executable adapters"):
-        suite.run_benchmark(mode="real", model_id="eval-model-v1", save_results=False)
+    # Real mode executes live adapters without throwing NotImplementedError;
+    # in environments lacking external binaries/credentials, it reports UNAVAILABLE without fake metrics.
+    real_report = suite.run_benchmark(mode="real", model_id="eval-model-v1", save_results=False)
+    assert real_report["is_synthetic_smoke"] is False
+    assert real_report["execution_mode"] == "REAL_EXPERIMENT"
+    for b_id, b_data in real_report["baselines"].items():
+        assert b_data["status"] in ("SUCCESS", "UNAVAILABLE", "INCOMPLETE", "FAILED")
+        if b_data["status"] == "UNAVAILABLE":
+            assert b_data["precision"] is None
+            assert b_data["recall"] is None
+            assert b_data["f1_score"] is None
 
 
 def test_benchmark_ground_truth_and_metrics_consistency():

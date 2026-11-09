@@ -5,11 +5,15 @@ on:
     branches:
       - 'audit/**'
       - 'feature/**'
+      - 'integration/**'
+      - 'feat/**'
   pull_request:
     branches:
       - main
       - 'feature/**'
       - 'audit/**'
+      - 'integration/**'
+      - 'feat/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -32,11 +36,6 @@ jobs:
         with:
           python-version: '3.10'
           cache: pip
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: stable
 
       - name: Install Python dependencies
         run: |
@@ -77,4 +76,56 @@ jobs:
         with:
           name: aegis-reconciled-ci-report
           path: test-results.xml
+          if-no-files-found: warn
+
+  foundry-integration:
+    name: Real Foundry EVM integration probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-cov numpy
+
+      - name: Install Foundry Toolchain
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Prebake Solc Compilers for Offline Mode
+        run: |
+          python sandbox/prebake_solc.py
+
+      - name: Setup Foundry standard libraries
+        run: |
+          sudo mkdir -p /opt/foundry_base/lib
+          sudo git clone --depth 1 -b v1.9.5 https://github.com/foundry-rs/forge-std.git /opt/foundry_base/lib/forge-std
+          sudo git clone --depth 1 -b v5.0.2 https://github.com/OpenZeppelin/openzeppelin-contracts.git /opt/foundry_base/lib/openzeppelin-contracts
+          sudo chmod -R 777 /opt/foundry_base
+
+      - name: Run Live Foundry Integration Tests
+        env:
+          PYTHONPATH: .
+          FOUNDRY_CI: "true"
+        run: |
+          forge --version
+          python -m pytest -v -rA tests/test_real_benchmark_execution.py -k "test_real_foundry_integration" --junitxml=test-results-foundry.xml
+
+      - name: Upload Foundry test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-foundry-integration-report
+          path: test-results-foundry.xml
           if-no-files-found: warn

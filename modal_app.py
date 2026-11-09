@@ -183,7 +183,8 @@ class ProductionAuditAgent:
             response_text,
             attempt_idx=1,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
     @modal.method()
@@ -221,7 +222,8 @@ class ProductionAuditAgent:
             response_text,
             attempt_idx=99,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
 
@@ -313,7 +315,8 @@ class DevReasoningAgent:
             response_text,
             attempt_idx=1,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
     @modal.method()
@@ -351,7 +354,8 @@ class DevReasoningAgent:
             response_text,
             attempt_idx=99,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
 
@@ -386,7 +390,11 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     
     # 2. Evaluate multi-factor verdict
     verdict = evaluate_execution_trace(payload, raw_result)
-    return verdict.model_dump()
+    res_dict = verdict.model_dump()
+    res_dict["sandbox_stdout"] = raw_result.stdout or ""
+    res_dict["sandbox_stderr"] = raw_result.stderr or ""
+    res_dict["sandbox_returncode"] = raw_result.return_code
+    return res_dict
 
 
 @app.function(
@@ -395,11 +403,42 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     cpu=config.SANDBOX_CPU_CORES,
     memory=config.SANDBOX_MEMORY_MB,
 )
-def verify_replay_remote(target_dict: dict, payload_dict: dict) -> bool:
-    """Runs the candidate independently in a fresh EVM worker and checks the trusted verdict."""
+def verify_replay_remote(target_dict: dict, payload_dict: dict) -> dict:
+    """Runs the candidate independently in a fresh EVM worker and returns structured replay evidence."""
+    import hashlib
     target = TargetProgram(**target_dict)
     payload = ExploitPayload(**payload_dict)
-    return verify_independent_replay(target, payload)
+    from sandbox.runner import verify_independent_replay_result, HARNESS_VERDICT_BREACH
+    raw_result = verify_independent_replay_result(target, payload)
+    
+    is_confirmed = (
+        raw_result.harness_verdict == HARNESS_VERDICT_BREACH
+        and raw_result.invariant_violated
+        and raw_result.return_code == 0
+        and not raw_result.cheatcode_detected
+        and raw_result.category == ResultCategory.EXPLOIT_CONFIRMED
+    )
+    
+    container_id = os.environ.get("MODAL_CONTAINER_ID") or os.environ.get("HOSTNAME") or f"modal-cpu-{uuid.uuid4().hex[:12]}"
+    stdout_text = raw_result.stdout or ""
+    stderr_text = raw_result.stderr or ""
+    stdout_sha = hashlib.sha256(stdout_text.encode("utf-8")).hexdigest()
+    stderr_sha = hashlib.sha256(stderr_text.encode("utf-8")).hexdigest()
+    
+    return {
+        "reproduced": bool(is_confirmed),
+        "container_id": container_id,
+        "command": "forge test --offline --json -vvvv",
+        "return_code": raw_result.return_code,
+        "harness_verdict": raw_result.harness_verdict,
+        "invariant_violated": raw_result.invariant_violated,
+        "category": raw_result.category.value if hasattr(raw_result.category, "value") else str(raw_result.category),
+        "stdout": stdout_text,
+        "stderr": stderr_text,
+        "stdout_sha256": stdout_sha,
+        "stderr_sha256": stderr_sha,
+        "execution_time_sec": raw_result.execution_time_sec,
+    }
 
 
 @app.function(
@@ -703,39 +742,40 @@ def run_control_foundry_tests(target_name: str = "Vault"):
 
     # 1. TEST 1: Minimal Benign ExploitModule (No LLM)
     print("\n[Control Test 1] Testing Minimal Benign ExploitModule (No LLM)...")
-    benign_code = """// SPDX-License-Identifier: MIT
+    benign_code = f"""// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Vault} from "../src/Vault.sol";
+import {{{target_name}}} from "../src/{target_name}.sol";
 
-contract ExploitModule {
-    Vault public targetContract;
+contract ExploitModule {{
+    {target_name} public targetContract;
 
-    constructor(address _target) payable {
-        targetContract = Vault(payable(_target));
-    }
+    constructor(address _target) payable {{
+        targetContract = {target_name}(payable(_target));
+    }}
 
-    function runExploit() external payable {
+    function runExploit() external payable {{
         // Benign execution: does not breach solvency invariant
-    }
+    }}
 
-    receive() external payable {}
-}
+    receive() external payable {{}}
+}}
 """
     p1 = parse_model_response(target, f"```solidity\n{benign_code}\n```")
     v1_dict = verify_exploit_remote.remote(target.model_dump(), p1.model_dump())
     v1 = VerificationVerdict(**v1_dict)
-    print(f"    Status: {'✅ PASS' if v1.category == ResultCategory.RUNTIME_REVERT else '❌ FAIL'}")
+    print(f"    Status: {'✅ PASS' if v1.category in (ResultCategory.SAFE_RUN, ResultCategory.RUNTIME_REVERT) else '❌ FAIL'}")
     print(f"    Category: {v1.category.value} | Reward: {v1.reward_score:+.2f}")
     print(f"    Feedback: {v1.feedback[:120]}...")
-    assert v1.category == ResultCategory.RUNTIME_REVERT, f"Expected RUNTIME_REVERT, got {v1.category}"
+    assert v1.category in (ResultCategory.SAFE_RUN, ResultCategory.RUNTIME_REVERT), f"Expected SAFE_RUN or RUNTIME_REVERT, got {v1.category}"
     assert v1.reward_score <= 0.0, f"Expected non-positive reward, got {v1.reward_score}"
     assert not v1.is_verified, "Benign test must not be verified as exploit"
-    print("    [✓] Control Test 1 verified: Import and compilation succeeded without Declaration 'ExploitModule' error.")
+    print("    [✓] Control Test 1 verified: Benign execution gave non-positive reward without invariant breach.")
 
-    # 2. TEST 2: Confirmed Reentrancy ExploitModule
-    print("\n[Control Test 2] Testing Confirmed Working Reentrancy ExploitModule...")
-    working_exploit = """// SPDX-License-Identifier: MIT
+    # 2. TEST 2: Confirmed Reentrancy / Share Inflation ExploitModule
+    print(f"\n[Control Test 2] Testing Confirmed Working ExploitModule for {target_name}...")
+    if target_name == "Vault":
+        working_exploit = """// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
 import {Vault} from "../src/Vault.sol";
@@ -760,6 +800,29 @@ contract ExploitModule {
     }
 }
 """
+    elif target_name == "ERC4626Vault":
+        working_exploit = """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {ERC4626Vault} from "../src/ERC4626Vault.sol";
+
+contract ExploitModule {
+    ERC4626Vault public targetContract;
+
+    constructor(address _target) payable {
+        targetContract = ERC4626Vault(payable(_target));
+    }
+
+    function runExploit() external payable {
+        targetContract.deposit{value: 1}();
+        payable(address(targetContract)).transfer(msg.value - 1);
+    }
+
+    receive() external payable {}
+}
+"""
+    else:
+        raise ValueError(f"No control exploit template available for target '{target_name}'")
     p2 = parse_model_response(target, f"```solidity\n{working_exploit}\n```")
     v2_dict = verify_exploit_remote.remote(target.model_dump(), p2.model_dump())
     v2 = VerificationVerdict(**v2_dict)
@@ -827,13 +890,13 @@ contract ExploitModule {
     #     this control keeps proving that a genuinely malformed exploit is still
     #     rejected upfront, before Foundry is invoked)
     print("\n[Control Test 3] Testing Structurally Broken Contract (missing runExploit entrypoint)...")
-    malformed_code = """// SPDX-License-Identifier: MIT
+    malformed_code = f"""// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-contract VaultAttack {
-    constructor(address _target) payable {}
+contract {target_name}Attack {{
+    constructor(address _target) payable {{}}
     // Missing mandatory runExploit() entrypoint
-}
+}}
 """
     p3 = parse_model_response(target, f"```solidity\n{malformed_code}\n```")
     assert not p3.format_valid, "Structurally broken exploit must be rejected before Foundry"
@@ -847,31 +910,31 @@ contract VaultAttack {
     print("    [✓] Control Test 3 verified: Format error caught before invoking Foundry.")
 
     # 4. TEST 4: Wrongly-named but otherwise valid contract is mechanically repaired
-    print("\n[Control Test 4] Testing Mechanical Contract Name Normalization (contract VaultAttack)...")
-    renamable_code = """// SPDX-License-Identifier: MIT
+    print(f"\n[Control Test 4] Testing Mechanical Contract Name Normalization (contract {target_name}Attack)...")
+    renamable_code = f"""// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Vault} from "../src/Vault.sol";
+import {{{target_name}}} from "../src/{target_name}.sol";
 
-contract VaultAttack {
-    Vault public targetContract;
+contract {target_name}Attack {{
+    {target_name} public targetContract;
 
-    constructor(address _target) payable {
-        targetContract = Vault(payable(_target));
-    }
+    constructor(address _target) payable {{
+        targetContract = {target_name}(payable(_target));
+    }}
 
-    function runExploit() external payable {}
+    function runExploit() external payable {{}}
 
-    receive() external payable {}
-}
+    receive() external payable {{}}
+}}
 """
     p4 = parse_model_response(target, f"```solidity\n{renamable_code}\n```")
     assert p4.contract_name_normalized, "Expected mechanical contract-name normalization"
-    assert p4.original_contract_name == "VaultAttack"
+    assert p4.original_contract_name == f"{target_name}Attack"
     assert p4.format_valid, "Renamed exploit must pass the format gate"
     v4_dict = verify_exploit_remote.remote(target.model_dump(), p4.model_dump())
     v4 = VerificationVerdict(**v4_dict)
-    print(f"    Renamed: 'VaultAttack' -> 'ExploitModule' | format_valid={p4.format_valid}")
+    print(f"    Renamed: '{target_name}Attack' -> 'ExploitModule' | format_valid={p4.format_valid}")
     print(f"    Status: {'✅ PASS' if v4.category != ResultCategory.GENERATION_FORMAT_ERROR else '❌ FAIL'}")
     print(f"    Category: {v4.category.value} | Reward: {v4.reward_score:+.2f}")
     assert v4.category != ResultCategory.GENERATION_FORMAT_ERROR, (
