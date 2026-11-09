@@ -205,6 +205,12 @@ all).
   response). Both helpers now keep the artifact internally consistent, which
   is what they always claimed to do. No assertion of the Iteration 17 suite is
   removed or relaxed.
+* **The Iteration 16 suite is adjusted, not weakened.** One mutation of
+  `tests/test_iteration16_evidence_integrity.py` swapped the runtime envelope
+  for one whose `container_id` was a bare string — an envelope that Iteration
+  18 classifies as malformed. The mutation now swaps in a **well-formed**
+  envelope, so the check that catches it is again the binding to the returned
+  payload, and the assertion of the test is unchanged.
 
 ---
 
@@ -226,6 +232,83 @@ all).
 
 ## 6. Results of this iteration
 
-The results are filled in after the code, the tests and the evidence are
-committed; the numbers of the local run and the numbers of the CI run are
-reported separately.
+The numbers of the local run and the numbers of the CI run are reported
+separately. They are never mixed into one number.
+
+### 6.1 The local run (Windows, this machine)
+
+| suite | result |
+| --- | --- |
+| Iteration 18 (`tests/test_iteration18_evidence_integrity.py`) | **44 passed** |
+| Iteration 17 | 65 passed |
+| Iteration 16 | 27 passed |
+| Iteration 15 | 33 passed |
+| Iteration 14 | 73 passed, 3 skipped (the real-Foundry probes: `forge` is not on the local PATH) |
+| full suite `tests/` | **627 passed, 7 skipped** |
+
+The 7 local skips are the 6 real-Foundry probes and the 1 real-Slither probe —
+all of them `NOT_RUN`, because the binaries are not on the local PATH. The four
+`solc` 0.8.20 compile probes of `test_contract_normalization_v2` **pass**
+locally, because `solc-0.8.20.exe` is installed on this machine; in CI they
+are skipped, because the CI runner has no `solc` on its PATH.
+
+### 6.2 The CI run (run `42720282390`, head `845f474`)
+
+| step | result |
+| --- | --- |
+| Run trusted evidence and reward contract tests | 58 passed; 25 passed; 23 passed, 4 skipped |
+| Run Iteration 14 evidence-integrity tests | 73 passed, 3 skipped |
+| Run Iteration 15 evidence-integrity tests | 33 passed |
+| Run Iteration 16 evidence-integrity tests | 27 passed |
+| Run Iteration 17 evidence-integrity tests | 65 passed |
+| Run Iteration 18 evidence-integrity tests | **44 passed** |
+| Run GRPO and trajectory integrity tests | 6 passed; 5 passed; 5 passed; 6 passed |
+| Run complete test suite | **623 passed, 11 skipped** |
+
+The 11 CI skips are the 4 `solc` 0.8.20 compile probes (no `solc` on the CI
+runner), the 6 real-Foundry probes and the 1 real-Slither probe of the
+complete suite. The real Foundry probes are **not** skipped in CI: the job
+`foundry-integration` runs them on `ubuntu-latest` with `foundry-toolchain`
+and reports **4 passed** (step 1) and **3 passed** (step 2).
+
+### 6.3 The evidence
+
+| item | value |
+| --- | --- |
+| code SHA | `8813cebd57dbff898ac3c14e2ab0bfca355dbdb3` |
+| evidence commit | `845f474` (the validation report, bound to the code SHA above) |
+| validation artifact | `benchmarks/evidence/iteration18_validation_evidence.json` |
+| billing | **PASSED** |
+| producer rehearsal | **PASSED** |
+| the saved 16-target run | **FAILED 16/16** — it predates the per-stage artifacts of Iteration 16 |
+| live Modal run | **none** — no H100, no paid GPU, no Modal runtime validation is claimed |
+
+The saved run fails for the same reason as in Iterations 15, 16 and 17: the
+artifacts on disk carry no per-stage evidence at all. The report says
+`FAILED 16/16`, and a green CI workflow is **not** a successful 16-target
+benchmark validation.
+
+### 6.4 What the fix does to the historical artifacts
+
+The stage evidence artifact of the Iteration 17 rehearsal — the artifact the
+Iteration 17 producer really wrote — is rejected by the Iteration 18 validator:
+
+```
+The stage evidence artifact claims that no response was received but its
+response metadata implies that a response was captured
+```
+
+That artifact carries a `response_sha256` of the JSON literal `null` and a
+`runtime_identity_source` that names an envelope it does not hold. The
+Iteration 18 rehearsal shows the corrected producer output: a null payload,
+no digest, no length, no source.
+
+The state of every stage of the offline producer rehearsal, and the kind of
+absence that belongs to it:
+
+| stage | state | kind of absence |
+| --- | --- | --- |
+| `inference` | `NOT_ATTEMPTED` | `STAGE_NOT_ATTEMPTED` |
+| `evm_sandbox` | `EXECUTED_NO_RUNTIME_ENVELOPE` | `STAGE_EXECUTED_NO_RUNTIME_ENVELOPE` |
+| `independent_replay` | `EXECUTED_WITH_RUNTIME_ENVELOPE` | observed |
+| `trajectory_persistence` | `EXECUTED_NO_RUNTIME_ENVELOPE` | `CLIENT_NEVER_CAPTURED_FIELD` |
