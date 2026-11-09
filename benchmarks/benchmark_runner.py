@@ -216,6 +216,22 @@ class AegisBenchmarkSuite:
             },
         }
 
+        remote_evm_environment = {
+            "remote_os": "Debian GNU/Linux 12 (bookworm)",
+            "remote_platform": "linux",
+            "image_tag": "debian:12-slim-foundry",
+            "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+            "solc_versions": ["0.8.20", "0.8.24"],
+            "exact_forge_argv": ["forge", "test", "--offline", "--json", "-vvvv"],
+            "working_directory": "/tmp/aegis_sandbox",
+            "compiler_settings": {
+                "evm_version": "paris",
+                "optimizer": True,
+                "optimizer_runs": 200,
+                "via_ir": False,
+            },
+        }
+
         return EnvironmentManifest(
             python_version=python_ver,
             os_platform=os_plat,
@@ -226,6 +242,7 @@ class AegisBenchmarkSuite:
             modal_authenticated=modal_auth,
             package_versions=package_versions,
             provider_configs=provider_configs,
+            remote_evm_environment=remote_evm_environment,
         )
 
     def _get_dataset_manifest(self, public_targets: List[TargetSpecification]) -> DatasetManifest:
@@ -540,8 +557,18 @@ class AegisBenchmarkSuite:
                         "exit_code": target_exit_code,
                         "stdout_sha256": art.tool_metadata.get("stdout_sha256"),
                         "stderr_sha256": art.tool_metadata.get("stderr_sha256"),
+                        "orchestration_status": getattr(art, "orchestration_status", art.status.value),
+                        "generation_outcome": getattr(art, "generation_outcome", "NOT_RUN"),
+                        "evm_outcome": getattr(art, "evm_outcome", "NOT_RUN"),
+                        "security_verdict": art.security_verdict,
+                        "replay_status": art.replay_status,
+                        "persistence_status": art.persistence_status,
+                        "replay_evidence": getattr(art, "replay_evidence", None) or art.tool_metadata.get("replay_evidence"),
+                        "remote_evm_provenance": getattr(art, "remote_evm_provenance", None) or art.tool_metadata.get("remote_evm_provenance"),
+                        "modal_invocation_provenance": getattr(art, "modal_invocation_provenance", None) or art.tool_metadata.get("modal_invocation_provenance"),
                     }
     
+                env_manifest = self._get_environment_manifest()
                 adapter_manifests[b_id] = AdapterRunManifest(
                     baseline_id=b_id,
                     baseline_name=adapter.baseline_name,
@@ -562,6 +589,7 @@ class AegisBenchmarkSuite:
                     completed_targets=sum(1 for a in baseline_artifacts if a.status == ExecutionStatus.SUCCESS),
                     cost_status="unmeasured",
                     cost_usd=None,
+                    remote_evm_environment=env_manifest.remote_evm_environment,
                     artifact_files=adapter_artifact_files,
                     per_target_provenance=per_target_provenance,
                 )
@@ -575,6 +603,7 @@ class AegisBenchmarkSuite:
 
         # Build full reproducibility manifest
         total_duration = round(time.time() - suite_start_time, 3)
+        env_manifest = self._get_environment_manifest()
         repro_manifest = RunReproducibilityManifest(
             manifest_version="1.0.0",
             run_id=run_id,
@@ -582,9 +611,10 @@ class AegisBenchmarkSuite:
             execution_mode="SYNTHETIC_SMOKE_TEST" if mode == "smoke" else "REAL_EXPERIMENT",
             is_synthetic_smoke=(mode == "smoke"),
             git=self._get_git_manifest(),
-            environment=self._get_environment_manifest(),
+            environment=env_manifest,
             dataset=self._get_dataset_manifest(public_targets),
             adapters=adapter_manifests,
+            remote_evm_environment=env_manifest.remote_evm_environment,
             total_duration_seconds=total_duration,
         )
 

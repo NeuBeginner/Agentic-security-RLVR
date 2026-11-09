@@ -48,11 +48,14 @@ def evaluate_baseline_run(
         gt = ground_truth_map.get(a.target_id)
         is_vuln = gt.is_vulnerable if gt else False
         is_compile_err = (a.security_verdict == "COMPILATION_ERROR")
-        det = False if is_compile_err else (a.detected if a.status == ExecutionStatus.SUCCESS else None)
+        det = False if (is_compile_err or a.security_verdict in ("RUNTIME_REVERT", "GENERATION_FORMAT_ERROR", "SAFE_RUN")) else (a.detected if a.status == ExecutionStatus.SUCCESS else None)
         details.append({
             "target_id": a.target_id,
             "is_vulnerable": is_vuln,
             "detected": det,
+            "orchestration_status": getattr(a, "orchestration_status", a.status.value),
+            "generation_outcome": getattr(a, "generation_outcome", "NOT_RUN"),
+            "evm_outcome": getattr(a, "evm_outcome", "NOT_RUN"),
             "security_verdict": a.security_verdict,
             "replay_status": a.replay_status,
             "persistence_status": a.persistence_status,
@@ -112,8 +115,8 @@ def evaluate_baseline_run(
             raise KeyError(f"Target {art.target_id} lacks authoritative ground truth entry.")
 
         is_vuln = gt.is_vulnerable
-        # P0 Guarantee: Compilation error must NEVER count as breach or positive detection
-        if art.security_verdict == "COMPILATION_ERROR":
+        # P0 Guarantee: Compilation error, runtime revert, format error, or safe run must NEVER count as positive breach
+        if art.security_verdict in ("COMPILATION_ERROR", "RUNTIME_REVERT", "GENERATION_FORMAT_ERROR", "SAFE_RUN"):
             detected = False
         else:
             detected = art.detected

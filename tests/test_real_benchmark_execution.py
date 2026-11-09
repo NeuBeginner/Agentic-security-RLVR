@@ -2708,3 +2708,319 @@ def test_foundry_integration_cannot_pass_via_missing_binary_fallback_in_ci(monke
 
     with pytest.raises(AssertionError, match="Foundry binary 'forge' MUST be present on PATH in CI"):
         test_real_foundry_integration_live_execution()
+
+
+def test_status_semantics_and_normalized_stage_outcomes():
+    """
+    Iteration 13 Blocker 4:
+    Verifies that target execution artifacts and evaluation results clearly distinguish
+    and normalize stage outcomes:
+    - orchestration_status (pipeline status)
+    - generation_outcome (CANDIDATE_GENERATED, GENERATION_FORMAT_ERROR, GENERATION_FAILED)
+    - evm_outcome (BREACH_VERIFIED, SAFE_CONTROL_HELD, RUNTIME_REVERT, COMPILATION_ERROR, NOT_RUN)
+    - security_verdict (EXPLOIT_CONFIRMED, RUNTIME_REVERT, SAFE_RUN, GENERATION_FORMAT_ERROR, COMPILATION_ERROR)
+    - replay_status (CONFIRMED, NOT_ELIGIBLE, FAILED)
+    - persistence_status (persisted, not_persisted, NOT_ELIGIBLE)
+    """
+    # 1. Successful exploit breach:
+    art_exploit = TargetExecutionArtifact(
+        baseline_id="baseline_5",
+        target_id="REENT-01",
+        target_name="Vault Solvency",
+        status=ExecutionStatus.SUCCESS,
+        detected=True,
+        candidates_generated=1,
+        verified_breaches=1,
+        replayed_breaches=1,
+        process_exit_code=0,
+        security_verdict="EXPLOIT_CONFIRMED",
+        replay_status="CONFIRMED",
+        persistence_status="persisted",
+        orchestration_status="COMPLETED",
+        generation_outcome="CANDIDATE_GENERATED",
+        evm_outcome="BREACH_VERIFIED",
+    )
+    d_exploit = art_exploit.to_dict()
+    assert d_exploit["orchestration_status"] == "COMPLETED"
+    assert d_exploit["generation_outcome"] == "CANDIDATE_GENERATED"
+    assert d_exploit["evm_outcome"] == "BREACH_VERIFIED"
+    assert d_exploit["security_verdict"] == "EXPLOIT_CONFIRMED"
+    assert d_exploit["replay_status"] == "CONFIRMED"
+    assert d_exploit["persistence_status"] == "persisted"
+
+    # 2. Runtime revert:
+    art_revert = TargetExecutionArtifact(
+        baseline_id="baseline_5",
+        target_id="BIZ-01",
+        target_name="Business Logic",
+        status=ExecutionStatus.SUCCESS,
+        detected=False,
+        candidates_generated=1,
+        verified_breaches=0,
+        replayed_breaches=0,
+        process_exit_code=1,
+        security_verdict="RUNTIME_REVERT",
+        replay_status="NOT_ELIGIBLE",
+        persistence_status="persisted",
+        orchestration_status="COMPLETED",
+        generation_outcome="CANDIDATE_GENERATED",
+        evm_outcome="RUNTIME_REVERT",
+    )
+    d_revert = art_revert.to_dict()
+    assert d_revert["generation_outcome"] == "CANDIDATE_GENERATED"
+    assert d_revert["evm_outcome"] == "RUNTIME_REVERT"
+    assert d_revert["security_verdict"] == "RUNTIME_REVERT"
+    assert d_revert["replay_status"] == "NOT_ELIGIBLE"
+
+    # 3. Generation format error:
+    art_fmt = TargetExecutionArtifact(
+        baseline_id="baseline_5",
+        target_id="SIG-01",
+        target_name="Signature Malleability",
+        status=ExecutionStatus.SUCCESS,
+        detected=False,
+        candidates_generated=0,
+        verified_breaches=0,
+        replayed_breaches=0,
+        process_exit_code=-4,
+        security_verdict="GENERATION_FORMAT_ERROR",
+        replay_status="NOT_ELIGIBLE",
+        persistence_status="persisted",
+        orchestration_status="COMPLETED",
+        generation_outcome="GENERATION_FORMAT_ERROR",
+        evm_outcome="NOT_RUN",
+    )
+    d_fmt = art_fmt.to_dict()
+    assert d_fmt["generation_outcome"] == "GENERATION_FORMAT_ERROR"
+    assert d_fmt["evm_outcome"] == "NOT_RUN"
+    assert d_fmt["security_verdict"] == "GENERATION_FORMAT_ERROR"
+
+    # 4. Safe control held:
+    art_safe = TargetExecutionArtifact(
+        baseline_id="baseline_5",
+        target_id="SAFE-01",
+        target_name="Safe Control Vault",
+        status=ExecutionStatus.SUCCESS,
+        detected=False,
+        candidates_generated=1,
+        verified_breaches=0,
+        replayed_breaches=0,
+        process_exit_code=1,
+        security_verdict="SAFE_RUN",
+        replay_status="NOT_ELIGIBLE",
+        persistence_status="persisted",
+        orchestration_status="COMPLETED",
+        generation_outcome="CANDIDATE_GENERATED",
+        evm_outcome="SAFE_CONTROL_HELD",
+    )
+    d_safe = art_safe.to_dict()
+    assert d_safe["generation_outcome"] == "CANDIDATE_GENERATED"
+    assert d_safe["evm_outcome"] == "SAFE_CONTROL_HELD"
+    assert d_safe["security_verdict"] == "SAFE_RUN"
+
+    # 5. Evaluator propagates all stage outcome fields into details
+    gt = {
+        "REENT-01": GroundTruth(contract_id="REENT-01", is_vulnerable=True),
+        "BIZ-01": GroundTruth(contract_id="BIZ-01", is_vulnerable=True),
+        "SIG-01": GroundTruth(contract_id="SIG-01", is_vulnerable=True),
+        "SAFE-01": GroundTruth(contract_id="SAFE-01", is_vulnerable=False),
+    }
+    eval_res = evaluate_baseline_run("baseline_5", "Full Aegis-RLVR", [art_exploit, art_revert, art_fmt, art_safe], gt)
+    assert eval_res.status == ExecutionStatus.SUCCESS
+    detail_by_id = {row["target_id"]: row for row in eval_res.details}
+    assert detail_by_id["REENT-01"]["orchestration_status"] == "COMPLETED"
+    assert detail_by_id["REENT-01"]["generation_outcome"] == "CANDIDATE_GENERATED"
+    assert detail_by_id["REENT-01"]["evm_outcome"] == "BREACH_VERIFIED"
+    assert detail_by_id["SIG-01"]["generation_outcome"] == "GENERATION_FORMAT_ERROR"
+    assert detail_by_id["SIG-01"]["evm_outcome"] == "NOT_RUN"
+    assert detail_by_id["SAFE-01"]["evm_outcome"] == "SAFE_CONTROL_HELD"
+
+
+def test_safe_control_sentinel_semantics_and_rejection_of_unrelated_failures():
+    """
+    Iteration 13 Blocker 4:
+    Verifies that deliberate sentinel revert 'EXPLOIT_FAILED: Safe control held'
+    is accepted as proof of safe control, whereas generic EVM reverts, compiler
+    errors, panic codes, or empty reasons are rejected from SAFE classification.
+    """
+    from benchmarks.protocol import validate_safe_control_sentinel_semantics
+
+    # 1. Deliberate sentinel proves safe control
+    valid, verdict = validate_safe_control_sentinel_semantics("EXPLOIT_FAILED: Safe control held")
+    assert valid is True
+    assert verdict == "SAFE_RUN"
+
+    valid, verdict = validate_safe_control_sentinel_semantics("EXPLOIT_FAILED: Safe control held (Invariant balance >= deposit)", "NO_BREACH")
+    assert valid is True
+    assert verdict == "SAFE_RUN"
+
+    # 2. Reject generic EVM revert
+    valid, reason = validate_safe_control_sentinel_semantics("EvmError: Revert")
+    assert valid is False
+    assert "GENERIC_EVM_REVERT" in reason
+
+    # 3. Reject EVM Panic codes (e.g. integer overflow, assert failure)
+    valid, reason = validate_safe_control_sentinel_semantics("Panic(0x11): Arithmetic underflow/overflow")
+    assert valid is False
+    assert "EVM_PANIC" in reason
+
+    # 4. Reject Solidity compilation errors
+    valid, reason = validate_safe_control_sentinel_semantics("Compiler run failed: ParserError: Expected ';' but got '}'")
+    assert valid is False
+    assert "COMPILATION_ERROR" in reason
+
+    # 5. Reject empty or None revert reasons
+    valid, reason = validate_safe_control_sentinel_semantics(None)
+    assert valid is False
+    assert reason == "MISSING_REVERT_REASON"
+
+    valid, reason = validate_safe_control_sentinel_semantics("")
+    assert valid is False
+    assert reason == "MISSING_REVERT_REASON"
+
+
+def test_replay_evidence_envelope_required_for_confirmed_status():
+    """
+    Iteration 13 Blocker 2:
+    A test must fail if replay is marked CONFIRMED without a complete integrity envelope:
+    - fresh container ID
+    - exact command and argv
+    - exit code 0
+    - invariant_violated=True and reproduced=True
+    - cryptographic SHA-256 digests for candidate, harness, stdout, stderr
+    - UTC start/end timestamps
+    """
+    from benchmarks.protocol import validate_replay_evidence_envelope
+
+    valid_envelope = {
+        "container_id": "modal-cpu-ca9285db97bf",
+        "command": "forge test --offline --json -vvvv",
+        "argv": ["forge", "test", "--offline", "--json", "-vvvv"],
+        "exit_code": 0,
+        "return_code": 0,
+        "invariant_violated": True,
+        "reproduced": True,
+        "candidate_sha256": "c67358c90b789d1536f2dfd30c287230789d8397ba004465924c1c214c145aa3",
+        "harness_sha256": "6f405ff57e9bef9b8afd584e97bde96557d0763d3a6d3097c8a75ec51c4ccda6",
+        "stdout_sha256": "8d088711590dc962c2be5d91ebdb5a4fb05f698130ebbaa7135146f80e8281da",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utc_start_time": "2026-11-09T07:33:41Z",
+        "utc_end_time": "2026-11-09T07:35:20Z",
+    }
+
+    # 1. Valid envelope passes
+    valid_art = {
+        "target_id": "REENT-01",
+        "replay_status": "CONFIRMED",
+        "replayed_breaches": 1,
+        "replay_evidence": valid_envelope,
+    }
+    is_valid, err = validate_replay_evidence_envelope(valid_art)
+    assert is_valid is True
+    assert err is None
+
+    # 2. Missing envelope fails
+    missing_env_art = {"target_id": "REENT-01", "replay_status": "CONFIRMED", "replayed_breaches": 1}
+    is_valid, err = validate_replay_evidence_envelope(missing_env_art)
+    assert is_valid is False
+    assert "missing or empty" in err
+
+    # 3. Non-zero exit code fails
+    nonzero_env = dict(valid_envelope, exit_code=1)
+    is_valid, err = validate_replay_evidence_envelope({"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": nonzero_env})
+    assert is_valid is False
+    assert "exit_code must be 0" in err
+
+    # 4. Missing container ID fails
+    no_container_env = dict(valid_envelope, container_id="")
+    is_valid, err = validate_replay_evidence_envelope({"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": no_container_env})
+    assert is_valid is False
+    assert "container_id" in err
+
+    # 5. Missing or invalid hash fails
+    bad_hash_env = dict(valid_envelope, candidate_sha256="not_a_sha256")
+    is_valid, err = validate_replay_evidence_envelope({"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": bad_hash_env})
+    assert is_valid is False
+    assert "candidate_sha256" in err
+
+    # 6. reproduced=False fails
+    not_reproduced_env = dict(valid_envelope, reproduced=False)
+    is_valid, err = validate_replay_evidence_envelope({"replay_status": "CONFIRMED", "replayed_breaches": 1, "replay_evidence": not_reproduced_env})
+    assert is_valid is False
+    assert "reproduced" in err
+
+    # 7. Non-confirmed replay status does not require envelope
+    unreplayed_art = {"target_id": "BIZ-01", "replay_status": "NOT_ELIGIBLE", "replayed_breaches": 0}
+    is_valid, err = validate_replay_evidence_envelope(unreplayed_art)
+    assert is_valid is True
+
+
+def test_manifest_rejects_missing_remote_toolchain_provenance():
+    """
+    Iteration 13 Blocker 3:
+    Rejects missing remote toolchain provenance for any target whose EVM stage ran.
+    """
+    from benchmarks.protocol import validate_remote_evm_toolchain_provenance
+
+    valid_toolchain = {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": ["0.8.20", "0.8.24"],
+        "exact_forge_argv": ["forge", "test", "--offline", "--json", "-vvvv"],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+            "evm_version": "paris",
+            "optimizer": True,
+            "optimizer_runs": 200,
+            "via_ir": False,
+        },
+    }
+
+    # 1. Valid toolchain provenance passes
+    art_with_toolchain = {
+        "target_id": "REENT-01",
+        "evm_outcome": "BREACH_VERIFIED",
+        "security_verdict": "EXPLOIT_CONFIRMED",
+        "process_exit_code": 0,
+        "remote_evm_provenance": valid_toolchain,
+    }
+    is_valid, err = validate_remote_evm_toolchain_provenance(art_with_toolchain)
+    assert is_valid is True
+    assert err is None
+
+    # 2. EVM ran but provenance is missing -> fails
+    art_missing_toolchain = {
+        "target_id": "REENT-01",
+        "evm_outcome": "BREACH_VERIFIED",
+        "security_verdict": "EXPLOIT_CONFIRMED",
+        "process_exit_code": 0,
+        "remote_evm_provenance": None,
+    }
+    is_valid, err = validate_remote_evm_toolchain_provenance(art_missing_toolchain)
+    assert is_valid is False
+    assert "Missing remote_evm_provenance" in err
+
+    # 3. Missing required field (e.g. forge_version) -> fails
+    incomplete_toolchain = dict(valid_toolchain, forge_version="")
+    art_incomplete = {
+        "target_id": "BIZ-01",
+        "evm_outcome": "RUNTIME_REVERT",
+        "security_verdict": "RUNTIME_REVERT",
+        "process_exit_code": 1,
+        "remote_evm_provenance": incomplete_toolchain,
+    }
+    is_valid, err = validate_remote_evm_toolchain_provenance(art_incomplete)
+    assert is_valid is False
+    assert "forge_version" in err
+
+    # 4. EVM did NOT run (format error before EVM) -> correctly skipped
+    art_not_run = {
+        "target_id": "SIG-01",
+        "evm_outcome": "NOT_RUN",
+        "security_verdict": "GENERATION_FORMAT_ERROR",
+        "process_exit_code": -4,
+    }
+    is_valid, err = validate_remote_evm_toolchain_provenance(art_not_run)
+    assert is_valid is True

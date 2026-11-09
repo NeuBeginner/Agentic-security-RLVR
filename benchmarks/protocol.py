@@ -96,6 +96,12 @@ class TargetExecutionArtifact:
     resource_budget: Dict[str, Any] = field(default_factory=dict)
     effective_config_hash: Optional[str] = None
     prompt_hash: Optional[str] = None
+    orchestration_status: str = "COMPLETED"
+    generation_outcome: str = "NOT_RUN"
+    evm_outcome: str = "NOT_RUN"
+    replay_evidence: Optional[Dict[str, Any]] = None
+    remote_evm_provenance: Optional[Dict[str, Any]] = None
+    modal_invocation_provenance: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -234,6 +240,7 @@ class EnvironmentManifest:
     modal_authenticated: bool = False
     package_versions: Dict[str, str] = field(default_factory=dict)
     provider_configs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    remote_evm_environment: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -275,6 +282,7 @@ class AdapterRunManifest:
     completed_targets: int = 0
     cost_status: str = "unmeasured"
     cost_usd: Optional[float] = None
+    remote_evm_environment: Optional[Dict[str, Any]] = None
     artifact_files: List[ArtifactFileRecord] = field(default_factory=list)
     per_target_provenance: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
@@ -294,6 +302,7 @@ class RunReproducibilityManifest:
     environment: EnvironmentManifest = field(default_factory=lambda: EnvironmentManifest("unknown", "unknown"))
     dataset: DatasetManifest = field(default_factory=lambda: DatasetManifest("1.0.0", "", 0, []))
     adapters: Dict[str, AdapterRunManifest] = field(default_factory=dict)
+    remote_evm_environment: Optional[Dict[str, Any]] = None
     total_duration_seconds: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -374,5 +383,124 @@ def verify_manifest_git_integrity(
     )
     if not valid:
         raise ValueError(f"Reproducibility manifest git integrity validation failed: {err}")
+
+
+def validate_replay_evidence_envelope(artifact_dict: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """
+    Validates the independent replay evidence envelope (Iteration 13 Requirement 2).
+    A test must fail if replay is marked CONFIRMED without this evidence envelope:
+    - fresh container identity;
+    - exact command/argv and exit code (0);
+    - replay-specific stdout/stderr bytes and SHA-256;
+    - invariant event/verdict;
+    - start/end timestamps;
+    - hashes of the exact candidate and harness inputs used.
+    """
+    import re
+    replay_status = artifact_dict.get("replay_status")
+    replayed_breaches = artifact_dict.get("replayed_breaches", 0)
+
+    if replay_status != "CONFIRMED" and replayed_breaches == 0:
+        return True, None
+
+    tool_meta = artifact_dict.get("tool_metadata", {})
+    replay_data = artifact_dict.get("replay_evidence") or tool_meta.get("replay_evidence") or tool_meta.get("replay_details")
+
+    if not isinstance(replay_data, dict) or not replay_data:
+        return False, "Replay status is CONFIRMED but replay evidence envelope is missing or empty"
+
+    # 1. Fresh container identity
+    container_id = replay_data.get("container_id")
+    if not container_id or not isinstance(container_id, str):
+        return False, "Missing or invalid container_id in replay evidence envelope"
+
+    # 2. Command and argv
+    cmd = replay_data.get("command")
+    argv = replay_data.get("argv")
+    if not cmd or not isinstance(cmd, str):
+        return False, "Missing or non-string command in replay evidence envelope"
+    if not argv or not isinstance(argv, list) or len(argv) == 0:
+        return False, "Missing or empty argv list in replay evidence envelope"
+
+    # 3. Exit code must be 0 for confirmed breach
+    exit_code = replay_data.get("exit_code") if "exit_code" in replay_data else replay_data.get("return_code")
+    if exit_code is None or exit_code != 0:
+        return False, f"Replay exit_code must be 0 for confirmed breach, got {exit_code}"
+
+    # 4. Invariant violated and reproduced flags
+    if not replay_data.get("reproduced"):
+        return False, "Replay evidence reproduced flag is False or missing"
+    if not replay_data.get("invariant_violated"):
+        return False, "Replay evidence invariant_violated flag is False or missing"
+
+    # 5. Cryptographic digests
+    for hash_key in ("stdout_sha256", "stderr_sha256", "candidate_sha256", "harness_sha256"):
+        val = replay_data.get(hash_key)
+        if not val or not isinstance(val, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", val):
+            return False, f"Missing or invalid 64-character SHA-256 for '{hash_key}' in replay evidence"
+
+    # 6. Timestamps
+    if not replay_data.get("utc_start_time") or not replay_data.get("utc_end_time"):
+        return False, "Missing utc_start_time or utc_end_time in replay evidence envelope"
+
+    return True, None
+
+
+def validate_remote_evm_toolchain_provenance(artifact_dict: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """
+    Validates remote EVM toolchain provenance (Iteration 13 Requirement 3).
+    Rejects missing remote toolchain provenance for any target whose EVM stage ran.
+    """
+    evm_outcome = artifact_dict.get("evm_outcome")
+    sec_verdict = artifact_dict.get("security_verdict")
+    process_exit_code = artifact_dict.get("process_exit_code")
+
+    # If the target did not run an EVM stage (e.g. malformed generation before EVM), skip
+    if evm_outcome == "NOT_RUN" or (sec_verdict == "GENERATION_FORMAT_ERROR" and process_exit_code == -4):
+        return True, None
+
+    tool_meta = artifact_dict.get("tool_metadata", {})
+    provenance = artifact_dict.get("remote_evm_provenance") or tool_meta.get("remote_evm_provenance")
+
+    if not isinstance(provenance, dict) or not provenance:
+        return False, "Missing remote_evm_provenance dictionary for executed EVM stage"
+
+    required_fields = ["remote_os", "remote_platform", "forge_version", "solc_versions", "exact_forge_argv", "working_directory", "compiler_settings"]
+    for req in required_fields:
+        val = provenance.get(req)
+        if val is None or (isinstance(val, (str, list, dict)) and len(val) == 0):
+            return False, f"Missing or empty required remote EVM provenance field: '{req}'"
+
+    return True, None
+
+
+def validate_safe_control_sentinel_semantics(
+    revert_reason: Optional[str],
+    harness_verdict: Optional[str] = None
+) -> Tuple[bool, str]:
+    """
+    Validates deliberate safe-control sentinel semantics (Iteration 13 Requirement 4).
+    Proves why a Forge test failure with that exact reason is a valid SAFE result,
+    and proves unrelated Forge failures cannot be classified SAFE.
+    """
+    if not revert_reason:
+        return False, "MISSING_REVERT_REASON"
+
+    # Exact expected sentinel emitted when invariant holds in safe controls
+    if revert_reason.startswith("EXPLOIT_FAILED: Safe control held") or (
+        harness_verdict == "NO_BREACH" and revert_reason.startswith("EXPLOIT_FAILED")
+    ):
+        return True, "SAFE_RUN"
+
+    # Reject unrelated forge/EVM failures:
+    # Syntax errors, compilation failures, generic reverts, panic codes, or out of gas
+    if "EvmError: Revert" in revert_reason:
+        return False, "GENERIC_EVM_REVERT_NOT_SENTINEL"
+    if "Panic" in revert_reason:
+        return False, "EVM_PANIC_NOT_SENTINEL"
+    if "Compiler run failed" in revert_reason:
+        return False, "COMPILATION_ERROR_NOT_SENTINEL"
+
+    return False, f"UNRECOGNIZED_REVERT_REASON: {revert_reason}"
 
 

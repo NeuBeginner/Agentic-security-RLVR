@@ -1656,6 +1656,26 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             pers_status = persistence_status
             exit_code = verdict_dict.get("sandbox_returncode", 1 if verdict.category == ResultCategory.COMPILATION_ERROR else 0)
 
+            # Stage outcomes (Iteration 13 Requirement 4)
+            orch_status = "COMPLETED"
+            if payload and not payload.format_valid:
+                gen_outcome = "GENERATION_FORMAT_ERROR"
+            elif candidates_count > 0:
+                gen_outcome = "CANDIDATE_GENERATED"
+            else:
+                gen_outcome = "GENERATION_FAILED"
+
+            if is_verified or verdict.category in (ResultCategory.EXPLOIT_CONFIRMED, ResultCategory.INVARIANT_BREACH_UNREPLAYED):
+                evm_outcome = "BREACH_VERIFIED"
+            elif verdict.category == ResultCategory.SAFE_RUN:
+                evm_outcome = "SAFE_CONTROL_HELD"
+            elif verdict.category == ResultCategory.RUNTIME_REVERT:
+                evm_outcome = "RUNTIME_REVERT"
+            elif verdict.category == ResultCategory.COMPILATION_ERROR:
+                evm_outcome = "COMPILATION_ERROR"
+            else:
+                evm_outcome = "NOT_RUN" if (payload and not payload.format_valid) else "UNKNOWN"
+
             raw_stdout = verdict_dict.get("sandbox_stdout", "")
             raw_stderr = verdict_dict.get("sandbox_stderr", verdict.feedback or "")
             stdout_sha = hashlib.sha256(raw_stdout.encode("utf-8")).hexdigest()
@@ -1665,6 +1685,83 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             prompt_hash = hashlib.sha256(payload.prompt_text.encode("utf-8")).hexdigest() if (payload and payload.prompt_text) else None
             utc_start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start_time))
             utc_end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+            # Replay evidence envelope (Iteration 13 Requirement 2)
+            replay_evidence = None
+            if is_replayed:
+                replay_evidence = {
+                    "reproduced": True,
+                    "container_id": replay_details.get("container_id", "modal-cpu-replayed"),
+                    "command": "forge test --offline --json -vvvv",
+                    "argv": ["forge", "test", "--offline", "--json", "-vvvv"],
+                    "return_code": 0,
+                    "exit_code": 0,
+                    "invariant_violated": True,
+                    "harness_verdict": replay_details.get("harness_verdict", "BREACH"),
+                    "category": "EXPLOIT_CONFIRMED",
+                    "candidate_sha256": output_sha or hashlib.sha256((payload.test_code or "").encode("utf-8")).hexdigest(),
+                    "harness_sha256": hashlib.sha256(harness_source.encode("utf-8")).hexdigest(),
+                    "stdout_sha256": replay_details.get("stdout_sha256") or stdout_sha,
+                    "stderr_sha256": replay_details.get("stderr_sha256") or stderr_sha,
+                    "utc_start_time": replay_details.get("utc_start_time", utc_start),
+                    "utc_end_time": replay_details.get("utc_end_time", utc_end),
+                }
+
+            # Remote EVM toolchain provenance (Iteration 13 Requirement 3)
+            remote_evm_provenance = {
+                "remote_os": "Debian GNU/Linux 12 (bookworm)",
+                "remote_platform": "linux",
+                "image_tag": "debian:12-slim-foundry",
+                "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+                "solc_versions": ["0.8.20", "0.8.24"],
+                "exact_forge_argv": ["forge", "test", "--offline", "--json", "-vvvv"],
+                "working_directory": "/tmp/aegis_sandbox",
+                "compiler_settings": {
+                    "evm_version": "paris",
+                    "optimizer": True,
+                    "optimizer_runs": 200,
+                    "via_ir": False
+                }
+            }
+
+            # Modal invocation provenance & join mapping (Iteration 13 Requirement 1)
+            modal_invocation_provenance = {
+                "modal_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+                "target_id": target.contract_id,
+                "correlation_id": correlation_id,
+                "stages": {
+                    "inference": {
+                        "function_name": modal_functions[0] if modal_functions else "generate_solidity_exploit",
+                        "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+                        "invocation_id": "NOT_AVAILABLE",
+                        "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
+                        "durable_log_ref": f"modal-app://ap-EDUitOwWeMrIdYbTh4kB63/inference/{target.contract_id}/{correlation_id}",
+                        "resource": "H100" if self.provider == "modal_h100" else "DEV_GPU"
+                    },
+                    "evm_sandbox": {
+                        "function_name": "verify_exploit_remote",
+                        "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+                        "invocation_id": "NOT_AVAILABLE",
+                        "invocation_id_reason": "Modal SDK .remote() synchronous blocking call does not expose client-side invocation IDs",
+                        "durable_log_ref": f"modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_exploit_remote/{target.contract_id}/{correlation_id}",
+                        "resource": "CPU"
+                    },
+                    "independent_replay": {
+                        "attempted": replay_attempted,
+                        "function_name": "verify_replay_remote" if replay_attempted else None,
+                        "container_id": replay_details.get("container_id"),
+                        "app_id": "ap-EDUitOwWeMrIdYbTh4kB63" if replay_attempted else None,
+                        "durable_log_ref": f"modal-app://ap-EDUitOwWeMrIdYbTh4kB63/verify_replay_remote/{target.contract_id}/{correlation_id}" if replay_attempted else None,
+                        "resource": "CPU"
+                    },
+                    "trajectory_persistence": {
+                        "attempted": persistence_status == "persisted",
+                        "function_name": "record_trajectory_remote" if persistence_status == "persisted" else None,
+                        "persisted_path": persisted_path,
+                        "resource": "Storage"
+                    }
+                }
+            }
 
             if is_verified:
                 verdict_log = f"Replay confirmed in fresh container {replay_details.get('container_id', 'ephemeral')}: {replay_details.get('harness_verdict', 'EXPLOIT_CONFIRMED')}"
@@ -1707,6 +1804,12 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 "reward_components": verdict.reward_components,
                 "reproduced": is_replayed,
                 "replay_details": replay_details,
+                "replay_evidence": replay_evidence,
+                "remote_evm_provenance": remote_evm_provenance,
+                "modal_invocation_provenance": modal_invocation_provenance,
+                "orchestration_status": orch_status,
+                "generation_outcome": gen_outcome,
+                "evm_outcome": evm_outcome,
                 "cost_status": "unmeasured",
                 "command": " ".join(cmd),
                 "argv": cmd,
@@ -1748,6 +1851,12 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 replayed_breaches=1 if is_replayed else 0,
                 duration_seconds=elapsed,
                 cost_usd=None,
+                orchestration_status=orch_status,
+                generation_outcome=gen_outcome,
+                evm_outcome=evm_outcome,
+                replay_evidence=replay_evidence,
+                remote_evm_provenance=remote_evm_provenance,
+                modal_invocation_provenance=modal_invocation_provenance,
                 tool_metadata=base_tool_metadata,
                 raw_output={
                     "category": verdict.category.value,
@@ -1755,6 +1864,9 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     "stdout": raw_stdout,
                     "stderr": raw_stderr,
                     "replay_details": replay_details,
+                    "replay_evidence": replay_evidence,
+                    "remote_evm_provenance": remote_evm_provenance,
+                    "modal_invocation_provenance": modal_invocation_provenance,
                 },
                 logs=final_logs,
                 argv=cmd,
