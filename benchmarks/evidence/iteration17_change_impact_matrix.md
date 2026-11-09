@@ -182,7 +182,7 @@ described as the bytes the provider put on the wire.
 | `benchmarks/evidence/iteration17_validation_evidence.json` | published validation artifact |
 | `benchmarks/evidence/iteration17_producer_rehearsal/` | the artifacts the producer rehearsal wrote (re-verifiable bytes) |
 | `benchmarks/evidence/iteration17_change_impact_matrix.md` | this matrix |
-| `benchmarks/evidence/iteration16_change_impact_matrix.md` | the wording of the payload digest corrected (canonical JSON, not verbatim transport bytes) |
+| `benchmarks/evidence/iteration16_change_impact_matrix.md` | the wording of the payload digest corrected (canonical JSON, not the raw bytes of the wire) |
 | `tests/test_iteration17_evidence_integrity.py` | adversarial test suite |
 | `.github/workflows/ci.yml` | run the Iteration 17 suite and the Iteration 17 validator |
 
@@ -190,5 +190,31 @@ described as the bytes the provider put on the wire.
 
 ## 6. Results of this iteration
 
-The exact numbers are filled in by the PR comment of this iteration; the
-committed validation artifact carries the machine-readable version of them.
+| item | value |
+| --- | --- |
+| code SHA | `e9faff403908937ebe6de640b1f041a3de2c97c1` |
+| evidence commit | `c61582967995f0aed7b0140b39adc462bb902aec` (the validation report, bound to the code SHA above) |
+| new tests | 65 (`tests/test_iteration17_evidence_integrity.py`) |
+| Iteration 17 suite (local) | **65 passed** |
+| Iteration 16 suite (local) | 27 passed |
+| Iteration 15 suite (local) | 33 passed |
+| Iteration 14 suite (local) | 73 passed, 3 skipped (the real-Foundry probes: `forge` is not on the local PATH) |
+| full suite `tests/` (local) | **583 passed, 7 skipped** — the skips are the 6 real-Foundry probes and the real-Slither probe, all of them `NOT_RUN` because the binaries are not on the local PATH |
+| Foundry integration | **not run locally** — `forge` is not installed on this machine; the CI job `foundry-integration` runs the real Foundry probes on `ubuntu-latest` with `foundry-toolchain` and is reported separately from the local run |
+| validation artifact | `benchmarks/evidence/iteration17_validation_evidence.json` — billing **PASSED**, producer rehearsal **PASSED**, the saved run **FAILED 16/16** because it predates the per-stage artifacts of Iteration 16 |
+| live Modal run | **none** — no H100, no paid GPU, no Modal runtime validation is claimed |
+
+The state of every stage of the offline producer rehearsal, and the kind of
+absence that belongs to it:
+
+| stage | state | kind of absence |
+| --- | --- | --- |
+| `inference` | `NOT_ATTEMPTED` | `STAGE_NOT_ATTEMPTED` |
+| `evm_sandbox` | `EXECUTED_NO_RUNTIME_ENVELOPE` | `STAGE_EXECUTED_NO_RUNTIME_ENVELOPE` |
+| `independent_replay` | `EXECUTED_WITH_RUNTIME_ENVELOPE` | observed |
+| `trajectory_persistence` | `EXECUTED_NO_RUNTIME_ENVELOPE` | `CLIENT_NEVER_CAPTURED_FIELD` |
+
+`PROVIDER_FIELD_OMITTED` is the fifth kind: it is what a stage produces when a
+worker returns a runtime-identity envelope that does not carry a field the
+client had asked for — and only in the state
+`EXECUTED_WITH_RUNTIME_ENVELOPE`.
