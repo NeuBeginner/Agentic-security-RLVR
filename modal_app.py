@@ -382,14 +382,43 @@ MODAL_APP_ID_UNAVAILABLE_REASON = (
     "client-side fact of the provider-issued App.app_id of the running app."
 )
 
-#: The exact reason a worker cannot attest its own container identity.
+#: The exact reason a worker cannot attest its own container identity
+#: (Iteration 21).
 #:
-#: The Modal SDK reads the worker id from the ``worker_id`` configuration
-#: setting, which the runtime publishes as ``MODAL_WORKER_ID`` only for internal
-#: debugging, and the gVisor container of the live CPU-only run of Iteration 19
-#: set no hostname either. The worker therefore cannot attest its own container
-#: identity; the provider-issued container id of a run is a client-side fact of
-#: the provider's container list.
+#: The review of Iteration 20 established that a function container has **no**
+#: supported source of a provider-issued container id, so the producer no longer
+#: reads any environment variable for it:
+#:
+#: * ``MODAL_WORKER_ID`` is the SDK's ``worker_id`` **configuration setting**
+#:   (``modal/config.py``: ``"worker_id": _Setting(),  # For internal debugging
+#:   use.``) - a value of the configuration, not a provider-issued identifier;
+#: * ``HOSTNAME`` is a generic container hostname that nothing in the SDK ties
+#:   to a Modal container id;
+#: * ``MODAL_TASK_ID`` is read by ``modal/experimental/flash.py`` only - an
+#:   internal, experimental module that is not part of the public API.
+#:
+#: The public runtime surface of Modal SDK 1.5.5 (``modal.__all__``) holds
+#: ``current_function_call_id``, ``current_input_id``, ``interact`` and
+#: ``is_local`` - none of them reports a container id. The provider-issued
+#: container id of an invocation is a **client-side** fact: the client resolves
+#: the function-call id the worker observed to the container of the provider's
+#: own call graph and container listing.
+MODAL_CONTAINER_ID_NOT_ATTESTABLE_REASON = (
+    "a Modal function container has no supported source of a provider-issued container id: "
+    "the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, "
+    "modal.current_input_id, modal.interact, modal.is_local) reports no container id, "
+    "MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK "
+    "source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a "
+    "generic container hostname, and MODAL_TASK_ID is read only by the internal, "
+    "experimental module modal/experimental/flash.py. The provider-issued container id of "
+    "this invocation is a client-side fact: the client resolves the function-call id this "
+    "worker observed through the provider's own call graph and container listing."
+)
+
+#: The reason of Iteration 20, kept **unchanged** because the committed
+#: Iteration 20 capture and the Iteration 20 validator refer to exactly this
+#: wording. The producer no longer emits it (see
+#: :data:`MODAL_CONTAINER_ID_NOT_ATTESTABLE_REASON`).
 MODAL_CONTAINER_ID_UNAVAILABLE_REASON = (
     "the running container exposed neither MODAL_WORKER_ID (the Modal SDK reads the "
     "worker id from the 'worker_id' configuration setting, which the runtime sets only "
@@ -426,15 +455,26 @@ def capture_modal_runtime_identity() -> dict:
     container are used (Iteration 20 P0):
 
     * ``modal.current_function_call_id()`` - the id of the current call;
-    * the ``MODAL_WORKER_ID`` / ``HOSTNAME`` environment of the container.
+    * ``modal.current_input_id()`` - the id of the current input.
 
     There is **no** call of ``modal.running_app``: in Modal SDK 1.5.5 that
     name is a module, so calling it raises and the exception would only be
     swallowed - the deployed worker would silently report an app identity it
-    never observed. Every fact of this envelope is observed **inside the
-    container** and says so; the facts the provider only issues to the client
-    (the application id, the app page URL) are client-side facts and live in
-    the client's own block.
+    never observed.
+
+    There is also **no** environment variable for the container identity
+    (Iteration 21 P0). ``MODAL_WORKER_ID`` is the SDK's ``worker_id``
+    configuration setting - the SDK source itself documents it as internal
+    debugging use - and ``HOSTNAME`` is a generic container hostname. Neither
+    is a provider-issued container identifier, so the worker does not read
+    them at all: it reports the container id as NOT_AVAILABLE with the exact
+    reason and lets the **client** resolve the provider-issued container id
+    from the function-call id it observed here.
+
+    Every fact of this envelope is observed **inside the container** and says
+    so; the facts the provider only issues to the client (the application id,
+    the app page URL, the container id) are client-side facts and live in the
+    client's own block.
     """
     from benchmarks.evidence_integrity import (
         OBSERVATION_SIDE_WORKER,
@@ -473,21 +513,17 @@ def capture_modal_runtime_identity() -> dict:
         )
     )
 
-    # Container identity: the worker id Modal assigns to this container.
-    container_id = os.environ.get("MODAL_WORKER_ID") or os.environ.get("HOSTNAME")
-    identity["container_id"] = (
-        observed(
-            str(container_id),
-            source="MODAL_WORKER_ID/HOSTNAME of the running container",
-            observed_by=OBSERVATION_SIDE_WORKER,
-        )
-        if container_id
-        else not_available(
-            MODAL_CONTAINER_ID_UNAVAILABLE_REASON,
-            observed_by=OBSERVATION_SIDE_WORKER,
-        )
+    # Container identity. A function container has no supported source of a
+    # provider-issued container id, so the worker does not attest one - it
+    # never reads an environment variable for it (Iteration 21 P0). The
+    # provider-issued container id of this invocation is a client-side fact:
+    # the client resolves the function-call id observed above through the
+    # provider's own call graph and container listing.
+    identity["container_id"] = not_available(
+        MODAL_CONTAINER_ID_NOT_ATTESTABLE_REASON,
+        observed_by=OBSERVATION_SIDE_WORKER,
     )
-    identity["container_id_value"] = container_id
+    identity["container_id_value"] = None
 
     # The provider-issued dashboard reference for the running app. A function
     # container cannot obtain it from a supported API.

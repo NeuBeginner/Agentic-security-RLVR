@@ -285,12 +285,25 @@ def test_iteration20_the_container_id_is_an_explicit_absence_with_the_precise_re
 
     assert fact["status"] == NOT_AVAILABLE
     assert fact["value"] is None
-    assert fact["reason"] == modal_app.MODAL_CONTAINER_ID_UNAVAILABLE_REASON
+    # The wording of the reason changed in Iteration 21: the producer no longer
+    # reads MODAL_WORKER_ID or HOSTNAME at all, so the reason names them as
+    # rejected sources instead of as missing ones. The fact itself - an
+    # explicit absence with an exact reason - is unchanged.
+    assert fact["reason"] == modal_app.MODAL_CONTAINER_ID_NOT_ATTESTABLE_REASON
     assert envelope["container_id_value"] is None
 
 
 def test_iteration20_the_observed_values_keep_their_exact_source(monkeypatch):
-    """An observed value names the exact API or environment variable it came from."""
+    """
+    An observed value names the exact API it came from.
+
+    Iteration 21 tightened this test. It used to assert that a value set in
+    ``MODAL_WORKER_ID`` becomes an OBSERVED container id - which proved only
+    that the producer *copies* an environment string, not that the string is a
+    provider-issued container id. The container id is now expected to stay an
+    explicit absence even when the environment holds a well-formed value; the
+    function-call id keeps its exact source.
+    """
     envelope = _producer_envelope(
         monkeypatch,
         function_call_id="fc-01M71H7789CATYCWNEG05916Y3",
@@ -303,10 +316,9 @@ def test_iteration20_the_observed_values_keep_their_exact_source(monkeypatch):
     assert function_call["source"] == "modal.current_function_call_id()"
 
     container = envelope["container_id"]
-    assert container["status"] == OBSERVED
-    assert container["value"] == "ta-01M71H78SAWD0JF71CFPA0QTRR"
-    assert container["source"] == "MODAL_WORKER_ID/HOSTNAME of the running container"
-    assert envelope["container_id_value"] == "ta-01M71H78SAWD0JF71CFPA0QTRR"
+    assert container["status"] == NOT_AVAILABLE
+    assert container["value"] is None
+    assert envelope["container_id_value"] is None
 
 
 def _provenance_artifact(**stage_overrides: Any) -> Dict[str, Any]:

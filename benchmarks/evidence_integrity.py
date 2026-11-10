@@ -86,6 +86,20 @@ MODAL_FUNCTION_CALL_ID_RE = re.compile(r"^fc-[A-Za-z0-9]{8,}$")
 #: A Modal container/worker id is a UUID-like hex token.
 MODAL_CONTAINER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{7,}$")
 
+#: The **provider's** shape of a container id (Iteration 21).
+#:
+#: The Modal SDK's own command line documents the container id as ``ta-*``
+#: (``modal/cli/app.py``: *"Filter by Container ID (ta-*)"*), and the SDK's
+#: ``modal container list`` prints the provider's ``TaskStats.task_id`` under
+#: the column heading *"Container ID"* (``modal/cli/container.py``). The
+#: provider's task id **is** the container id - the SDK's own
+#: ``modal/runner.py`` calls the very same field ``get_old_container_ids()``.
+#:
+#: The loose ``MODAL_CONTAINER_ID_RE`` above stays the shape of the artifacts
+#: of Iterations 14-20; this is the strict shape a **provider-issued** value
+#: has to have in the strict source mode.
+MODAL_PROVIDER_CONTAINER_ID_RE = re.compile(r"^ta-[A-Za-z0-9]{8,}$")
+
 #: Immutable Modal image ids look like ``im-<base62>``.
 MODAL_IMAGE_ID_RE = re.compile(r"^im-[A-Za-z0-9]{8,}$")
 
@@ -765,6 +779,7 @@ def validate_runtime_identity_envelope(
     envelope: Any,
     *,
     expected_side: Optional[str] = OBSERVATION_SIDE_WORKER,
+    strict_sources: bool = False,
 ) -> Tuple[bool, Optional[str]]:
     """
     Validate the schema of a runtime-identity envelope.
@@ -789,6 +804,11 @@ def validate_runtime_identity_envelope(
     20). The envelope of a worker response is worker-side, so a fact inside it
     may not claim to be a client observation. A fact that names no side at all
     stays valid, so every artifact of Iterations 14-19 remains valid.
+
+    ``strict_sources`` applies the registry of the allowed observation sources
+    (Iteration 21): an observed value has to name a **registered** source, the
+    registered side and the provider's shape. The mode is opt-in and additive -
+    the artifacts of Iterations 14-20 stay valid without it.
     """
     if envelope is None:
         return True, None
@@ -816,6 +836,17 @@ def validate_runtime_identity_envelope(
                 f"The runtime-identity envelope carries a malformed fact for '{field_name}': "
                 f"{error}"
             )
+        if strict_sources:
+            ok, error = validate_provider_observation_source(
+                field_name,
+                fact,
+                expected_side=expected_side,
+            )
+            if not ok:
+                return False, (
+                    f"The runtime-identity envelope carries a malformed fact for '{field_name}': "
+                    f"{error}"
+                )
         if status == OBSERVED:
             value = fact.get("value")
             if not isinstance(value, str) or not value.strip():
@@ -1774,15 +1805,261 @@ def build_modal_stage_provenance(
 MODAL_APP_PAGE_URL_RE = re.compile(r"^https://modal\.com/id/ap-[A-Za-z0-9]{8,}$")
 
 
-def validate_client_observed_facts(block: Any) -> Tuple[bool, Optional[str]]:
+# ---------------------------------------------------------------------------
+# The allowed observation sources (Iteration 21)
+# ---------------------------------------------------------------------------
+#
+# The review of Iteration 20 established that an observed value was accepted
+# on the strength of its **shape** and a **free-form source string**. A string
+# that a test could set was therefore enough to pass as a provider-issued
+# identity.
+#
+# The registry below closes that hole: every identity field has exactly one
+# registered source, exactly one side it may be observed from, and exactly one
+# shape its value has to have. A value that does not name a registered source
+# is not provider-issued - whatever it looks like.
+#
+# The registry is **additive**: the strict mode is opt-in, so every artifact of
+# Iterations 14-20 stays valid and no existing assertion is weakened.
+
+#: The source of the function-call id a worker observes.
+SOURCE_WORKER_FUNCTION_CALL_ID = "modal.current_function_call_id()"
+
+#: The source of the application id the client observes.
+SOURCE_CLIENT_APP_ID = (
+    "the provider-issued App.app_id of the running app (Modal SDK 1.5.5, client side)"
+)
+
+#: The source of the app page URL the client observes.
+SOURCE_CLIENT_APP_PAGE_URL = (
+    "the provider's own dashboard URL of the running app "
+    "(App.get_dashboard_url(), Modal SDK 1.5.5, client side)"
+)
+
+#: The source of the container id the client observes.
+#:
+#: The container id of an invocation is a **client-side** fact: the client
+#: resolves the function-call id the worker observed through the provider's own
+#: call graph (``FunctionCall.get_call_graph()``) and confirms it against the
+#: provider's container listing (``TaskList``) and task record (``TaskGetInfo``).
+SOURCE_CLIENT_CONTAINER_ID = (
+    "the provider's call graph (FunctionCall.get_call_graph) and container listing "
+    "(TaskList) of Modal SDK 1.5.5, client side"
+)
+
+
+#: Every identity field, the source that may back an observed value of it,
+#: the side it may be observed from and the shape its value has to have.
+PROVIDER_OBSERVATION_SOURCES: Dict[str, Dict[str, Any]] = {
+    "function_call_id": {
+        "source": SOURCE_WORKER_FUNCTION_CALL_ID,
+        "side": OBSERVATION_SIDE_WORKER,
+        "value_re": MODAL_FUNCTION_CALL_ID_RE,
+    },
+    "app_id": {
+        "source": SOURCE_CLIENT_APP_ID,
+        "side": OBSERVATION_SIDE_CLIENT,
+        "value_re": MODAL_APP_ID_RE,
+    },
+    "app_page_url": {
+        "source": SOURCE_CLIENT_APP_PAGE_URL,
+        "side": OBSERVATION_SIDE_CLIENT,
+        "value_re": MODAL_APP_PAGE_URL_RE,
+    },
+    "container_id": {
+        "source": SOURCE_CLIENT_CONTAINER_ID,
+        "side": OBSERVATION_SIDE_CLIENT,
+        "value_re": MODAL_PROVIDER_CONTAINER_ID_RE,
+    },
+}
+
+
+def validate_provider_observation_source(
+    field_name: str,
+    fact: Any,
+    *,
+    expected_side: Optional[str] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Check that an observed value names a **registered** observation source.
+
+    A free-form source string is not enough (Iteration 21): only the sources
+    of :data:`PROVIDER_OBSERVATION_SOURCES` back a provider-issued value. The
+    registered side has to be the side the observation declares, and the value
+    has to have the provider's shape.
+
+    A fact that is ``NOT_AVAILABLE`` carries no value and is therefore not
+    restricted by this rule - the absence itself is checked elsewhere.
+    """
+    if not isinstance(fact, dict):
+        return False, f"The fact for '{field_name}' is not a typed fact"
+
+    if fact.get("status") != OBSERVED:
+        return True, None
+
+    registered = PROVIDER_OBSERVATION_SOURCES.get(field_name)
+    if registered is None:
+        return False, (
+            f"'{field_name}' is not a provider-issued identity field, so no observed value "
+            "of it can be provider-backed"
+        )
+
+    source = fact.get("source")
+    if source != registered["source"]:
+        return False, (
+            f"The fact for '{field_name}' names the source {source!r}, which is not a "
+            f"registered observation source. The only registered source of '{field_name}' is "
+            f"{registered['source']!r}."
+        )
+
+    declared = fact.get("observed_by")
+    if declared is not None and declared != registered["side"]:
+        return False, (
+            f"The fact for '{field_name}' declares the observation side {declared!r}, but the "
+            f"registered source {registered['source']!r} may only be observed from the "
+            f"{registered['side']!r} side"
+        )
+
+    if expected_side is not None and declared is not None and declared != expected_side:
+        return False, (
+            f"The fact for '{field_name}' declares the observation side {declared!r}, but this "
+            f"envelope is {expected_side!r}-side"
+        )
+
+    value = fact.get("value")
+    if not isinstance(value, str) or not value.strip():
+        return False, f"The fact for '{field_name}' holds no usable value"
+    if not registered["value_re"].fullmatch(value):
+        return False, (
+            f"The observed value of '{field_name}' is not a provider-issued identifier of the "
+            f"registered shape: {value!r}"
+        )
+    return True, None
+
+
+def validate_client_container_correlation(
+    fact: Any,
+    *,
+    expected_function_call_id: Optional[str] = None,
+    expected_app_id: Optional[str] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Check the correlation record of a client-side container id (Iteration 21).
+
+    A container id that the client observed is only worth anything when it is
+    provably the container of **this** invocation. The correlation record
+    therefore has to name
+
+    * the function-call id the worker observed,
+    * the application id of the run,
+    * the container id itself,
+
+    and the provider records the value was taken from. When the caller knows
+    the function-call id or the application id of the run, the record has to
+    name exactly that one.
+    """
+    if not isinstance(fact, dict) or fact.get("status") != OBSERVED:
+        return True, None
+
+    correlation = fact.get("correlation")
+    if not isinstance(correlation, dict):
+        return False, (
+            "The client-observed container id carries no correlation record: a container id "
+            "that is not tied to the function call of this run proves nothing"
+        )
+
+    value = fact.get("value")
+    container_id = correlation.get("container_id")
+    if container_id != value:
+        return False, (
+            f"The correlation record names the container id {container_id!r}, but the fact "
+            f"carries {value!r}"
+        )
+
+    function_call_id = correlation.get("function_call_id")
+    if not isinstance(function_call_id, str) or not MODAL_FUNCTION_CALL_ID_RE.fullmatch(
+        function_call_id
+    ):
+        return False, (
+            "The correlation record of the client-observed container id names no plausible "
+            f"function-call id: {function_call_id!r}"
+        )
+
+    app_id = correlation.get("app_id")
+    if not isinstance(app_id, str) or not MODAL_APP_ID_RE.fullmatch(app_id):
+        return False, (
+            "The correlation record of the client-observed container id names no plausible "
+            f"application id: {app_id!r}"
+        )
+
+    if expected_function_call_id is not None and function_call_id != expected_function_call_id:
+        return False, (
+            f"The correlation record names the function call {function_call_id!r}, but this run "
+            f"observed {expected_function_call_id!r}: the container id belongs to another "
+            "invocation"
+        )
+
+    if expected_app_id is not None and app_id != expected_app_id:
+        return False, (
+            f"The correlation record names the application {app_id!r}, but this run belongs to "
+            f"{expected_app_id!r}: the container id belongs to another application"
+        )
+
+    records = correlation.get("provider_records")
+    if not isinstance(records, dict) or not records:
+        return False, (
+            "The correlation record of the client-observed container id carries no provider "
+            "records: the provider's own answer is what makes the value trustworthy"
+        )
+
+    for record_name in ("call_graph_input", "app_container_listing", "task_record"):
+        record = records.get(record_name)
+        if not isinstance(record, dict):
+            return False, (
+                f"The correlation record of the client-observed container id carries no "
+                f"provider record {record_name!r}"
+            )
+
+    listing = records.get("app_container_listing")
+    if listing.get("container_id") != value or listing.get("app_id") != app_id:
+        return False, (
+            "The container listing of the correlation record does not name the very container "
+            "and the very application of the fact"
+        )
+
+    task_record = records.get("task_record")
+    if task_record.get("container_id") != value or task_record.get("app_id") != app_id:
+        return False, (
+            "The task record of the correlation record does not name the very container and "
+            "the very application of the fact"
+        )
+
+    call_graph = records.get("call_graph_input")
+    if call_graph.get("task_id") != value or call_graph.get("function_call_id") != function_call_id:
+        return False, (
+            "The call-graph record of the correlation record does not tie the very container "
+            "to the very function call of the fact"
+        )
+
+    return True, None
+
+
+def validate_client_observed_facts(
+    block: Any,
+    *,
+    strict_sources: bool = False,
+    expected_function_call_id: Optional[str] = None,
+    expected_app_id: Optional[str] = None,
+) -> Tuple[bool, Optional[str]]:
     """
     Validate the facts the **client** observed from the provider.
 
     Modal SDK 1.5.5 gives a function container neither a running-app accessor
-    (``modal.running_app`` is a module, not a callable) nor a worker/hostname
-    environment variable. The application id and the app page URL of a run are
-    therefore facts of the client, and they live in their own block so that
-    they can never be mistaken for worker observations.
+    (``modal.running_app`` is a module, not a callable) nor any supported
+    source of a provider-issued container id. The application id, the app page
+    URL and the container id of a run are therefore facts of the client, and
+    they live in their own block so that they can never be mistaken for worker
+    observations.
 
     Rejects:
 
@@ -1794,7 +2071,13 @@ def validate_client_observed_facts(block: Any) -> Tuple[bool, Optional[str]]:
     * an observed application id that is not a plausible Modal application id;
     * an observed app page URL that is not the provider's own dashboard URL of
       such an application;
-    * a ``NOT_AVAILABLE`` fact without a reason.
+    * a ``NOT_AVAILABLE`` fact without a reason;
+    * (Iteration 21, ``strict_sources``) an observed value that does not name a
+      **registered** observation source, or whose side contradicts the
+      registered one;
+    * (Iteration 21) an observed container id that carries no correlation
+      record, or whose correlation record names another invocation, another
+      application or another container.
     """
     if block is None:
         return True, None
@@ -1849,7 +2132,57 @@ def validate_client_observed_facts(block: Any) -> Tuple[bool, Optional[str]]:
                 f"The client-observed app page URL is not the provider's dashboard URL of an "
                 f"application: {value!r}"
             )
+
+        if strict_sources:
+            # Iteration 21: only a registered source backs a provider-issued
+            # value. A free-form source string is not enough.
+            ok, error = validate_provider_observation_source(
+                field_name,
+                fact,
+                expected_side=OBSERVATION_SIDE_CLIENT,
+            )
+            if not ok:
+                return False, error
+
+    if strict_sources:
+        # The container id of a run is only worth anything when it is provably
+        # the container of this very invocation.
+        ok, error = validate_client_container_correlation(
+            block.get("container_id"),
+            expected_function_call_id=expected_function_call_id,
+            expected_app_id=expected_app_id,
+        )
+        if not ok:
+            return False, error
+
     return True, None
+
+
+def _stage_observed_value(
+    stages: Dict[str, Any],
+    stage_name: str,
+    field_name: str,
+) -> Optional[str]:
+    """The observed value of one field of one stage - ``None`` when absent."""
+    stage = stages.get(stage_name) if isinstance(stages, dict) else None
+    if not isinstance(stage, dict):
+        return None
+    fact = stage.get(field_name)
+    if not isinstance(fact, dict) or fact.get("status") != OBSERVED:
+        return None
+    value = fact.get("value")
+    return str(value) if isinstance(value, str) and value else None
+
+
+def _client_block_observed_value(block: Any, field_name: str) -> Optional[str]:
+    """The observed value of one field of the client block - ``None`` when absent."""
+    if not isinstance(block, dict):
+        return None
+    fact = block.get(field_name)
+    if not isinstance(fact, dict) or fact.get("status") != OBSERVED:
+        return None
+    value = fact.get("value")
+    return str(value) if isinstance(value, str) and value else None
 
 
 def validate_modal_invocation_provenance(
@@ -1857,6 +2190,7 @@ def validate_modal_invocation_provenance(
     *,
     known_app_ids: Optional[Iterable[str]] = None,
     evidence_root: Optional[os.PathLike | str] = None,
+    strict_sources: bool = False,
 ) -> Tuple[bool, Optional[str]]:
     """
     Validate the Modal invocation provenance of one target artifact.
@@ -1879,21 +2213,39 @@ def validate_modal_invocation_provenance(
     ``evidence_root`` is the directory the evidence references are resolved
     against. Without it the referenced bytes cannot be verified and a
     NOT_AVAILABLE fact is therefore rejected.
+
+    ``strict_sources`` applies the registry of the allowed observation sources
+    and the correlation rule of the client-side container id (Iteration 21).
+    The mode is opt-in and additive - the artifacts of Iterations 14-20 stay
+    valid without it.
     """
     provenance = artifact.get("modal_invocation_provenance")
     if not isinstance(provenance, dict) or not provenance:
         return False, "Missing modal_invocation_provenance for the executed target"
 
-    # The facts the client observed from the provider live in their own block
-    # (Iteration 20). They are checked separately from the worker-side stages:
-    # a client observation may never be presented as a worker observation.
-    ok, error = validate_client_observed_facts(provenance.get("client_observed"))
-    if not ok:
-        return False, error
-
     stages = provenance.get("stages")
     if not isinstance(stages, dict) or not stages:
         return False, "modal_invocation_provenance has no stages"
+
+    # The facts the client observed from the provider live in their own block
+    # (Iteration 20). They are checked separately from the worker-side stages:
+    # a client observation may never be presented as a worker observation.
+    client_block = provenance.get("client_observed")
+    if strict_sources:
+        # The container id of the client has to be the container of the very
+        # invocation this provenance block describes.
+        expected_call_id = _stage_observed_value(stages, "evm_sandbox", "function_call_id")
+        expected_app = _client_block_observed_value(client_block, "app_id")
+        ok, error = validate_client_observed_facts(
+            client_block,
+            strict_sources=True,
+            expected_function_call_id=expected_call_id,
+            expected_app_id=expected_app,
+        )
+    else:
+        ok, error = validate_client_observed_facts(client_block)
+    if not ok:
+        return False, error
 
     known = set(known_app_ids or ())
 

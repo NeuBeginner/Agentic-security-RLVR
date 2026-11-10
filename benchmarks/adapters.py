@@ -109,6 +109,7 @@ def _client_observed_app_id() -> Dict[str, Any]:
     """
     from benchmarks.evidence_integrity import (
         OBSERVATION_SIDE_CLIENT,
+        SOURCE_CLIENT_APP_ID,
         not_available,
         observed,
     )
@@ -124,10 +125,7 @@ def _client_observed_app_id() -> Dict[str, Any]:
     if app_id:
         return observed(
             str(app_id),
-            source=(
-                "the provider-issued App.app_id of the running app "
-                "(Modal SDK 1.5.5, client side)"
-            ),
+            source=SOURCE_CLIENT_APP_ID,
             observed_by=OBSERVATION_SIDE_CLIENT,
         )
     return not_available(
@@ -148,6 +146,7 @@ def _client_observed_app_page_url() -> Dict[str, Any]:
     """
     from benchmarks.evidence_integrity import (
         OBSERVATION_SIDE_CLIENT,
+        SOURCE_CLIENT_APP_PAGE_URL,
         not_available,
         observed,
     )
@@ -165,10 +164,7 @@ def _client_observed_app_page_url() -> Dict[str, Any]:
     if app_page_url:
         return observed(
             str(app_page_url),
-            source=(
-                "the provider's own dashboard URL of the running app "
-                "(App.get_dashboard_url(), Modal SDK 1.5.5, client side)"
-            ),
+            source=SOURCE_CLIENT_APP_PAGE_URL,
             observed_by=OBSERVATION_SIDE_CLIENT,
         )
     return not_available(
@@ -176,6 +172,216 @@ def _client_observed_app_page_url() -> Dict[str, Any]:
         f"App.get_dashboard_url() returned nothing{failure}",
         observed_by=OBSERVATION_SIDE_CLIENT,
     )
+
+
+def _observed_value(fact: Any) -> Optional[str]:
+    """The value of an observed fact - ``None`` for an absent one."""
+    if isinstance(fact, dict):
+        if fact.get("status") != "OBSERVED":
+            return None
+        value = fact.get("value")
+        return str(value) if isinstance(value, str) and value else None
+    if isinstance(fact, str) and fact:
+        return fact
+    return None
+
+
+def _client_observed_container_id(
+    *,
+    function_call_id: Any = None,
+    app_id: Any = None,
+    provider: Any = None,
+) -> Dict[str, Any]:
+    """
+    The provider-issued container id of **this** invocation - observed on the
+    **client** side (Iteration 21).
+
+    A function container has no supported source of a provider-issued container
+    id, so the worker cannot attest one. The client can: the provider's own
+    call graph ties the exact function call to the container that executed it,
+    and the provider's container listing and task record tie that container to
+    the application of the run.
+
+    The container id is reported only when **all** of it holds:
+
+    * the provider's call graph holds an input of exactly this function call,
+      and that input names the container;
+    * the provider's container listing holds exactly this container for
+      exactly this application;
+    * the provider's own task record names exactly this application for
+      exactly this container.
+
+    Otherwise the fact is an explicit absence with the exact reason. A
+    container of the same application that cannot be correlated to this
+    invocation is **never** attached.
+
+    The provider is injectable: the tests drive this path with a fake
+    provider, which is a simulation and is always called one.
+    """
+    from benchmarks.evidence_integrity import (
+        OBSERVATION_SIDE_CLIENT,
+        SOURCE_CLIENT_CONTAINER_ID,
+        not_available,
+        observed,
+    )
+
+    call_id = _observed_value(function_call_id)
+    application_id = _observed_value(app_id)
+
+    if not call_id:
+        return not_available(
+            "the container id of this invocation cannot be resolved on the client side: the "
+            "worker envelope holds no observed function-call id, and the provider's call graph "
+            "is keyed by the function call",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+    if not application_id:
+        return not_available(
+            "the container id of this invocation cannot be resolved on the client side: the "
+            "client holds no provider-issued application id, so the provider's container "
+            "listing cannot be asked for the application of this run",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+
+    if provider is None:
+        from benchmarks.modal_provider import ModalProvider
+
+        provider = ModalProvider()
+
+    # -- 1) the provider's call graph: which container ran this call? -------
+    try:
+        inputs = provider.call_graph_inputs(call_id)
+    except Exception as exc:
+        return not_available(
+            f"the provider's call graph of the function call {call_id!r} could not be read: "
+            f"{type(exc).__name__}: {exc}",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+
+    matching = [item for item in inputs if item.function_call_id == call_id]
+    if not matching:
+        return not_available(
+            f"the provider's call graph of the function call {call_id!r} holds no input of that "
+            "call, so the provider names no container for this invocation. The SDK documents "
+            "the call graph as best-effort and not populated in real time",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+
+    container_ids = {item.container_id for item in matching}
+    if len(container_ids) != 1:
+        return not_available(
+            f"the provider's call graph of the function call {call_id!r} names "
+            f"{len(container_ids)} different containers for that call, so no single container of "
+            "this invocation can be attested",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+    container_id = container_ids.pop()
+
+    # -- 2) the provider's container listing: is it a container of this app? -
+    try:
+        containers = provider.containers_of_app(application_id)
+    except Exception as exc:
+        return not_available(
+            f"the provider's container listing of the application {application_id!r} could not be "
+            f"read: {type(exc).__name__}: {exc}",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+
+    listing = next(
+        (item for item in containers if item.container_id == container_id),
+        None,
+    )
+    if listing is None:
+        return not_available(
+            f"the provider's container listing of the application {application_id!r} holds no "
+            f"container {container_id!r}, so the container of the function call {call_id!r} is "
+            "not a container of this application",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+    if listing.app_id != application_id:
+        return not_available(
+            f"the provider's container listing names the application {listing.app_id!r} for the "
+            f"container {container_id!r}, but this run belongs to {application_id!r}",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+
+    # -- 3) the provider's own task record: the second cross-check ---------
+    try:
+        task_app_id = provider.task_app_id(container_id)
+    except Exception as exc:
+        return not_available(
+            f"the provider's task record of the container {container_id!r} could not be read: "
+            f"{type(exc).__name__}: {exc}",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+    if not task_app_id:
+        return not_available(
+            f"the provider's task record of the container {container_id!r} names no application, "
+            "so the container cannot be tied to this application",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+    if task_app_id != application_id:
+        return not_available(
+            f"the provider's task record names the application {task_app_id!r} for the container "
+            f"{container_id!r}, but this run belongs to {application_id!r}",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+
+    graph_input = matching[0]
+    fact = observed(
+        container_id,
+        source=SOURCE_CLIENT_CONTAINER_ID,
+        observed_by=OBSERVATION_SIDE_CLIENT,
+    )
+    fact["correlation"] = {
+        "function_call_id": call_id,
+        "app_id": application_id,
+        "container_id": container_id,
+        "provider_records": {
+            "call_graph_input": {
+                "input_id": graph_input.input_id,
+                "function_call_id": graph_input.function_call_id,
+                "task_id": graph_input.container_id,
+            },
+            "app_container_listing": {
+                "container_id": listing.container_id,
+                "app_id": listing.app_id,
+            },
+            "task_record": {
+                "container_id": container_id,
+                "app_id": task_app_id,
+            },
+        },
+    }
+    return fact
+
+
+def _client_observed_block(
+    stage_facts: Optional[Dict[str, Any]] = None,
+    provider: Any = None,
+) -> Dict[str, Any]:
+    """
+    The facts the **client** observed from the provider (Iterations 20 and 21).
+
+    The container id is resolved from the function-call id the worker observed
+    in the stage facts of this run - it is a provider-observed, invocation-
+    correlated fact, never a container that merely belongs to the same app.
+
+    ``provider`` is the collaborator the provider is asked through. Without
+    one the real :class:`benchmarks.modal_provider.ModalProvider` is used; a
+    caller that must not reach the provider passes a provider that refuses.
+    """
+    app_id = _client_observed_app_id()
+    function_call_id = (stage_facts or {}).get("function_call_id")
+    return {
+        "app_id": app_id,
+        "app_page_url": _client_observed_app_page_url(),
+        "container_id": _client_observed_container_id(
+            function_call_id=function_call_id,
+            app_id=app_id,
+            provider=provider,
+        ),
+    }
 
 from benchmarks.protocol import (
     TargetSpecification,
@@ -2158,17 +2364,14 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 # reported, so it is backed by that stage's evidence and by no
                 # other.
                 "modal_app_id": _stage_facts("evm_sandbox")["app_id"],
-                # The facts the CLIENT observed from the provider (Iteration 20).
-                # Modal SDK 1.5.5 gives a function container neither a
-                # running-app accessor nor a worker/hostname environment
-                # variable, so the application id and the app page URL of a run
-                # are client-side facts. They live in their own block and name
-                # their side: a client observation is never presented as a
-                # worker observation.
-                "client_observed": {
-                    "app_id": _client_observed_app_id(),
-                    "app_page_url": _client_observed_app_page_url(),
-                },
+                # The facts the CLIENT observed from the provider (Iterations 20
+                # and 21). Modal SDK 1.5.5 gives a function container neither a
+                # running-app accessor nor any supported source of a
+                # provider-issued container id, so the application id, the app
+                # page URL and the container id of a run are client-side facts.
+                # They live in their own block and name their side: a client
+                # observation is never presented as a worker observation.
+                "client_observed": _client_observed_block(_stage_facts("evm_sandbox")),
                 "target_id": target.contract_id,
                 "correlation_id": correlation_id,
                 "stages": {
