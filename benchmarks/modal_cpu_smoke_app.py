@@ -30,16 +30,20 @@ Every fact the worker reports is observed **inside the running container**:
 ===============================  ==========================================
 fact                             source
 ===============================  ==========================================
-``app_id``                       ``modal.running_app().app_id``
 ``function_call_id``             ``modal.current_function_call_id()``
-``container_id``                 ``MODAL_WORKER_ID`` (fallback ``HOSTNAME``)
+``input id``                     ``modal.current_input_id()``
+``container id``                 ``MODAL_WORKER_ID`` (fallback ``HOSTNAME``)
 ``image_id``                     ``MODAL_IMAGE_ID`` of the running container
 Python / OS / Modal SDK version   observed in the container
 GPU evidence                     observed in the container
 ===============================  ==========================================
 
 A fact that cannot be observed is recorded as an explicit ``NOT_AVAILABLE``
-with the reason - never as a constant, a guess or a template.
+with the reason - never as a constant, a guess or a template. Modal SDK 1.5.5
+offers no running-app accessor to a function container, so the app id and the
+container id of the run are taken from the provider on the client side
+(``App.app_id`` and the provider's container list); the worker states its own
+side of that honestly.
 """
 
 from __future__ import annotations
@@ -118,28 +122,29 @@ def _capture_runtime_identity(ei: Any, modal_module: Any) -> Dict[str, Any]:
     """
     Build the runtime-identity envelope of the running container.
 
-    Every value is provider-issued and read from the Modal runtime itself; a
-    value the runtime does not expose becomes an explicit ``NOT_AVAILABLE``
-    with the reason why.
+    Only the runtime-context APIs that the installed Modal SDK really offers
+    are used:
+
+    * ``modal.current_function_call_id()`` - the id of the current call;
+    * ``modal.current_input_id()`` - the id of the current input;
+    * ``modal.is_local()`` - ``False`` inside a Modal container;
+    * the ``MODAL_IMAGE_ID`` environment variable - the image of the container.
+
+    Modal SDK 1.5.5 offers **no** running-app accessor to a function
+    container (``modal.running_app`` is a module, not a callable), and it sets
+    neither ``MODAL_WORKER_ID`` nor ``HOSTNAME`` in a function container. The
+    app id and the container id of this run are therefore taken from the
+    provider on the client side; the worker states that honestly instead of
+    inventing a value.
     """
     identity: Dict[str, Any] = {}
 
-    app_id = None
-    app_page_url = None
-    try:
-        running = modal_module.running_app()
-        app_id = getattr(running, "app_id", None)
-        app_page_url = getattr(running, "app_page_url", None)
-    except Exception:
-        app_id = None
-        app_page_url = None
-
-    identity["app_id"] = (
-        ei.observed(str(app_id), source="modal.running_app().app_id")
-        if app_id
-        else ei.not_available(
-            "the Modal runtime did not expose a running application id inside this container"
-        )
+    identity["app_id"] = ei.not_available(
+        "Modal SDK 1.5.5 exposes no running-app accessor to a function container: "
+        "modal.running_app is a module and not a callable, and the runtime-context API "
+        "(modal.current_function_call_id, modal.current_input_id, modal.interact, "
+        "modal.is_local) carries no application id. The app id of this run is taken "
+        "from the provider-issued App.app_id on the client side instead."
     )
 
     function_call_id = None
@@ -161,8 +166,12 @@ def _capture_runtime_identity(ei: Any, modal_module: Any) -> Dict[str, Any]:
         ei.observed(str(container_id), source="MODAL_WORKER_ID/HOSTNAME of the running container")
         if container_id
         else ei.not_available(
-            "the container exposed neither MODAL_WORKER_ID nor HOSTNAME, so its identity "
-            "cannot be attested"
+            "the running container exposed neither MODAL_WORKER_ID (the SDK reads it from "
+            "the 'worker_id' configuration setting, which the runtime sets only for "
+            "internal debugging) nor HOSTNAME (this container sets no hostname), so the "
+            "worker itself could not attest its container identity; the container id of "
+            "this run is taken from the provider's container list on the client side "
+            "instead"
         )
     )
 
@@ -178,12 +187,6 @@ def _capture_runtime_identity(ei: Any, modal_module: Any) -> Dict[str, Any]:
             "image it runs on cannot be attested"
         )
     )
-
-    # Additional provider keys - not identity fields of the contract, so they
-    # are not classified; they are carried for the reader.
-    if app_page_url:
-        identity["app_page_url"] = str(app_page_url)
-    identity["container_id_value"] = container_id
 
     return identity
 
@@ -233,6 +236,14 @@ def cpu_smoke(seed: str) -> Dict[str, Any]:
         "modal_sdk_version": getattr(modal, "__version__", None),
         "modal_environment": os.environ.get("MODAL_ENVIRONMENT"),
         "modal_image_id_env": os.environ.get("MODAL_IMAGE_ID"),
+        "modal_worker_id_env": os.environ.get("MODAL_WORKER_ID"),
+        "modal_env_var_names": sorted(
+            name for name in os.environ if name.startswith("MODAL_")
+        ),
+        # ``is_local()`` is False inside a Modal container and True everywhere
+        # else - the runtime's own statement that this is not a local process.
+        "modal_is_local": modal.is_local(),
+        "modal_current_input_id": modal.current_input_id(),
         "working_directory": os.getcwd(),
         "gpu_evidence": _gpu_evidence(),
     }

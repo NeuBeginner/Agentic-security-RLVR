@@ -271,6 +271,20 @@ def test_iteration19_the_observed_identifiers_match_the_provider_shapes():
     assert MODAL_IMAGE_ID_RE.fullmatch(image_id["value"])
 
 
+def test_iteration19_the_worker_observed_identifiers_match_the_envelope():
+    """A worker-observed identifier must be the one the worker observed."""
+    live = _live_artifacts()
+    identifiers = live["record"]["identifiers"]
+    envelope = live["artifact"]["runtime_identity"]
+
+    for field_name in ("function_call_id", "image_id"):
+        fact = identifiers[field_name]
+        assert fact["observed_by"] == "worker"
+        assert fact["status"] == OBSERVED
+        assert envelope[field_name]["status"] == OBSERVED
+        assert fact["value"] == envelope[field_name]["value"]
+
+
 def test_iteration19_a_synthetic_container_id_is_rejected(tmp_path):
     """A synthetic container identity must be rejected."""
     outcome = _revalidate(

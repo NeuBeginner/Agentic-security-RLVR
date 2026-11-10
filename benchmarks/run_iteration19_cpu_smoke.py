@@ -44,6 +44,8 @@ if str(_ROOT) not in sys.path:
 
 from benchmarks.evidence_integrity import (  # noqa: E402
     MODAL_IDENTITY_FIELDS,
+    NOT_AVAILABLE,
+    OBSERVED,
     EvidenceContractError,
     StageResponseCapture,
     build_evidence_ref_from_bytes,
@@ -241,6 +243,108 @@ def _collect_billed_usage(profile: str, app_id: Optional[str]) -> Dict[str, Any]
     }
 
 
+def _list_containers(profile: str, app_id: Optional[str]) -> Dict[str, Any]:
+    """
+    Ask the provider which containers serve the app of this run.
+
+    The container id is a provider-issued identifier. It is taken from the
+    provider's own container list while the app is still running; it is never
+    inferred from a configured name and never invented.
+    """
+    if not app_id:
+        return {
+            "status": NOT_AVAILABLE,
+            "value": None,
+            "reason": (
+                "the app id of this run is unknown, so the provider's container list "
+                "cannot be queried for it"
+            ),
+            "command": None,
+        }
+
+    command = [
+        "modal",
+        "container",
+        "list",
+        "--app-id",
+        app_id,
+        "--json",
+        "--profile",
+        profile,
+    ]
+    result = _run_cli(command)
+    if result["returncode"] != 0:
+        return {
+            "status": NOT_AVAILABLE,
+            "value": None,
+            "reason": (
+                "the provider's container list is not available for this run: "
+                f"{(result['error'] or 'the CLI returned no diagnostic output').strip()}"
+            ),
+            "command": command,
+            "provider_returncode": result["returncode"],
+            "provider_stderr": result["stderr"].strip(),
+        }
+
+    try:
+        payload = json.loads(result["stdout"])
+    except ValueError as exc:
+        return {
+            "status": NOT_AVAILABLE,
+            "value": None,
+            "reason": f"the provider's container list is not parseable JSON: {exc}",
+            "command": command,
+        }
+
+    if isinstance(payload, list):
+        entries = payload
+    elif isinstance(payload, dict):
+        entries = payload.get("containers") or payload.get("items") or []
+    else:
+        entries = []
+
+    container_ids: List[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        for key in ("container_id", "worker_id", "id"):
+            value = entry.get(key)
+            if isinstance(value, str) and value.strip():
+                container_ids.append(value.strip())
+                break
+
+    if not container_ids:
+        return {
+            "status": NOT_AVAILABLE,
+            "value": None,
+            "reason": (
+                "the provider's container list of the application holds no container id"
+            ),
+            "command": command,
+            "provider_payload": payload,
+        }
+    if len(container_ids) > 1:
+        return {
+            "status": NOT_AVAILABLE,
+            "value": None,
+            "reason": (
+                f"the provider's container list holds {len(container_ids)} containers for "
+                "this application, so the container of this specific call cannot be "
+                "attributed to one of them"
+            ),
+            "command": command,
+            "container_ids": container_ids,
+        }
+
+    return {
+        "status": OBSERVED,
+        "value": container_ids[0],
+        "source": "the provider's own container list (modal container list --app-id --json)",
+        "command": command,
+        "container_ids": container_ids,
+    }
+
+
 def _identity_fact(envelope: Any, field_name: str) -> Dict[str, Any]:
     """Read one typed identity fact out of the runtime-identity envelope."""
     if not isinstance(envelope, dict):
@@ -304,14 +408,32 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
 
     response: Optional[Any] = None
     invocation_error: Optional[str] = None
+    client_app_id: Optional[str] = None
+    containers: Dict[str, Any] = {
+        "status": NOT_AVAILABLE,
+        "value": None,
+        "reason": "the run did not reach the invocation of the function",
+    }
     try:
         # The function of an app can only run inside the context of that app:
         # ``app.run()`` starts the ephemeral app and hydrates the function.
-        async def _invoke() -> Any:
+        async def _invoke() -> Dict[str, Any]:
             async with app.run():
-                return await cpu_smoke.remote.aio(args.seed)
+                result = await cpu_smoke.remote.aio(args.seed)
+                running_app_id = app.app_id
+                listed = await asyncio.to_thread(
+                    _list_containers, args.profile, running_app_id
+                )
+                return {
+                    "response": result,
+                    "app_id": running_app_id,
+                    "containers": listed,
+                }
 
-        response = asyncio.run(_invoke())
+        outcome = asyncio.run(_invoke())
+        response = outcome["response"]
+        client_app_id = outcome["app_id"]
+        containers = outcome["containers"]
     except Exception as exc:  # noqa: BLE001 - the failure is the evidence
         invocation_error = f"{type(exc).__name__}: {exc}"
 
@@ -366,8 +488,7 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     worker_observed = response.get("worker_observed") if isinstance(response, dict) else None
     payload = response.get("smoke_payload") if isinstance(response, dict) else None
 
-    app_id_fact = _identity_fact(envelope, "app_id")
-    billed_usage = _collect_billed_usage(args.profile, app_id_fact.get("value"))
+    billed_usage = _collect_billed_usage(args.profile, client_app_id)
 
     provider_app_list = _run_cli(["modal", "app", "list", "--profile", args.profile])
 
@@ -415,21 +536,60 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             "declared_resources": DECLARED_RESOURCES,
         },
         "identifiers": {
-            "app_id": app_id_fact,
-            "function_call_id": _identity_fact(envelope, "function_call_id"),
-            "container_id": _identity_fact(envelope, "container_id"),
-            "image_id": _identity_fact(envelope, "image_id"),
+            # The provider-issued identifiers of this run. Every fact names the
+            # side that observed it: the worker reads its own identity from
+            # inside the container, the client reads the app and container
+            # identity from the provider's API.
+            "app_id": {
+                "status": OBSERVED,
+                "value": client_app_id,
+                "source": (
+                    "the provider-issued App.app_id of the running app "
+                    "(Modal SDK 1.5.5, client side)"
+                ),
+                "observed_by": "client",
+            }
+            if client_app_id
+            else {
+                "status": NOT_AVAILABLE,
+                "value": None,
+                "reason": (
+                    "the provider exposed no app id for the running app of this run"
+                ),
+                "observed_by": "client",
+            },
+            "function_call_id": {
+                **_identity_fact(envelope, "function_call_id"),
+                "observed_by": "worker",
+            },
+            "container_id": {
+                **containers,
+                "observed_by": "client",
+            },
+            "image_id": {
+                **_identity_fact(envelope, "image_id"),
+                "observed_by": "worker",
+            },
             "image_digest": {
-                "status": "NOT_AVAILABLE",
+                "status": NOT_AVAILABLE,
                 "value": None,
                 "reason": IMAGE_DIGEST_UNAVAILABLE_REASON,
+                "observed_by": "provider",
             },
             "session_id": {
-                "status": "NOT_AVAILABLE",
+                "status": NOT_AVAILABLE,
                 "value": None,
                 "reason": SESSION_ID_UNAVAILABLE_REASON,
+                "observed_by": "provider",
             },
         },
+        "identifiers_note": (
+            "the worker observed the function-call id and the image id inside the "
+            "container; Modal SDK 1.5.5 offers a function container neither a "
+            "running-app accessor nor a worker/hostname environment variable, so the "
+            "app id and the container id were taken from the provider on the client "
+            "side. The worker-side facts are in 'runtime_identity'."
+        ),
         "runtime_identity": envelope,
         "worker_observed": worker_observed,
         "payload": payload,

@@ -361,6 +361,26 @@ def _validate_iteration19(
             identifier_errors.append(
                 f"the container id {container_value!r} has the shape of a synthetic identity"
             )
+
+    # An identifier the record claims the worker observed must be the one the
+    # worker really observed - the client may not report a different value.
+    for field_name in ("function_call_id", "image_id"):
+        fact = identifiers.get(field_name)
+        if not isinstance(fact, dict) or fact.get("observed_by") != "worker":
+            continue
+        if fact.get("status") != OBSERVED:
+            continue
+        envelope_fact = envelope.get(field_name) if isinstance(envelope, dict) else None
+        if not isinstance(envelope_fact, dict) or envelope_fact.get("status") != OBSERVED:
+            identifier_errors.append(
+                f"the record claims that the worker observed '{field_name}', but the "
+                "runtime-identity envelope carries no observed fact for it"
+            )
+            continue
+        if envelope_fact.get("value") != fact.get("value"):
+            identifier_errors.append(
+                f"the record claims a different '{field_name}' than the worker observed"
+            )
     checks.append(
         _check(
             "P1.6.provider_issued_identifiers",
