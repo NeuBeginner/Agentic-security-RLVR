@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "generator": "benchmarks/validate_consolidated_closure_evidence.py",
-  "code_sha": "810e89c74b525d7c0c351b85a9998ee880f4544d",
-  "generated_at_utc": "2026-11-10T14:13:20Z",
+  "code_sha": "690f39a125ef091dee61ae9f18550ab068587c4e",
+  "generated_at_utc": "2026-11-10T14:58:30Z",
   "scope": {
     "closure": "consolidated architecture closure of PR #12",
     "purpose": "validate the fail-closed evaluator leak (P0) and the run-level observation-side gap (P1), and the evidence of the full-chain audit",
@@ -16,11 +16,11 @@
     "benchmark_run": "not touched - the 16-target run on disk still fails the Iteration 14-18 validators and this closure does not change that"
   },
   "git": {
-    "head": "810e89c74b525d7c0c351b85a9998ee880f4544d",
+    "head": "690f39a125ef091dee61ae9f18550ab068587c4e",
     "branch": "minimax/iteration-14-evidence-integrity",
     "dirty": true,
     "tracked_changes": [
-      "M benchmarks/evidence/consolidated_closure_change_impact_matrix.md"
+      "M benchmarks/benchmark_results.json"
     ],
     "untracked_paths": [
       "test-results-iteration18-local.xml",
@@ -32,7 +32,7 @@
       "check": "P6.1.the_strict_consumer_accepts_a_client_observed_run_level_application_id",
       "status": "PASSED",
       "error": null,
-      "planned": "the run-level application id of a client-observed fact is accepted by the strict consumer - the registered side of 'app_id' is the client side",
+      "planned": "the run-level application id of a client-observed fact is accepted by the strict consumer - the registered side of 'app_id' is the client side - and the copy of the EVM sandbox stage states the same application id",
       "attempted": true,
       "executed": true,
       "probes": [
@@ -974,7 +974,7 @@
       "attempted": true,
       "executed": true,
       "capture_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
-      "reported_code_sha": "810e89c74b525d7c0c351b85a9998ee880f4544d",
+      "reported_code_sha": "690f39a125ef091dee61ae9f18550ab068587c4e",
       "producer_source_changed": false
     },
     {
@@ -1331,6 +1331,92 @@
           }
         }
       ]
+    },
+    {
+      "check": "P6.18.the_run_level_application_id_may_not_contradict_the_stage_copy",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the run-level application id is the application id of the EVM sandbox stage of the same invocation - the two are one fact in two places: an observed value next to a stage copy that observed another value, and an observed value next to a stage copy that could not observe one, are refused - while an absence claim stays an absence claim and is not compared",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "case": "the_stage_could_not_observe_the_application_id",
+          "rejected": true,
+          "error": "The run-level application id contradicts the EVM sandbox stage: the run states an observed application id ('ap-gW7GDdh9OlSqjL2tRnB1oJ') while the stage states 'NOT_AVAILABLE'"
+        },
+        {
+          "case": "the_two_copies_state_another_application_id",
+          "rejected": true,
+          "error": "The run-level application id contradicts the application id of the EVM sandbox stage: the run states 'ap-gW7GDdh9OlSqjL2tRnB1oJ', the stage states 'ap-0000000000000000000' - they are one fact in two places"
+        },
+        {
+          "case": "an_absence_claim_next_to_an_observed_stage_copy",
+          "accepted": true,
+          "error": null
+        }
+      ]
+    },
+    {
+      "check": "P6.19.a_not_available_run_level_application_id_carries_no_value",
+      "status": "PASSED",
+      "error": null,
+      "planned": "an absence claim states that the value could not be observed - it may not state a value as well, exactly as the client-observed facts may not",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "case": "NOT_AVAILABLE_with_a_value",
+          "rejected": true,
+          "error": "The run-level application id is NOT_AVAILABLE but holds a value"
+        }
+      ]
+    },
+    {
+      "check": "P6.20.the_pre_fix_contract_of_the_follow_up_reproduces_the_gap",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the evidence contract of the published closure is loaded from its historical source and executed: it accepts an artifact whose run-level application id contradicts the copy of the EVM sandbox stage - the gap was real, and the check is not vacuous",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "case": "the_stage_could_not_observe_the_application_id",
+          "accepted_by_the_pre_fix_contract": true,
+          "pre_fix_error": null,
+          "accepted_by_the_current_contract": false,
+          "current_error": "The run-level application id contradicts the EVM sandbox stage: the run states an observed application id ('ap-gW7GDdh9OlSqjL2tRnB1oJ') while the stage states 'NOT_AVAILABLE'"
+        },
+        {
+          "case": "the_two_copies_state_another_application_id",
+          "accepted_by_the_pre_fix_contract": true,
+          "pre_fix_error": null,
+          "accepted_by_the_current_contract": false,
+          "current_error": "The run-level application id contradicts the application id of the EVM sandbox stage: the run states 'ap-gW7GDdh9OlSqjL2tRnB1oJ', the stage states 'ap-0000000000000000000' - they are one fact in two places"
+        }
+      ],
+      "historical_commit": "810e89c"
+    },
+    {
+      "check": "P6.21.the_two_views_of_a_target_and_the_empty_run_are_reconciled",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the detail row and the report record use one rule: the breach counters are the raw ones only for a positive finding, the raw claim of the producer is preserved whenever it differs, and a run without a target is not scorable",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "case": "a_negative_verdict_with_a_breach_counter",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_verified_breaches": 1
+        },
+        {
+          "case": "a_run_without_a_target",
+          "status": "ExecutionStatus.INCOMPLETE",
+          "candidates_per_verified_finding": null
+        }
+      ]
     }
   ],
   "historical_evidence": [
@@ -1436,8 +1522,8 @@
     }
   ],
   "summary": {
-    "checks_total": 17,
-    "checks_passed": 17,
+    "checks_total": 21,
+    "checks_passed": 21,
     "checks_failed": 0,
     "failed_checks": [],
     "overall_status": "PASSED"
