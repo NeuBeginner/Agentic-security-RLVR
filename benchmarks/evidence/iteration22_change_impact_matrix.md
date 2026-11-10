@@ -189,6 +189,7 @@ The report is bound to the exact code SHA of this iteration, and `--check` refus
 | Change impact matrix | `e77b896` | this document, **before** any code change |
 | **Code** | **`f0ce026`** | the fix of the strict observation side, the validator of the iteration, the focused test suite, the two CI steps |
 | Validation evidence | `bb50ac6` | `benchmarks/evidence/iteration22_validation_evidence.json`, bound to `f0ce026` |
+| Completed matrix | `c72c6a9` | this document with the local and the CI numbers |
 
 The validation evidence is bound to the exact code SHA `f0ce026d446e2c69a87f2bb4c155dcf0d36cd58b` (field `code_sha`). `python -m benchmarks.validate_iteration22_evidence --check` re-validates the report against that commit and refuses a foreign SHA.
 
@@ -273,8 +274,30 @@ PASSED tests/test_iteration14_evidence_integrity.py::test_real_foundry_integrati
 3 passed, 73 deselected in 4.20s
 ```
 
-### 9.4 What the numbers are and what they are not
+### 9.4 The CI run — these are CI numbers, never mixed with the local ones
 
-The local numbers above are the numbers of **this machine**: a Windows host with the repository's own Foundry toolchain (`forge 1.9.0`) and the pre-baked `solc 0.8.20`. The CI numbers of the branch are reported separately — they are never mixed with the local ones.
+CI run [`42806453926`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42806453926) (head `c72c6a9`) is **green**:
+
+| step | result |
+| --- | --- |
+| Iteration 22 suite | **28 passed** |
+| Iteration 21 / 20 / 19 / 18 / 17 / 16 / 15 suites | 41 / 33 / 24 / 44 / 65 / 27 / 33 passed |
+| Iteration 14 suite | 73 passed, 3 skipped |
+| trusted evidence and reward contract tests | 58 / 25 passed, 23 passed 4 skipped |
+| GRPO and trajectory integrity tests | 6 / 5 / 5 / 6 passed |
+| complete test suite | **749 passed, 11 skipped** |
+| Foundry EVM integration (`test_real_benchmark_execution.py -k real_foundry`) | **4 passed** |
+| Foundry EVM integration (`test_iteration14_evidence_integrity.py -k real_foundry`) | **3 passed** |
+| `validate_iteration22_evidence --check` | published PASSED, revalidated PASSED (**11/11**), bound to `f0ce026` |
+| `validate_iteration21_evidence --check` | published PASSED, revalidated PASSED (**13/13**), bound to `40c0630` |
+| `validate_iteration20_evidence --check` | published PASSED, revalidated PASSED (**12/12**), bound to `64392a7` |
+| `validate_iteration19_evidence --check` | published PASSED, revalidated PASSED (**12/12**), bound to `18ad974` |
+| Iterations 14–18 benchmark validation | still **FAILED (0/16 targets)** — reported by the CI, not masked by the green workflow |
+
+The CI count grew by exactly the 28 new tests (721 + 28 = 749 passed) with the same 11 skips as the run before.
+
+### 9.5 What the numbers are and what they are not
+
+The local numbers above are the numbers of **this machine**: a Windows host with the repository's own Foundry toolchain (`forge 1.9.0`) and the pre-baked `solc 0.8.20`. The CI numbers are the numbers of the Linux runner of GitHub Actions. The two are never mixed: the local run has fewer skips (the real Foundry probes run here) and the CI run has the Slither probe skipped as well.
 
 The benchmark result of the 16-target run stays **FAILED** (0/16 targets): this iteration does not change it and does not claim otherwise.
