@@ -56,6 +56,9 @@ The guard on the execution status sits in the **else** branch. The verdict branc
 | 5 | `FAILED` | `EXECUTION_FAILURE` | `null` ✅ | `null` |
 | 6 | `SUCCESS` | `COMPILATION_ERROR` | `false` ✅ | `false` |
 | 7 | `SUCCESS` | (none) | `a.detected` ✅ | `a.detected` |
+| 8 | `SUCCESS` | `INFRA_ERROR` | `false` ❌ (found by the audit, §3.1 F4) | `null` |
+| 9 | `SUCCESS` | `CHEATCODE_DETECTED` | `false` ✅ but not in the set of the verdicts that may never count as a positive breach (§3.1 F5) | `false` |
+
 
 The contract of the module itself (`benchmarks/evaluator.py`, module docstring) says:
 
@@ -115,6 +118,28 @@ The audit covers every link of the chain. For each field/state the audit has to 
 
 The audit of the states (execution status, `security_verdict`, `orchestration_status`, `generation_outcome`, `evm_outcome`, `replay_status`, `persistence_status`, `detected`) is the table of §8.
 
+### 3.1 The findings of the audit — every one of them, and what happened to it
+
+The audit was executed over the whole chain, field by field, with the producer source, the allowed type/status, the observation side, the correlation key, the evidence artifact, the validator, the serializer and the downstream consumer of every state.
+
+| # | finding | where | status |
+| --- | --- | --- | --- |
+| F1 | the run-level application id of an **observed** fact is not side-checked by the strict consumer | `benchmarks/evidence_integrity.py`, the strict branch of `validate_modal_invocation_provenance` | **closed by this closure (P1)** |
+| F2 | a failed or unavailable target is serialized as a **negative finding** (`detected: false`) | `benchmarks/evaluator.py`, the per-target detail | **closed by this closure (P0)** |
+| F3 | the same target is serialized a second time as `detected: false` in `target_artifacts[]` — the same run appeared in one report in two incompatible ways | `benchmarks/protocol.py::TargetExecutionArtifact.to_dict` via the evaluator | **closed by this closure (P0)** |
+| F4 | a completed execution whose verdict says that the **audit itself** failed (`INFRA_ERROR`) is serialized as a negative finding | the verdict reaches `security_verdict` through `benchmarks/adapters.py` | **closed by this closure (P0, extended)** — see §4.1 |
+| F5 | a rejected cheatcode attempt is not in the set of verdicts that may never count as a positive breach | `benchmarks/evaluator.py` vs `core/evaluator.py`, which already treats it as a rejected candidate | **closed by this closure (P0, extended)** — see §4.1 |
+| F6 | the strict mode is not reachable from the public wrapper: `benchmarks/protocol.py` does not pass `strict_sources`, and the benchmark run validates **no** provenance at all | `benchmarks/protocol.py`, `benchmarks/benchmark_runner.py` | **documented, not changed** — the strict mode is the contract of the evidence chain of Iterations 21–23; the production run has no live artifacts to validate it against, and closing it would require a live invocation |
+| F7 | the registry `MODAL_PROVENANCE_STAGES` is dead, the name of a stage is never checked and the four canonical stages are not mandatory | `benchmarks/evidence_integrity.py` | **documented, not changed** — a stage-name rule would refuse artifacts that the published evidence of Iterations 16–23 contains; it is a separate, wider contract |
+| F8 | two vocabularies of `persistence_status` (`not_eligible` / `NOT_ELIGIBLE`) and no validator for either | `benchmarks/adapters.py`, `benchmarks/benchmark_runner.py` | **documented, not changed** — a vocabulary change would rewrite the manifests of the historical run |
+| F9 | `orchestration_status` is always `COMPLETED`, also on the failed paths | `benchmarks/adapters.py` | **documented, not changed** — the producer is not the defect of this closure and its source stays byte-wise unchanged |
+| F10 | the CPU-smoke producer publishes a container id from `MODAL_WORKER_ID`/`HOSTNAME` — a source that is not in the registry | `benchmarks/modal_cpu_smoke_app.py` | **documented, not changed** — the CPU-smoke evidence of Iteration 19 is a separate capture and stays as it is |
+| F11 | the billing join correlates on the function-call id only and stays 100 % `UNATTRIBUTED`; the raw billing export carries no correlation column | `benchmarks/regenerate_billing_join_table.py`, `benchmarks/evidence/modal_billing_join_table.json` | **documented, not changed** — it is the state of the historical evidence, and the reviewer requires it to stay visibly failed |
+| F12 | the manifest and the join table carry no `detected` and no execution status of the target | `benchmarks/benchmark_runner.py`, `benchmarks/regenerate_billing_join_table.py` | **documented, not changed** — they carry `security_verdict`, `replay_status` and `persistence_status`; adding the detection state to the manifest would change the manifest format of the historical run |
+
+**No finding was closed by weakening a validator, a compatibility path or a test.**
+
+
 ---
 
 ## 4. Design
@@ -123,13 +148,20 @@ The audit of the states (execution status, `security_verdict`, `orchestration_st
 
 > A **negative detection** exists only for a **successfully completed, semantically valid** execution. A run that did not complete — `FAILED`, `UNAVAILABLE` — has **no** finding: its detection is `null`, never `false`.
 
+The audit of the chain found **two** more cases of the same class, and they are closed in the same rule:
+
+* a completed execution whose verdict is `INFRA_ERROR` — "harness / environment / toolchain failure" (`core/schemas.py`) — did **not** validly conclude about the target, so it is not a negative finding either. The training path excludes the very same category from the group statistics for the very same reason (`tests/test_grpo_integrity.py`);
+* a rejected cheatcode attempt (`CHEATCODE_DETECTED`) is an **audit-level** outcome — the candidate was invalid, the exploit did not work — and joins the set of the verdicts that may never count as a positive breach, exactly like the compilation error and the runtime revert.
+
 Implementation in `benchmarks/evaluator.py`:
 
 | # | place | change |
 | --- | --- | --- |
-| 1 | a new resolver `resolve_detection(artifact)` | returns `(detection, detection_state)`: `None` / `NOT_EVALUATED` for a non-`SUCCESS` execution; `False` / `NEGATIVE` for a `SUCCESS` execution with one of the four negative verdicts; `bool(artifact.detected)` / `POSITIVE` or `NEGATIVE` otherwise |
-| 2 | the per-target `details[]` row | `detected` comes from the resolver; the new `detection_state` names the state explicitly; the breach counters of a non-`SUCCESS` run are `0` (a run that did not complete cannot have verified a breach) |
-| 3 | the per-target `target_artifacts[]` record of the report | the same resolver is applied, so a failed/unavailable record carries `detected: null` and `detection_state: NOT_EVALUATED`; the producer's raw claim is preserved under `producer_detected` |
+| 1 | a new resolver `resolve_detection(artifact)` | returns `(detection, detection_state)`: `None` / `NOT_EVALUATED` for a non-`SUCCESS` execution and for a completed execution with an **invalid** verdict (`INFRA_ERROR`); `False` / `NEGATIVE` for a `SUCCESS` execution with one of the negative verdicts (`COMPILATION_ERROR`, `RUNTIME_REVERT`, `GENERATION_FORMAT_ERROR`, `SAFE_RUN`, `CHEATCODE_DETECTED`); `bool(artifact.detected)` / `POSITIVE` or `NEGATIVE` otherwise |
+| 2 | the per-target `details[]` row | `detected` comes from the resolver; the new `detection_state` names the state explicitly; the breach counters of a run without a finding are `0` (a run that did not conclude cannot have verified a breach) |
+| 3 | the per-target `target_artifacts[]` record of the report | the same resolver is applied, so a failed/unavailable record carries `detected: null` and `detection_state: NOT_EVALUATED`; the producer's raw claim is preserved under `producer_detected`, `producer_verified_breaches` and `producer_replayed_breaches` — nothing is lost, and the hashed artifact file on disk stays untouched |
+| 4 | the fail-closed gate of the baseline | a target **without** a valid evaluation makes the baseline non-scorable: the status is `INCOMPLETE` and every metric stays `None` — the same rule that already applies to a failed or unavailable target |
+| 5 | the confusion matrix | it reads the **same** resolver, so the report and the metrics can never disagree |
 
 **The state vocabulary of the report** becomes explicit:
 
@@ -137,7 +169,8 @@ Implementation in `benchmarks/evaluator.py`:
 | --- | --- | --- |
 | `POSITIVE` | the execution completed and found a vulnerability | `true` |
 | `NEGATIVE` | the execution completed and found nothing | `false` |
-| `NOT_EVALUATED` | the execution did **not** complete — there is no finding | `null` |
+| `NOT_EVALUATED` | the execution did **not** produce a valid conclusion — there is no finding | `null` |
+
 
 ### 4.2 Rule P1 — the run-level side check
 
@@ -190,7 +223,7 @@ The billing cross-check is **not** touched: `cross_check_app_ids()` keeps the ru
    * the **digest probe** — the tampered artifact has its digests **recomputed** from the bytes on disk, so a rejection can only come from the side rule and not from a stale digest;
    * the **pre-fix reproduction** — the rule of the pre-fix consumer is reproduced inside the validator and still accepts the defect: the checks are not vacuous;
    * the **vertical chains** — one complete **successful** chain (producer → capture → artifact → validator → billing join → manifests → evaluator → report) and one complete **failure** chain, each asserted end to end;
-   * the **historical evidence** — the validators of Iterations 14–23 still satisfy their own validators;
+   * the **historical evidence** — the evidence validator of **every** iteration from 14 to 23 is executed: the validators of Iterations 19–23 still satisfy their own validator, and the validators of Iterations 14–18 still **fail** visibly — the 16-target run on disk predates the fixes of Iterations 14–18, and this closure does not change that;
    * the **report semantics** — the reconciliation table of §8 is asserted against the real report;
 2. the **focused test suite** `tests/test_consolidated_closure_evidence_integrity.py`;
 3. the **validation evidence** `benchmarks/evidence/consolidated_closure_validation_evidence.json`, bound to the exact code SHA of this closure; `--check` refuses a foreign SHA.
@@ -215,7 +248,7 @@ The billing cross-check is **not** touched: `cross_check_app_ids()` keeps the ru
 | 8 | the compatibility path | the side-less artifacts of Iterations 14–20 stay valid |
 | 9 | the successful vertical chain | producer → capture → artifact → validator → billing join → manifests → evaluator → report holds end to end |
 | 10 | the failure vertical chain | a failed run is reported as failed everywhere, and never as a negative finding |
-| 11 | the artifacts of Iterations 14–23 | their own validators still pass |
+| 11 | the artifacts of Iterations 14–23 | the validators of Iterations 19–23 still pass, and the validators of Iterations 14–18 still fail visibly — the historical 16-target evidence stays failed |
 
 The existing test that encodes the P0 defect is **corrected** (the assertion changes from `detected is False` to `detected is None`); its intent — a compilation failure is never a positive finding and never a verified breach — is preserved and strengthened.
 
@@ -239,6 +272,15 @@ The report has to keep these apart, in **every** output:
 | failed | `status: FAILED` + `security_verdict: EXECUTION_FAILURE` (or the adapter's own verdict) + `detection_state: NOT_EVALUATED` |
 | unknown | no status claim is invented: a missing artifact is an absence, not a `false` |
 | not run | `generation_outcome: NOT_RUN` / `evm_outcome: NOT_RUN` / `replay_status: NOT_ELIGIBLE` |
+| no valid evaluation | `detection_state: NOT_EVALUATED` — a completed run whose verdict is `INFRA_ERROR`, and a baseline that carries it is `INCOMPLETE` with every metric `None` |
+
+### 8.1 The two cases that stay **documented, not changed**
+
+| case | why it is not changed by this closure |
+| --- | --- |
+| `INVARIANT_BREACH_UNREPLAYED` with `detected: false` | the oracle saw an invariant breach that the independent replay did not confirm. The wire value `false` means "not confirmed", not "no breach" — but the **verdict** next to it says exactly that, and changing the value would change the metric semantics of a completed run, which this closure does not touch |
+| the target-side and the candidate-side compilation failure are one verdict | `benchmarks/adapters.py` cannot tell them apart: a target that does not compile was never audited, and a candidate that does not compile is a failed attempt. The distinction belongs to the producer, and the producer is not the defect of this closure |
+
 
 ---
 
@@ -254,12 +296,216 @@ The report has to keep these apart, in **every** output:
 
 ## 10. The ancestry of the branch — measured at the head of this closure
 
-Measured in the worktree of the PR branch against the base of PR #12 (`736f11d` = `integration/minimax-antigravity-reconciled`) and the current upstream head (`7876f6e` = `feat/empirical-benchmark-runner`).
+Measured in the worktree of the PR branch against the base of PR #12 (`736f11d` = `integration/minimax-antigravity-reconciled`) and against the current upstream head (`7876f6e` = `feat/empirical-benchmark-runner`). Every number below is a measurement, not an estimate.
 
-<!--ANCESTRY-->
+### 10.1 The two lines
+
+| line | range | commits | in the PR branch? |
+| --- | --- | --- | --- |
+| the **upstream** line | `736f11d..7876f6e` (`feat/empirical-benchmark-runner`) | **34** | 32 of them (up to `47e49b9`) are already ancestors of the PR head; the last **2** (`9bc6ebf`, `7876f6e`) are not |
+| the **iteration** line | `47e49b9..HEAD` (Iterations 14–23 and this closure) | **52** | yes — it is the branch itself |
+| the branch as a whole | `736f11d..HEAD` | **84** | 32 upstream + 52 iteration |
+
+The history is **linear**: the PR branch is the upstream line up to `47e49b9` plus the iteration line on top of it. The upstream branch has since advanced by two commits.
+
+### 10.2 The diffs
+
+| comparison | result |
+| --- | --- |
+| `git diff --shortstat 736f11d..HEAD` (against the base of the PR) | **264 files changed, 89,679 insertions(+), 357 deletions(-)** |
+| `git diff --shortstat 7876f6e..HEAD` (against the current upstream head) | **116 files changed, 44,514 insertions(+), 3,370 deletions(-)** |
+| `git diff --shortstat 47e49b9..HEAD` (against the mandatory base of the iteration line) | **93 files changed, 41,733 insertions(+), 1,274 deletions(-)** |
+
+### 10.3 The files that both lines touch
+
+The upstream line and the iteration line changed **10** files in common — this is the surface a squash or a rebase of the PR would have to reconcile:
+
+```
+.github/workflows/ci.yml
+.gitignore
+benchmarks/adapters.py
+benchmarks/benchmark_runner.py
+benchmarks/evidence/modal_billing_join_table.json
+benchmarks/protocol.py
+core/schemas.py
+modal_app.py
+sandbox/runner.py
+tests/test_real_benchmark_execution.py
+```
+
+### 10.4 The merge test — what a merge of the upstream head would actually cost
+
+The merge was **not** performed. It was computed with `git merge-tree --write-tree`, which touches neither the working tree nor any branch:
+
+```
+git merge-tree --write-tree --name-only 1c75495 7876f6e
+→ CONFLICT (content): benchmarks/adapters.py
+→ CONFLICT (content): benchmarks/benchmark_runner.py
+→ CONFLICT (content): benchmarks/evidence/modal_billing_join_table.json
+→ CONFLICT (content): benchmarks/protocol.py
+→ CONFLICT (content): tests/test_real_benchmark_execution.py
+```
+
+**5 files conflict** — exactly the files that the two new upstream commits (`9bc6ebf`, `7876f6e`) and the iteration line both changed. The other two files of the upstream commits (`benchmarks/benchmark_results.json`, `benchmarks/evidence/modal_control_harness_validation.json`, `benchmarks/artifacts/…`) are not touched by the iteration line and merge cleanly.
+
+### 10.5 The safe minimal plan
+
+| option | what it does | what it costs | verdict |
+| --- | --- | --- | --- |
+| **A — merge the upstream head into the PR branch** (`git merge 7876f6e` on the PR branch) | keeps both lines, adds one merge commit | 5 conflicts to resolve by hand; the resolutions belong to the maintainer of the two lines | **recommended** — it is the only option that preserves the published, SHA-bound evidence of Iterations 14–23 and of this closure, because every one of them names a commit of this branch |
+| B — rebase the 52 iteration commits onto `7876f6e` | one linear history | rewrites 52 published commits; every SHA-bound evidence file of Iterations 14–23 and of this closure would have to be regenerated, and the published reports would no longer name an ancestor of the head | not recommended |
+| C — squash the iteration line into the upstream line | one commit per logical change | the same as B, plus the loss of the per-iteration evidence chain | not recommended |
+| D — leave the branch as it is | the PR stays 2 commits behind the upstream head | the 5 conflicting files stay unresolved until someone merges | acceptable as an interim state, but it should be stated, not hidden |
+
+**This closure performs none of A, B or C.** No branch was merged, no branch was rebased, no shared branch was touched, and `main`, PR #8 and the integration branch are untouched.
+
+**The recommended order for the maintainer:**
+
+1. resolve the 5 conflicts of option A — `benchmarks/protocol.py`, `benchmarks/benchmark_runner.py` and `benchmarks/adapters.py` are code, `benchmarks/evidence/modal_billing_join_table.json` is a regenerated table, `tests/test_real_benchmark_execution.py` is a test file;
+2. re-run the evidence validator of this closure (`python -m benchmarks.validate_consolidated_closure_evidence --check`) — it executes the evidence validator of every iteration from 14 to 23, so a wrong resolution of the 5 files shows up there;
+3. only then merge the PR into the integration branch.
 
 ---
 
 ## 11. The results of this closure
 
-<!--RESULTS-->
+### 11.1 The commits
+
+| # | commit | what it carries |
+| --- | --- | --- |
+| 1 | `8a1d754` | **this matrix**, written and committed **before** any code change |
+| 2 | `2909b47` | the **P0** and **P1** fixes in the contract and the evaluator, the new focused suite, and the correction of the one test that encoded the defect |
+| 3 | `0a17ac6` | the **consolidated validator** |
+| 4 | `2129059` | the two CI steps: the focused suite and the validator |
+| 5 | `c5a371b` | the smoke probe of the closure keeps the checkout clean |
+| 6 | `029eb7f` | the git manifest of the smoke probe is resolved from the repository |
+| 7 | `1c75495` | the first published evidence of the closure |
+| 8 | `810e89c` | the **independent review** of the validator and the matrix, and the rework it forced: the historical contract is now **executed**, the vacuous checks are gone, and the probe directory is ignored by git |
+| 9 | *this commit* | the completed matrix and the re-published evidence |
+
+### 11.2 The validator
+
+`benchmarks/validate_consolidated_closure_evidence.py` — **17 checks, 17 passed**, bound to the code SHA of the closure:
+
+| check | what it proves |
+| --- | --- |
+| P6.1 | the strict consumer **accepts** a client-observed run-level application id |
+| P6.2 | the strict consumer **rejects** the missing, the null, the unknown and the worker side, the legacy flat value, the unknown status and the missing fact |
+| P6.3 | the rejection comes from the **side rule** and not from a stale digest — the digests are recomputed from the bytes on disk |
+| P6.4 | the **compatibility path** still reads the side-less artifacts of Iterations 14–20 in every shape the pre-fix code accepted |
+| P6.5 | **every** combination of a non-success status and the negative verdicts, and every verdict that declares the audit itself invalid, is reported as `null` / `NOT_EVALUATED` — in the detail row **and** in the report record, with no breach counter and with the raw claim of the producer preserved |
+| P6.6 | the mixed baseline stays non-scorable and keeps the failed target out of the findings |
+| P6.7 | a completed run keeps its negative verdict and its own detection, and the confusion matrix agrees with the report |
+| P6.8 | the report of the **real runner** — with a **failing** execution in it — carries the detection state, keeps both views of a target in agreement and states the failed target as `NOT_EVALUATED` |
+| P6.9 | the **successful** vertical chain holds end to end: the billing join is resolved against a **raw line item**, and the adapter and target manifests keep the failure visible and carry no detection value |
+| P6.10 | the **failure** vertical chain keeps the failure visible |
+| P6.11 | the **pre-fix** rule of the evaluator — the line quoted from the historical source — still turns a failed run into a negative finding: the defect was real |
+| P6.12 | the **pre-fix consumer itself is executed**: the evidence contract of the commit before the closure is loaded from its historical source and **accepts** the side-less and the wrong-sided run-level application id — the defect was real |
+| P6.13 | the evidence validator of **every** iteration from 14 to 23 is executed: 14–18 stay visibly **FAILED**, 19–23 stay **PASSED**; a stale report of an interrupted run can never be mistaken for a result |
+| P6.14 | the producer source is byte-wise unchanged since the capture of Iteration 21 |
+| P6.15 | the digest and the byte length of the stage evidence artifact are the ones of the bytes on disk |
+| P6.16 | the closure runs in a **synthetic** context: the run of the real runner is a synthetic smoke test, and the `OBSERVED` branch of the producer was captured under the simulated container context |
+| P6.17 | the report states **planned, attempted, executed, observed and reported** apart, and unavailable, failed and not-run stay distinct in every output |
+
+
+**The pre-fix reproduction is checked against the historical source, not against a strawman.** The line that P6.11 reproduces is the line of the repository before the fix:
+
+```
+git show 2909b47~1:benchmarks/evaluator.py
+    det = False if (is_compile_err or a.security_verdict in ("RUNTIME_REVERT", "GENERATION_FORMAT_ERROR", "SAFE_RUN")) else (a.detected if a.status == ExecutionStatus.SUCCESS else None)
+```
+
+Executed verbatim against the eight combinations of a non-success status and the negative verdicts, that expression yields `False` in every one of them — and the current resolver yields `None` in every one of them. The rule of P6.12 reproduces the consumer of the run-level application id before the fix, which looked at the run-level fact **only** in its `NOT_AVAILABLE` shape and accepted every other shape without a side check.
+
+
+### 11.3 The local test runs — exact raw counts
+
+These are the **local** numbers of this machine (Windows, Python 3.10, **no Foundry installed**). They are never mixed with the CI numbers of §11.4.
+
+| run | result |
+| --- | --- |
+| the focused suite `tests/test_consolidated_closure_evidence_integrity.py` | **45 passed** in 0.54 s |
+| the complete local regression `python -m pytest -q` | **832 passed, 7 skipped** in 102.83 s (before the closure: 787 passed, 7 skipped — the difference of 45 is exactly the new suite) |
+| the evidence validator of this closure | **16/16 checks passed** |
+| the evidence validators of Iterations 14–18 (re-run locally) | **FAILED, 16/16 targets failed** — the historical 16-target run stays visibly failed |
+| the evidence validators of Iterations 19–23 (re-run locally, bound to their own code SHA) | **PASSED** — 12/12, 12/12, 13/13, 11/11, 12/12 |
+
+### 11.4 The CI run — these are CI numbers, never mixed with the local ones
+
+**Run [`42827984060`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42827984060)** on the head `1c75495` — both jobs **success**.
+
+| job | step | raw result |
+| --- | --- | --- |
+| Reward v2 and trusted harness regression suite | the trusted evidence and reward contract tests | 58 passed; 25 passed; 23 passed, 4 skipped |
+| | Iteration 14 | 73 passed, 3 skipped |
+| | Iteration 15 | 33 passed |
+| | Iteration 16 | 27 passed |
+| | Iteration 17 | 65 passed |
+| | Iteration 18 | 44 passed |
+| | Iteration 19 | 24 passed |
+| | Iteration 20 | 33 passed |
+| | Iteration 21 | 41 passed |
+| | Iteration 22 | 28 passed |
+| | Iteration 23 | 34 passed |
+| | **consolidated closure** | **45 passed** |
+| | GRPO, GRPO integrity, trajectory integrity, round-5 regression | 6 passed; 5 passed; 5 passed; 6 passed |
+| | **the complete test suite** | **828 passed, 11 skipped** |
+| Real Foundry EVM integration probe | the live Foundry integration tests | **4 passed**, 65 deselected |
+| | the live Foundry tests of Iteration 14 | **3 passed**, 73 deselected |
+| | the billing join table | `join table validation: PASSED (no error)` |
+| | the validator of Iteration 14 | `FAILED (0/16 targets), bound to 43436b02…` — **the historical evidence stays visibly failed** |
+| | the validator of Iteration 15 | `FAILED (0/16 targets), bound to cf262236…` |
+| | the validator of Iteration 16 | `FAILED (0/16 targets), bound to b1946536…` |
+| | the validator of Iteration 17 | `FAILED (0/16 targets), bound to e9faff40…` |
+| | the validator of Iteration 18 | `FAILED (0/16 targets), bound to 8813cebd…` |
+| | the validator of Iteration 19 | `published PASSED, revalidated PASSED (12/12 checks), bound to 18ad9740…` |
+| | the validator of Iteration 20 | `published PASSED, revalidated PASSED (12/12 checks), bound to 64392a7b…` |
+| | the validator of Iteration 21 | `published PASSED, revalidated PASSED (13/13 checks), bound to 40c06309…` |
+| | the validator of Iteration 22 | `published PASSED, revalidated PASSED (11/11 checks), bound to f0ce026d…` |
+| | the validator of Iteration 23 | `published PASSED, revalidated PASSED (12/12 checks), bound to 749cba24…` |
+| | **the validator of the consolidated closure** | **`published PASSED, revalidated PASSED (16/16 checks), bound to 029eb7f3…`** |
+
+The local suite and the CI suite run the **same 839 tests** on different platforms, and the two numbers are reported separately and are never added together:
+
+| | passed | skipped | the skips |
+| --- | --- | --- | --- |
+| local (Windows, no Foundry, no Slither, a local `solc`) | **832** | **7** | 6 × "Real Foundry integration unavailable on system PATH", 1 × "Real Slither integration unavailable" |
+| CI, the complete suite of the *tests* job (Linux, no Foundry, no Slither, no prebaked `solc` on the PATH) | **828** | **11** | the same 6 × Foundry + 1 × Slither, plus 4 × "real solc" of `tests/test_contract_normalization_v2.py` |
+
+The six Foundry tests that the *tests* job skips are executed by the **foundry** job of the same run and **pass** there (4 passed, 65 deselected; and 3 passed, 73 deselected for the Iteration 14 subset).
+
+
+### 11.5 The independent review
+
+The validator and the matrix were reviewed **independently**, against the contract of this closure, and the review changed the deliverable. The findings and what happened to them:
+
+| # | finding | severity | what was done |
+| --- | --- | --- | --- |
+| R1 | the pre-fix reproduction of the **P1** was a constant (`return True, None`): the historical half of the check could never fail, so the claim "the pre-fix rules are reproduced" was not proven | **critical** | the historical evidence contract is now **loaded from its historical source** (`git show 2909b47~1:benchmarks/evidence_integrity.py`) and **executed** — it accepts the side-less and the wrong-sided run-level application id, and the current contract refuses them (P6.12) |
+| R2 | the boundary check compared a literal with itself — it could not fail | **critical** | the check now proves real facts: the run of the real runner is a `SYNTHETIC_SMOKE_TEST`, and the captured function-call id is the patched one, so the `OBSERVED` branch of the producer was exercised in the simulation. The declarative part (no deployment, no GPU) is published as `declared`, not as a comparison that pretends to be a proof (P6.16) |
+| R3 | the check of the report of the real runner passed on an **empty** baseline and never exercised the failure path | major | a failing adapter is injected into the **real** runner, the report must contain a failed target, and both views of that target must state `NOT_EVALUATED` (P6.8) |
+| R4 | the extended rule (`INFRA_ERROR`, `CHEATCODE_DETECTED`) was claimed to be closed but was not probed by the validator | major | both verdicts are now probed in P6.5 and P6.7; the historical reproduction (P6.11) probes exactly the verdicts of the pre-fix code |
+| R5 | the check of the historical evidence could pass on the **stale report** of an interrupted run, and the exit code was not checked | major | the report of every iteration is deleted before the run, the exit code has to be `0`, and the output has to state the expected status (P6.13) |
+| R6 | two links of the vertical chain were self-comparisons, and the manifests were missing | major | the billing join is resolved against a **raw line item** of the export, and the adapter and target manifests of the real runner are checked (P6.9) |
+| R7 | the compatibility path was only checked for one shape | minor | every shape the pre-fix code accepted is checked: flat, side-less, missing and unknown status (P6.4) |
+| R8 | the leak probes did not check the report record, the breach counters or the preserved raw claim, and the `leaked` flag was computed wrongly | minor | all of them are checked now (P6.5) |
+| R9 | the `--check` mode did not compare the checkout with the bound SHA, and it refused a short SHA | minor | the files of the closure are compared between the bound commit and `HEAD`, and a short SHA is resolved (P6.14) |
+| R10 | an unhandled exception would have produced **no report at all** instead of a failed one | minor | the validation is wrapped: an exception is reported as a failure, and the probe directory is always removed |
+| R11 | the matrix contradicted itself about the expected state of the validators of Iterations 14–18 | minor | the wording is corrected in §7 and §9 of this matrix |
+
+**The second, independent review of the P0 and the P1 fixes themselves** is the one of §11.5a below.
+
+
+### 11.6 The boundary of this closure
+
+| claim | state |
+| --- | --- |
+| a live Modal invocation | **none** — the `OBSERVED` branch of the producer was exercised in a simulated container context (a patched `modal.current_function_call_id`) and is called a simulation |
+| a provider query | **none** |
+| a deployment, a redeployment, a worker restart | **none** |
+| a GPU (H100 / T4), a paid compute | **none** |
+| the producer `modal_app.py` | **unchanged** — P6.14 proves it byte-wise against the commit the capture of Iteration 21 was made from |
+| the historical 16-target benchmark evidence | **still visibly failed** — the validators of Iterations 14–18 report `FAILED (0/16 targets)` in CI |
+| the compatibility path | **unchanged** — the artifacts of Iterations 14–20 are read exactly as before, and no side is inferred or backfilled into any artifact |
+| a merge, a rebase of a shared branch | **none** — the merge of the upstream head was only *computed* with `git merge-tree`, which touches neither the working tree nor any branch |
+
