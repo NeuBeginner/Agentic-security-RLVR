@@ -55,15 +55,35 @@ Iteration 19 closes exactly that gap, with the smallest possible live surface: *
 
 ### 3.2 The worker builds the envelope with the repository's own primitives
 
-The mounted module is the repository's real evidence module, so the envelope the worker returns is built by the same code the validator later checks — not by a re-implementation that could drift. The worker observes exactly what the existing workers observe (`modal_app.py::capture_modal_runtime_identity`):
+The mounted module is the repository's real evidence module, so the envelope the worker returns is built by the same code the validator later checks — not by a re-implementation that could drift. The worker observes exactly what the installed Modal SDK really exposes to a function container:
 
 | fact | source inside the container |
 | --- | --- |
-| `app_id` | `modal.running_app().app_id` |
 | `function_call_id` | `modal.current_function_call_id()` |
 | `container_id` | `MODAL_WORKER_ID` (fallback `HOSTNAME`) |
+| `image_id` | `MODAL_IMAGE_ID` of the running container |
+| input id | `modal.current_input_id()` |
+| "this is not a local process" | `modal.is_local()` — `False` inside a Modal container |
+| Python / OS / Modal SDK version | observed in the container |
 
 Every value is **provider-issued**: no identifier is derived from a configured name. The envelope is a typed-fact object — `OBSERVED` with a named source, or `NOT_AVAILABLE` with an explicit reason.
+
+**What the live run changed in this design.** The plan above assumed that the worker could read the app id and the container id itself. The live run showed that **Modal SDK 1.5.5 offers a function container neither**:
+
+* `modal.running_app` is a **module**, not a callable — there is no `running_app()` in this SDK version;
+* neither `MODAL_WORKER_ID` (the SDK reads it from the `worker_id` configuration setting, which the runtime sets only for internal debugging) nor `HOSTNAME` (this gVisor container sets no hostname) is present.
+
+The design was therefore corrected rather than the fact being filled in: the worker states its own side as `NOT_AVAILABLE` with the exact reason, and the **client** takes the app id and the container id from the provider:
+
+| fact | source |
+| --- | --- |
+| `app_id` | the provider-issued `App.app_id` of the running app (Modal SDK 1.5.5, client side) |
+| `container_id` | the provider's own container list (`modal container list --app-id … --json`), field `id` of the container entry |
+
+Each identifier fact names the side that observed it (`observed_by`), and the validator checks that an identifier the record claims the **worker** observed is exactly the value the envelope carries.
+
+This is also a finding about the repository itself: `modal_app.py::capture_modal_runtime_identity` calls `modal.running_app()`, which does not exist in Modal SDK 1.5.5 — the call raises and is swallowed, so the deployed workers have always reported their app id as unavailable. **This iteration does not change the deployed workers**; the finding is reported to the reviewer.
+
 
 ### 3.3 The client captures the response verbatim and writes per-stage evidence
 
@@ -92,11 +112,13 @@ A fact is either `OBSERVED` (with the source it was read from) or `NOT_AVAILABLE
 
 | field | how it is obtained |
 | --- | --- |
-| app id, function-call id, container id | provider-issued, observed inside the container |
+| app id | the provider-issued `App.app_id` of the running app (client side) |
+| function-call id | provider-issued, observed inside the container (`modal.current_function_call_id()`) |
+| container id | the provider's own container list (client side); the worker could not attest it itself |
 | image identity | `MODAL_IMAGE_ID` of the running container (an immutable `im-…` id) |
 | image **digest** | `NOT_AVAILABLE` — Modal SDK 1.5.5 exposes no image-digest API to the container (the CLI offers only `modal image names` and `modal image logs`) |
-| session id | `NOT_AVAILABLE` — the Modal SDK 1.5.5 contains no session-id accessor (`modal.running_app()` exposes `app_id`, `app_page_url`, `app_logs_url`, `function_ids`, `class_ids`, `object_handle_metadata`, `interactive`) |
-| billed CPU / runtime usage | the provider's own workspace billing report; `NOT_AVAILABLE` with the exact provider error when the workspace exposes no such report — never an estimate |
+| session id | `NOT_AVAILABLE` — the runtime-context API of Modal SDK 1.5.5 (`current_function_call_id`, `current_input_id`, `interact`, `is_local`) carries no session id, and the `modal.running_app` module holds only the `RunningApp` dataclass |
+| billed CPU / runtime usage | the provider's own workspace billing report; `NOT_AVAILABLE` with the exact provider reason when the workspace exposes no such line — never an estimate |
 | worker Python / OS / Modal SDK version | observed inside the container |
 | zero-GPU proof | worker-observed: no `NVIDIA_VISIBLE_DEVICES`, no `CUDA_VISIBLE_DEVICES`, no `/dev/nvidia*` node, no `nvidia-smi`, no CUDA runtime library |
 
@@ -108,7 +130,7 @@ A fact is either `OBSERVED` (with the source it was read from) or `NOT_AVAILABLE
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | A real Modal worker is invoked — not a rehearsal | `benchmarks/run_iteration19_cpu_smoke.py` calls the function of a separate CPU-only app exactly once | the response the worker returned | the envelope the worker built | the invocation record names the invocation status and the provider-issued identifiers | the invocation status is `SUCCEEDED` and the response is present | `test_iteration19_the_invocation_record_reports_a_successful_single_invocation` | `test_iteration19_a_failed_invocation_is_recorded_as_a_failed_stage` |
 | 2 | The app is CPU-only and isolated | `benchmarks/modal_cpu_smoke_app.py` (`gpu=None`, `cpu=0.5`, `memory=256`, `timeout=60`, `retries=0`, no volume, no secret, no model) | — | — | the invocation record states the declared resources; the worker-observed GPU evidence is empty | the declared resources carry no GPU and the worker observed no GPU device | `test_iteration19_the_app_declares_no_gpu_and_the_worker_observed_no_gpu_device` | `test_iteration19_a_gpu_allocation_is_rejected` |
-| 3 | The identifiers are provider-issued, not inferred from names | the worker reads `modal.running_app().app_id`, `modal.current_function_call_id()`, `MODAL_WORKER_ID` | — | `app_id`, `function_call_id`, `container_id` | the validator checks the provider shapes (`ap-…`, `fc-…`, worker id) and rejects the synthetic container ids | every identifier matches its provider shape | `test_iteration19_the_observed_identifiers_match_the_provider_shapes` | `test_iteration19_a_synthetic_container_id_is_rejected` |
+| 3 | The identifiers are provider-issued, not inferred from names | the worker reads `modal.current_function_call_id()` and `MODAL_IMAGE_ID`; the client reads the provider-issued `App.app_id` and the provider's container list | — | `app_id`, `function_call_id`, `container_id`, `image_id` | the validator checks the provider shapes (`ap-…`, `fc-…`, worker id, `im-…`) and rejects the synthetic container ids | every identifier matches its provider shape | `test_iteration19_the_observed_identifiers_match_the_provider_shapes` | `test_iteration19_a_synthetic_container_id_is_rejected` |
 | 4 | The response is captured verbatim and the envelope is the one it carries | `write_stage_evidence_artifact` (the Iteration 18 producer) | the unchanged return value of the worker | the value at the declared source `modal_runtime` | `validate_stage_evidence_artifact` + the canonical-JSON equality of the envelope | `provider_response["modal_runtime"] == runtime_identity` | `test_iteration19_the_envelope_is_the_one_the_captured_response_carries` | `test_iteration19_a_detached_envelope_is_rejected` |
 | 5 | The four flags describe exactly one state | the producer writes the flags of the capture | — | — | the state table of Iteration 17 | the state is `EXECUTED_WITH_RUNTIME_ENVELOPE` | `test_iteration19_the_smoke_stage_is_in_the_state_with_a_runtime_envelope` | `test_iteration19_an_impossible_state_is_rejected` |
 | 6 | Every identity fact is a documented typed fact | the worker builds `OBSERVED` / `NOT_AVAILABLE` facts with the repository's own primitives | — | `validate_runtime_identity_envelope` | the validator runs the envelope schema | every identity field is `OBSERVED` with a source, or `NOT_AVAILABLE` with a reason | `test_iteration19_the_envelope_carries_typed_facts_only` | `test_iteration19_a_malformed_identity_fact_is_rejected` |
@@ -164,4 +186,79 @@ Nothing in `benchmarks/evidence_integrity.py` is changed by this iteration. The 
 
 ## 8. Results of this iteration
 
-*Pending — this section is completed with the actual numbers after the live run and the focused test run. The local run and the CI run are reported separately and are never mixed into one number.*
+The numbers of the local run and the numbers of the CI run are reported
+separately. They are never mixed into one number.
+
+### 8.1 The live run (one CPU-only invocation, Modal profile `neubeginner`)
+
+| item | value |
+| --- | --- |
+| exact command | `python -m benchmarks.run_iteration19_cpu_smoke --profile neubeginner --seed iteration19` |
+| source commit | `18ad9740f835e7babb0a7f0fb727752660b2b8f0` (tracked files clean) |
+| Modal SDK | 1.5.5 (client and worker) |
+| app id (provider) | `ap-gW7GDdh9OlSqjL2tRnB1oJ` |
+| function-call id (provider) | `fc-01M71H7789CATYCWNEG05916Y3` |
+| container id (provider) | `ta-01M71H78SAWD0JF71CFPA0QTRR` |
+| image id (provider) | `im-6seZXB42SdpnqIIAiN34Ig` |
+| invocation | `attempted=true`, `executed=true`, `response_received=true`, `runtime_envelope_received=true`, **SUCCEEDED** |
+| started / finished (UTC) | `2026-11-10T01:29:59Z` / `2026-11-10T01:30:09Z` (10.369 s wall clock) |
+| worker-observed runtime | Linux `4.19.0-gvisor` x86_64, CPython 3.11.12, Modal SDK 1.5.5, 17 CPUs, `modal.is_local() = False` |
+| stage state | `EXECUTED_WITH_RUNTIME_ENVELOPE` |
+| declared resources | `gpu=None`, `cpu=0.5`, `memory=256`, `timeout=60`, `retries=0` |
+| GPU | **zero allocation** — no NVIDIA device node, no CUDA runtime library, no CUDA device environment variable, `nvidia-smi` absent |
+| billed CPU/runtime usage | **NOT_AVAILABLE** — the provider's workspace billing report for the day holds 0 line items, so no line exists for this app; nothing was estimated |
+| deployment | ephemeral app of its own; **no `modal deploy` was executed**, no deployed production worker was changed, redeployed or restarted |
+
+Artifacts on disk:
+
+| artifact | SHA-256 |
+| --- | --- |
+| `benchmarks/evidence/iteration19_cpu_smoke/CPU-SMOKE-01_stage_evidence_cpu_smoke.json` | `d797c328eea8950dfce56dd22255ad0793019d745c4a2f692a0e4df91b422e51` |
+| `benchmarks/evidence/iteration19_cpu_smoke/invocation_record.json` | `717ac59d395e13f374919efc47cc2486531f48e90438d01a2bcfac6ddbadf10d` |
+
+The two identity fields the container could not attest itself — the app id and
+the container id — are recorded as `PROVIDER_FIELD_OMITTED` **with the exact
+reason**; the app id and the container id of the run are taken from the
+provider on the client side and carry their own source.
+
+### 8.2 The validator
+
+`python -m benchmarks.validate_iteration19_evidence --code-sha 18ad9740f835e7babb0a7f0fb727752660b2b8f0`
+→ **PASSED, 12/12 checks**. The published report is
+`benchmarks/evidence/iteration19_validation_evidence.json`, bound to the commit
+the run was made from; `--check` re-validates the artifacts from disk and
+exits 0.
+
+### 8.3 The local run (Windows, this machine)
+
+| suite | result |
+| --- | --- |
+| Iteration 19 (`tests/test_iteration19_evidence_integrity.py`) | **24 passed**, 0 skipped |
+| Iteration 18 | 44 passed |
+| Iteration 17 | 65 passed |
+| Iteration 16 | 27 passed |
+| Iteration 15 | 33 passed |
+| Iteration 14 | 73 passed, 3 skipped (the real-Foundry probes: `forge` is not on the local PATH) |
+| full suite `tests/` | **651 passed, 7 skipped** (84.32 s) |
+
+The 7 local skips are exactly the pre-existing ones of Iterations 14 and the
+benchmark execution suite — **none of them belongs to the Iteration 19 suite**:
+
+1. `tests/test_iteration14_evidence_integrity.py::test_real_foundry_integration_observed_environment_carries_real_facts`
+2. `tests/test_iteration14_evidence_integrity.py::test_real_foundry_integration_safe_control_emits_the_exact_documented_sentinel`
+3. `tests/test_iteration14_evidence_integrity.py::test_real_foundry_integration_compilation_error_is_never_a_safe_control`
+4. `tests/test_real_benchmark_execution.py::test_real_slither_integration_is_not_run_when_binary_missing`
+5. `tests/test_real_benchmark_execution.py::test_real_foundry_integration_live_execution`
+6. `tests/test_real_benchmark_execution.py::test_real_foundry_integration_confirmed_exploit_breach`
+7. `tests/test_real_benchmark_execution.py::test_real_foundry_integration_compilation_failure`
+
+They are `NOT_RUN`, because the binaries are not on the local PATH. The four
+`solc` 0.8.20 compile probes of `test_contract_normalization_v2` **pass**
+locally, because `solc-0.8.20.exe` is installed on this machine; in CI they are
+skipped, because the CI runner has no `solc` on its PATH.
+
+### 8.4 The CI run
+
+*Pending — the CI run of the final head is reported here once it has finished.
+The CI numbers and the local numbers are never mixed into one number.*
+
