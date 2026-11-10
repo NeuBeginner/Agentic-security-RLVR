@@ -322,14 +322,14 @@ The 7 local skips are exactly the pre-existing ones of Iteration 14 and the benc
 
 ### 10.5 The CI run
 
-CI run [`42799770130`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42799770130) of the branch (`42ef969`) — **green**. These are **CI** numbers; they are never mixed with the local numbers above.
+CI run [`42800464376`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42800464376) of the branch (`60030ce`) — **green**. These are **CI** numbers; they are never mixed with the local numbers above.
 
 | step | result |
 | --- | --- |
 | Iteration 21 suite (`tests/test_iteration21_evidence_integrity.py`) | **41 passed** |
 | Iteration 20 suite | 33 passed |
 | Iterations 14–19 suites | 73 passed + 3 skipped / 33 / 27 / 65 / 44 / 24 passed |
-| complete test suite | **721 passed, 11 skipped** (10.28 s) |
+| complete test suite | **721 passed, 11 skipped** (7.89 s) |
 | Foundry EVM integration (`tests/test_real_benchmark_execution.py -k real_foundry`) | **4 passed** |
 | Foundry EVM integration (`tests/test_iteration14_evidence_integrity.py -k real_foundry`) | **3 passed** |
 | `python -m benchmarks.validate_iteration21_evidence --check` | published PASSED, revalidated PASSED (**13/13**), bound to `40c0630` |
