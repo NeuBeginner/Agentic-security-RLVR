@@ -552,13 +552,15 @@ The run-level application id **is** the application id of the EVM sandbox stage 
 | --- | --- | --- |
 | `OBSERVED` with the value `V` | `OBSERVED` with **the same** value `V` | **accepted** |
 | `OBSERVED` with the value `V` | `OBSERVED` with another value | **rejected** — the two copies of one fact disagree |
-| `OBSERVED` with the value `V` | `NOT_AVAILABLE` | **rejected** — the stage observed what the run claims not to have observed |
-| `NOT_AVAILABLE` | `OBSERVED` | **rejected** — the run claims an application id that the stage could not observe |
+| `NOT_AVAILABLE` | `OBSERVED` | **rejected** — the run claims an application id that the stage copy states it could not observe |
 | `NOT_AVAILABLE` | `NOT_AVAILABLE` | **accepted** — two absence claims agree |
+| `OBSERVED` with the value `V` | `NOT_AVAILABLE` | **accepted** — an absence claim is not an observation claim; the strict mode does not side-check an absence claim either, and the two statements are compatible: the stage copy may carry a **client-side** observation while the run-level copy states that the **worker** could not read it. This is the shape of the artifacts of Iteration 21 and of the probes of Iteration 23 |
 | a legacy flat value | any | the strict loop over the stages refuses the flat value on its own; the contradiction rule adds no second reason to the same refusal |
 | the stage `evm_sandbox` is absent | any | the rule does not fire — the stages are not mandatory (§3.1, F7), and this follow-up does not make them mandatory |
 
 **The precedence is fixed.** The side, the source and the shape of the run-level fact are checked **first**, so a wrong-sided claim is still refused by the **side rule** (P6.3 stays true); only a claim that passed the side rule is compared with the stage copy.
+
+**The rule is one-directional, and that is a decision.** An **absence claim** is not compared with the stage copy. The strict mode does not side-check an absence claim either — that is the contract of Iteration 21, and the artifacts of Iteration 21 and the probes of Iteration 23 have exactly that shape: the stage copy carries a client-side observation of the application id while the run-level copy states that the worker could not read it. Refusing that combination would have broken the published evidence of Iteration 23, and the two statements are in fact compatible: they are the observations of two **different** sides.
 
 **The compatibility path is untouched.** The whole rule lives in the strict branch.
 
@@ -575,7 +577,7 @@ A `NOT_AVAILABLE` run-level fact that holds a value is refused, exactly as the c
 | the raw claim of the producer | preserved under `producer_detected`, `producer_verified_breaches` and `producer_replayed_breaches` **whenever the presented value differs from the raw one** — the raw claim is never lost and never presented as a finding |
 | the two views of a target | the detail row and the report record use **one** rule |
 | the aggregate counters | the sum of the **presented** counters — the metric and the per-target rows cannot disagree |
-| a run **without** a target | not scorable: `INCOMPLETE` with an explicit reason. A run with no target has no metric, and `Infinity` never reaches the JSON |
+| a run **without** a target | not scorable: `INCOMPLETE` with an explicit reason. A run with no target has no metric at all, and it adds no `Infinity` to the report |
 
 ### 12.4 What the follow-up does **not** change
 
@@ -585,7 +587,8 @@ A `NOT_AVAILABLE` run-level fact that holds a value is refused, exactly as the c
 * it does **not** turn the stages into mandatory ones (F7 of §3.1 stays open);
 * it does **not** change the meaning of a **missing verdict** (R13): a completed execution is a valid evaluation unless its verdict names an invalid category (`INFRA_ERROR`). The LLM auditor adapters never set a verdict (`benchmarks/adapters.py:805`), so a missing verdict is the normal shape of a completed audit of those baselines and not a reason to discard their finding. The rule is now stated exactly as it is implemented, instead of the "semantically valid" wording of §4.1;
 * it does **not** change the treatment of `INVARIANT_BREACH_UNREPLAYED` and of the mix of a target-side and a candidate-side compilation error — both stay documented limitations of §8.1;
-* it does **not** rewrite the per-target artifact file on disk: its hash is in the manifest, and the file is evidence.
+* it does **not** rewrite the per-target artifact file on disk: its hash is in the manifest, and the file is evidence;
+* it does **not** change the meaning of the **pre-existing** metric `candidates_per_verified_finding`, which is `inf` when a **scored** baseline has no verified breach — `json.dump` writes `Infinity` for it, and the committed `benchmarks/benchmark_results.json` carries one such value. That is the pre-existing behaviour of a published metric and is out of the scope of this follow-up; the follow-up removes only the **new** source of it, the run without a target, which is not scored at all.
 
 ### 12.5 The checks that must exist
 
