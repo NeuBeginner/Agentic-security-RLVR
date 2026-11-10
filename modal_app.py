@@ -362,6 +362,57 @@ class DevReasoningAgent:
 # =============================================================================
 # 3. EPHEMERAL CPU WORKERS (Foundry / Slither / Replay Sandbox)
 # =============================================================================
+
+#: The exact reason a worker cannot attest the application id of its own run.
+#:
+#: Modal SDK 1.5.5 offers a function container **no** running-app accessor:
+#: ``modal.running_app`` is a *module* (``modal/running_app.py``) that holds the
+#: ``RunningApp`` dataclass and the client-side helper ``running_app_from_layout``
+#: - it is not callable, so ``modal.running_app()`` raises
+#: ``TypeError: 'module' object is not callable``. The runtime-context API the
+#: container does have (``modal.current_function_call_id``,
+#: ``modal.current_input_id``, ``modal.interact``, ``modal.is_local``) carries no
+#: application id either. The application id of a run is a fact of the
+#: **client**, which reads it from the provider-issued ``App.app_id``.
+MODAL_APP_ID_UNAVAILABLE_REASON = (
+    "Modal SDK 1.5.5 exposes no running-app accessor to a function container: "
+    "modal.running_app is a module and not a callable, and the runtime-context API "
+    "(modal.current_function_call_id, modal.current_input_id, modal.interact, "
+    "modal.is_local) carries no application id. The application id of this run is a "
+    "client-side fact of the provider-issued App.app_id of the running app."
+)
+
+#: The exact reason a worker cannot attest its own container identity.
+#:
+#: The Modal SDK reads the worker id from the ``worker_id`` configuration
+#: setting, which the runtime publishes as ``MODAL_WORKER_ID`` only for internal
+#: debugging, and the gVisor container of the live CPU-only run of Iteration 19
+#: set no hostname either. The worker therefore cannot attest its own container
+#: identity; the provider-issued container id of a run is a client-side fact of
+#: the provider's container list.
+MODAL_CONTAINER_ID_UNAVAILABLE_REASON = (
+    "the running container exposed neither MODAL_WORKER_ID (the Modal SDK reads the "
+    "worker id from the 'worker_id' configuration setting, which the runtime sets only "
+    "for internal debugging) nor HOSTNAME (a Modal function container sets no "
+    "hostname), so the worker itself could not attest its container identity; the "
+    "provider-issued container id of this run is a client-side fact of the provider's "
+    "container list"
+)
+
+#: The exact reason a worker cannot report the app page URL of its own run.
+#:
+#: The only candidate inside the container was the unsupported
+#: ``modal.running_app``; the supported ``App.get_dashboard_url()`` is a
+#: client-side API of the SDK.
+MODAL_APP_PAGE_URL_UNAVAILABLE_REASON = (
+    "the Modal runtime exposes no app page URL to a function container: the only "
+    "candidate inside the container was modal.running_app, which is a module and not a "
+    "callable in Modal SDK 1.5.5, while the supported App.get_dashboard_url() is a "
+    "client-side API of the SDK. The app page URL of this run is a client-side fact of "
+    "the provider."
+)
+
+
 def capture_modal_runtime_identity() -> dict:
     """
     Capture the provider-issued identity of the running Modal container.
@@ -370,24 +421,35 @@ def capture_modal_runtime_identity() -> dict:
     runtime does not expose is reported as NOT_AVAILABLE with the exact
     reason - never as a constant and never as a fabricated URI
     (Iteration 14 P0.1).
+
+    Only the APIs the installed Modal SDK really offers to a function
+    container are used (Iteration 20 P0):
+
+    * ``modal.current_function_call_id()`` - the id of the current call;
+    * the ``MODAL_WORKER_ID`` / ``HOSTNAME`` environment of the container.
+
+    There is **no** call of ``modal.running_app``: in Modal SDK 1.5.5 that
+    name is a module, so calling it raises and the exception would only be
+    swallowed - the deployed worker would silently report an app identity it
+    never observed. Every fact of this envelope is observed **inside the
+    container** and says so; the facts the provider only issues to the client
+    (the application id, the app page URL) are client-side facts and live in
+    the client's own block.
     """
-    from benchmarks.evidence_integrity import NOT_AVAILABLE, observed, not_available
+    from benchmarks.evidence_integrity import (
+        OBSERVATION_SIDE_WORKER,
+        not_available,
+        observed,
+    )
 
     identity: dict = {}
 
-    # Application id of the running app (provider-issued).
-    app_id = None
-    try:
-        running = modal.running_app()
-        app_id = getattr(running, "app_id", None)
-    except Exception:
-        app_id = None
-    identity["app_id"] = (
-        observed(str(app_id), source="modal.running_app().app_id")
-        if app_id
-        else not_available(
-            "the Modal runtime did not expose a running application id inside this container"
-        )
+    # The application id of the running app. Modal SDK 1.5.5 gives a function
+    # container no way to read it - the reason states that, and names the
+    # client-side fact that holds it.
+    identity["app_id"] = not_available(
+        MODAL_APP_ID_UNAVAILABLE_REASON,
+        observed_by=OBSERVATION_SIDE_WORKER,
     )
 
     # Function-call id of the invocation that is currently executing.
@@ -397,36 +459,41 @@ def capture_modal_runtime_identity() -> dict:
     except Exception:
         function_call_id = None
     identity["function_call_id"] = (
-        observed(str(function_call_id), source="modal.current_function_call_id()")
+        observed(
+            str(function_call_id),
+            source="modal.current_function_call_id()",
+            observed_by=OBSERVATION_SIDE_WORKER,
+        )
         if function_call_id
         else not_available(
-            "the Modal runtime did not expose a function-call id inside this container"
+            "the Modal runtime did not expose a function-call id to this process "
+            "(modal.current_function_call_id() returns no id outside a Modal function "
+            "container)",
+            observed_by=OBSERVATION_SIDE_WORKER,
         )
     )
 
     # Container identity: the worker id Modal assigns to this container.
     container_id = os.environ.get("MODAL_WORKER_ID") or os.environ.get("HOSTNAME")
     identity["container_id"] = (
-        observed(str(container_id), source="MODAL_WORKER_ID/HOSTNAME of the running container")
+        observed(
+            str(container_id),
+            source="MODAL_WORKER_ID/HOSTNAME of the running container",
+            observed_by=OBSERVATION_SIDE_WORKER,
+        )
         if container_id
         else not_available(
-            "the container exposed neither MODAL_WORKER_ID nor HOSTNAME, so its identity "
-            "cannot be attested"
+            MODAL_CONTAINER_ID_UNAVAILABLE_REASON,
+            observed_by=OBSERVATION_SIDE_WORKER,
         )
     )
     identity["container_id_value"] = container_id
 
-    # Provider-issued dashboard reference for the running app.
-    app_page_url = None
-    try:
-        running = modal.running_app()
-        app_page_url = getattr(running, "app_page_url", None)
-    except Exception:
-        app_page_url = None
-    identity["app_page_url"] = (
-        observed(str(app_page_url), source="modal.running_app().app_page_url")
-        if app_page_url
-        else not_available("the Modal runtime did not expose an application page URL")
+    # The provider-issued dashboard reference for the running app. A function
+    # container cannot obtain it from a supported API.
+    identity["app_page_url"] = not_available(
+        MODAL_APP_PAGE_URL_UNAVAILABLE_REASON,
+        observed_by=OBSERVATION_SIDE_WORKER,
     )
 
     return identity

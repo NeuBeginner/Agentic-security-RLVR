@@ -104,6 +104,38 @@ FORBIDDEN_SYNTHETIC_CONTAINER_IDS = frozenset({
 #: identity even though it looks like one.
 SYNTHETIC_CONTAINER_ID_RE = re.compile(r"^modal-(cpu|gpu|t4|h100)-[0-9a-f]{12}$")
 
+# ---------------------------------------------------------------------------
+# The side of an observation (Iteration 20)
+# ---------------------------------------------------------------------------
+#
+# Modal SDK 1.5.5 gives a function container neither a running-app accessor
+# (``modal.running_app`` is a module, not a callable) nor a worker/hostname
+# environment variable. A worker can therefore attest the function-call id
+# only; the application id and the app page URL of a run are facts of the
+# **client**, which reads them from the provider.
+#
+# A fact that does not name its side stays valid - every artifact of
+# Iterations 14-19 has no such name. But a fact that *does* name a side must
+# name it correctly: a client observation can never be presented as a worker
+# observation.
+
+#: A fact that was observed inside the running worker container.
+OBSERVATION_SIDE_WORKER = "worker"
+
+#: A fact that the client observed from the provider.
+OBSERVATION_SIDE_CLIENT = "client"
+
+#: Every side an observation may name.
+OBSERVATION_SIDES = (OBSERVATION_SIDE_WORKER, OBSERVATION_SIDE_CLIENT)
+
+#: A source that names the client side of an observation.
+CLIENT_SIDE_SOURCE_RE = re.compile(r"(?i)\bclient[- ]side\b")
+
+#: A source that names the worker side of an observation.
+WORKER_SIDE_SOURCE_RE = re.compile(
+    r"(?i)\b(?:worker[- ]side|(?:inside|in|of) the (?:running )?container)\b"
+)
+
 
 # ---------------------------------------------------------------------------
 # Low-level helpers
@@ -143,6 +175,7 @@ def not_available(
     *,
     evidence_ref: Optional[Dict[str, Any]] = None,
     absence_kind: Optional[str] = None,
+    observed_by: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Build an explicit "not available" fact.
@@ -155,6 +188,11 @@ def not_available(
     mandatory for every fact that is produced by the stage-evidence layer,
     because "the provider did not report it" and "this client never asked for
     it" are very different statements.
+
+    ``observed_by`` names the side of the invocation that made the observation
+    (Iteration 20). A fact of a worker is worker-side; a fact the client read
+    from the provider is client-side. The name is optional so that every
+    artifact of Iterations 14-19 stays valid.
     """
     if not reason or not str(reason).strip():
         raise ValueError("A NOT_AVAILABLE fact requires an explicit reason")
@@ -167,6 +205,8 @@ def not_available(
         if absence_kind not in ABSENCE_KINDS:
             raise ValueError(f"Unknown absence kind: {absence_kind!r}")
         fact["absence_kind"] = absence_kind
+    if observed_by is not None:
+        fact["observed_by"] = _validated_observation_side(observed_by)
     if evidence_ref:
         fact["evidence_ref"] = (
             evidence_ref.to_dict() if hasattr(evidence_ref, "to_dict") else dict(evidence_ref)
@@ -174,15 +214,36 @@ def not_available(
     return fact
 
 
-def observed(value: Any, *, source: str) -> Dict[str, Any]:
-    """Build an observed fact together with the source it was read from."""
+def observed(value: Any, *, source: str, observed_by: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Build an observed fact together with the source it was read from.
+
+    ``observed_by`` names the side of the invocation that observed the value
+    (Iteration 20): ``"worker"`` for a value read inside the container,
+    ``"client"`` for a value the client read from the provider. The name is
+    optional so that every artifact of Iterations 14-19 stays valid.
+    """
     if not source or not str(source).strip():
         raise ValueError("An OBSERVED fact requires an explicit source")
-    return {
+    fact: Dict[str, Any] = {
         "status": OBSERVED,
         "value": value,
         "source": str(source).strip(),
     }
+    if observed_by is not None:
+        fact["observed_by"] = _validated_observation_side(observed_by)
+    return fact
+
+
+def _validated_observation_side(observed_by: Any) -> str:
+    """Return the side of an observation, or refuse an unknown one."""
+    if observed_by not in OBSERVATION_SIDES:
+        raise ValueError(
+            "An observation side must be one of {sides}, not {value!r}".format(
+                sides=", ".join(OBSERVATION_SIDES), value=observed_by
+            )
+        )
+    return str(observed_by)
 
 
 def attach_evidence_ref(fact: Any, evidence_ref: Any) -> Any:
@@ -636,8 +697,74 @@ def _is_observed_fact(fact: Any) -> bool:
     return isinstance(source, str) and bool(source.strip())
 
 
+def validate_observation_side(
+    fact: Any,
+    *,
+    expected_side: Optional[str] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Check that a fact names the side that observed it - and names it correctly.
+
+    * a fact may name only a known side;
+    * a fact may not name a side other than the expected one: the envelope of a
+      worker response is worker-side by construction, so a client observation
+      can never sit inside it;
+    * an ``OBSERVED`` fact whose source names the client side may not be
+      labelled ``worker``, and a fact whose source names the worker side may
+      not be labelled ``client``.
+
+    A ``NOT_AVAILABLE`` fact is **not** restricted by its reason: the reason of
+    an absent worker fact is allowed to name the client side as the place where
+    the value *is* available.
+
+    A fact that names no side at all is accepted - every artifact of
+    Iterations 14-19 has no such name.
+    """
+    if not isinstance(fact, dict):
+        return True, None
+
+    declared = fact.get("observed_by")
+    if declared is None:
+        return True, None
+
+    if declared not in OBSERVATION_SIDES:
+        return False, (
+            f"The fact names the unknown observation side {declared!r}; a fact may name only "
+            f"{', '.join(OBSERVATION_SIDES)}"
+        )
+
+    if expected_side is not None and declared != expected_side:
+        return False, (
+            f"The fact names the observation side {declared!r}, but this envelope is "
+            f"{expected_side!r}-side: a {expected_side} observation may not be presented as a "
+            f"{declared} observation"
+        )
+
+    if fact.get("status") != OBSERVED:
+        # The reason of an absent fact may name the other side - that is where
+        # the value is available.
+        return True, None
+
+    source = str(fact.get("source") or "")
+    if declared == OBSERVATION_SIDE_WORKER and CLIENT_SIDE_SOURCE_RE.search(source):
+        return False, (
+            "The fact is labelled as observed by the worker, but its source names the client "
+            f"side: {source!r}. A client observation can never be presented as a worker "
+            "observation."
+        )
+    if declared == OBSERVATION_SIDE_CLIENT and WORKER_SIDE_SOURCE_RE.search(source):
+        return False, (
+            "The fact is labelled as observed by the client, but its source names the worker "
+            f"side: {source!r}. A worker observation can never be presented as a client "
+            "observation."
+        )
+    return True, None
+
+
 def validate_runtime_identity_envelope(
     envelope: Any,
+    *,
+    expected_side: Optional[str] = OBSERVATION_SIDE_WORKER,
 ) -> Tuple[bool, Optional[str]]:
     """
     Validate the schema of a runtime-identity envelope.
@@ -657,6 +784,11 @@ def validate_runtime_identity_envelope(
     provider keys the Modal worker returns (``app_page_url``,
     ``container_id_value``) are not identity fields, are not classified and
     are therefore not part of this contract.
+
+    ``expected_side`` is the side the envelope itself belongs to (Iteration
+    20). The envelope of a worker response is worker-side, so a fact inside it
+    may not claim to be a client observation. A fact that names no side at all
+    stays valid, so every artifact of Iterations 14-19 remains valid.
     """
     if envelope is None:
         return True, None
@@ -677,6 +809,12 @@ def validate_runtime_identity_envelope(
             return False, (
                 f"The runtime-identity envelope carries a malformed fact for '{field_name}': "
                 f"its status {status!r} is neither {OBSERVED!r} nor {NOT_AVAILABLE!r}"
+            )
+        ok, error = validate_observation_side(fact, expected_side=expected_side)
+        if not ok:
+            return False, (
+                f"The runtime-identity envelope carries a malformed fact for '{field_name}': "
+                f"{error}"
             )
         if status == OBSERVED:
             value = fact.get("value")
@@ -851,6 +989,27 @@ def _observed_identity_value(
     if _is_observed_fact(fact):
         return fact.get("value"), str(fact.get("source") or "")
     return None, ""
+
+
+def _observed_identity_side(
+    runtime_identity: Optional[Dict[str, Any]],
+    field_name: str,
+) -> Optional[str]:
+    """
+    The side that observed an identity field, or ``None``.
+
+    The side is the one the envelope declared for that field. A field the
+    envelope did not declare a side for keeps no side here as well - the fact
+    of a stage is exactly as explicit as the envelope it was derived from
+    (Iteration 20).
+    """
+    if not isinstance(runtime_identity, dict):
+        return None
+    fact = runtime_identity.get(field_name)
+    if not _is_observed_fact(fact):
+        return None
+    side = fact.get("observed_by")
+    return str(side) if side in OBSERVATION_SIDES else None
 
 
 def _provider_absence_reason(
@@ -1096,6 +1255,10 @@ def build_stage_identity_facts(
             facts[field_name] = observed(
                 value,
                 source=source or f"the provider response of the {capture.stage} stage",
+                # The side of the observation is the side the envelope declared
+                # for that field: a worker-side fact stays worker-side
+                # (Iteration 20).
+                observed_by=_observed_identity_side(capture.runtime_identity, field_name),
             )
             continue
         facts[field_name] = not_available(
@@ -1607,6 +1770,88 @@ def build_modal_stage_provenance(
     return stage
 
 
+#: The shape of the provider's own dashboard URL of an app.
+MODAL_APP_PAGE_URL_RE = re.compile(r"^https://modal\.com/id/ap-[A-Za-z0-9]{8,}$")
+
+
+def validate_client_observed_facts(block: Any) -> Tuple[bool, Optional[str]]:
+    """
+    Validate the facts the **client** observed from the provider.
+
+    Modal SDK 1.5.5 gives a function container neither a running-app accessor
+    (``modal.running_app`` is a module, not a callable) nor a worker/hostname
+    environment variable. The application id and the app page URL of a run are
+    therefore facts of the client, and they live in their own block so that
+    they can never be mistaken for worker observations.
+
+    Rejects:
+
+    * a block that is not an object;
+    * a fact that does not declare the client side - a client observation that
+      does not say where it was observed is exactly the ambiguity this block
+      exists to remove;
+    * a fact that declares the worker side;
+    * an observed application id that is not a plausible Modal application id;
+    * an observed app page URL that is not the provider's own dashboard URL of
+      such an application;
+    * a ``NOT_AVAILABLE`` fact without a reason.
+    """
+    if block is None:
+        return True, None
+    if not isinstance(block, dict):
+        return False, "The client-observed block is not an object"
+
+    for field_name, fact in block.items():
+        if not isinstance(fact, dict):
+            return False, (
+                f"The client-observed fact for '{field_name}' is not a typed fact"
+            )
+        status = fact.get("status")
+        if status not in IDENTITY_FACT_STATUSES:
+            return False, (
+                f"The client-observed fact for '{field_name}' has the unknown status "
+                f"{status!r}"
+            )
+
+        declared = fact.get("observed_by")
+        if declared != OBSERVATION_SIDE_CLIENT:
+            return False, (
+                f"The client-observed fact for '{field_name}' declares the observation side "
+                f"{declared!r}, not {OBSERVATION_SIDE_CLIENT!r}: a client observation that does "
+                "not name the client side may not be presented as a worker observation"
+            )
+
+        if status == NOT_AVAILABLE:
+            if fact.get("value") is not None:
+                return False, (
+                    f"The client-observed fact for '{field_name}' is NOT_AVAILABLE but holds a "
+                    "value"
+                )
+            reason = fact.get("reason")
+            if not isinstance(reason, str) or not reason.strip():
+                return False, (
+                    f"The client-observed fact for '{field_name}' is NOT_AVAILABLE without an "
+                    "explicit reason"
+                )
+            continue
+
+        value = fact.get("value")
+        if not isinstance(value, str) or not value.strip():
+            return False, (
+                f"The client-observed fact for '{field_name}' holds no usable value"
+            )
+        if field_name == "app_id" and not MODAL_APP_ID_RE.fullmatch(value):
+            return False, (
+                f"The client-observed application id is malformed: {value!r}"
+            )
+        if field_name == "app_page_url" and not MODAL_APP_PAGE_URL_RE.fullmatch(value):
+            return False, (
+                f"The client-observed app page URL is not the provider's dashboard URL of an "
+                f"application: {value!r}"
+            )
+    return True, None
+
+
 def validate_modal_invocation_provenance(
     artifact: Dict[str, Any],
     *,
@@ -1638,6 +1883,13 @@ def validate_modal_invocation_provenance(
     provenance = artifact.get("modal_invocation_provenance")
     if not isinstance(provenance, dict) or not provenance:
         return False, "Missing modal_invocation_provenance for the executed target"
+
+    # The facts the client observed from the provider live in their own block
+    # (Iteration 20). They are checked separately from the worker-side stages:
+    # a client observation may never be presented as a worker observation.
+    ok, error = validate_client_observed_facts(provenance.get("client_observed"))
+    if not ok:
+        return False, error
 
     stages = provenance.get("stages")
     if not isinstance(stages, dict) or not stages:

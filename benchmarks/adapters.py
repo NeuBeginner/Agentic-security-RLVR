@@ -93,6 +93,90 @@ class ModalAppContext:
 def ensure_modal_app_context() -> ModalAppContext:
     return ModalAppContext()
 
+
+def _client_observed_app_id() -> Dict[str, Any]:
+    """
+    The provider-issued application id of the running Modal app - observed on
+    the **client** side (Iteration 20).
+
+    Modal SDK 1.5.5 gives a function container no way to read the application
+    id: ``modal.running_app`` is a module, not a callable. The client, however,
+    holds the provider-issued ``App.app_id`` of the app it ran - the SDK keeps
+    it after the app has finished.
+
+    The fact is explicitly client-side: a client observation is never
+    presented as a worker observation.
+    """
+    from benchmarks.evidence_integrity import (
+        OBSERVATION_SIDE_CLIENT,
+        not_available,
+        observed,
+    )
+
+    app_id = None
+    try:
+        from modal_app import app as running_modal_app
+
+        app_id = getattr(running_modal_app, "app_id", None)
+    except Exception:
+        app_id = None
+
+    if app_id:
+        return observed(
+            str(app_id),
+            source=(
+                "the provider-issued App.app_id of the running app "
+                "(Modal SDK 1.5.5, client side)"
+            ),
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+    return not_available(
+        "the running Modal app exposed no provider-issued application id on the client "
+        "side: App.app_id stays None until the app has been run or deployed",
+        observed_by=OBSERVATION_SIDE_CLIENT,
+    )
+
+
+def _client_observed_app_page_url() -> Dict[str, Any]:
+    """
+    The provider's own dashboard URL of the running Modal app - observed on
+    the **client** side (Iteration 20).
+
+    ``App.get_dashboard_url()`` is a supported public method of the SDK; it
+    returns the provider's URL of the app it belongs to. A function container
+    has no such API, so this fact is a client-side one.
+    """
+    from benchmarks.evidence_integrity import (
+        OBSERVATION_SIDE_CLIENT,
+        not_available,
+        observed,
+    )
+
+    app_page_url = None
+    failure = ""
+    try:
+        from modal_app import app as running_modal_app
+
+        app_page_url = running_modal_app.get_dashboard_url()
+    except Exception as exc:
+        app_page_url = None
+        failure = f": {type(exc).__name__}: {exc}"
+
+    if app_page_url:
+        return observed(
+            str(app_page_url),
+            source=(
+                "the provider's own dashboard URL of the running app "
+                "(App.get_dashboard_url(), Modal SDK 1.5.5, client side)"
+            ),
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+    return not_available(
+        "the running Modal app exposed no dashboard URL on the client side: "
+        f"App.get_dashboard_url() returned nothing{failure}",
+        observed_by=OBSERVATION_SIDE_CLIENT,
+    )
+
 from benchmarks.protocol import (
     TargetSpecification,
     TargetExecutionArtifact,
@@ -2074,6 +2158,17 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 # reported, so it is backed by that stage's evidence and by no
                 # other.
                 "modal_app_id": _stage_facts("evm_sandbox")["app_id"],
+                # The facts the CLIENT observed from the provider (Iteration 20).
+                # Modal SDK 1.5.5 gives a function container neither a
+                # running-app accessor nor a worker/hostname environment
+                # variable, so the application id and the app page URL of a run
+                # are client-side facts. They live in their own block and name
+                # their side: a client observation is never presented as a
+                # worker observation.
+                "client_observed": {
+                    "app_id": _client_observed_app_id(),
+                    "app_page_url": _client_observed_app_page_url(),
+                },
                 "target_id": target.contract_id,
                 "correlation_id": correlation_id,
                 "stages": {

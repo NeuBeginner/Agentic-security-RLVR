@@ -95,6 +95,12 @@ jobs:
           TOKENIZERS_PARALLELISM: "false"
         run: python -m pytest -q tests/test_iteration19_evidence_integrity.py
 
+      - name: Run Iteration 20 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration20_evidence_integrity.py
+
       - name: Run GRPO and trajectory integrity tests
         env:
           PYTHONPATH: .
@@ -205,6 +211,12 @@ jobs:
           PYTHONPATH: .
         run: |
           python -m benchmarks.validate_iteration19_evidence --check
+
+      - name: Validate Iteration 20 production runtime-identity producer
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_iteration20_evidence --check
 
       - name: Upload Foundry test report
         if: always()
