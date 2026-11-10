@@ -444,16 +444,22 @@ def _validate_iteration19(
         source_errors.append(
             "the tracked files of the source tree were modified when the run was made"
         )
+    if code_sha and recorded_sha and code_sha != recorded_sha:
+        source_errors.append(
+            f"the report would be bound to the commit {code_sha}, but the run was made "
+            f"from the commit {recorded_sha}"
+        )
     checks.append(
         _check(
             "P1.8.source_binding",
             not source_errors,
             error="; ".join(source_errors) if source_errors else None,
             planned=(
-                "the run is bound to the commit it was made from, and that commit is an "
-                "ancestor of HEAD"
+                "the run is bound to the commit it was made from, that commit is an "
+                "ancestor of HEAD, and the report is bound to exactly that commit"
             ),
             recorded_commit=recorded_sha,
+            report_bound_to=code_sha,
             tracked_files_modified=source_state.get("tracked_files_modified"),
         )
     )
@@ -642,7 +648,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
             return 1
 
-        outcome = _validate_iteration19(evidence_dir=evidence_dir, code_sha=code_sha)
+        # The report is validated against the commit it is bound to - not
+        # against the current HEAD, which may be a later commit.
+        outcome = _validate_iteration19(evidence_dir=evidence_dir, code_sha=bound)
         published = report.get("summary", {}).get("overall_status")
         current = "PASSED" if not outcome["errors"] else "FAILED"
         summary = report.get("summary", {})
@@ -668,7 +676,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     failed = [check for check in checks if check["status"] == "FAILED"]
 
     branch = _git("rev-parse", "--abbrev-ref", "HEAD")
-    status = _git("status", "--porcelain")
+    status = _git("status", "--porcelain") or ""
+    tracked_changes = [
+        line for line in status.splitlines() if line.strip() and not line.startswith("??")
+    ]
+    untracked_paths = [
+        line[3:].strip()
+        for line in status.splitlines()
+        if line.strip().startswith("??")
+    ]
 
     report = {
         "schema_version": "1.0.0",
@@ -690,7 +706,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         "git": {
             "head": _current_code_sha(),
             "branch": branch,
-            "dirty": bool(status),
+            "dirty": bool(tracked_changes),
+            "tracked_changes": tracked_changes,
+            "untracked_paths": untracked_paths,
         },
         "checks": checks,
         "summary": {

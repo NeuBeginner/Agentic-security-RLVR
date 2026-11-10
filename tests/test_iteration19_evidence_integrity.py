@@ -107,13 +107,16 @@ def _revalidate(
     *,
     record_mutator: Optional[Callable[[Dict[str, Any]], None]] = None,
     artifact_mutator: Optional[Callable[[Dict[str, Any]], None]] = None,
+    keep_recorded_digest: bool = False,
 ) -> Dict[str, Any]:
     """
     Run the Iteration 19 validator over a copy of the live artifacts.
 
     The copy may be mutated - that is how the adversarial tests prove that the
     validator really rejects a broken artifact and does not merely accept the
-    published one.
+    published one. With ``keep_recorded_digest`` the record keeps the digest of
+    the published artifact, so a tampered artifact is caught twice: by the
+    contract of the artifact and by the digest of its bytes.
     """
     live = _live_artifacts()
     record = json.loads(json.dumps(live["record"]))
@@ -131,9 +134,10 @@ def _revalidate(
     ).encode("utf-8")
     (evidence_dir / ARTIFACT_PATH.name).write_bytes(artifact_bytes)
 
-    # The record must claim the digest of the bytes that are on disk now.
-    record["evidence_artifact"]["sha256"] = sha256_bytes(artifact_bytes)
-    record["evidence_artifact"]["byte_length"] = len(artifact_bytes)
+    if not keep_recorded_digest:
+        # The record must claim the digest of the bytes that are on disk now.
+        record["evidence_artifact"]["sha256"] = sha256_bytes(artifact_bytes)
+        record["evidence_artifact"]["byte_length"] = len(artifact_bytes)
     (evidence_dir / RECORD_PATH.name).write_text(
         json.dumps(record, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8"
     )
@@ -432,11 +436,13 @@ def test_iteration19_a_tampered_artifact_is_rejected(tmp_path):
         artifact_mutator=lambda artifact: artifact["provider_response"][
             "smoke_payload"
         ].update({"smoke_result": "tampered"}),
+        keep_recorded_digest=True,
     )
     contract = _check_by_name(outcome, "P1.2.stage_evidence_contract")
     assert contract["status"] == "FAILED"
     digest = _check_by_name(outcome, "P1.7.artifact_digest_from_disk")
     assert digest["status"] == "FAILED"
+    assert "differs from the digest" in digest["error"]
 
 
 # ===========================================================================
