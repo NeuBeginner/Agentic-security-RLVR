@@ -35,29 +35,35 @@ The checks of this validator:
 
 * the strict consumer **accepts** a client-observed run-level application id;
 * the strict consumer **rejects** the same fact with a missing, a ``null``, an
-  unknown and the wrong side, as a legacy flat value and as a missing fact;
+  unknown and the wrong side, as a legacy flat value, as an unknown status and
+  as a missing fact;
 * the rejection of the wrong side comes from the **side rule** and not from a
   stale digest - the artifact is rewritten and the digests are **recomputed**
   from the bytes on disk;
 * the **compatibility path** still reads the side-less artifacts of Iterations
-  14-20;
+  14-20 in every shape that the pre-fix code accepted;
 * the report of the **real** evaluator states a failed or unavailable target as
   ``NOT_EVALUATED`` - for every combination of a non-success status and the
-  negative verdicts;
+  negative verdicts, and for the verdicts that declare the audit itself invalid;
 * a **mixed** baseline keeps its metrics ``None`` and its failed target out of
   the findings;
 * a **completed** run keeps its negative verdict and its own detection - the fix
   does not hollow out the verdict semantics;
-* the report of the **real runner** states the detection state and both views of
-  a target agree with each other;
-* the **successful** and the **failure** vertical chain hold end to end;
-* the **pre-fix** rules are reproduced inside this validator and still accept
-  the defects: the defects were real and the checks are not vacuous;
+* the report of the **real runner** - with a **failing** execution in it - states
+  the detection state, keeps both views of a target in agreement, and keeps the
+  failure visible in the adapter and target manifests;
+* the **successful** and the **failure** vertical chain hold end to end, the
+  billing join included;
+* the **pre-fix** rules are reproduced by **executing the historical source**
+  - the defect was real and the checks are not vacuous;
 * the evidence of Iterations 14-23 still satisfies its own validator - and the
   historical 16-target evidence stays **visibly failed**;
 * the **producer source** is unchanged since the capture of Iteration 21: the
   producer is not the defect;
 * the digest of the stage evidence artifact is the digest of the bytes on disk;
+* the closure runs in a **synthetic** context: the smoke run of the real runner
+  is a synthetic smoke test, and the ``OBSERVED`` branch of the producer was
+  exercised in a **simulated** container context;
 * the report is bound to the code SHA it was produced from; ``--check`` refuses
   a foreign SHA.
 
@@ -76,6 +82,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -98,6 +105,7 @@ from benchmarks.evidence_integrity import (  # noqa: E402
     SOURCE_CLIENT_APP_PAGE_URL,
     SOURCE_CLIENT_CONTAINER_ID,
     SOURCE_WORKER_FUNCTION_CALL_ID,
+    BillingLineItem,
     StageResponseCapture,
     build_modal_stage_provenance,
     build_stage_identity_facts,
@@ -105,6 +113,7 @@ from benchmarks.evidence_integrity import (  # noqa: E402
     file_sha256,
     not_available,
     observed,
+    resolve_billing_join,
     sha256_bytes,
     validate_client_observed_facts,
     validate_modal_invocation_provenance,
@@ -137,8 +146,14 @@ DEFAULT_REPORT = "benchmarks/evidence/consolidated_closure_validation_evidence.j
 
 #: The probe directory of this validator. It lives inside the repository
 #: because the producer rehearsal of Iterations 16-18 resolves its directory
-#: relative to the repository root.
+#: relative to the repository root. It is removed after every run and is
+#: ignored by git.
 PROBE_DIR = "benchmarks/evidence/_closure_probe"
+
+#: The commit whose code is the code **before** the closure. The pre-fix rules
+#: are reproduced by executing the source of this commit - not by a
+#: re-implementation of it.
+PRE_FIX_COMMIT = "2909b47~1"
 
 STAGE = "evm_sandbox"
 TARGET_ID = "CLOSURE-01"
@@ -149,13 +164,22 @@ APP_ID = "ap-gW7GDdh9OlSqjL2tRnB1oJ"
 APP_PAGE_URL = f"https://modal.com/id/{APP_ID}"
 CONTAINER_ID = "ta-01M71H78SAWD0JF71CFPA0QTRR"
 
-#: The negative verdicts of a **completed** execution.
-NEGATIVE_VERDICTS = (
+#: The negative verdicts of the code **before** the closure - the set of the
+#: verdicts that turned a run that did not complete into a negative finding.
+HISTORICAL_NEGATIVE_VERDICTS = (
     "COMPILATION_ERROR",
     "RUNTIME_REVERT",
     "GENERATION_FORMAT_ERROR",
     "SAFE_RUN",
 )
+
+#: The negative verdicts of a **completed** execution - the historical set plus
+#: the rejected cheatcode attempt, which the closure added to the set of the
+#: verdicts that may never count as a positive breach.
+NEGATIVE_VERDICTS = HISTORICAL_NEGATIVE_VERDICTS + ("CHEATCODE_DETECTED",)
+
+#: The verdicts that say that the **audit itself** did not run.
+INVALID_VERDICTS = ("INFRA_ERROR",)
 
 #: The statuses of an execution that did not complete.
 INCOMPLETE_STATUSES = ("FAILED", "UNAVAILABLE")
@@ -214,21 +238,24 @@ def _observed_fact(value, source, *, side=None, declare_side=True) -> Dict[str, 
     return fact
 
 
-def _producer_envelope() -> Dict[str, Any]:
+def _producer_capture() -> Dict[str, Any]:
     """
     The envelope of the **real** producer in a simulated container context.
 
     ``modal.current_function_call_id`` is patched to return a fixed id: the
     ``OBSERVED`` branch of the producer is therefore exercised in a simulation,
-    not in a live Modal container.
+    not in a live Modal container. The flag records that the patch was active
+    while the envelope was captured - it is what makes the claim checkable.
     """
     import modal
     import modal_app
 
     original = getattr(modal, "current_function_call_id", None)
+    patched = False
     try:
         modal.current_function_call_id = lambda: FUNCTION_CALL_ID  # type: ignore[assignment]
-        return modal_app.capture_modal_runtime_identity()
+        patched = True
+        envelope = modal_app.capture_modal_runtime_identity()
     finally:
         if original is None:
             try:
@@ -237,6 +264,13 @@ def _producer_envelope() -> Dict[str, Any]:
                 pass
         else:
             modal.current_function_call_id = original  # type: ignore[attr-defined]
+
+    return {
+        "envelope": envelope,
+        "simulated": patched,
+        "patched_function_call_id": FUNCTION_CALL_ID,
+        "captured_function_call_id": (envelope.get("function_call_id") or {}).get("value"),
+    }
 
 
 def _client_block() -> Dict[str, Any]:
@@ -257,20 +291,23 @@ def _client_block() -> Dict[str, Any]:
     }
 
 
-def _build_provenance(directory: Path) -> Tuple[Dict[str, Any], Path]:
+def _build_provenance(
+    directory: Path, capture: Optional[Dict[str, Any]] = None
+) -> Tuple[Dict[str, Any], Path]:
     """
     Build a provenance block from the real producer and write its artifact.
 
     The artifact is written to ``directory`` and the provenance refers to it, so
     the digests of the provenance can be recomputed against real bytes.
     """
-    envelope = _producer_envelope()
+    capture = capture or _producer_capture()
+    envelope = capture["envelope"]
     response = {
         "stage": STAGE,
         "modal_runtime": envelope,
         "worker_observed": {"note": "the response of the production producer"},
     }
-    capture = StageResponseCapture(
+    stage_capture = StageResponseCapture(
         stage=STAGE,
         attempted=True,
         executed=True,
@@ -283,11 +320,11 @@ def _build_provenance(directory: Path) -> Tuple[Dict[str, Any], Path]:
     )
     artifact_path, artifact_ref = write_stage_evidence_artifact(
         directory,
-        capture,
+        stage_capture,
         target_id=TARGET_ID,
         correlation_id="corr-closure-probe",
     )
-    stage_facts = build_stage_identity_facts(capture, evidence_ref=artifact_ref)
+    stage_facts = build_stage_identity_facts(stage_capture, evidence_ref=artifact_ref)
     provenance = {
         "modal_invocation_provenance": {
             "modal_app_id": stage_facts["app_id"],
@@ -366,9 +403,8 @@ def _pre_fix_detection(artifact: TargetExecutionArtifact) -> Optional[bool]:
     """
     The detection of one target **before** the closure.
 
-    This is the rule of ``benchmarks/evaluator.py`` as it stood: the guard on
-    the execution status sat in the *else* branch, so the verdict branch won
-    first and a run that did not complete was turned into a negative finding.
+    This is the rule of ``benchmarks/evaluator.py`` as it stood - the line is
+    quoted from the historical source in the report of this validator.
     """
     is_compile_err = artifact.security_verdict == "COMPILATION_ERROR"
     if is_compile_err or artifact.security_verdict in (
@@ -382,15 +418,87 @@ def _pre_fix_detection(artifact: TargetExecutionArtifact) -> Optional[bool]:
     return None
 
 
-def _pre_fix_run_level_side(fact: Any) -> Tuple[bool, Optional[str]]:
+def _pre_fix_contract(work_dir: Path) -> Optional[Any]:
     """
-    The rule of the run-level application id **before** the closure.
+    Load the evidence contract **as it stood before** the closure.
 
-    The consumer looked at the run-level fact only in its ``NOT_AVAILABLE``
-    shape; every other shape was accepted without a side check. This is the
-    reproduction of that rule.
+    The module is taken from the historical source with ``git show`` and
+    imported as a standalone module: the reproduction of the defect therefore
+    **executes the historical code** and not a re-implementation of it.
     """
-    return True, None
+    source = _git("show", f"{PRE_FIX_COMMIT}:benchmarks/evidence_integrity.py")
+    if not source:
+        return None
+    path = work_dir / "pre_fix_evidence_integrity.py"
+    path.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location(
+        "pre_fix_evidence_integrity", path
+    )
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    # The module has to be in ``sys.modules`` before it is executed: the
+    # dataclasses of the contract resolve their own module at class creation.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class _FailingSmokeAdapter:
+    """
+    A smoke adapter whose execution **fails**.
+
+    It exists so that the report of the **real** runner contains a failed
+    target: only then can the report path be checked at the consumer boundary.
+    """
+
+    def __init__(self) -> None:
+        from benchmarks.adapters import SyntheticSmokeAdapter
+
+        self._inner = SyntheticSmokeAdapter(
+            baseline_id="baseline_1", baseline_name="Synthetic Smoke (failing)"
+        )
+
+    @property
+    def baseline_id(self) -> str:
+        return self._inner.baseline_id
+
+    @property
+    def baseline_name(self) -> str:
+        return self._inner.baseline_name
+
+    @property
+    def timeout_sec(self) -> int:
+        return self._inner.timeout_sec
+
+    @property
+    def resource_budget(self) -> Dict[str, Any]:
+        return dict(self._inner.resource_budget)
+
+    def get_effective_config_hash(self) -> str:
+        return self._inner.get_effective_config_hash()
+
+    def get_default_argv(self) -> List[str]:
+        return list(self._inner.get_default_argv())
+
+    def check_availability(self) -> Tuple[bool, Optional[str]]:
+        return True, None
+
+    def execute_target(
+        self,
+        target,
+        base_dir: Optional[Path] = None,
+        timeout_sec: int = 60,
+    ) -> TargetExecutionArtifact:
+        return TargetExecutionArtifact(
+            baseline_id=self.baseline_id,
+            target_id=target.contract_id,
+            target_name=target.target_name,
+            status=ExecutionStatus.FAILED,
+            security_verdict="COMPILATION_ERROR",
+            unavailable_reason="the compiler rejected the candidate",
+            duration_seconds=0.1,
+        )
 
 
 # =============================================================================
@@ -461,9 +569,7 @@ def _validate_consolidated_closure(
         ok, error = validate_modal_invocation_provenance(
             provenance, evidence_root=work_dir, strict_sources=True
         )
-        rejection_probes.append(
-            {"case": label, "rejected": not ok, "error": error}
-        )
+        rejection_probes.append({"case": label, "rejected": not ok, "error": error})
         if ok:
             rejection_errors.append(
                 f"the strict consumer accepts the run-level application id of the case "
@@ -499,7 +605,11 @@ def _validate_consolidated_closure(
         provenance, evidence_root=work_dir, strict_sources=True
     )
     digest_probes.append(
-        {"probe": "the client-sided run-level fact with recomputed digests", "accepted": ok, "error": error}
+        {
+            "probe": "the client-sided run-level fact with recomputed digests",
+            "accepted": ok,
+            "error": error,
+        }
     )
     if not ok:
         digest_errors.append(
@@ -546,22 +656,31 @@ def _validate_consolidated_closure(
     compat_errors: List[str] = []
     compat_probes: List[Dict[str, Any]] = []
 
-    provenance, _ = _build_provenance(work_dir)
-    provenance["modal_invocation_provenance"]["modal_app_id"] = APP_ID
-    provenance["modal_invocation_provenance"]["stages"][STAGE] = {
-        "attempted": True,
-        "function_name": "verify_exploit_remote",
-        "resource": "CPU",
-        "app_id": APP_ID,
-        "function_call_id": FUNCTION_CALL_ID,
-        "container_id": CONTAINER_ID,
-    }
-    ok, error = validate_modal_invocation_provenance(provenance)
-    compat_probes.append({"case": "the side-less provenance of Iterations 14-20", "accepted": ok, "error": error})
-    if not ok:
-        compat_errors.append(
-            f"the compatibility path rejects the side-less facts of Iterations 14-20: {error}"
+    compat_cases: Tuple[Tuple[str, Any], ...] = (
+        ("legacy_flat_run_level_value", APP_ID),
+        (
+            "side_less_observed_run_level_value",
+            _observed_fact(APP_ID, SOURCE_CLIENT_APP_ID, declare_side=False),
+        ),
+        ("missing_run_level_value", None),
+        ("unknown_status_run_level_value", {"status": "MAYBE", "value": APP_ID}),
+    )
+    for label, fact in compat_cases:
+        provenance, _ = _build_provenance(work_dir)
+        block = provenance["modal_invocation_provenance"]
+        if label == "missing_run_level_value":
+            block.pop("modal_app_id", None)
+        else:
+            block["modal_app_id"] = fact
+        ok, error = validate_modal_invocation_provenance(
+            provenance, evidence_root=work_dir
         )
+        compat_probes.append({"case": label, "accepted": ok, "error": error})
+        if not ok:
+            compat_errors.append(
+                f"the compatibility path rejects the run-level application id of the case "
+                f"{label!r}: {error}"
+            )
 
     side_less = _observed_fact(
         FUNCTION_CALL_ID, SOURCE_WORKER_FUNCTION_CALL_ID, declare_side=False
@@ -578,7 +697,9 @@ def _validate_consolidated_closure(
             error="; ".join(compat_errors) if compat_errors else None,
             planned=(
                 "the artifacts of Iterations 14-20 stay readable through the non-strict "
-                "compatibility path - no side is inferred and none is backfilled"
+                "compatibility path - a flat, a side-less, a missing and an unknown-status "
+                "run-level application id stay acceptable, and no side is inferred and none "
+                "is backfilled"
             ),
             probes=compat_probes,
         )
@@ -588,59 +709,83 @@ def _validate_consolidated_closure(
     # -- P6.5 the report of the evaluator states no negative finding ---------
     leak_errors: List[str] = []
     leak_probes: List[Dict[str, Any]] = []
+    leak_cases: List[Tuple[str, str, str]] = []
     for status_name in INCOMPLETE_STATUSES:
         for verdict in NEGATIVE_VERDICTS:
-            for raw_detected in (False, True):
-                artifact = _artifact(
-                    "T1",
-                    ExecutionStatus[status_name],
-                    verdict=verdict,
-                    detected=raw_detected,
-                    verified_breaches=1,
+            leak_cases.append((status_name, verdict, "negative_verdict"))
+    for verdict in INVALID_VERDICTS:
+        leak_cases.append(("SUCCESS", verdict, "invalid_verdict"))
+    for status_name, verdict, kind in leak_cases:
+        for raw_detected in (False, True):
+            artifact = _artifact(
+                "T1",
+                ExecutionStatus[status_name],
+                verdict=verdict,
+                detected=raw_detected,
+                verified_breaches=1,
+                replayed_breaches=1,
+            )
+            result = evaluate_baseline_run(
+                "baseline_closure", "B", [artifact], _ground_truth()
+            )
+            detail = result.details[0]
+            record = result.target_artifacts[0]
+            leaked = detail["detected"] is not None or record["detected"] is not None
+            leak_probes.append(
+                {
+                    "status": status_name,
+                    "verdict": verdict,
+                    "kind": kind,
+                    "producer_detected": raw_detected,
+                    "detail_detected": detail["detected"],
+                    "detail_state": detail["detection_state"],
+                    "record_detected": record["detected"],
+                    "record_state": record["detection_state"],
+                    "detail_verified_breaches": detail["verified_breaches"],
+                    "record_verified_breaches": record["verified_breaches"],
+                    "producer_detected_preserved": record.get("producer_detected"),
+                    "leaked": leaked,
+                }
+            )
+            if leaked:
+                leak_errors.append(
+                    f"the evaluator states the detection of a {status_name} target with the "
+                    f"verdict {verdict!r} as {detail['detected']!r} / {record['detected']!r} "
+                    "instead of None"
                 )
-                result = evaluate_baseline_run(
-                    "baseline_closure", "B", [artifact], _ground_truth()
+            if detail["detection_state"] != DETECTION_STATE_NOT_EVALUATED:
+                leak_errors.append(
+                    f"the evaluator states the detection state of a {status_name} target "
+                    f"with the verdict {verdict!r} as "
+                    f"{detail['detection_state']!r} instead of NOT_EVALUATED"
                 )
-                detail = result.details[0]
-                record = result.target_artifacts[0]
-                leaked = detail["detected"] is not False or record["detected"] is not False
-                leak_probes.append(
-                    {
-                        "status": status_name,
-                        "verdict": verdict,
-                        "producer_detected": raw_detected,
-                        "detail_detected": detail["detected"],
-                        "detail_state": detail["detection_state"],
-                        "record_detected": record["detected"],
-                        "record_state": record["detection_state"],
-                        "leaked": leaked,
-                    }
+            if record["detection_state"] != DETECTION_STATE_NOT_EVALUATED:
+                leak_errors.append(
+                    f"the report record of a {status_name} target with the verdict "
+                    f"{verdict!r} states {record['detection_state']!r} instead of "
+                    "NOT_EVALUATED"
                 )
-                if detail["detected"] is not None:
-                    leak_errors.append(
-                        f"the evaluator states the detection of a {status_name} target with the "
-                        f"verdict {verdict!r} as {detail['detected']!r} instead of None"
-                    )
-                if detail["detection_state"] != DETECTION_STATE_NOT_EVALUATED:
-                    leak_errors.append(
-                        f"the evaluator states the detection state of a {status_name} target "
-                        f"with the verdict {verdict!r} as "
-                        f"{detail['detection_state']!r} instead of NOT_EVALUATED"
-                    )
-                if record["detected"] is not None:
-                    leak_errors.append(
-                        f"the report record of a {status_name} target with the verdict "
-                        f"{verdict!r} states {record['detected']!r} instead of None"
-                    )
+            if detail["verified_breaches"] != 0 or record["verified_breaches"] != 0:
+                leak_errors.append(
+                    f"a {status_name} target with the verdict {verdict!r} still carries a "
+                    "verified breach"
+                )
+            if record.get("producer_detected") is not raw_detected:
+                leak_errors.append(
+                    f"the raw claim of the producer is not preserved for a {status_name} "
+                    f"target with the verdict {verdict!r}"
+                )
     checks.append(
         _check(
             "P6.5.a_failed_or_unavailable_run_is_never_a_negative_finding",
             not leak_errors,
             error="; ".join(leak_errors) if leak_errors else None,
             planned=(
-                "every combination of a non-success status and the negative verdicts is "
-                "reported as 'no finding' (None / NOT_EVALUATED) - in the detail row and in "
-                "the report record of the target"
+                "every combination of a non-success status and the negative verdicts, and "
+                "every verdict that declares the audit itself invalid, is reported as 'no "
+                "finding' (None / NOT_EVALUATED) - in the detail row and in the report "
+                "record of the target - with no breach counter and with the raw claim of "
+                "the producer preserved"
             ),
             probes=leak_probes,
         )
@@ -680,8 +825,10 @@ def _validate_consolidated_closure(
     for metric in ("precision", "recall", "f1_score", "true_positives", "false_negatives"):
         if getattr(result, metric) is not None:
             mixed_errors.append(f"the mixed baseline has a {metric} instead of None")
-    failed_detail = next(d for d in result.details if d["target_id"] == "T2")
-    if failed_detail["detected"] is not None:
+    failed_detail = next((d for d in result.details if d["target_id"] == "T2"), None)
+    if failed_detail is None:
+        mixed_errors.append("the mixed baseline has no detail row for the failed target")
+    elif failed_detail["detected"] is not None:
         mixed_errors.append(
             f"the failed target of the mixed baseline is {failed_detail['detected']!r} "
             "instead of None"
@@ -724,6 +871,11 @@ def _validate_consolidated_closure(
                 f"the completed run with the verdict {verdict!r} is {detail['detected']!r} "
                 "instead of a negative finding"
             )
+        if detail["detection_state"] != DETECTION_STATE_NEGATIVE:
+            verdict_errors.append(
+                f"the completed run with the verdict {verdict!r} has the state "
+                f"{detail['detection_state']!r} instead of NEGATIVE"
+            )
         if result.status != ExecutionStatus.SUCCESS:
             verdict_errors.append(
                 f"the completed run with the verdict {verdict!r} makes the baseline "
@@ -748,9 +900,15 @@ def _validate_consolidated_closure(
             "true_negatives": result.true_negatives,
         }
     )
-    if by_target["T1"]["detected"] is not True or by_target["T1"]["detection_state"] != DETECTION_STATE_POSITIVE:
+    if (
+        by_target["T1"]["detected"] is not True
+        or by_target["T1"]["detection_state"] != DETECTION_STATE_POSITIVE
+    ):
         verdict_errors.append("the completed run that found a vulnerability lost its detection")
-    if by_target["T2"]["detected"] is not False or by_target["T2"]["detection_state"] != DETECTION_STATE_NEGATIVE:
+    if (
+        by_target["T2"]["detected"] is not False
+        or by_target["T2"]["detection_state"] != DETECTION_STATE_NEGATIVE
+    ):
         verdict_errors.append("the completed run that found nothing lost its detection")
     if result.true_positives != 1 or result.true_negatives != 1:
         verdict_errors.append(
@@ -775,6 +933,7 @@ def _validate_consolidated_closure(
     # -- P6.8 the report of the real runner states the detection state -------
     runner_errors: List[str] = []
     runner_probes: List[Dict[str, Any]] = []
+    runner_report: Dict[str, Any] = {}
     try:
         from benchmarks.benchmark_runner import AegisBenchmarkSuite
 
@@ -788,14 +947,20 @@ def _validate_consolidated_closure(
         dataset_path = dataset_dir / "benchmark_dataset.json"
         shutil.copyfile(_ROOT / "benchmarks" / "benchmark_dataset.json", dataset_path)
         suite = AegisBenchmarkSuite(dataset_path=dataset_path, artifacts_dir=runner_dir)
-        report = suite.run_benchmark(
+        runner_report = suite.run_benchmark(
             mode="smoke",
             baselines_to_run=["baseline_1"],
             save_results=True,
+            custom_adapters={"baseline_1": _FailingSmokeAdapter()},
         )
-        for baseline_id, baseline in report["baselines"].items():
+        baselines = runner_report.get("baselines") or {}
+        if not baselines:
+            runner_errors.append("the smoke run of the real runner produced no baseline")
+        for baseline_id, baseline in baselines.items():
             details_by_id = {d["target_id"]: d for d in baseline["details"]}
+            states = set()
             for record in baseline["target_artifacts"]:
+                states.add(record["detection_state"])
                 detail = details_by_id.get(record["target_id"])
                 if detail is None:
                     runner_errors.append(
@@ -815,15 +980,29 @@ def _validate_consolidated_closure(
                         f"the report of the real runner states the detection of a "
                         f"{record['status']} target as {record['detected']!r} instead of None"
                     )
+                if (
+                    record["status"] != "SUCCESS"
+                    and record["detection_state"] != DETECTION_STATE_NOT_EVALUATED
+                ):
+                    runner_errors.append(
+                        f"the report of the real runner states the detection state of a "
+                        f"{record['status']} target as {record['detection_state']!r}"
+                    )
             runner_probes.append(
                 {
                     "baseline": baseline_id,
                     "targets": len(baseline["details"]),
-                    "detection_states": sorted(
-                        {d["detection_state"] for d in baseline["details"]}
-                    ),
+                    "detection_states": sorted(states),
+                    "statuses": sorted({r["status"] for r in baseline["target_artifacts"]}),
+                    "execution_mode": runner_report.get("execution_mode"),
+                    "is_synthetic_smoke": runner_report.get("is_synthetic_smoke"),
                 }
             )
+            if not any(r["status"] != "SUCCESS" for r in baseline["target_artifacts"]):
+                runner_errors.append(
+                    f"the report of the baseline {baseline_id} holds no failed target - the "
+                    "failure path of the real runner was not exercised"
+                )
     except Exception as exc:  # pragma: no cover - a broken smoke run
         runner_errors.append(f"the smoke run of the real runner failed: {exc}")
     checks.append(
@@ -832,8 +1011,9 @@ def _validate_consolidated_closure(
             not runner_errors,
             error="; ".join(runner_errors) if runner_errors else None,
             planned=(
-                "the report of the real runner carries the detection state of every target "
-                "and both views of a target agree with each other"
+                "the report of the real runner - with a failing execution in it - carries the "
+                "detection state of every target, keeps both views of a target in agreement "
+                "and states the failed target as NOT_EVALUATED"
             ),
             probes=runner_probes,
         )
@@ -852,7 +1032,11 @@ def _validate_consolidated_closure(
     ]
     actual = file_sha256(artifact_path)
     chain_probes.append(
-        {"step": "the digest of the artifact is the digest of the bytes", "recorded": recorded, "actual": actual}
+        {
+            "step": "the digest of the artifact is the digest of the bytes",
+            "recorded": recorded,
+            "actual": actual,
+        }
     )
     if recorded != actual:
         chain_errors.append("the digest of the stage evidence artifact is stale")
@@ -871,10 +1055,75 @@ def _validate_consolidated_closure(
     if not ok:
         chain_errors.append(f"the client block is rejected: {error}")
 
-    join = cross_check_app_ids(provenance, [APP_ID])
-    chain_probes.append({"step": "the billing join", "status": join["status"]})
-    if join["status"] != "PASSED":
-        chain_errors.append(f"the billing join fails: {join.get('error')}")
+    # The billing join is resolved against a **raw line item** of the export -
+    # not against the value the join claims.
+    line_items = [
+        BillingLineItem(
+            object_id=APP_ID,
+            resource="H100",
+            cost_usd=1.25,
+            interval_start="2026-11-10T00:00:00Z",
+            description="the invocation of the closure probe",
+            environment="main",
+            index=0,
+            provider_join_keys={"function_call_id": FUNCTION_CALL_ID},
+        )
+    ]
+    matched, reason = resolve_billing_join(
+        {
+            "provider_field": "function_call_id",
+            "provider_value": FUNCTION_CALL_ID,
+            "app_id": APP_ID,
+        },
+        line_items,
+    )
+    chain_probes.append(
+        {
+            "step": "the billing join",
+            "matched": matched.key if matched is not None else None,
+            "reason": reason,
+        }
+    )
+    if matched is None:
+        chain_errors.append(f"the billing join does not resolve the invocation: {reason}")
+
+    join_report = cross_check_app_ids(provenance, [APP_ID])
+    chain_probes.append({"step": "the app-id cross-check", "status": join_report["status"]})
+    if join_report["status"] != "PASSED":
+        chain_errors.append(f"the app-id cross-check fails: {join_report.get('error')}")
+
+    # The manifests: the adapter and the target manifest of the real runner.
+    manifest_errors: List[str] = []
+    manifest_probes: List[Dict[str, Any]] = []
+    manifest_summary = (runner_report or {}).get("reproducibility_manifest_summary") or {}
+    adapters_manifest = manifest_summary.get("adapters") or {}
+    for baseline_id, manifest in adapters_manifest.items():
+        provenance_by_target = manifest.get("per_target_provenance") or {}
+        for target_id, entry in provenance_by_target.items():
+            manifest_probes.append(
+                {
+                    "baseline": baseline_id,
+                    "target_id": target_id,
+                    "status": entry.get("status"),
+                    "security_verdict": entry.get("security_verdict"),
+                    "carries_a_detection": "detected" in entry,
+                }
+            )
+            if entry.get("status") != "SUCCESS":
+                if "detected" in entry:
+                    manifest_errors.append(
+                        f"the manifest of the target {target_id} of the baseline "
+                        f"{baseline_id} carries a detection value for a failed target"
+                    )
+                if not entry.get("security_verdict"):
+                    manifest_errors.append(
+                        f"the manifest of the target {target_id} of the baseline "
+                        f"{baseline_id} carries no security verdict for a failed target"
+                    )
+    if not manifest_probes:
+        manifest_errors.append("the real runner produced no adapter manifest")
+    chain_probes.append({"step": "the adapter and target manifests", "probes": manifest_probes})
+    chain_errors.extend(manifest_errors)
 
     artifact = _artifact("T1", ExecutionStatus.SUCCESS, detected=True)
     result = evaluate_baseline_run("baseline_closure", "B", [artifact], _ground_truth())
@@ -896,7 +1145,8 @@ def _validate_consolidated_closure(
             error="; ".join(chain_errors) if chain_errors else None,
             planned=(
                 "producer → capture → evidence artifact → strict validator → billing join → "
-                "evaluator → report holds end to end for a successful run"
+                "adapter and target manifests → evaluator → report holds end to end for a "
+                "successful run"
             ),
             probes=chain_probes,
         )
@@ -951,8 +1201,13 @@ def _validate_consolidated_closure(
     # -- P6.11 the pre-fix rule reproduces the P0 defect ----------------------
     pre_fix_errors: List[str] = []
     pre_fix_probes: List[Dict[str, Any]] = []
+    historical_source = _git("show", f"{PRE_FIX_COMMIT}:benchmarks/evaluator.py") or ""
+    historical_line = next(
+        (line.strip() for line in historical_source.splitlines() if "det = False if" in line),
+        None,
+    )
     for status_name in INCOMPLETE_STATUSES:
-        for verdict in NEGATIVE_VERDICTS:
+        for verdict in HISTORICAL_NEGATIVE_VERDICTS:
             artifact = _artifact(
                 "T1", ExecutionStatus[status_name], verdict=verdict, detected=False
             )
@@ -977,6 +1232,11 @@ def _validate_consolidated_closure(
                     f"the current rule does not close the defect for {status_name} with the "
                     f"verdict {verdict!r}"
                 )
+    if historical_line is None:
+        pre_fix_errors.append(
+            "the historical source of the evaluator does not hold the line the pre-fix rule "
+            "reproduces"
+        )
     checks.append(
         _check(
             "P6.11.the_pre_fix_rule_reproduces_the_p0_defect",
@@ -988,52 +1248,74 @@ def _validate_consolidated_closure(
                 "real, and the checks are not vacuous"
             ),
             probes=pre_fix_probes,
+            historical_line=historical_line,
+            historical_commit=PRE_FIX_COMMIT,
         )
     )
     errors.extend(pre_fix_errors)
 
-    # -- P6.12 the pre-fix rule reproduces the P1 defect ----------------------
+    # -- P6.12 the pre-fix consumer reproduces the P1 defect ------------------
     p1_pre_fix_errors: List[str] = []
     p1_pre_fix_probes: List[Dict[str, Any]] = []
-    for label, fact in (
-        ("worker_side", _observed_fact(APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_WORKER)),
-        ("missing_side", _observed_fact(APP_ID, SOURCE_CLIENT_APP_ID, declare_side=False)),
-        ("legacy_flat_value", APP_ID),
-    ):
-        accepted_before, error_before = _pre_fix_run_level_side(fact)
-        provenance, _ = _build_provenance(work_dir)
-        provenance["modal_invocation_provenance"]["modal_app_id"] = fact
-        accepted_after, error_after = validate_modal_invocation_provenance(
-            provenance, evidence_root=work_dir, strict_sources=True
+    pre_fix_contract = _pre_fix_contract(work_dir)
+    if pre_fix_contract is None:
+        p1_pre_fix_errors.append(
+            f"the evidence contract of the commit {PRE_FIX_COMMIT} could not be loaded - the "
+            "defect of the P1 is therefore not reproduced"
         )
-        p1_pre_fix_probes.append(
-            {
-                "case": label,
-                "accepted_by_the_pre_fix_rule": accepted_before,
-                "pre_fix_error": error_before,
-                "accepted_by_the_current_rule": accepted_after,
-                "current_error": error_after,
-            }
-        )
-        if not accepted_before:
-            p1_pre_fix_errors.append(
-                f"the pre-fix rule does not reproduce the defect for the case {label!r}"
+    else:
+        for label, fact in (
+            (
+                "worker_side",
+                _observed_fact(APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_WORKER),
+            ),
+            (
+                "missing_side",
+                _observed_fact(APP_ID, SOURCE_CLIENT_APP_ID, declare_side=False),
+            ),
+            ("legacy_flat_value", APP_ID),
+        ):
+            provenance, _ = _build_provenance(work_dir)
+            provenance["modal_invocation_provenance"]["modal_app_id"] = fact
+            accepted_before, error_before = (
+                pre_fix_contract.validate_modal_invocation_provenance(
+                    provenance, evidence_root=work_dir, strict_sources=True
+                )
             )
-        if accepted_after:
-            p1_pre_fix_errors.append(
-                f"the current rule accepts the run-level application id of the case {label!r}"
+            accepted_after, error_after = validate_modal_invocation_provenance(
+                provenance, evidence_root=work_dir, strict_sources=True
             )
+            p1_pre_fix_probes.append(
+                {
+                    "case": label,
+                    "accepted_by_the_pre_fix_contract": accepted_before,
+                    "pre_fix_error": error_before,
+                    "accepted_by_the_current_contract": accepted_after,
+                    "current_error": error_after,
+                }
+            )
+            if not accepted_before:
+                p1_pre_fix_errors.append(
+                    f"the pre-fix consumer does not reproduce the defect for the case "
+                    f"{label!r}: it already refused the claim - {error_before}"
+                )
+            if accepted_after:
+                p1_pre_fix_errors.append(
+                    f"the current contract accepts the run-level application id of the case "
+                    f"{label!r}"
+                )
     checks.append(
         _check(
             "P6.12.the_pre_fix_rule_reproduces_the_p1_defect",
             not p1_pre_fix_errors,
             error="; ".join(p1_pre_fix_errors) if p1_pre_fix_errors else None,
             planned=(
-                "the rule of the run-level application id before this closure is reproduced "
-                "here and still accepts the side-less and the wrong-sided claim: the defect "
-                "was real, and the checks are not vacuous"
+                "the evidence contract of the commit before this closure is loaded from its "
+                "historical source and executed: it accepts the side-less and the wrong-sided "
+                "run-level application id - the defect was real, and the check is not vacuous"
             ),
             probes=p1_pre_fix_probes,
+            historical_commit=PRE_FIX_COMMIT,
         )
     )
     errors.extend(p1_pre_fix_errors)
@@ -1046,6 +1328,10 @@ def _validate_consolidated_closure(
     for iteration, expected, bound in HISTORICAL_EVIDENCE:
         module = f"benchmarks.validate_iteration{iteration}_evidence"
         report_path = probe_dir / f"iteration{iteration}.json"
+        if report_path.exists():
+            # A report of an interrupted run must never be mistaken for the
+            # result of this run.
+            report_path.unlink()
         command = [
             sys.executable,
             "-m",
@@ -1086,6 +1372,15 @@ def _validate_consolidated_closure(
         if status != expected:
             history_errors.append(
                 f"the evidence of Iteration {iteration} is {status!r} instead of {expected!r}"
+            )
+        if completed.returncode != 0:
+            history_errors.append(
+                f"the validator of Iteration {iteration} exited with {completed.returncode}"
+            )
+        if not any(expected in line for line in output):
+            history_errors.append(
+                f"the validator of Iteration {iteration} does not report {expected!r} in its "
+                "output"
             )
     checks.append(
         _check(
@@ -1169,37 +1464,130 @@ def _validate_consolidated_closure(
     )
     errors.extend(digest_errors)
 
-    # -- P6.16 the boundary of the closure ----------------------------------
-    boundary_errors: List[str] = []
-    boundary = {
-        "live_modal_invocation": False,
-        "provider_queried": False,
-        "deployment": "none",
-        "gpu": "none",
-        "paid_compute": "none",
-        "worker_restarted": False,
-    }
-    if boundary["live_modal_invocation"] is not False:
-        boundary_errors.append("the closure claims a live Modal invocation")
-    if boundary["provider_queried"] is not False:
-        boundary_errors.append("the closure claims a provider query")
-    if boundary["deployment"] != "none":
-        boundary_errors.append("the closure claims a deployment")
-    if boundary["gpu"] != "none":
-        boundary_errors.append("the closure claims a GPU")
+    # -- P6.16 the closure runs in a synthetic context ----------------------
+    context_errors: List[str] = []
+    context_probes: List[Dict[str, Any]] = []
+    capture = _producer_capture()
+    context_probes.append(
+        {
+            "producer_capture_simulated": capture["simulated"],
+            "patched_function_call_id": capture["patched_function_call_id"],
+            "captured_function_call_id": capture["captured_function_call_id"],
+        }
+    )
+    if not capture["simulated"]:
+        context_errors.append(
+            "the envelope of the producer was not captured under the simulated container "
+            "context"
+        )
+    if capture["captured_function_call_id"] != capture["patched_function_call_id"]:
+        context_errors.append(
+            "the captured function-call id is not the patched one - the OBSERVED branch of "
+            "the producer was not exercised in the simulation"
+        )
+    if runner_report:
+        context_probes.append(
+            {
+                "execution_mode": runner_report.get("execution_mode"),
+                "is_synthetic_smoke": runner_report.get("is_synthetic_smoke"),
+            }
+        )
+        if runner_report.get("is_synthetic_smoke") is not True:
+            context_errors.append("the run of the real runner was not a synthetic smoke test")
+        if runner_report.get("execution_mode") != "SYNTHETIC_SMOKE_TEST":
+            context_errors.append(
+                f"the run of the real runner was {runner_report.get('execution_mode')!r} "
+                "instead of SYNTHETIC_SMOKE_TEST"
+            )
+    else:
+        context_errors.append("the run of the real runner produced no report")
     checks.append(
         _check(
-            "P6.16.no_live_invocation_no_provider_query_no_deployment_and_no_gpu",
-            not boundary_errors,
-            error="; ".join(boundary_errors) if boundary_errors else None,
+            "P6.16.the_closure_runs_in_a_synthetic_context",
+            not context_errors,
+            error="; ".join(context_errors) if context_errors else None,
             planned=(
-                "the closure is local: no Modal invocation, no provider query, no "
-                "deployment, no GPU, no paid compute and no change to a deployed worker"
+                "the run of the real runner is a synthetic smoke test and the OBSERVED "
+                "branch of the producer was exercised in a simulated container context - no "
+                "Modal invocation, no provider query, no deployment, no GPU and no paid "
+                "compute is claimed or needed"
             ),
-            **boundary,
+            probes=context_probes,
+            declared={
+                "live_modal_invocation": False,
+                "provider_queried": False,
+                "deployment": "none",
+                "gpu": "none",
+                "paid_compute": "none",
+                "worker_restarted": False,
+            },
         )
     )
-    errors.extend(boundary_errors)
+    errors.extend(context_errors)
+
+    # -- P6.17 the report semantics are reconciled --------------------------
+    semantics_errors: List[str] = []
+    semantics_probes: List[Dict[str, Any]] = []
+    baselines = (runner_report or {}).get("baselines") or {}
+    for baseline_id, baseline in baselines.items():
+        for detail in baseline["details"]:
+            layers = {
+                "planned": detail.get("target_id") is not None,
+                "attempted": detail.get("orchestration_status") is not None,
+                "executed": detail.get("status") is not None,
+                "observed": detail.get("security_verdict") is not None
+                or detail.get("detection_state") is not None,
+                "reported": detail.get("detection_state") is not None,
+            }
+            semantics_probes.append(
+                {
+                    "baseline": baseline_id,
+                    "target_id": detail.get("target_id"),
+                    "status": detail.get("status"),
+                    "orchestration_status": detail.get("orchestration_status"),
+                    "generation_outcome": detail.get("generation_outcome"),
+                    "evm_outcome": detail.get("evm_outcome"),
+                    "replay_status": detail.get("replay_status"),
+                    "persistence_status": detail.get("persistence_status"),
+                    "detected": detail.get("detected"),
+                    "detection_state": detail.get("detection_state"),
+                    "layers": layers,
+                }
+            )
+            if not all(layers.values()):
+                semantics_errors.append(
+                    f"the report of the target {detail.get('target_id')} of the baseline "
+                    f"{baseline_id} does not state every layer of the report semantics"
+                )
+            if detail.get("status") == "SUCCESS" and detail.get(
+                "detection_state"
+            ) == DETECTION_STATE_NOT_EVALUATED:
+                semantics_errors.append(
+                    f"a completed target of the baseline {baseline_id} is reported as "
+                    "NOT_EVALUATED"
+                )
+            if detail.get("status") != "SUCCESS" and detail.get(
+                "detection_state"
+            ) != DETECTION_STATE_NOT_EVALUATED:
+                semantics_errors.append(
+                    f"a target of the baseline {baseline_id} that did not complete is "
+                    f"reported as {detail.get('detection_state')!r}"
+                )
+    if not semantics_probes:
+        semantics_errors.append("the real runner produced no report to reconcile")
+    checks.append(
+        _check(
+            "P6.17.the_report_semantics_are_reconciled",
+            not semantics_errors,
+            error="; ".join(semantics_errors) if semantics_errors else None,
+            planned=(
+                "the report states planned, attempted, executed, observed and reported apart, "
+                "and unavailable, failed and not-run stay distinct in every output"
+            ),
+            probes=semantics_probes,
+        )
+    )
+    errors.extend(semantics_errors)
 
     return {
         "checks": checks,
@@ -1248,10 +1636,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         report = json.loads(report_path.read_text(encoding="utf-8"))
         bound = report.get("code_sha")
         if args.code_sha:
-            if bound != args.code_sha:
+            resolved = _resolve_sha(args.code_sha)
+            if bound != resolved:
                 print(
                     "the validation report is bound to code SHA {bound}, not to {head}".format(
-                        bound=bound, head=args.code_sha
+                        bound=bound, head=resolved
                     )
                 )
                 return 1
@@ -1262,11 +1651,31 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
             return 1
 
+        # The files of the closure have to be the ones the report was bound to.
+        changed = _git(
+            "diff",
+            "--name-only",
+            bound,
+            "HEAD",
+            "--",
+            "benchmarks/evaluator.py",
+            "benchmarks/evidence_integrity.py",
+            "benchmarks/validate_consolidated_closure_evidence.py",
+            "tests/test_consolidated_closure_evidence_integrity.py",
+        )
+        if changed:
+            print(
+                "the files of the closure changed between the bound commit {bound} and "
+                "HEAD: {changed}".format(bound=bound, changed=changed)
+            )
+            return 1
+
         work_dir = Path(tempfile.mkdtemp(prefix="closure-probe-"))
         try:
-            outcome = _validate_consolidated_closure(
-                work_dir=work_dir, code_sha=bound
-            )
+            outcome = _validate_consolidated_closure(work_dir=work_dir, code_sha=bound)
+        except Exception as exc:  # pragma: no cover - a broken environment
+            print(f"the validation failed with an exception: {exc}")
+            return 1
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
             shutil.rmtree(probe_dir, ignore_errors=True)
@@ -1293,6 +1702,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     work_dir = Path(tempfile.mkdtemp(prefix="closure-probe-"))
     try:
         outcome = _validate_consolidated_closure(work_dir=work_dir, code_sha=code_sha)
+    except Exception as exc:  # pragma: no cover - a broken environment
+        print(f"the validation failed with an exception: {exc}")
+        return 1
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
         shutil.rmtree(probe_dir, ignore_errors=True)
@@ -1371,17 +1783,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "negative findings, that the strict consumer side-checks the run-level "
                 "application id, that the compatibility path keeps the side-less artifacts "
                 "readable, that the report states the detection state of every target, that "
-                "the two vertical chains hold, that the pre-fix rules reproduce the "
+                "both vertical chains hold, that the pre-fix contracts reproduce the "
                 "defects, that the historical evidence stays in its state and that the "
                 "report is bound to the code SHA it was produced from"
             ),
             "attempted": (
-                "every non-success status with every negative verdict, every side variant "
-                "of the run-level application id, the digest-recomputed chain, the "
-                "compatibility path, the report of the real evaluator and of the real "
-                "runner, both vertical chains, the pre-fix rules, the evidence validator "
-                "of every iteration from 14 to 23, the producer source and the artifact "
-                "digest"
+                "every non-success status with every negative verdict and every invalid "
+                "verdict, every side variant of the run-level application id, the "
+                "digest-recomputed chain, the compatibility path, the report of the real "
+                "evaluator and of the real runner with a failing execution, both vertical "
+                "chains, the pre-fix contracts of the historical source, the evidence "
+                "validator of every iteration from 14 to 23, the producer source and the "
+                "artifact digest"
             ),
             "executed": (
                 "the checks were executed against the artifacts stored on disk"

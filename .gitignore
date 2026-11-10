@@ -15,3 +15,5 @@ benchmarks/artifacts/
 benchmarks/benchmark_results.json
 # Locally staged Foundry toolchain (solc binary + pre-baked libraries)
 .toolchain/
+# The probe directory of the consolidated closure validator
+benchmarks/evidence/_closure_probe/
