@@ -1,0 +1,132 @@
+{
+  "absence_records": [
+    {
+      "field": "app_id",
+      "kind": "PROVIDER_FIELD_OMITTED",
+      "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The app id of this run is taken from the provider-issued App.app_id on the client side instead."
+    },
+    {
+      "field": "container_id",
+      "kind": "PROVIDER_FIELD_OMITTED",
+      "reason": "the running container exposed neither MODAL_WORKER_ID (the SDK reads it from the 'worker_id' configuration setting, which the runtime sets only for internal debugging) nor HOSTNAME (this container sets no hostname), so the worker itself could not attest its container identity; the container id of this run is taken from the provider's container list on the client side instead"
+    }
+  ],
+  "attempted": true,
+  "correlation_id": "iteration19-cpu-smoke-20261110T012959Z",
+  "executed": true,
+  "provider_response": {
+    "modal_runtime": {
+      "app_id": {
+        "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The app id of this run is taken from the provider-issued App.app_id on the client side instead.",
+        "status": "NOT_AVAILABLE",
+        "value": null
+      },
+      "container_id": {
+        "reason": "the running container exposed neither MODAL_WORKER_ID (the SDK reads it from the 'worker_id' configuration setting, which the runtime sets only for internal debugging) nor HOSTNAME (this container sets no hostname), so the worker itself could not attest its container identity; the container id of this run is taken from the provider's container list on the client side instead",
+        "status": "NOT_AVAILABLE",
+        "value": null
+      },
+      "function_call_id": {
+        "source": "modal.current_function_call_id()",
+        "status": "OBSERVED",
+        "value": "fc-01M71H7789CATYCWNEG05916Y3"
+      },
+      "image_id": {
+        "source": "MODAL_IMAGE_ID of the running container",
+        "status": "OBSERVED",
+        "value": "im-6seZXB42SdpnqIIAiN34Ig"
+      }
+    },
+    "smoke_payload": {
+      "deterministic_sha256": "9f10b384154217e715ef371124dd712764a7820880432f6411b7ffae2c606f7a",
+      "echo": "iteration19-cpu-smoke:iteration19",
+      "seed": "iteration19",
+      "smoke_result": "ok"
+    },
+    "worker_observed": {
+      "cpu_count": 17,
+      "gpu_evidence": {
+        "cuda_runtime_libraries": [],
+        "cuda_visible_devices_env": null,
+        "gpu_device_exposed": false,
+        "nvidia_device_nodes": [],
+        "nvidia_smi_on_path": null,
+        "nvidia_visible_devices_env": null
+      },
+      "hostname": null,
+      "kernel_release": "4.19.0-gvisor",
+      "modal_current_input_id": "in-01M71H778C2W0F6WD26BD075RV:1794274204940-0",
+      "modal_env_var_names": [
+        "MODAL_CLOUD_PROVIDER",
+        "MODAL_CONTAINER_ARGUMENTS_PATH",
+        "MODAL_ENVIRONMENT",
+        "MODAL_IDENTITY_TOKEN",
+        "MODAL_IDENTITY_TOKEN_FILE",
+        "MODAL_IMAGE_ID",
+        "MODAL_IS_REMOTE",
+        "MODAL_REGION",
+        "MODAL_SERVER_URL",
+        "MODAL_TASK_ID"
+      ],
+      "modal_environment": "main",
+      "modal_image_id_env": "im-6seZXB42SdpnqIIAiN34Ig",
+      "modal_is_local": false,
+      "modal_sdk_version": "1.5.5",
+      "modal_worker_id_env": null,
+      "os_name": "posix",
+      "platform": "Linux-4.19.0-gvisor-x86_64-with-glibc2.36",
+      "platform_machine": "x86_64",
+      "platform_release": "4.19.0-gvisor",
+      "platform_system": "Linux",
+      "python_executable": "/usr/local/bin/python",
+      "python_implementation": "CPython",
+      "python_version": "3.11.12 (main, May 21 2025, 23:34:13) [GCC 12.2.0]",
+      "python_version_info": [
+        3,
+        11,
+        12
+      ],
+      "working_directory": "/root"
+    }
+  },
+  "provider_response_metadata": {
+    "response_byte_length": 2429,
+    "response_sha256": "8ab13a6c4e200c9eff45b8c93b906009072ab2d50c537d32267d59dd0b38bb2e",
+    "response_source": "the return value of the Modal function call fc-01M71H7789CATYCWNEG05916Y3 (modal.Function.remote)",
+    "runtime_identity_byte_length": 1113,
+    "runtime_identity_sha256": "66e80ab812ab264f2c9e9a61d766021d5271b8e1f75d59ed66df558cc0fdce95"
+  },
+  "requested_fields": [
+    "app_id",
+    "function_call_id",
+    "container_id"
+  ],
+  "response_received": true,
+  "runtime_envelope_received": true,
+  "runtime_identity": {
+    "app_id": {
+      "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The app id of this run is taken from the provider-issued App.app_id on the client side instead.",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "container_id": {
+      "reason": "the running container exposed neither MODAL_WORKER_ID (the SDK reads it from the 'worker_id' configuration setting, which the runtime sets only for internal debugging) nor HOSTNAME (this container sets no hostname), so the worker itself could not attest its container identity; the container id of this run is taken from the provider's container list on the client side instead",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "function_call_id": {
+      "source": "modal.current_function_call_id()",
+      "status": "OBSERVED",
+      "value": "fc-01M71H7789CATYCWNEG05916Y3"
+    },
+    "image_id": {
+      "source": "MODAL_IMAGE_ID of the running container",
+      "status": "OBSERVED",
+      "value": "im-6seZXB42SdpnqIIAiN34Ig"
+    }
+  },
+  "runtime_identity_source": "modal_runtime",
+  "schema_version": "1.0.0",
+  "stage": "cpu_smoke",
+  "target_id": "CPU-SMOKE-01"
+}
