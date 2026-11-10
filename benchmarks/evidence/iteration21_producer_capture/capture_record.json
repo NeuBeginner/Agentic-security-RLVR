@@ -1,0 +1,256 @@
+{
+  "client_observed": {
+    "app_id": {
+      "observed_by": "client",
+      "reason": "the running Modal app exposed no provider-issued application id on the client side: App.app_id stays None until the app has been run or deployed",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "app_page_url": {
+      "observed_by": "client",
+      "reason": "the running Modal app exposed no dashboard URL on the client side: App.get_dashboard_url() returned nothing: InvalidError: App is not running",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "container_id": {
+      "observed_by": "client",
+      "reason": "the container id of this invocation cannot be resolved on the client side: the worker envelope holds no observed function-call id, and the provider's call graph is keyed by the function call",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    }
+  },
+  "environment": {
+    "captured_at_utc": "2026-11-10T10:28:04Z",
+    "restored_environment_variables": {
+      "HOSTNAME": null,
+      "MODAL_TASK_ID": null,
+      "MODAL_WORKER_ID": null
+    },
+    "spoofed_environment_variables": {
+      "HOSTNAME": "spoofed-host",
+      "MODAL_TASK_ID": "ta-SpoofedTaskId00000000000",
+      "MODAL_WORKER_ID": "ta-SpoofedWorkerId0000000000"
+    },
+    "worker_observed": {
+      "modal_current_input_id": null,
+      "modal_env_var_names": [],
+      "modal_is_local": true,
+      "modal_sdk_version": "1.5.5",
+      "platform": "Windows-10-10.0.22631-SP0",
+      "platform_machine": "AMD64",
+      "platform_system": "Windows",
+      "python_version": "3.10.11 (tags/v3.10.11:7d4cc5a, Apr  5 2023, 00:38:17) [MSC v.1929 64 bit (AMD64)]",
+      "python_version_info": [
+        3,
+        10,
+        11
+      ]
+    }
+  },
+  "evidence_artifact": {
+    "byte_length": 7327,
+    "description": "the exact response the evm_sandbox stage returned for this target",
+    "path": "benchmarks/evidence/iteration21_producer_capture/ITER21-01_stage_evidence_evm_sandbox.json",
+    "sha256": "f877d58110a79c0461e353f5bc1a92fc9f5cabd2c0db406836939141f29f50de"
+  },
+  "invocation": {
+    "attempted": true,
+    "deployment": "none",
+    "deployment_kind": "none",
+    "executed": true,
+    "gpu": "none",
+    "live_modal_invocation": false,
+    "production_change": "no deployed worker was deployed, redeployed, restarted or modified; the source of the producer was fixed only",
+    "provider_queried": false,
+    "response_received": true,
+    "runtime_envelope_received": true,
+    "status": "SUCCEEDED"
+  },
+  "iteration": 21,
+  "kind": "local_producer_capture",
+  "provenance": {
+    "artifact": {
+      "modal_invocation_provenance": {
+        "client_observed": {
+          "app_id": {
+            "observed_by": "client",
+            "reason": "the running Modal app exposed no provider-issued application id on the client side: App.app_id stays None until the app has been run or deployed",
+            "status": "NOT_AVAILABLE",
+            "value": null
+          },
+          "app_page_url": {
+            "observed_by": "client",
+            "reason": "the running Modal app exposed no dashboard URL on the client side: App.get_dashboard_url() returned nothing: InvalidError: App is not running",
+            "status": "NOT_AVAILABLE",
+            "value": null
+          },
+          "container_id": {
+            "observed_by": "client",
+            "reason": "the container id of this invocation cannot be resolved on the client side: the worker envelope holds no observed function-call id, and the provider's call graph is keyed by the function call",
+            "status": "NOT_AVAILABLE",
+            "value": null
+          }
+        },
+        "correlation_id": "corr-ITER21-01-iteration21-local-capture",
+        "modal_app_id": {
+          "absence_kind": "PROVIDER_FIELD_OMITTED",
+          "evidence_ref": {
+            "byte_length": 7327,
+            "description": "the exact response the evm_sandbox stage returned for this target",
+            "path": "ITER21-01_stage_evidence_evm_sandbox.json",
+            "sha256": "f877d58110a79c0461e353f5bc1a92fc9f5cabd2c0db406836939141f29f50de"
+          },
+          "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+          "status": "NOT_AVAILABLE",
+          "value": null
+        },
+        "stages": {
+          "evm_sandbox": {
+            "app_id": {
+              "absence_kind": "PROVIDER_FIELD_OMITTED",
+              "evidence_ref": {
+                "byte_length": 7327,
+                "description": "the exact response the evm_sandbox stage returned for this target",
+                "path": "ITER21-01_stage_evidence_evm_sandbox.json",
+                "sha256": "f877d58110a79c0461e353f5bc1a92fc9f5cabd2c0db406836939141f29f50de"
+              },
+              "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+              "status": "NOT_AVAILABLE",
+              "value": null
+            },
+            "attempted": true,
+            "container_id": {
+              "absence_kind": "PROVIDER_FIELD_OMITTED",
+              "evidence_ref": {
+                "byte_length": 7327,
+                "description": "the exact response the evm_sandbox stage returned for this target",
+                "path": "ITER21-01_stage_evidence_evm_sandbox.json",
+                "sha256": "f877d58110a79c0461e353f5bc1a92fc9f5cabd2c0db406836939141f29f50de"
+              },
+              "reason": "a Modal function container has no supported source of a provider-issued container id: the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) reports no container id, MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a generic container hostname, and MODAL_TASK_ID is read only by the internal, experimental module modal/experimental/flash.py. The provider-issued container id of this invocation is a client-side fact: the client resolves the function-call id this worker observed through the provider's own call graph and container listing.",
+              "status": "NOT_AVAILABLE",
+              "value": null
+            },
+            "evidence_ref": {
+              "byte_length": 7327,
+              "description": "the exact response the evm_sandbox stage returned for this target",
+              "path": "ITER21-01_stage_evidence_evm_sandbox.json",
+              "sha256": "f877d58110a79c0461e353f5bc1a92fc9f5cabd2c0db406836939141f29f50de"
+            },
+            "function_call_id": {
+              "absence_kind": "PROVIDER_FIELD_OMITTED",
+              "evidence_ref": {
+                "byte_length": 7327,
+                "description": "the exact response the evm_sandbox stage returned for this target",
+                "path": "ITER21-01_stage_evidence_evm_sandbox.json",
+                "sha256": "f877d58110a79c0461e353f5bc1a92fc9f5cabd2c0db406836939141f29f50de"
+              },
+              "reason": "the Modal runtime did not expose a function-call id to this process (modal.current_function_call_id() returns no id outside a Modal function container)",
+              "status": "NOT_AVAILABLE",
+              "value": null
+            },
+            "function_name": "verify_exploit_remote",
+            "resource": "CPU"
+          }
+        },
+        "target_id": "ITER21-01"
+      }
+    },
+    "error": null,
+    "statement": "the provenance block was built from the very stage evidence artifact of this capture and validated with the repository's own validator in the strict source mode",
+    "validated": true
+  },
+  "purpose": "capture what the fixed production runtime-identity producer returns under a hostile container environment, and prove that the container identity is not inferred from the environment",
+  "response": {
+    "modal_runtime": {
+      "app_id": {
+        "observed_by": "worker",
+        "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+        "status": "NOT_AVAILABLE",
+        "value": null
+      },
+      "app_page_url": {
+        "observed_by": "worker",
+        "reason": "the Modal runtime exposes no app page URL to a function container: the only candidate inside the container was modal.running_app, which is a module and not a callable in Modal SDK 1.5.5, while the supported App.get_dashboard_url() is a client-side API of the SDK. The app page URL of this run is a client-side fact of the provider.",
+        "status": "NOT_AVAILABLE",
+        "value": null
+      },
+      "container_id": {
+        "observed_by": "worker",
+        "reason": "a Modal function container has no supported source of a provider-issued container id: the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) reports no container id, MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a generic container hostname, and MODAL_TASK_ID is read only by the internal, experimental module modal/experimental/flash.py. The provider-issued container id of this invocation is a client-side fact: the client resolves the function-call id this worker observed through the provider's own call graph and container listing.",
+        "status": "NOT_AVAILABLE",
+        "value": null
+      },
+      "container_id_value": null,
+      "function_call_id": {
+        "observed_by": "worker",
+        "reason": "the Modal runtime did not expose a function-call id to this process (modal.current_function_call_id() returns no id outside a Modal function container)",
+        "status": "NOT_AVAILABLE",
+        "value": null
+      }
+    },
+    "stage": "evm_sandbox",
+    "worker_observed": {
+      "modal_current_input_id": null,
+      "modal_env_var_names": [],
+      "modal_is_local": true,
+      "modal_sdk_version": "1.5.5",
+      "platform": "Windows-10-10.0.22631-SP0",
+      "platform_machine": "AMD64",
+      "platform_system": "Windows",
+      "python_version": "3.10.11 (tags/v3.10.11:7d4cc5a, Apr  5 2023, 00:38:17) [MSC v.1929 64 bit (AMD64)]",
+      "python_version_info": [
+        3,
+        10,
+        11
+      ]
+    }
+  },
+  "runtime_identity": {
+    "app_id": {
+      "observed_by": "worker",
+      "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "app_page_url": {
+      "observed_by": "worker",
+      "reason": "the Modal runtime exposes no app page URL to a function container: the only candidate inside the container was modal.running_app, which is a module and not a callable in Modal SDK 1.5.5, while the supported App.get_dashboard_url() is a client-side API of the SDK. The app page URL of this run is a client-side fact of the provider.",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "container_id": {
+      "observed_by": "worker",
+      "reason": "a Modal function container has no supported source of a provider-issued container id: the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) reports no container id, MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a generic container hostname, and MODAL_TASK_ID is read only by the internal, experimental module modal/experimental/flash.py. The provider-issued container id of this invocation is a client-side fact: the client resolves the function-call id this worker observed through the provider's own call graph and container listing.",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "container_id_value": null,
+    "function_call_id": {
+      "observed_by": "worker",
+      "reason": "the Modal runtime did not expose a function-call id to this process (modal.current_function_call_id() returns no id outside a Modal function container)",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    }
+  },
+  "schema_version": "1.0.0",
+  "sentinel": {
+    "accesses": [],
+    "module": "modal.running_app",
+    "statement": "the sentinel stood in for modal.running_app while the producer ran; the producer must not touch it at all"
+  },
+  "source": {
+    "branch": "minimax/iteration-14-evidence-integrity",
+    "code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
+    "dirty": false,
+    "producer": "modal_app.capture_modal_runtime_identity",
+    "producer_module": "modal_app.py",
+    "tracked_changes": []
+  },
+  "statement": "This is a local capture of the production producer, executed against the installed Modal SDK 1.5.5 outside a Modal container and against a hostile environment: MODAL_WORKER_ID, HOSTNAME and MODAL_TASK_ID held arbitrary, well-formed but fake values for the duration of the call. No Modal invocation was made, the provider was never asked, no worker was deployed or touched, and the capture holds no provider-issued identifier: outside a Modal container the function-call id is NOT_AVAILABLE and the client-side container id is NOT_AVAILABLE as well, which is exactly what the truth is at that moment. That the fake environment values do not become an observed container id is the point of this capture. The OBSERVED branches of the producer are exercised by the test suite in a simulated container context and against a fake provider.",
+  "validator": {
+    "command": "python -m benchmarks.validate_iteration21_evidence --code-sha <sha>",
+    "report_path": "benchmarks/evidence/iteration21_validation_evidence.json",
+    "script": "benchmarks/validate_iteration21_evidence.py"
+  }
+}
