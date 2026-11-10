@@ -2302,6 +2302,13 @@ def validate_modal_invocation_provenance(
     legacy flat value of a stage names no side and is therefore rejected in the
     strict mode as well - it stays valid in the compatibility path, which is
     where the artifacts of Iterations 14-20 are read.
+
+    The side of a **stage** fact is the side registered for its field
+    (Iteration 23): a stage is not worker-side by construction, it records the
+    observations of one stage and every observation names its own side. The
+    worker-side rule of the runtime-identity envelope - a client observation
+    may never be presented inside a worker envelope - stays a separate rule of
+    :func:`validate_runtime_identity_envelope` and is not touched by this.
     """
     provenance = artifact.get("modal_invocation_provenance")
     if not isinstance(provenance, dict) or not provenance:
@@ -2453,7 +2460,16 @@ def validate_modal_invocation_provenance(
             # acceptable in the strict mode. The compatibility path (without
             # ``strict_sources``) keeps reading the artifacts of Iterations
             # 14-20, which are exactly the ones with the flat shape.
-            for key in PROVIDER_OBSERVATION_SOURCES:
+            # Iteration 23: the side of a stage fact is the side **registered**
+            # for its field - not a fixed 'worker'. A stage is not worker-side
+            # by construction: it records the observations of one stage, and
+            # every observation names its own side. The registry knows that
+            # 'function_call_id' is observed by the worker and that 'app_id',
+            # 'app_page_url' and 'container_id' are observed by the client, so
+            # a correctly typed and correctly sided client-side fact in a stage
+            # is accepted, while a worker-side claim on a client field is
+            # still rejected as contradictory.
+            for key, registered in PROVIDER_OBSERVATION_SOURCES.items():
                 if key not in stage:
                     continue
                 fact = stage[key]
@@ -2465,7 +2481,7 @@ def validate_modal_invocation_provenance(
                 ok, error = validate_provider_observation_source(
                     key,
                     fact,
-                    expected_side=OBSERVATION_SIDE_WORKER,
+                    expected_side=registered["side"],
                     require_side=True,
                 )
                 if not ok:
