@@ -232,6 +232,111 @@ No other assertion of Iteration 14–20 is changed, and no validator is relaxed.
 
 ## 10. Results of this iteration
 
-The local counts and the CI counts are reported **separately** and are never mixed into one number. They are filled in after the run — the numbers below are the ones of the actual run, not a plan.
+The local counts and the CI counts are reported **separately** and are never mixed into one number.
 
-<!-- RESULTS -->
+### 10.1 The commits of this iteration
+
+| commit | content |
+| --- | --- |
+| `33bfa6f` | this matrix — committed **before** any code change |
+| `40c0630` | the fix of the production producer, the registry of the allowed observation sources, the client-side provider access and the correlation, the capture, the validator, the test suite, the CI wiring |
+| `42ef969` | the capture of the producer and the validation report, bound to `40c0630` |
+
+The report is bound to the **code commit** `40c0630` — the commit the capture was made from — and `40c0630` is an ancestor of `HEAD`.
+
+### 10.2 The capture of the producer
+
+| item | value |
+| --- | --- |
+| exact command | `python -m benchmarks.run_iteration21_producer_capture --code-sha 40c063093c8d773d20f828fb290c68b5790a7cc5` |
+| source commit | `40c063093c8d773d20f828fb290c68b5790a7cc5` (tracked files clean) |
+| Modal SDK | 1.5.5 (the installed SDK; the producer was executed against it) |
+| producer | the **real** `modal_app.capture_modal_runtime_identity()` |
+| sentinel | `modal.running_app` was replaced by a hostile sentinel for the duration of the call — **0 accesses** |
+| hostile environment | `MODAL_WORKER_ID=ta-SpoofedWorkerId0000000000`, `HOSTNAME=spoofed-host`, `MODAL_TASK_ID=ta-SpoofedTaskId00000000000` |
+| invocation | `live_modal_invocation: false`, `provider_queried: false`, `deployment: none`, `gpu: none` |
+| app id (worker) | **NOT_AVAILABLE** — Modal SDK 1.5.5 exposes no running-app accessor to a function container |
+| app page URL (worker) | **NOT_AVAILABLE** — the only candidate was the unsupported `modal.running_app` |
+| container id (worker) | **NOT_AVAILABLE** — and the fake environment values did **not** become an observation: the producer reads no environment variable at all |
+| function-call id (worker) | **NOT_AVAILABLE** — `modal.current_function_call_id()` returns no id outside a Modal function container |
+| container id (client) | **NOT_AVAILABLE** — the provider was never asked, and there is no function-call id to correlate |
+| provider-issued identifiers in the capture | **none** — the capture is local, so it holds no `ap-…`, no `fc-…` and no `ta-…` |
+| provenance block | built from the very stage evidence artifact of this capture and validated with `validate_modal_invocation_provenance(strict_sources=True)` — **valid** |
+
+Artifacts on disk:
+
+| artifact | SHA-256 |
+| --- | --- |
+| `benchmarks/evidence/iteration21_producer_capture/ITER21-01_stage_evidence_evm_sandbox.json` | `f877d58110a79c0461e353f5bc1a92fc9f5cabd2c0db406836939141f29f50de` |
+| `benchmarks/evidence/iteration21_producer_capture/capture_record.json` | `104ce80a99cc9b357d454e729a054e2358bb04cab5ac90bc84dc8ece4ad7f480` |
+| `benchmarks/evidence/iteration21_validation_evidence.json` | `6b890aabf044101f1b70889caaecc9a5e531f492aba3b6d315e976e4f839f736` |
+
+### 10.3 The validator
+
+`python -m benchmarks.validate_iteration21_evidence --code-sha 40c063093c8d773d20f828fb290c68b5790a7cc5`
+→ **PASSED, 13/13 checks**:
+
+| check | what it proves |
+| --- | --- |
+| `P3.1.producer_source_reads_no_forbidden_environment_variable` | the parsed syntax tree of the producer reads neither `MODAL_WORKER_ID`, nor `HOSTNAME`, nor `MODAL_TASK_ID` |
+| `P3.2.no_live_invocation_no_provider_query_and_no_deployment` | the capture declares no live invocation, no provider query, no deployment, no GPU and states the production-change boundary |
+| `P3.3.sentinel_never_touched` | the sentinel was never touched |
+| `P3.4.a_spoofed_environment_does_not_become_an_observation` | the capture ran with the three fake environment values and the container id stayed `NOT_AVAILABLE` |
+| `P3.5.envelope_is_typed_worker_side_and_source_checked` | every identity fact is a typed fact that names the worker side, and every observed fact names a registered source |
+| `P3.6.the_worker_holds_no_observed_container_id` | the worker envelope holds no observed container id and no raw container id value |
+| `P3.7.container_id_is_an_explicit_absence_with_the_precise_reason` | the container id is `NOT_AVAILABLE` with the exact reason of the producer and holds no value |
+| `P3.8.client_observation_is_client_side_and_correlated` | the client-observed facts name the client side, the worker envelope holds no client-side fact, and the client-side container id is an explicit absence or correlated to the very function call |
+| `P3.9.artifact_digest_matches_the_bytes_on_disk` | the SHA-256 of the artifact on disk equals the recorded digest |
+| `P3.10.stage_evidence_artifact_satisfies_the_contract` | the artifact satisfies the unchanged Iteration 18 contract and carries exactly the envelope of the captured response |
+| `P3.11.stage_facts_keep_the_side_of_the_envelope` | the derived stage facts keep the side the envelope declared |
+| `P3.12.provenance_block_satisfies_the_provenance_validator` | the provenance block passes the repository's own validator in the strict source mode |
+| `P3.13.capture_is_bound_to_its_code_sha` | the capture names the commit it was made from |
+
+`python -m benchmarks.validate_iteration21_evidence --check` → published PASSED, revalidated PASSED (13/13), bound to `40c0630`.
+
+### 10.4 The local run (Windows, this machine)
+
+| suite | result |
+| --- | --- |
+| Iteration 21 (`tests/test_iteration21_evidence_integrity.py`) | **41 passed**, 0 skipped |
+| Iteration 20 | 33 passed |
+| Iteration 19 | 24 passed |
+| Iteration 18 | 44 passed |
+| Iteration 17 | 65 passed |
+| Iteration 16 | 27 passed |
+| Iteration 15 | 33 passed |
+| Iteration 14 | 73 passed, 3 skipped (the real-Foundry probes: `forge` is not on the local PATH) |
+| full suite `tests/` | **725 passed, 7 skipped** (84.16 s) |
+
+The 7 local skips are exactly the pre-existing ones of Iteration 14 and the benchmark execution suite — **none of them belongs to the Iteration 21 suite**:
+
+1. `tests/test_iteration14_evidence_integrity.py::test_real_foundry_integration_observed_environment_carries_real_facts`
+2. `tests/test_iteration14_evidence_integrity.py::test_real_foundry_integration_safe_control_emits_the_exact_documented_sentinel`
+3. `tests/test_iteration14_evidence_integrity.py::test_real_foundry_integration_compilation_error_is_never_a_safe_control`
+4. `tests/test_real_benchmark_execution.py::test_real_slither_integration_is_not_run_when_binary_missing`
+5. `tests/test_real_benchmark_execution.py::test_real_foundry_integration_live_execution`
+6. `tests/test_real_benchmark_execution.py::test_real_foundry_integration_confirmed_exploit_breach`
+7. `tests/test_real_benchmark_execution.py::test_real_foundry_integration_compilation_failure`
+
+`forge` and `slither` are **not installed on this machine**, so the real Foundry probes are skipped locally. The Foundry numbers are therefore taken from the CI job `foundry-integration` and are reported as CI numbers — they are never mixed with the local ones.
+
+### 10.5 The CI run
+
+CI run [`42799770130`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42799770130) of the branch (`42ef969`) — **green**. These are **CI** numbers; they are never mixed with the local numbers above.
+
+| step | result |
+| --- | --- |
+| Iteration 21 suite (`tests/test_iteration21_evidence_integrity.py`) | **41 passed** |
+| Iteration 20 suite | 33 passed |
+| Iterations 14–19 suites | 73 passed + 3 skipped / 33 / 27 / 65 / 44 / 24 passed |
+| complete test suite | **721 passed, 11 skipped** (10.28 s) |
+| Foundry EVM integration (`tests/test_real_benchmark_execution.py -k real_foundry`) | **4 passed** |
+| Foundry EVM integration (`tests/test_iteration14_evidence_integrity.py -k real_foundry`) | **3 passed** |
+| `python -m benchmarks.validate_iteration21_evidence --check` | published PASSED, revalidated PASSED (**13/13**), bound to `40c0630` |
+| `python -m benchmarks.validate_iteration20_evidence --check` | published PASSED, revalidated PASSED (**12/12**), bound to `64392a7` |
+| Iterations 14–18 benchmark validation | still **FAILED (0/16 targets)** — the CI reports it explicitly, the green workflow does not mask it |
+
+The 11 CI skips are the pre-existing ones: four `solc` compile probes of the contract normalization suite and the seven Foundry/slither probes that the CI runs in the separate `foundry-integration` job (where they pass: 4 + 3). **None of them belongs to the Iteration 21 suite.**
+
+The CI count grew by exactly the 41 tests of the new suite: 680 passed + 41 = 721 passed, with the same 11 skips as before. The local count is higher by exactly the four `solc` probes, which pass on this machine (`tests/test_contract_normalization_v2.py`: 27 passed locally, 23 passed + 4 skipped in CI) and are skipped in the CI — the local and the CI numbers are reported separately and are never mixed.
+
