@@ -119,6 +119,12 @@ jobs:
           TOKENIZERS_PARALLELISM: "false"
         run: python -m pytest -q tests/test_iteration23_evidence_integrity.py
 
+      - name: Run consolidated closure evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_consolidated_closure_evidence_integrity.py
+
       - name: Run GRPO and trajectory integrity tests
         env:
           PYTHONPATH: .
@@ -253,6 +259,12 @@ jobs:
           PYTHONPATH: .
         run: |
           python -m benchmarks.validate_iteration23_evidence --check
+
+      - name: Validate the consolidated closure evidence
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_consolidated_closure_evidence --check
 
       - name: Upload Foundry test report
         if: always()
