@@ -715,6 +715,7 @@ def validate_observation_side(
     fact: Any,
     *,
     expected_side: Optional[str] = None,
+    require_side: bool = False,
 ) -> Tuple[bool, Optional[str]]:
     """
     Check that a fact names the side that observed it - and names it correctly.
@@ -733,12 +734,24 @@ def validate_observation_side(
 
     A fact that names no side at all is accepted - every artifact of
     Iterations 14-19 has no such name.
+
+    ``require_side`` (Iteration 22) turns that acceptance into an error: in the
+    strict mode an ``OBSERVED`` fact that names **no** side does not say who
+    observed it, and the side is exactly what the closed registry of the
+    observation sources ties to a field. The keyword defaults to ``False``, so
+    the compatibility path - the path the side-less artifacts of Iterations
+    14-20 are read through - stays exactly as it is.
     """
     if not isinstance(fact, dict):
         return True, None
 
     declared = fact.get("observed_by")
     if declared is None:
+        if require_side and fact.get("status") == OBSERVED:
+            return False, (
+                "The fact names no observation side: an observed fact has to say whether the "
+                f"{OBSERVATION_SIDE_WORKER} or the {OBSERVATION_SIDE_CLIENT} observed it"
+            )
         return True, None
 
     if declared not in OBSERVATION_SIDES:
@@ -798,7 +811,11 @@ def validate_runtime_identity_envelope(
     Only the identity fields of the envelope are validated. The additional
     provider keys the Modal worker returns (``app_page_url``,
     ``container_id_value``) are not identity fields, are not classified and
-    are therefore not part of this contract.
+    are therefore not part of this contract - with one exception: in the
+    strict mode the whole registry of the observation sources is checked, and
+    the registry knows the client-side ``app_page_url`` as a provider-issued
+    identity field (Iteration 22). The raw ``container_id_value`` is no
+    provider-issued value and stays outside the contract in every mode.
 
     ``expected_side`` is the side the envelope itself belongs to (Iteration
     20). The envelope of a worker response is worker-side, so a fact inside it
@@ -809,13 +826,31 @@ def validate_runtime_identity_envelope(
     (Iteration 21): an observed value has to name a **registered** source, the
     registered side and the provider's shape. The mode is opt-in and additive -
     the artifacts of Iterations 14-20 stay valid without it.
+
+    In the strict mode the side is **mandatory** (Iteration 22): an observed
+    identity fact has to name the side that observed it, and that side has to
+    be the one registered for the field. A missing, a ``null`` and an unknown
+    side are rejected, and so is a side that contradicts the registered one.
+    Without ``strict_sources`` a side-less fact stays valid - that is the
+    compatibility path the artifacts of Iterations 14-20 are read through.
     """
     if envelope is None:
         return True, None
     if not isinstance(envelope, dict):
         return False, "The runtime-identity envelope is not an object"
 
-    for field_name in MODAL_IDENTITY_FIELDS:
+    # The identity fields of the envelope are the fields of the contract. In
+    # the strict mode the whole registry of the observation sources is checked
+    # as well (Iteration 22): the registry knows the client-side
+    # 'app_page_url' as a provider-issued identity field, and a fact that names
+    # no side is not acceptable for any field of it.
+    fields_to_check = list(MODAL_IDENTITY_FIELDS)
+    if strict_sources:
+        for registered_field in PROVIDER_OBSERVATION_SOURCES:
+            if registered_field not in fields_to_check:
+                fields_to_check.append(registered_field)
+
+    for field_name in fields_to_check:
         if field_name not in envelope:
             continue
         fact = envelope[field_name]
@@ -830,7 +865,11 @@ def validate_runtime_identity_envelope(
                 f"The runtime-identity envelope carries a malformed fact for '{field_name}': "
                 f"its status {status!r} is neither {OBSERVED!r} nor {NOT_AVAILABLE!r}"
             )
-        ok, error = validate_observation_side(fact, expected_side=expected_side)
+        ok, error = validate_observation_side(
+            fact,
+            expected_side=expected_side,
+            require_side=strict_sources,
+        )
         if not ok:
             return False, (
                 f"The runtime-identity envelope carries a malformed fact for '{field_name}': "
@@ -841,6 +880,7 @@ def validate_runtime_identity_envelope(
                 field_name,
                 fact,
                 expected_side=expected_side,
+                require_side=True,
             )
             if not ok:
                 return False, (
@@ -1879,6 +1919,7 @@ def validate_provider_observation_source(
     fact: Any,
     *,
     expected_side: Optional[str] = None,
+    require_side: bool = False,
 ) -> Tuple[bool, Optional[str]]:
     """
     Check that an observed value names a **registered** observation source.
@@ -1890,6 +1931,13 @@ def validate_provider_observation_source(
 
     A fact that is ``NOT_AVAILABLE`` carries no value and is therefore not
     restricted by this rule - the absence itself is checked elsewhere.
+
+    ``require_side`` (Iteration 22) makes the side **mandatory**: the fact has
+    to name the side that observed it, the side has to be a known one, and it
+    has to be **exactly** the side registered for the field. Without the
+    keyword the side is only compared when the fact happens to name one -
+    which is what the compatibility path needs for the side-less artifacts of
+    Iterations 14-20.
     """
     if not isinstance(fact, dict):
         return False, f"The fact for '{field_name}' is not a typed fact"
@@ -1913,7 +1961,28 @@ def validate_provider_observation_source(
         )
 
     declared = fact.get("observed_by")
-    if declared is not None and declared != registered["side"]:
+    if require_side:
+        # Iteration 22: the side is not optional in the strict mode. A fact that
+        # names no side at all does not say who observed it, and the registered
+        # source of the field says which side may observe it.
+        if declared is None:
+            return False, (
+                f"The fact for '{field_name}' names no observation side: an observed value has "
+                f"to say which side observed it - the registered source of '{field_name}' may "
+                f"only be observed from the {registered['side']!r} side"
+            )
+        if declared not in OBSERVATION_SIDES:
+            return False, (
+                f"The fact for '{field_name}' declares the unknown observation side "
+                f"{declared!r}; a fact may name only {', '.join(OBSERVATION_SIDES)}"
+            )
+        if declared != registered["side"]:
+            return False, (
+                f"The fact for '{field_name}' declares the observation side {declared!r}, but the "
+                f"registered source {registered['source']!r} may only be observed from the "
+                f"{registered['side']!r} side"
+            )
+    elif declared is not None and declared != registered["side"]:
         return False, (
             f"The fact for '{field_name}' declares the observation side {declared!r}, but the "
             f"registered source {registered['source']!r} may only be observed from the "
@@ -2077,7 +2146,10 @@ def validate_client_observed_facts(
       registered one;
     * (Iteration 21) an observed container id that carries no correlation
       record, or whose correlation record names another invocation, another
-      application or another container.
+      application or another container;
+    * (Iteration 22, ``strict_sources``) an observed value that names **no**
+      observation side - the side is mandatory in the strict mode, and it has
+      to be the registered one.
     """
     if block is None:
         return True, None
@@ -2136,10 +2208,13 @@ def validate_client_observed_facts(
         if strict_sources:
             # Iteration 21: only a registered source backs a provider-issued
             # value. A free-form source string is not enough.
+            # Iteration 22: the side is mandatory as well - an observed value
+            # has to say which side observed it.
             ok, error = validate_provider_observation_source(
                 field_name,
                 fact,
                 expected_side=OBSERVATION_SIDE_CLIENT,
+                require_side=True,
             )
             if not ok:
                 return False, error
@@ -2218,6 +2293,15 @@ def validate_modal_invocation_provenance(
     and the correlation rule of the client-side container id (Iteration 21).
     The mode is opt-in and additive - the artifacts of Iterations 14-20 stay
     valid without it.
+
+    In the strict mode the side of an observation is **mandatory**
+    (Iteration 22): every observed identity fact of the client block and of
+    every stage has to name the side that observed it, and that side has to be
+    the one registered for the field. A missing, a ``null`` and an unknown side
+    are rejected, and so is a side that contradicts the registered one. The
+    legacy flat value of a stage names no side and is therefore rejected in the
+    strict mode as well - it stays valid in the compatibility path, which is
+    where the artifacts of Iterations 14-20 are read.
     """
     provenance = artifact.get("modal_invocation_provenance")
     if not isinstance(provenance, dict) or not provenance:
@@ -2360,6 +2444,32 @@ def validate_modal_invocation_provenance(
                         f"Modal provenance stage '{stage_name}' uses the synthetic container id {value!r}; "
                         "the container identity must be the provider-issued worker id"
                     )
+
+        if strict_sources:
+            # Iteration 22: the stage facts are what a reader of the artifact
+            # actually sees, so the side rule has to hold here as well. A fact
+            # that names no side does not say who observed it - and the legacy
+            # flat value names no side at all, which is exactly why it is not
+            # acceptable in the strict mode. The compatibility path (without
+            # ``strict_sources``) keeps reading the artifacts of Iterations
+            # 14-20, which are exactly the ones with the flat shape.
+            for key in PROVIDER_OBSERVATION_SOURCES:
+                if key not in stage:
+                    continue
+                fact = stage[key]
+                if not isinstance(fact, dict):
+                    return False, (
+                        f"Modal provenance stage '{stage_name}' records '{key}' as a legacy flat "
+                        "value: in the strict mode every fact has to name the side that observed it"
+                    )
+                ok, error = validate_provider_observation_source(
+                    key,
+                    fact,
+                    expected_side=OBSERVATION_SIDE_WORKER,
+                    require_side=True,
+                )
+                if not ok:
+                    return False, error
 
         for legacy_key in ("durable_log_ref", "provider_log_uri", "log_uri"):
             legacy = stage.get(legacy_key)
