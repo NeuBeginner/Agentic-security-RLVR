@@ -89,6 +89,12 @@ jobs:
           TOKENIZERS_PARALLELISM: "false"
         run: python -m pytest -q tests/test_iteration18_evidence_integrity.py
 
+      - name: Run Iteration 19 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration19_evidence_integrity.py
+
       - name: Run GRPO and trajectory integrity tests
         env:
           PYTHONPATH: .
@@ -193,6 +199,12 @@ jobs:
           PYTHONPATH: .
         run: |
           python -m benchmarks.validate_iteration18_evidence --check
+
+      - name: Validate Iteration 19 live CPU-only smoke evidence
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_iteration19_evidence --check
 
       - name: Upload Foundry test report
         if: always()
