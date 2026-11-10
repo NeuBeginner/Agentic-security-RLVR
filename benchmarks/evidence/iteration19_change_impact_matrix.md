@@ -259,6 +259,30 @@ skipped, because the CI runner has no `solc` on its PATH.
 
 ### 8.4 The CI run
 
-*Pending — the CI run of the final head is reported here once it has finished.
-The CI numbers and the local numbers are never mixed into one number.*
+Run `42736624961` (head `75c6622`) — **success**, both jobs green.
+
+| step | result |
+| --- | --- |
+| Run trusted evidence and reward contract tests | 58 passed; 25 passed; 23 passed, 4 skipped |
+| Run Iteration 14 evidence-integrity tests | 73 passed, 3 skipped |
+| Run Iteration 15 evidence-integrity tests | 33 passed |
+| Run Iteration 16 evidence-integrity tests | 27 passed |
+| Run Iteration 17 evidence-integrity tests | 65 passed |
+| Run Iteration 18 evidence-integrity tests | 44 passed |
+| **Run Iteration 19 evidence-integrity tests** | **24 passed** |
+| Run GRPO and trajectory integrity tests | 6 passed; 5 passed; 5 passed; 6 passed |
+| Run complete test suite | **647 passed, 11 skipped** |
+| Run Live Foundry Integration Tests (job `foundry-integration`) | 4 passed, 65 deselected; 3 passed, 73 deselected |
+| **Validate Iteration 19 live CPU-only smoke evidence** | **published PASSED, revalidated PASSED (12/12 checks), bound to `18ad9740f835e7babb0a7f0fb727752660b2b8f0`** |
+
+The 11 CI skips are the pre-existing ones - the 4 `solc` 0.8.20 compile probes
+(no `solc` on the CI runner), the 3 real-Foundry probes of Iteration 14 and the
+4 real-Foundry/Slither probes of the benchmark execution suite. **None of them
+belongs to the Iteration 19 suite**: its 24 tests all run in CI.
+
+The CI count (647 passed, 11 skipped) and the local count (651 passed, 7
+skipped) differ **only** in the four `solc` probes: they pass locally, because
+`solc-0.8.20.exe` is installed on this machine, and they are skipped on the CI
+runner. The two numbers are never mixed into one number.
+
 
