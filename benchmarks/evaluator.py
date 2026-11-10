@@ -68,6 +68,13 @@ def resolve_detection(
     The verdict of a completed execution is preserved: a compilation error, a
     runtime revert, a format error, a rejected cheatcode attempt and a safe run
     stay negative findings of a run that did complete.
+
+    A **missing** verdict is not a reason to discard the evaluation: the
+    verdict is optional metadata - the LLM auditor adapters never set one
+    (``benchmarks/adapters.py``) - and the completion of the execution is the
+    statement that the audit ran. Only a verdict that names an **invalid**
+    category discards the evaluation, and the only one is ``INFRA_ERROR``:
+    the verdict that says the audit itself did not run.
     """
     if artifact.status != ExecutionStatus.SUCCESS:
         return None, DETECTION_STATE_NOT_EVALUATED
@@ -82,6 +89,23 @@ def resolve_detection(
     return detected, (DETECTION_STATE_POSITIVE if detected else DETECTION_STATE_NEGATIVE)
 
 
+def _presented_breach_counters(
+    artifact: TargetExecutionArtifact, detection_state: str
+) -> Tuple[int, int]:
+    """
+    The breach counters as the report presents them.
+
+    The counters of the producer are the presented counters **only** when the
+    presented detection is a positive finding. A report never shows a breach
+    count next to a target that found nothing: a run that produced no finding
+    has no breaches either. The raw claim of the producer is preserved by the
+    caller under ``producer_*``.
+    """
+    if detection_state != DETECTION_STATE_POSITIVE:
+        return 0, 0
+    return artifact.verified_breaches, artifact.replayed_breaches
+
+
 def _report_artifact_record(artifact: TargetExecutionArtifact) -> Dict[str, Any]:
     """
     The per-target execution record as the report presents it.
@@ -90,21 +114,35 @@ def _report_artifact_record(artifact: TargetExecutionArtifact) -> Dict[str, Any]
     negative finding: its detection is ``None`` and its breach counters are
     zero. The raw claim of the producer is preserved under ``producer_*`` - the
     hashed artifact file on disk stays untouched.
+
+    The detail row and this record use **one** rule: the detection comes from
+    ``resolve_detection()``, the counters are the raw ones only for a positive
+    finding, and the raw claim is preserved whenever the presented value
+    differs from the raw one.
     """
     record = artifact.to_dict()
     detected, detection_state = resolve_detection(artifact)
+    verified, replayed = _presented_breach_counters(artifact, detection_state)
 
-    if detected is None:
-        # The execution produced no valid finding: the raw claim of the producer
-        # is preserved, but it is never presented as a finding.
-        record["producer_detected"] = record.get("detected")
-        record["producer_verified_breaches"] = record.get("verified_breaches")
-        record["producer_replayed_breaches"] = record.get("replayed_breaches")
-        record["verified_breaches"] = 0
-        record["replayed_breaches"] = 0
+    raw_detected = record.get("detected")
+    raw_verified = record.get("verified_breaches")
+    raw_replayed = record.get("replayed_breaches")
+
+    if detected != raw_detected:
+        # The producer claimed something else: the claim is kept, and it is
+        # never presented as a finding.
+        record["producer_detected"] = raw_detected
+
+    if detection_state != DETECTION_STATE_POSITIVE:
+        # The counters are zeroed by the presentation rule: the raw claim of
+        # the producer is preserved, so that nothing is lost.
+        record["producer_verified_breaches"] = raw_verified
+        record["producer_replayed_breaches"] = raw_replayed
 
     record["detected"] = detected
     record["detection_state"] = detection_state
+    record["verified_breaches"] = verified
+    record["replayed_breaches"] = replayed
     return record
 
 
@@ -135,16 +173,34 @@ def evaluate_baseline_run(
         a for a in completed_artifacts if resolve_detection(a)[0] is None
     ]
 
+    if total_targets == 0:
+        # A run without a target has no metric at all.  It is not scorable,
+        # and it adds no 'Infinity' to the report.
+        return BaselineEvaluationResult(
+            baseline_id=baseline_id,
+            baseline_name=baseline_name,
+            status=ExecutionStatus.INCOMPLETE,
+            status_reason=(
+                "Baseline execution incomplete: the run contains no target at all"
+            ),
+            total_targets=0,
+            completed_targets=0,
+            target_artifacts=[],
+            details=[],
+        )
+
     # Generate details for backward-compatible summary and inspection
     details = []
     for a in artifacts:
         gt = ground_truth_map.get(a.target_id)
         is_vuln = gt.is_vulnerable if gt else False
-        is_compile_err = (a.security_verdict == "COMPILATION_ERROR")
         # Fail-closed: a run that did not complete - or that did not produce a
         # valid evaluation - has no finding at all. The verdict branch of a
         # completed run stays negative.
         det, detection_state = resolve_detection(a)
+        # The breach counters follow the same rule as the report record: the
+        # raw ones only for a positive finding.
+        verified, replayed = _presented_breach_counters(a, detection_state)
         details.append({
             "target_id": a.target_id,
             "is_vulnerable": is_vuln,
@@ -157,8 +213,8 @@ def evaluate_baseline_run(
             "replay_status": a.replay_status,
             "persistence_status": a.persistence_status,
             "candidates_generated": a.candidates_generated,
-            "verified_breaches": 0 if (is_compile_err or det is None) else a.verified_breaches,
-            "replayed_breaches": 0 if (is_compile_err or det is None) else a.replayed_breaches,
+            "verified_breaches": verified,
+            "replayed_breaches": replayed,
             "duration_seconds": round(a.duration_seconds, 3),
             "cost_usd": a.cost_usd,
             "status": a.status.value,
@@ -219,7 +275,7 @@ def evaluate_baseline_run(
         # rejected cheatcode attempt and a safe run must NEVER count as a
         # positive breach. A target without a valid evaluation never reaches
         # this loop - the fail-closed check above filtered it out.
-        detected, _detection_state = resolve_detection(art)
+        detected, detection_state = resolve_detection(art)
         if detected is None:  # pragma: no cover - guarded by the check above
             raise ValueError(
                 f"Target {art.target_id} has no valid evaluation but reached the "
@@ -235,9 +291,12 @@ def evaluate_baseline_run(
         elif is_vuln and not detected:
             fn += 1
 
+        # The aggregate counts the **presented** counters - the metric and the
+        # per-target rows cannot disagree.
+        verified, replayed = _presented_breach_counters(art, detection_state)
         total_candidates += art.candidates_generated
-        total_verified += art.verified_breaches
-        total_replayed += art.replayed_breaches
+        total_verified += verified
+        total_replayed += replayed
         total_duration += art.duration_seconds
         if art.cost_usd is not None:
             total_cost += art.cost_usd

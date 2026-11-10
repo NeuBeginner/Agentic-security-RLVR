@@ -155,6 +155,12 @@ PROBE_DIR = "benchmarks/evidence/_closure_probe"
 #: re-implementation of it.
 PRE_FIX_COMMIT = "2909b47~1"
 
+#: The commit whose code is the code **before the follow-up** - the published
+#: closure. The gap of the follow-up (the run-level application id that may
+#: contradict the copy of the EVM sandbox stage) is reproduced by executing the
+#: source of this commit.
+FOLLOW_UP_PRE_FIX_COMMIT = "810e89c"
+
 STAGE = "evm_sandbox"
 TARGET_ID = "CLOSURE-01"
 
@@ -289,6 +295,26 @@ def _client_block() -> Dict[str, Any]:
             observed_by=OBSERVATION_SIDE_CLIENT,
         ),
     }
+
+
+def _observe_app_id_in_both_places(
+    provenance: Dict[str, Any],
+    value: str = APP_ID,
+    *,
+    side: str = OBSERVATION_SIDE_CLIENT,
+) -> None:
+    """
+    Record the client-observed application id in **both** places that hold it.
+
+    The run-level application id is the application id of the EVM sandbox stage
+    of the same invocation: the two are one fact in two places. A probe that
+    patches only the run-level copy builds an artifact that contradicts itself,
+    and the strict consumer refuses such an artifact by design.
+    """
+    fact = _observed_fact(value, SOURCE_CLIENT_APP_ID, side=side)
+    block = provenance["modal_invocation_provenance"]
+    block["modal_app_id"] = dict(fact)
+    block["stages"][STAGE]["app_id"] = dict(fact)
 
 
 def _build_provenance(
@@ -444,6 +470,34 @@ def _pre_fix_contract(work_dir: Path) -> Optional[Any]:
     return module
 
 
+def _follow_up_pre_fix_contract(work_dir: Path) -> Optional[Any]:
+    """
+    Load the evidence contract **as it stood before the follow-up**.
+
+    The module is the published closure - the commit the evidence of this
+    closure was bound to. It is taken from the historical source with ``git
+    show`` and imported as a standalone module, so that the reproduction of the
+    gap of the follow-up **executes the historical code** and not a
+    re-implementation of it.
+    """
+    source = _git("show", f"{FOLLOW_UP_PRE_FIX_COMMIT}:benchmarks/evidence_integrity.py")
+    if not source:
+        return None
+    path = work_dir / "follow_up_pre_fix_evidence_integrity.py"
+    path.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location(
+        "follow_up_pre_fix_evidence_integrity", path
+    )
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    # The module has to be in ``sys.modules`` before it is executed: the
+    # dataclasses of the contract resolve their own module at class creation.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 class _FailingSmokeAdapter:
     """
     A smoke adapter whose execution **fails**.
@@ -518,9 +572,9 @@ def _validate_consolidated_closure(
     accept_errors: List[str] = []
     accept_probes: List[Dict[str, Any]] = []
     provenance, _ = _build_provenance(work_dir)
-    provenance["modal_invocation_provenance"]["modal_app_id"] = _observed_fact(
-        APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT
-    )
+    # The application id is recorded in both places that hold it: they are one
+    # fact in two places, and an artifact that contradicts itself is refused.
+    _observe_app_id_in_both_places(provenance)
     ok, error = validate_modal_invocation_provenance(
         provenance, evidence_root=work_dir, strict_sources=True
     )
@@ -537,7 +591,8 @@ def _validate_consolidated_closure(
             error="; ".join(accept_errors) if accept_errors else None,
             planned=(
                 "the run-level application id of a client-observed fact is accepted by the "
-                "strict consumer - the registered side of 'app_id' is the client side"
+                "strict consumer - the registered side of 'app_id' is the client side - and "
+                "the copy of the EVM sandbox stage states the same application id"
             ),
             probes=accept_probes,
         )
@@ -595,9 +650,7 @@ def _validate_consolidated_closure(
     digest_probes: List[Dict[str, Any]] = []
 
     provenance, artifact_path = _build_provenance(work_dir)
-    provenance["modal_invocation_provenance"]["modal_app_id"] = _observed_fact(
-        APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT
-    )
+    _observe_app_id_in_both_places(provenance)
     artifact_path = _rewrite_artifact(artifact_path)
     _rebuild_digests(provenance, artifact_path)
 
@@ -1024,9 +1077,7 @@ def _validate_consolidated_closure(
     chain_errors: List[str] = []
     chain_probes: List[Dict[str, Any]] = []
     provenance, artifact_path = _build_provenance(work_dir)
-    provenance["modal_invocation_provenance"]["modal_app_id"] = _observed_fact(
-        APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT
-    )
+    _observe_app_id_in_both_places(provenance)
     recorded = provenance["modal_invocation_provenance"]["stages"][STAGE]["evidence_ref"][
         "sha256"
     ]
@@ -1588,6 +1639,243 @@ def _validate_consolidated_closure(
         )
     )
     errors.extend(semantics_errors)
+
+    # -- P6.18 the run-level application id may not contradict the stage -----
+    contradiction_errors: List[str] = []
+    contradiction_probes: List[Dict[str, Any]] = []
+    contradiction_cases: Tuple[Tuple[str, Any, Any], ...] = (
+        (
+            "the_stage_could_not_observe_the_application_id",
+            _observed_fact(APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT),
+            None,
+        ),
+        (
+            "the_two_copies_state_another_application_id",
+            _observed_fact(APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT),
+            _observed_fact(
+                "ap-0000000000000000000",
+                SOURCE_CLIENT_APP_ID,
+                side=OBSERVATION_SIDE_CLIENT,
+            ),
+        ),
+    )
+    for label, run_fact, stage_fact in contradiction_cases:
+        provenance, _ = _build_provenance(work_dir)
+        block = provenance["modal_invocation_provenance"]
+        block["modal_app_id"] = run_fact
+        if stage_fact is not None:
+            block["stages"][STAGE]["app_id"] = stage_fact
+        ok, error = validate_modal_invocation_provenance(
+            provenance, evidence_root=work_dir, strict_sources=True
+        )
+        contradiction_probes.append({"case": label, "rejected": not ok, "error": error})
+        if ok:
+            contradiction_errors.append(
+                f"the strict consumer accepts the run-level application id of the case "
+                f"{label!r}: the run-level fact and the copy of the EVM sandbox stage "
+                "contradict each other"
+            )
+
+    # The positive control of the rule: an **absence claim** is not compared
+    # with the stage copy.  The stage copy may carry a client-side observation
+    # while the run-level copy states that the worker could not read the
+    # application id - that is the shape of Iteration 21 and of the probes of
+    # Iteration 23.
+    provenance, _ = _build_provenance(work_dir)
+    provenance["modal_invocation_provenance"]["stages"][STAGE]["app_id"] = (
+        _observed_fact(APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT)
+    )
+    ok, error = validate_modal_invocation_provenance(
+        provenance, evidence_root=work_dir, strict_sources=True
+    )
+    contradiction_probes.append(
+        {"case": "an_absence_claim_next_to_an_observed_stage_copy", "accepted": ok, "error": error}
+    )
+    if not ok:
+        contradiction_errors.append(
+            "the strict consumer refuses an absence claim next to a client-side observation "
+            f"of the stage copy: {error}"
+        )
+    checks.append(
+        _check(
+            "P6.18.the_run_level_application_id_may_not_contradict_the_stage_copy",
+            not contradiction_errors,
+            error="; ".join(contradiction_errors) if contradiction_errors else None,
+            planned=(
+                "the run-level application id is the application id of the EVM sandbox stage "
+                "of the same invocation - the two are one fact in two places: an observed "
+                "value next to a stage copy that observed another value, and an observed "
+                "value next to a stage copy that could not observe one, are refused - while "
+                "an absence claim stays an absence claim and is not compared"
+            ),
+            probes=contradiction_probes,
+        )
+    )
+    errors.extend(contradiction_errors)
+
+    # -- P6.19 an absence claim carries no value -----------------------------
+    absence_errors: List[str] = []
+    absence_probes: List[Dict[str, Any]] = []
+    provenance, _ = _build_provenance(work_dir)
+    fact = dict(provenance["modal_invocation_provenance"]["modal_app_id"])
+    fact["value"] = APP_ID
+    provenance["modal_invocation_provenance"]["modal_app_id"] = fact
+    ok, error = validate_modal_invocation_provenance(
+        provenance, evidence_root=work_dir, strict_sources=True
+    )
+    absence_probes.append(
+        {"case": "NOT_AVAILABLE_with_a_value", "rejected": not ok, "error": error}
+    )
+    if ok:
+        absence_errors.append(
+            "the strict consumer accepts a run-level application id that is NOT_AVAILABLE and "
+            "holds a value"
+        )
+    checks.append(
+        _check(
+            "P6.19.a_not_available_run_level_application_id_carries_no_value",
+            not absence_errors,
+            error="; ".join(absence_errors) if absence_errors else None,
+            planned=(
+                "an absence claim states that the value could not be observed - it may not "
+                "state a value as well, exactly as the client-observed facts may not"
+            ),
+            probes=absence_probes,
+        )
+    )
+    errors.extend(absence_errors)
+
+    # -- P6.20 the pre-fix contract of the follow-up reproduces the gap ------
+    follow_up_errors: List[str] = []
+    follow_up_probes: List[Dict[str, Any]] = []
+    follow_up_contract = _follow_up_pre_fix_contract(work_dir)
+    if follow_up_contract is None:
+        follow_up_errors.append(
+            f"the evidence contract of the commit {FOLLOW_UP_PRE_FIX_COMMIT} could not be "
+            "loaded - the gap of the follow-up is therefore not reproduced"
+        )
+    else:
+        for label, run_fact, stage_fact in contradiction_cases:
+            provenance, _ = _build_provenance(work_dir)
+            block = provenance["modal_invocation_provenance"]
+            block["modal_app_id"] = run_fact
+            if stage_fact is not None:
+                block["stages"][STAGE]["app_id"] = stage_fact
+            accepted_before, error_before = (
+                follow_up_contract.validate_modal_invocation_provenance(
+                    provenance, evidence_root=work_dir, strict_sources=True
+                )
+            )
+            accepted_after, error_after = validate_modal_invocation_provenance(
+                provenance, evidence_root=work_dir, strict_sources=True
+            )
+            follow_up_probes.append(
+                {
+                    "case": label,
+                    "accepted_by_the_pre_fix_contract": accepted_before,
+                    "pre_fix_error": error_before,
+                    "accepted_by_the_current_contract": accepted_after,
+                    "current_error": error_after,
+                }
+            )
+            if not accepted_before:
+                follow_up_errors.append(
+                    f"the pre-fix contract does not reproduce the gap for the case {label!r}: "
+                    f"it already refused the contradicting artifact - {error_before}"
+                )
+            if accepted_after:
+                follow_up_errors.append(
+                    f"the current contract accepts the contradicting run-level application "
+                    f"id of the case {label!r}"
+                )
+    checks.append(
+        _check(
+            "P6.20.the_pre_fix_contract_of_the_follow_up_reproduces_the_gap",
+            not follow_up_errors,
+            error="; ".join(follow_up_errors) if follow_up_errors else None,
+            planned=(
+                "the evidence contract of the published closure is loaded from its "
+                "historical source and executed: it accepts an artifact whose run-level "
+                "application id contradicts the copy of the EVM sandbox stage - the gap was "
+                "real, and the check is not vacuous"
+            ),
+            probes=follow_up_probes,
+            historical_commit=FOLLOW_UP_PRE_FIX_COMMIT,
+        )
+    )
+    errors.extend(follow_up_errors)
+
+    # -- P6.21 the presentation rules ---------------------------------------
+    presentation_errors: List[str] = []
+    presentation_probes: List[Dict[str, Any]] = []
+
+    contradicting = TargetExecutionArtifact(
+        baseline_id="baseline_closure",
+        target_id="T1",
+        target_name="T1",
+        status=ExecutionStatus.SUCCESS,
+        detected=False,
+        security_verdict="CHEATCODE_DETECTED",
+        verified_breaches=1,
+        replayed_breaches=1,
+        candidates_generated=2,
+    )
+    result = evaluate_baseline_run("baseline_closure", "B", [contradicting], _ground_truth())
+    detail = result.details[0]
+    record = result.target_artifacts[0]
+    presentation_probes.append(
+        {
+            "case": "a_negative_verdict_with_a_breach_counter",
+            "detail_verified_breaches": detail["verified_breaches"],
+            "record_verified_breaches": record["verified_breaches"],
+            "producer_verified_breaches": record.get("producer_verified_breaches"),
+        }
+    )
+    if detail["verified_breaches"] != record["verified_breaches"]:
+        presentation_errors.append(
+            "the two views of a target disagree about the verified breaches: "
+            f"{detail['verified_breaches']} in the detail row and "
+            f"{record['verified_breaches']} in the report record"
+        )
+    if record["verified_breaches"] != 0 or record["replayed_breaches"] != 0:
+        presentation_errors.append(
+            "the report record of a target that found nothing still carries a breach counter"
+        )
+    if record.get("producer_verified_breaches") != 1:
+        presentation_errors.append(
+            "the raw claim of the producer is not preserved next to the presented counters"
+        )
+
+    empty = evaluate_baseline_run("baseline_closure", "B", [], _ground_truth())
+    presentation_probes.append(
+        {
+            "case": "a_run_without_a_target",
+            "status": str(empty.status),
+            "candidates_per_verified_finding": empty.candidates_per_verified_finding,
+        }
+    )
+    if empty.status != ExecutionStatus.INCOMPLETE:
+        presentation_errors.append(
+            f"a run without a target is scored as {empty.status!r} instead of INCOMPLETE"
+        )
+    if empty.candidates_per_verified_finding is not None:
+        presentation_errors.append(
+            "a run without a target states a value for 'candidates_per_verified_finding'"
+        )
+    checks.append(
+        _check(
+            "P6.21.the_two_views_of_a_target_and_the_empty_run_are_reconciled",
+            not presentation_errors,
+            error="; ".join(presentation_errors) if presentation_errors else None,
+            planned=(
+                "the detail row and the report record use one rule: the breach counters are "
+                "the raw ones only for a positive finding, the raw claim of the producer is "
+                "preserved whenever it differs, and a run without a target is not scorable"
+            ),
+            probes=presentation_probes,
+        )
+    )
+    errors.extend(presentation_errors)
 
     return {
         "checks": checks,

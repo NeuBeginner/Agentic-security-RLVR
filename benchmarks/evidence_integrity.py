@@ -2285,7 +2285,17 @@ def validate_run_level_application_id(
     * a **worker**-side claim is rejected - the registered source of
       ``app_id`` may only be observed from the client side;
     * a **legacy flat** value names no side at all and is rejected;
-    * a run that records **no** application id at all is rejected.
+    * a run that records **no** application id at all is rejected;
+    * an **absence claim** that carries a value is rejected - an absence claim
+      states that the value could not be observed, and it may not state a
+      value as well.
+
+    The **contradiction with the stage copy** of the same field - the run-level
+    fact is the application id of the EVM sandbox stage of the same invocation
+    and the two are one fact in two places - is checked by
+    ``validate_run_level_application_id_against_stage()``. It runs **after**
+    this check, so that a claim with the wrong side is still refused by the
+    side rule and not by the contradiction rule.
 
     A ``NOT_AVAILABLE`` fact is an **absence claim**, not an observation claim:
     it states that the value could not be observed, not that it was observed
@@ -2320,6 +2330,12 @@ def validate_run_level_application_id(
 
     if status == NOT_AVAILABLE:
         # An absence claim - the evidence reference is checked by the caller.
+        # It may not hold a value: it states that the value could not be
+        # observed.  ``value: null`` is not a value.
+        if fact.get("value") is not None:
+            return False, (
+                "The run-level application id is NOT_AVAILABLE but holds a value"
+            )
         return True, None
 
     registered = PROVIDER_OBSERVATION_SOURCES["app_id"]
@@ -2329,6 +2345,69 @@ def validate_run_level_application_id(
         expected_side=registered["side"],
         require_side=True,
     )
+
+
+def validate_run_level_application_id_against_stage(
+    fact: Any,
+    stage_app_id_fact: Any,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Check that the run-level application id does not contradict the stage copy.
+
+    The run-level application id **is** the application id of the EVM sandbox
+    stage of the same invocation - the producer writes the very same fact in
+    both places (``benchmarks/adapters.py``). The two are therefore one fact in
+    two places, and one artifact may not state two different application ids
+    for one invocation.
+
+    The rule is deliberately narrow and deliberately **one-directional**:
+
+    * an **observed** run-level value has to be the **same** value the stage
+      copy observed - the two copies of one fact may not disagree;
+    * an **observed** run-level value next to a stage copy that says
+      ``NOT_AVAILABLE`` is refused - the run claims an application id that the
+      stage copy states it could not observe;
+    * a ``NOT_AVAILABLE`` run-level fact is **not** compared with the stage
+      copy: an absence claim states that the value could not be observed, and
+      the strict mode does not side-check an absence claim either. The stage
+      copy may carry a **client-side** observation of the application id while
+      the run-level copy states that the **worker** could not read it - the two
+      statements are compatible, and the artifacts of Iteration 21 and the
+      probes of Iteration 23 have exactly that shape;
+    * a shape that is not a typed fact is left to the checks that own it: the
+      legacy flat value of the stage is refused by the strict loop over the
+      stages, and a missing stage is not a contradiction - the stages are not
+      mandatory.
+
+    This check belongs to the strict mode only: the compatibility path reads
+    the artifacts of Iterations 14-20, whose run-level application id is a
+    flat, side-less value.
+    """
+    if not isinstance(fact, dict) or not isinstance(stage_app_id_fact, dict):
+        # Not two typed facts: there is nothing to compare, and the shape of
+        # each of them is owned by another check.
+        return True, None
+
+    run_status = fact.get("status")
+    stage_status = stage_app_id_fact.get("status")
+
+    if run_status == OBSERVED and stage_status == OBSERVED:
+        if fact.get("value") != stage_app_id_fact.get("value"):
+            return False, (
+                "The run-level application id contradicts the application id of the EVM "
+                f"sandbox stage: the run states {fact.get('value')!r}, the stage states "
+                f"{stage_app_id_fact.get('value')!r} - they are one fact in two places"
+            )
+        return True, None
+
+    if run_status == OBSERVED and stage_status != OBSERVED:
+        return False, (
+            "The run-level application id contradicts the EVM sandbox stage: the run states "
+            f"an observed application id ({fact.get('value')!r}) while the stage states "
+            f"{stage_status!r}"
+        )
+
+    return True, None
 
 
 def validate_modal_invocation_provenance(
@@ -2424,6 +2503,19 @@ def validate_modal_invocation_provenance(
         ok, error = validate_run_level_application_id(run_app_fact, strict=True)
         if not ok:
             return False, error
+
+        # The two copies are one fact in two places: the run-level application
+        # id is the application id of the EVM sandbox stage of this very
+        # invocation.  The **side** rule above keeps its precedence - a claim
+        # with the wrong side is refused by the side rule and not by the
+        # contradiction rule.
+        evm_stage = stages.get("evm_sandbox") if isinstance(stages, dict) else None
+        if isinstance(evm_stage, dict):
+            ok, error = validate_run_level_application_id_against_stage(
+                run_app_fact, evm_stage.get("app_id")
+            )
+            if not ok:
+                return False, error
 
     if isinstance(run_app_fact, dict) and run_app_fact.get("status") == NOT_AVAILABLE:
         ok, error = require_verified_evidence_ref(

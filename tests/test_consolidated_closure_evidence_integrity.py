@@ -153,6 +153,26 @@ def _observed_fact(value, source, *, side=None, declare_side=True) -> dict:
     return fact
 
 
+def _observe_app_id_in_both_places(
+    provenance: dict,
+    value: str = APP_ID,
+    *,
+    side: str = OBSERVATION_SIDE_CLIENT,
+) -> None:
+    """
+    Record the client-observed application id in **both** places that hold it.
+
+    The run-level application id is the application id of the EVM sandbox stage
+    of the same invocation: the two are one fact in two places. A probe that
+    patches only the run-level copy builds an artifact that contradicts itself,
+    and the strict consumer refuses such an artifact by design.
+    """
+    fact = _observed_fact(value, SOURCE_CLIENT_APP_ID, side=side)
+    block = provenance["modal_invocation_provenance"]
+    block["modal_app_id"] = dict(fact)
+    block["stages"][STAGE]["app_id"] = dict(fact)
+
+
 def _build_provenance(tmp_path: Path) -> tuple[dict, Path]:
     """
     Build a provenance block from the real producer and write its artifact.
@@ -392,11 +412,15 @@ def test_the_resolver_is_the_single_source_of_the_detection():
 # =============================================================================
 
 def test_the_strict_consumer_accepts_a_client_observed_run_level_application_id(tmp_path):
-    """The P0 of the strict mode: a valid client-observed application id passes."""
+    """
+    The P0 of the strict mode: a valid client-observed application id passes.
+
+    The application id is recorded in both places that hold it - the run-level
+    fact and the copy of the EVM sandbox stage - because they are one fact in
+    two places.
+    """
     provenance, _ = _build_provenance(tmp_path)
-    provenance["modal_invocation_provenance"]["modal_app_id"] = _observed_fact(
-        APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT
-    )
+    _observe_app_id_in_both_places(provenance)
 
     ok, error = validate_modal_invocation_provenance(
         provenance, evidence_root=tmp_path, strict_sources=True
@@ -462,9 +486,7 @@ def test_the_rejection_of_the_run_level_side_comes_from_the_side_rule_and_not_fr
     by the side rule alone.
     """
     provenance, artifact_path = _build_provenance(tmp_path)
-    provenance["modal_invocation_provenance"]["modal_app_id"] = _observed_fact(
-        APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT
-    )
+    _observe_app_id_in_both_places(provenance)
     artifact_path = _rewrite_artifact(artifact_path)
     _rebuild_digests(provenance, artifact_path)
 
@@ -565,9 +587,7 @@ def test_the_successful_vertical_chain_holds_end_to_end(tmp_path):
     manifests → evaluator → report.
     """
     provenance, artifact_path = _build_provenance(tmp_path)
-    provenance["modal_invocation_provenance"]["modal_app_id"] = _observed_fact(
-        APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT
-    )
+    _observe_app_id_in_both_places(provenance)
 
     # 1. the evidence artifact exists and its digest is the digest of the bytes
     assert artifact_path.is_file()
@@ -606,9 +626,7 @@ def test_the_failure_vertical_chain_keeps_the_failure_visible(tmp_path):
     everywhere and never as a negative finding.
     """
     provenance, _ = _build_provenance(tmp_path)
-    provenance["modal_invocation_provenance"]["modal_app_id"] = _observed_fact(
-        APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT
-    )
+    _observe_app_id_in_both_places(provenance)
     ok, error = validate_modal_invocation_provenance(
         provenance, known_app_ids=[APP_ID], evidence_root=tmp_path, strict_sources=True
     )
@@ -709,3 +727,167 @@ def test_the_side_less_provider_fact_stays_valid_without_the_strict_mode():
         "function_call_id", fact, require_side=True
     )
     assert not ok and error
+
+
+# =============================================================================
+# The follow-up - the contradiction rule and the presentation rules
+# =============================================================================
+
+@pytest.mark.parametrize(
+    "label,run_fact,stage_fact",
+    [
+        (
+            "the_stage_could_not_observe_the_application_id",
+            _observed_fact(APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT),
+            None,
+        ),
+        (
+            "the_two_copies_state_another_application_id",
+            _observed_fact(APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT),
+            _observed_fact("ap-0000000000000000000", SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT),
+        ),
+    ],
+)
+def test_the_strict_consumer_rejects_a_run_level_application_id_that_contradicts_the_stage_copy(
+    tmp_path, label, run_fact, stage_fact
+):
+    """
+    The run-level application id is the application id of the EVM sandbox stage
+    of the same invocation: one artifact may not state two different
+    application ids for one invocation.
+    """
+    provenance, _ = _build_provenance(tmp_path)
+    block = provenance["modal_invocation_provenance"]
+    block["modal_app_id"] = run_fact
+    if stage_fact is not None:
+        block["stages"][STAGE]["app_id"] = stage_fact
+
+    ok, error = validate_modal_invocation_provenance(
+        provenance, evidence_root=tmp_path, strict_sources=True
+    )
+    assert not ok, f"the strict consumer accepts the case {label!r}"
+    assert error
+
+
+def test_an_absence_claim_is_not_compared_with_the_stage_copy(tmp_path):
+    """
+    An absence claim states that the value could not be observed - the strict
+    mode does not side-check an absence claim either.
+
+    The stage copy may carry a **client-side** observation of the application id
+    while the run-level copy states that the **worker** could not read it: the
+    two statements are compatible, and the artifacts of Iteration 21 and the
+    probes of Iteration 23 have exactly that shape.
+    """
+    provenance, _ = _build_provenance(tmp_path)
+    block = provenance["modal_invocation_provenance"]
+    block["stages"][STAGE]["app_id"] = _observed_fact(
+        APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT
+    )
+
+    ok, error = validate_modal_invocation_provenance(
+        provenance, evidence_root=tmp_path, strict_sources=True
+    )
+    assert ok, error
+
+
+def test_the_compatibility_path_still_accepts_a_contradicting_run_level_application_id(tmp_path):
+    """
+    The contradiction rule belongs to the strict mode only: the artifacts of
+    Iterations 14-20 keep being read exactly as before.
+    """
+    provenance, _ = _build_provenance(tmp_path)
+    block = provenance["modal_invocation_provenance"]
+    block["modal_app_id"] = _observed_fact(
+        APP_ID, SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT
+    )
+    block["stages"][STAGE]["app_id"] = _observed_fact(
+        "ap-0000000000000000000", SOURCE_CLIENT_APP_ID, side=OBSERVATION_SIDE_CLIENT
+    )
+
+    ok, error = validate_modal_invocation_provenance(provenance, evidence_root=tmp_path)
+    assert ok, error
+
+
+def test_the_strict_consumer_rejects_a_not_available_run_level_fact_that_carries_a_value(tmp_path):
+    """An absence claim states that the value could not be observed."""
+    provenance, _ = _build_provenance(tmp_path)
+    fact = dict(provenance["modal_invocation_provenance"]["modal_app_id"])
+    fact["value"] = APP_ID
+    provenance["modal_invocation_provenance"]["modal_app_id"] = fact
+
+    ok, error = validate_modal_invocation_provenance(
+        provenance, evidence_root=tmp_path, strict_sources=True
+    )
+    assert not ok
+    assert error
+
+
+def test_the_two_views_of_a_target_agree_about_the_breach_counters():
+    """
+    The detail row and the report record use one rule, and a report never shows
+    a breach count next to a target that found nothing.
+    """
+    artifact = TargetExecutionArtifact(
+        baseline_id="baseline_closure",
+        target_id="T1",
+        target_name="T1",
+        status=ExecutionStatus.SUCCESS,
+        detected=False,
+        security_verdict="CHEATCODE_DETECTED",
+        verified_breaches=1,
+        replayed_breaches=1,
+        candidates_generated=2,
+    )
+    result = evaluate_baseline_run(
+        "baseline_closure", "B", [artifact], {"T1": GroundTruth(contract_id="T1", is_vulnerable=False)}
+    )
+
+    detail = result.details[0]
+    record = result.target_artifacts[0]
+    assert detail["verified_breaches"] == record["verified_breaches"] == 0
+    assert detail["replayed_breaches"] == record["replayed_breaches"] == 0
+    # The raw claim of the producer is preserved - it is never presented as a
+    # finding, but it is never lost either.
+    assert record["producer_verified_breaches"] == 1
+    assert record["producer_replayed_breaches"] == 1
+    # The raw claim of the detection equals the presented one here, so there is
+    # nothing to preserve separately.
+    assert "producer_detected" not in record
+    assert result.verified_finding_rate == 0.0
+
+
+def test_the_raw_claim_of_the_producer_is_preserved_whenever_it_differs():
+    """A negative verdict does not swallow the claim the producer made."""
+    artifact = TargetExecutionArtifact(
+        baseline_id="baseline_closure",
+        target_id="T1",
+        target_name="T1",
+        status=ExecutionStatus.SUCCESS,
+        detected=True,
+        security_verdict="CHEATCODE_DETECTED",
+        verified_breaches=1,
+        replayed_breaches=0,
+    )
+    result = evaluate_baseline_run(
+        "baseline_closure", "B", [artifact], {"T1": GroundTruth(contract_id="T1", is_vulnerable=False)}
+    )
+
+    record = result.target_artifacts[0]
+    assert record["detected"] is False
+    assert record["detection_state"] == DETECTION_STATE_NEGATIVE
+    assert record["producer_detected"] is True
+    assert record["producer_verified_breaches"] == 1
+
+
+def test_a_run_without_a_target_is_not_scorable():
+    """A run with no target has no metric at all."""
+    result = evaluate_baseline_run("baseline_closure", "B", [], {})
+
+    assert result.status == ExecutionStatus.INCOMPLETE
+    assert result.status_reason
+    assert result.total_targets == 0
+    assert result.precision is None
+    assert result.candidates_per_verified_finding is None
+    assert result.details == []
+    assert result.target_artifacts == []
