@@ -768,6 +768,15 @@ def test_evaluator_mixed_success_and_failed_is_incomplete_and_unscorable():
     assert res.true_positives is None
     assert res.false_negatives is None
 
+    # The failed target has no finding at all - it is not a negative finding.
+    failed_detail = next(d for d in res.details if d["target_id"] == "T2")
+    assert failed_detail["detected"] is None
+    assert failed_detail["detection_state"] == "NOT_EVALUATED"
+    # The report record of the same target states the same thing.
+    failed_record = next(a for a in res.target_artifacts if a["target_id"] == "T2")
+    assert failed_record["detected"] is None
+    assert failed_record["detection_state"] == "NOT_EVALUATED"
+
 
 def test_cost_usd_none_when_unmeasured():
     """Unmeasured costs must report None, never fake hardcoded numbers."""
@@ -2589,6 +2598,9 @@ def test_compilation_failure_never_counted_as_exploit_or_breach():
     """
     P0 Guarantee: Evaluator must NEVER treat a compilation error as a detected exploit,
     invariant breach, or true positive, even if a buggy adapter marked detected=True.
+
+    A **failed** execution produced no finding at all: its detection is None and
+    its detection state is NOT_EVALUATED - never a negative finding.
     """
     dataset = BenchmarkDataset()
     gt_map = dataset.ground_truth
@@ -2616,8 +2628,17 @@ def test_compilation_failure_never_counted_as_exploit_or_breach():
     assert eval_res.status == ExecutionStatus.FAILED
     assert eval_res.true_positives is None  # fail-closed metrics are None
     detail = eval_res.details[0]
-    assert detail["detected"] is False  # Must be coerced to False for compilation error!
+    # The execution did not complete: there is no finding, not a negative one.
+    assert detail["detected"] is None
+    assert detail["detection_state"] == "NOT_EVALUATED"
     assert detail["verified_breaches"] == 0
+    # The report record of the same target states the same thing.
+    record = eval_res.target_artifacts[0]
+    assert record["detected"] is None
+    assert record["detection_state"] == "NOT_EVALUATED"
+    assert record["verified_breaches"] == 0
+    # The raw claim of the producer is preserved, not presented as a finding.
+    assert record["producer_detected"] is True
 
 
 def test_target_artifact_preserves_stdout_stderr_paths_and_sha256(tmpdir):

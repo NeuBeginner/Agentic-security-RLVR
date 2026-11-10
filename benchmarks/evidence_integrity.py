@@ -2260,6 +2260,77 @@ def _client_block_observed_value(block: Any, field_name: str) -> Optional[str]:
     return str(value) if isinstance(value, str) and value else None
 
 
+def validate_run_level_application_id(
+    fact: Any,
+    *,
+    strict: bool = False,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validate the **run-level** application id of an invocation.
+
+    The run-level application id is the application id of the EVM sandbox stage
+    of the very same invocation (``benchmarks/adapters.py`` writes
+    ``"modal_app_id": _stage_facts("evm_sandbox")["app_id"]``). It is therefore
+    either the ``NOT_AVAILABLE`` fact of that stage - the worker cannot read the
+    application id - or an observed one.
+
+    In the **strict** mode the run-level fact is a typed fact of the **same
+    registry** as the stage facts, and the consumer may not let it contradict
+    the stage copy of the same field:
+
+    * an **observed** value has to name the **registered** side of the field
+      (``client``) and the registered source, and its value has to have the
+      provider's shape;
+    * a **missing**, a ``null`` and an **unknown** side are rejected;
+    * a **worker**-side claim is rejected - the registered source of
+      ``app_id`` may only be observed from the client side;
+    * a **legacy flat** value names no side at all and is rejected;
+    * a run that records **no** application id at all is rejected.
+
+    A ``NOT_AVAILABLE`` fact is an **absence claim**, not an observation claim:
+    it states that the value could not be observed, not that it was observed
+    from a side. It is therefore not side-checked - the artifacts of Iteration
+    21 carry exactly that shape and stay valid. The evidence reference of such
+    a fact is checked by the caller.
+
+    Without ``strict`` the fact is not restricted at all: that is the
+    compatibility path that reads the artifacts of Iterations 14-20, in which
+    the run-level application id is a flat, side-less value.
+    """
+    if not strict:
+        return True, None
+
+    if fact is None:
+        return False, (
+            "The run records no application id: in the strict mode the run-level "
+            "application id has to be a typed fact that names the side that observed it"
+        )
+
+    if not isinstance(fact, dict):
+        return False, (
+            "The run records the application id as a legacy flat value: in the strict mode "
+            "every fact has to name the side that observed it"
+        )
+
+    status = fact.get("status")
+    if status not in IDENTITY_FACT_STATUSES:
+        return False, (
+            f"The run-level application id has the unknown status {status!r}"
+        )
+
+    if status == NOT_AVAILABLE:
+        # An absence claim - the evidence reference is checked by the caller.
+        return True, None
+
+    registered = PROVIDER_OBSERVATION_SOURCES["app_id"]
+    return validate_provider_observation_source(
+        "app_id",
+        fact,
+        expected_side=registered["side"],
+        require_side=True,
+    )
+
+
 def validate_modal_invocation_provenance(
     artifact: Dict[str, Any],
     *,
@@ -2343,6 +2414,17 @@ def validate_modal_invocation_provenance(
     # The run-level application id is a fact of the same kind as the stage
     # facts: an unavailable one must carry verifiable evidence as well.
     run_app_fact = provenance.get("modal_app_id")
+    if strict_sources:
+        # The run-level fact is checked against the **registry** as well: it is
+        # the application id of the EVM sandbox stage of this very invocation,
+        # so the consumer may not let it contradict the stage copy of the same
+        # field. A missing, a side-less and a wrong-side claim is refused -
+        # the compatibility path (without ``strict_sources``) is untouched and
+        # keeps reading the side-less artifacts of Iterations 14-20.
+        ok, error = validate_run_level_application_id(run_app_fact, strict=True)
+        if not ok:
+            return False, error
+
     if isinstance(run_app_fact, dict) and run_app_fact.get("status") == NOT_AVAILABLE:
         ok, error = require_verified_evidence_ref(
             run_app_fact,
