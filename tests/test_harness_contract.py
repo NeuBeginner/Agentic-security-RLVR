@@ -449,9 +449,14 @@ def test_sandbox_execution_ignores_request_supplied_harness_code(tmp_path, monke
 
     class FakePopen:
         def __init__(self, cmd, *, cwd, **kwargs):
-            harness_path = Path(cwd) / "test" / "VaultHarness.t.sol"
-            self.written_harness = harness_path.read_text(encoding="utf-8")
-            observed_harnesses.append(self.written_harness)
+            # Only the `forge test` invocation compiles the harness; the
+            # toolchain observation commands (forge --version / forge config)
+            # run afterwards and must not be mistaken for a test execution.
+            self.written_harness = ""
+            if isinstance(cmd, (list, tuple)) and "test" in cmd:
+                harness_path = Path(cwd) / "test" / "VaultHarness.t.sol"
+                self.written_harness = harness_path.read_text(encoding="utf-8")
+                observed_harnesses.append(self.written_harness)
             self.returncode = 0
             self.pid = 99999999
             self.stdout = io.BytesIO(json.dumps(structured).encode("utf-8"))

@@ -1,0 +1,2322 @@
+{
+  "schema_version": "1.0.0",
+  "generator": "benchmarks/validate_iteration17_evidence.py",
+  "code_sha": "e9faff403908937ebe6de640b1f041a3de2c97c1",
+  "generated_at_utc": "2026-11-09T21:06:38Z",
+  "scope": {
+    "run_id": "run_1794209615_70f5d22",
+    "baseline_id": "baseline_5",
+    "run_dir": "benchmarks/artifacts/run_1794209615_70f5d22",
+    "artifact_count": 16,
+    "raw_billing_export": "benchmarks/evidence/modal_billing_report_raw.json",
+    "billing_join_table": "benchmarks/evidence/modal_billing_join_table.json",
+    "producer_rehearsal_dir": "benchmarks/evidence/iteration17_producer_rehearsal"
+  },
+  "git": {
+    "head": "e9faff403908937ebe6de640b1f041a3de2c97c1",
+    "branch": "minimax/iteration-14-evidence-integrity",
+    "dirty": false
+  },
+  "checks": [
+    {
+      "check": "P0.1.billing_attribution",
+      "status": "PASSED",
+      "error": null,
+      "planned": "every raw billing line item is accounted for exactly once; aggregates reconcile exactly; no target carries a cost without an exact and unique provider-backed join; every unattributed target states a machine-readable reason",
+      "attempted": true,
+      "executed": true,
+      "raw_line_item_count": 25,
+      "app_session_row_count": 25,
+      "target_row_count": 16,
+      "synthetic_uri_present": false,
+      "join_table_schema_version": "3.0.0"
+    },
+    {
+      "check": "P0.1.producer_rehearsal",
+      "status": "PASSED",
+      "error": null,
+      "note": "the real producer path was executed offline against faithful reconstructions of the current worker responses; no Modal runtime, no H100 and no paid GPU were involved, so this is a rehearsal of the evidence contract and not a runtime validation",
+      "rehearsal_dir": "benchmarks/evidence/iteration17_producer_rehearsal",
+      "stages": {
+        "inference": {
+          "evidence_artifact": "REENT-01_stage_evidence_inference.json",
+          "evidence_sha256": "3d9bb3fbd4b2c7ad42ee0b3cb920f35b56151e2bbde418f5c2d2e13b225925d6",
+          "attempted": false,
+          "absences": [
+            {
+              "field": "app_id",
+              "absence_kind": "STAGE_NOT_ATTEMPTED",
+              "reason": "the inference stage was not attempted for this target, so no response was ever requested for 'app_id'"
+            },
+            {
+              "field": "function_call_id",
+              "absence_kind": "STAGE_NOT_ATTEMPTED",
+              "reason": "the inference stage was not attempted for this target, so no response was ever requested for 'function_call_id'"
+            },
+            {
+              "field": "container_id",
+              "absence_kind": "STAGE_NOT_ATTEMPTED",
+              "reason": "the inference stage was not attempted for this target, so no response was ever requested for 'container_id'"
+            }
+          ]
+        },
+        "evm_sandbox": {
+          "evidence_artifact": "REENT-01_stage_evidence_evm_sandbox.json",
+          "evidence_sha256": "f4f3da438cb503f36fe40c266d939aa13ce34ac35ba100f9d5b88440a5d8ec8e",
+          "attempted": true,
+          "absences": [
+            {
+              "field": "app_id",
+              "absence_kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+              "reason": "the evm_sandbox stage returned a response that carried no runtime-identity envelope, so this client holds no 'app_id' for this target"
+            },
+            {
+              "field": "function_call_id",
+              "absence_kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+              "reason": "the evm_sandbox stage returned a response that carried no runtime-identity envelope, so this client holds no 'function_call_id' for this target"
+            },
+            {
+              "field": "container_id",
+              "absence_kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+              "reason": "the evm_sandbox stage returned a response that carried no runtime-identity envelope, so this client holds no 'container_id' for this target"
+            }
+          ]
+        },
+        "independent_replay": {
+          "evidence_artifact": "REENT-01_stage_evidence_independent_replay.json",
+          "evidence_sha256": "7ce6a6bbc22c3bd439f8770c2ad47ddcdf39ee49a9cfd1d28552a660d23f54ad",
+          "attempted": true,
+          "absences": []
+        },
+        "trajectory_persistence": {
+          "evidence_artifact": "REENT-01_stage_evidence_trajectory_persistence.json",
+          "evidence_sha256": "47ab7055a2acbe5625d559bc948857af0ef263562c3801ab2fe3af100edc930a",
+          "attempted": true,
+          "absences": [
+            {
+              "field": "app_id",
+              "absence_kind": "CLIENT_NEVER_CAPTURED_FIELD",
+              "reason": "this client never requested 'app_id' from the trajectory_persistence stage, so the field was never captured"
+            },
+            {
+              "field": "function_call_id",
+              "absence_kind": "CLIENT_NEVER_CAPTURED_FIELD",
+              "reason": "this client never requested 'function_call_id' from the trajectory_persistence stage, so the field was never captured"
+            },
+            {
+              "field": "container_id",
+              "absence_kind": "CLIENT_NEVER_CAPTURED_FIELD",
+              "reason": "this client never requested 'container_id' from the trajectory_persistence stage, so the field was never captured"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "per_target": [
+    {
+      "target_id": "AC-01",
+      "target_name": "AccessControlVault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/AC-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "FAILED",
+        "error": "Replay evidence envelope is missing required key 'stdout_artifact'"
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.independent_replay.container_id",
+            "status": "OBSERVED",
+            "value": "modal-cpu-c89a89057453",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "BIZ-01",
+      "target_name": "FeeShareYieldVault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BIZ-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "BRIDGE-01",
+      "target_name": "CrossContractBridge",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BRIDGE-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "DOS-01",
+      "target_name": "AuctionDoS",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/DOS-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "ERC4626-01",
+      "target_name": "ERC4626Vault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ERC4626-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "FLASH-01",
+      "target_name": "FlashLoanRewardPool",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/FLASH-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "PASSED",
+        "error": "SAFE_RUN"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "LIQ-01",
+      "target_name": "LendingLiquidation",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/LIQ-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "ORACLE-01",
+      "target_name": "OracleLendingPool",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ORACLE-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "PREC-01",
+      "target_name": "PrecisionStakingPool",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/PREC-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "REENT-01",
+      "target_name": "Vault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/REENT-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "FAILED",
+        "error": "Replay evidence envelope is missing required key 'stdout_artifact'"
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.independent_replay.container_id",
+            "status": "OBSERVED",
+            "value": "modal-cpu-ca9285db97bf",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "SAFE-01",
+      "target_name": "SecureVault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "PASSED",
+        "error": "SAFE_RUN"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "SAFE-02",
+      "target_name": "SecureAccessControlVault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-02.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "PASSED",
+        "error": "SAFE_RUN"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "SAFE-03",
+      "target_name": "SecureERC4626Vault",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-03.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "PASSED",
+        "error": "SAFE_RUN"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "SAFE-04",
+      "target_name": "SecureOraclePool",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-04.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "PASSED",
+        "error": "SAFE_RUN"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "SIG-01",
+      "target_name": "SignatureReplayWallet",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SIG-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "target_id": "STATE-01",
+      "target_name": "RewardDistributorLogic",
+      "artifact_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/STATE-01.json",
+      "P0.1.stage_evidence_binding": {
+        "check": "P0.1.stage_evidence_binding",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "evm_sandbox": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": null,
+            "binding": "FAILED"
+          },
+          "independent_replay": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": false,
+            "binding": "FAILED"
+          },
+          "trajectory_persistence": {
+            "evidence_artifact": null,
+            "evidence_sha256": null,
+            "attempted": true,
+            "binding": "FAILED"
+          }
+        }
+      },
+      "P0.1.modal_invocation_provenance": {
+        "check": "P0.1.modal_invocation_provenance",
+        "status": "FAILED",
+        "error": "Modal provenance stage 'inference' is missing 'function_call_id'"
+      },
+      "P0.1.modal_app_id_consistency": {
+        "check": "P0.1.modal_app_id_consistency",
+        "status": "PASSED",
+        "error": null,
+        "comparisons": [
+          {
+            "scope": "modal_app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.inference.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "observed_app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "status": "MATCHED"
+          },
+          {
+            "scope": "stages.independent_replay.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          },
+          {
+            "scope": "stages.trajectory_persistence.app_id",
+            "observed_app_id": null,
+            "status": "NOT_AVAILABLE_NOT_COMPARED",
+            "reason": "the invocation evidence does not record an observed application id"
+          }
+        ]
+      },
+      "P0.2.replay_evidence_envelope": {
+        "check": "P0.2.replay_evidence_envelope",
+        "status": "PASSED",
+        "error": null
+      },
+      "P0.3.remote_evm_toolchain_provenance": {
+        "check": "P0.3.remote_evm_toolchain_provenance",
+        "status": "FAILED",
+        "error": "Missing remote EVM provenance fact: 'image_digest'"
+      },
+      "P0.4.safe_control_sentinel": {
+        "check": "P0.4.safe_control_sentinel",
+        "status": "NOT_APPLICABLE",
+        "error": null,
+        "reason": "the target did not end in a NO_BREACH verdict, so there is no sentinel to validate"
+      },
+      "provider_facts": {
+        "observed": [
+          {
+            "scope": "stages.inference.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          },
+          {
+            "scope": "stages.evm_sandbox.app_id",
+            "status": "OBSERVED",
+            "value": "ap-EDUitOwWeMrIdYbTh4kB63",
+            "source": "legacy flat value in the saved artifact"
+          }
+        ],
+        "not_available": []
+      },
+      "P0.1.stage_state_machine": {
+        "check": "P0.1.stage_state_machine",
+        "status": "FAILED",
+        "error": "stage 'inference' has no evidence artifact of its own; stage 'evm_sandbox' has no evidence artifact of its own; stage 'independent_replay' has no evidence artifact of its own; stage 'trajectory_persistence' has no evidence artifact of its own",
+        "stages": {
+          "inference": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "evm_sandbox": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "independent_replay": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          },
+          "trajectory_persistence": {
+            "state": null,
+            "absence_records": [],
+            "state_machine": "FAILED"
+          }
+        }
+      }
+    }
+  ],
+  "summary": {
+    "targets_checked": 16,
+    "targets_failed": 16,
+    "failed_target_ids": [
+      "AC-01",
+      "BIZ-01",
+      "BRIDGE-01",
+      "DOS-01",
+      "ERC4626-01",
+      "FLASH-01",
+      "LIQ-01",
+      "ORACLE-01",
+      "PREC-01",
+      "REENT-01",
+      "SAFE-01",
+      "SAFE-02",
+      "SAFE-03",
+      "SAFE-04",
+      "SIG-01",
+      "STATE-01"
+    ],
+    "overall_status": "FAILED",
+    "producer_rehearsal_status": "PASSED"
+  },
+  "interpretation": {
+    "planned": "validate the saved benchmark evidence with the Iteration 17 validators, including the stage state machine, the per-stage evidence binding, the exact provider-backed billing join and the independently verifiable Modal provenance evidence",
+    "attempted": "per-target stage state machine and stage/evidence binding, Modal provenance, App ID cross-check, replay envelope, EVM provenance and sentinel checks plus the billing reconciliation",
+    "executed": "the validators were executed against the artifacts stored on disk",
+    "observed": "the saved run predates the Iteration 16 and Iteration 17 fixes; the artifacts that carry no per-stage evidence are reported as FAILED, and the billing attribution itself reconciles exactly",
+    "reported": "PASSED means every checked artifact satisfies the Iteration 17 validators; FAILED means at least one artifact does not. The report never claims more than the artifacts prove, and no Modal runtime validation is claimed.",
+    "producer_rehearsal": "the producer path was rehearsed offline against faithful worker responses; the rehearsal never claims a Modal runtime validation"
+  }
+}

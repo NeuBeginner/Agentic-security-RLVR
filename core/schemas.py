@@ -43,6 +43,7 @@ class AttackHypothesis(BaseModel):
     attack_vector: str = Field(..., description="Summary of how to trigger the vulnerability")
     affected_functions: List[str] = Field(default_factory=list)
     confidence_score: float = Field(default=1.0)
+    hypothesis_id: Optional[str] = Field(default=None, description="Hypothesis ID for provenance lineage")
 
 
 class ExploitPayload(BaseModel):
@@ -67,6 +68,7 @@ class ExploitPayload(BaseModel):
     
     # Candidate lifecycle & exact token lineage tracking (Round 4/5)
     candidate_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    hypothesis_id: Optional[str] = Field(default=None, description="Hypothesis ID for provenance lineage")
     run_id: str = Field(default="run-default")
     generation_iteration: int = Field(default=0, description="0 for initial batch, 1..N for refinement")
     candidate_index: int = Field(default=0)
@@ -166,6 +168,20 @@ class ExecutionResult(BaseModel):
     harness_verdict: str = Field(default="", description="Trusted harness verdict: BREACH/NO_BREACH/EXEC_REVERT/UNKNOWN")
     harness_suite: str = Field(default="", description="Forge suite path the trusted verdict was taken from")
     evidence_source: str = Field(default="", description="Which trusted channel produced the verdict")
+    # Observed remote execution facts (Iteration 14 P0.3). Every entry is an
+    # OBSERVED fact or an explicit NOT_AVAILABLE fact with a reason; nothing
+    # here is a templated constant.
+    observed_environment: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Toolchain facts observed inside the worker that executed the EVM",
+    )
+    # Byte-exact digests of the raw captured streams (Iteration 14 P0.2).
+    stdout_sha256: Optional[str] = Field(default=None, description="SHA-256 over the raw stdout bytes")
+    stderr_sha256: Optional[str] = Field(default=None, description="SHA-256 over the raw stderr bytes")
+    stdout_byte_length: Optional[int] = Field(default=None, description="Byte length of the raw stdout")
+    stderr_byte_length: Optional[int] = Field(default=None, description="Byte length of the raw stderr")
+    stdout_bytes_b64: Optional[str] = Field(default=None, description="Lossless base64 of the raw stdout bytes")
+    stderr_bytes_b64: Optional[str] = Field(default=None, description="Lossless base64 of the raw stderr bytes")
 
 
 class VerificationVerdict(BaseModel):

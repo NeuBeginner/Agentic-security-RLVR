@@ -1,0 +1,1538 @@
+{
+  "schema_version": "1.0.0",
+  "generator": "benchmarks/validate_consolidated_closure_evidence.py",
+  "code_sha": "690f39a125ef091dee61ae9f18550ab068587c4e",
+  "generated_at_utc": "2026-11-10T14:58:30Z",
+  "scope": {
+    "closure": "consolidated architecture closure of PR #12",
+    "purpose": "validate the fail-closed evaluator leak (P0) and the run-level observation-side gap (P1), and the evidence of the full-chain audit",
+    "defects": {
+      "P0": "a target whose execution did not complete was serialized as detected: false instead of null",
+      "P1": "an observed run-level application id was not side-checked by the strict consumer"
+    },
+    "chain": "Modal producer / client provider → stage response capture → evidence artifacts → strict provenance validator → billing join → adapter and target manifests → evaluator → final report",
+    "runtime": "local probes against the installed contract - no Modal invocation, no provider query, no deployment, no GPU, no paid compute and no change to a deployed worker",
+    "simulation": "the OBSERVED branch of the producer is exercised in a simulated container context (a patched modal.current_function_call_id); it is a simulation and is called one",
+    "benchmark_run": "not touched - the 16-target run on disk still fails the Iteration 14-18 validators and this closure does not change that"
+  },
+  "git": {
+    "head": "690f39a125ef091dee61ae9f18550ab068587c4e",
+    "branch": "minimax/iteration-14-evidence-integrity",
+    "dirty": true,
+    "tracked_changes": [
+      "M benchmarks/benchmark_results.json"
+    ],
+    "untracked_paths": [
+      "test-results-iteration18-local.xml",
+      "test-results-iteration19-local.xml"
+    ]
+  },
+  "checks": [
+    {
+      "check": "P6.1.the_strict_consumer_accepts_a_client_observed_run_level_application_id",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the run-level application id of a client-observed fact is accepted by the strict consumer - the registered side of 'app_id' is the client side - and the copy of the EVM sandbox stage states the same application id",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "case": "client-observed",
+          "accepted": true,
+          "error": null
+        }
+      ]
+    },
+    {
+      "check": "P6.2.the_strict_consumer_rejects_every_other_run_level_application_id",
+      "status": "PASSED",
+      "error": null,
+      "planned": "a run-level application id with a missing, a null, an unknown or the wrong side, as a legacy flat value, as an unknown status or not at all is rejected in the strict mode",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "case": "missing_side",
+          "rejected": true,
+          "error": "The fact for 'app_id' names no observation side: an observed value has to say which side observed it - the registered source of 'app_id' may only be observed from the 'client' side"
+        },
+        {
+          "case": "null_side",
+          "rejected": true,
+          "error": "The fact for 'app_id' names no observation side: an observed value has to say which side observed it - the registered source of 'app_id' may only be observed from the 'client' side"
+        },
+        {
+          "case": "unknown_side",
+          "rejected": true,
+          "error": "The fact for 'app_id' declares the unknown observation side 'oracle'; a fact may name only worker, client"
+        },
+        {
+          "case": "worker_side",
+          "rejected": true,
+          "error": "The fact for 'app_id' declares the observation side 'worker', but the registered source 'the provider-issued App.app_id of the running app (Modal SDK 1.5.5, client side)' may only be observed from the 'client' side"
+        },
+        {
+          "case": "legacy_flat_value",
+          "rejected": true,
+          "error": "The run records the application id as a legacy flat value: in the strict mode every fact has to name the side that observed it"
+        },
+        {
+          "case": "unknown_status",
+          "rejected": true,
+          "error": "The run-level application id has the unknown status 'MAYBE'"
+        },
+        {
+          "case": "missing_fact",
+          "rejected": true,
+          "error": "The run records no application id: in the strict mode the run-level application id has to be a typed fact that names the side that observed it"
+        }
+      ]
+    },
+    {
+      "check": "P6.3.the_rejection_comes_from_the_side_rule_and_not_from_a_stale_digest",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the artifact is rewritten and the digests of the provenance are recomputed from the bytes on disk: the correctly sided fact is accepted and the wrong side is refused by the side rule",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "probe": "the client-sided run-level fact with recomputed digests",
+          "accepted": true,
+          "error": null
+        },
+        {
+          "probe": "the same artifact with the wrong side",
+          "accepted": false,
+          "error": "The fact for 'app_id' declares the observation side 'worker', but the registered source 'the provider-issued App.app_id of the running app (Modal SDK 1.5.5, client side)' may only be observed from the 'client' side"
+        }
+      ]
+    },
+    {
+      "check": "P6.4.the_compatibility_path_still_accepts_the_side_less_facts",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the artifacts of Iterations 14-20 stay readable through the non-strict compatibility path - a flat, a side-less, a missing and an unknown-status run-level application id stay acceptable, and no side is inferred and none is backfilled",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "case": "legacy_flat_run_level_value",
+          "accepted": true,
+          "error": null
+        },
+        {
+          "case": "side_less_observed_run_level_value",
+          "accepted": true,
+          "error": null
+        },
+        {
+          "case": "missing_run_level_value",
+          "accepted": true,
+          "error": null
+        },
+        {
+          "case": "unknown_status_run_level_value",
+          "accepted": true,
+          "error": null
+        },
+        {
+          "case": "the side-less provider fact",
+          "accepted": true,
+          "error": null
+        }
+      ]
+    },
+    {
+      "check": "P6.5.a_failed_or_unavailable_run_is_never_a_negative_finding",
+      "status": "PASSED",
+      "error": null,
+      "planned": "every combination of a non-success status and the negative verdicts, and every verdict that declares the audit itself invalid, is reported as 'no finding' (None / NOT_EVALUATED) - in the detail row and in the report record of the target - with no breach counter and with the raw claim of the producer preserved",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "status": "FAILED",
+          "verdict": "COMPILATION_ERROR",
+          "kind": "negative_verdict",
+          "producer_detected": false,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": false,
+          "leaked": false
+        },
+        {
+          "status": "FAILED",
+          "verdict": "COMPILATION_ERROR",
+          "kind": "negative_verdict",
+          "producer_detected": true,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": true,
+          "leaked": false
+        },
+        {
+          "status": "FAILED",
+          "verdict": "RUNTIME_REVERT",
+          "kind": "negative_verdict",
+          "producer_detected": false,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": false,
+          "leaked": false
+        },
+        {
+          "status": "FAILED",
+          "verdict": "RUNTIME_REVERT",
+          "kind": "negative_verdict",
+          "producer_detected": true,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": true,
+          "leaked": false
+        },
+        {
+          "status": "FAILED",
+          "verdict": "GENERATION_FORMAT_ERROR",
+          "kind": "negative_verdict",
+          "producer_detected": false,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": false,
+          "leaked": false
+        },
+        {
+          "status": "FAILED",
+          "verdict": "GENERATION_FORMAT_ERROR",
+          "kind": "negative_verdict",
+          "producer_detected": true,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": true,
+          "leaked": false
+        },
+        {
+          "status": "FAILED",
+          "verdict": "SAFE_RUN",
+          "kind": "negative_verdict",
+          "producer_detected": false,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": false,
+          "leaked": false
+        },
+        {
+          "status": "FAILED",
+          "verdict": "SAFE_RUN",
+          "kind": "negative_verdict",
+          "producer_detected": true,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": true,
+          "leaked": false
+        },
+        {
+          "status": "FAILED",
+          "verdict": "CHEATCODE_DETECTED",
+          "kind": "negative_verdict",
+          "producer_detected": false,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": false,
+          "leaked": false
+        },
+        {
+          "status": "FAILED",
+          "verdict": "CHEATCODE_DETECTED",
+          "kind": "negative_verdict",
+          "producer_detected": true,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": true,
+          "leaked": false
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "COMPILATION_ERROR",
+          "kind": "negative_verdict",
+          "producer_detected": false,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": false,
+          "leaked": false
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "COMPILATION_ERROR",
+          "kind": "negative_verdict",
+          "producer_detected": true,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": true,
+          "leaked": false
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "RUNTIME_REVERT",
+          "kind": "negative_verdict",
+          "producer_detected": false,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": false,
+          "leaked": false
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "RUNTIME_REVERT",
+          "kind": "negative_verdict",
+          "producer_detected": true,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": true,
+          "leaked": false
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "GENERATION_FORMAT_ERROR",
+          "kind": "negative_verdict",
+          "producer_detected": false,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": false,
+          "leaked": false
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "GENERATION_FORMAT_ERROR",
+          "kind": "negative_verdict",
+          "producer_detected": true,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": true,
+          "leaked": false
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "SAFE_RUN",
+          "kind": "negative_verdict",
+          "producer_detected": false,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": false,
+          "leaked": false
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "SAFE_RUN",
+          "kind": "negative_verdict",
+          "producer_detected": true,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": true,
+          "leaked": false
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "CHEATCODE_DETECTED",
+          "kind": "negative_verdict",
+          "producer_detected": false,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": false,
+          "leaked": false
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "CHEATCODE_DETECTED",
+          "kind": "negative_verdict",
+          "producer_detected": true,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": true,
+          "leaked": false
+        },
+        {
+          "status": "SUCCESS",
+          "verdict": "INFRA_ERROR",
+          "kind": "invalid_verdict",
+          "producer_detected": false,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": false,
+          "leaked": false
+        },
+        {
+          "status": "SUCCESS",
+          "verdict": "INFRA_ERROR",
+          "kind": "invalid_verdict",
+          "producer_detected": true,
+          "detail_detected": null,
+          "detail_state": "NOT_EVALUATED",
+          "record_detected": null,
+          "record_state": "NOT_EVALUATED",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_detected_preserved": true,
+          "leaked": false
+        }
+      ]
+    },
+    {
+      "check": "P6.6.the_mixed_baseline_stays_non_scorable_and_out_of_the_findings",
+      "status": "PASSED",
+      "error": null,
+      "planned": "a baseline with a failed target keeps every metric None and states the failed target as NOT_EVALUATED",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "status": "INCOMPLETE",
+          "reason": "Baseline execution incomplete: 1/2 succeeded (1 failed)",
+          "precision": null,
+          "recall": null,
+          "f1": null,
+          "true_positives": null,
+          "details": [
+            {
+              "target_id": "T1",
+              "detected": true,
+              "detection_state": "POSITIVE"
+            },
+            {
+              "target_id": "T2",
+              "detected": null,
+              "detection_state": "NOT_EVALUATED"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "check": "P6.7.a_completed_run_keeps_its_verdict_and_its_detection",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the fix does not hollow out the verdict semantics: a completed run with a negative verdict stays a negative finding, and the confusion matrix agrees with the report",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "verdict": "COMPILATION_ERROR",
+          "detected": false,
+          "detection_state": "NEGATIVE",
+          "baseline": "SUCCESS"
+        },
+        {
+          "verdict": "RUNTIME_REVERT",
+          "detected": false,
+          "detection_state": "NEGATIVE",
+          "baseline": "SUCCESS"
+        },
+        {
+          "verdict": "GENERATION_FORMAT_ERROR",
+          "detected": false,
+          "detection_state": "NEGATIVE",
+          "baseline": "SUCCESS"
+        },
+        {
+          "verdict": "SAFE_RUN",
+          "detected": false,
+          "detection_state": "NEGATIVE",
+          "baseline": "SUCCESS"
+        },
+        {
+          "verdict": "CHEATCODE_DETECTED",
+          "detected": false,
+          "detection_state": "NEGATIVE",
+          "baseline": "SUCCESS"
+        },
+        {
+          "case": "a completed run without a negative verdict",
+          "detected": [
+            true,
+            false
+          ],
+          "detection_state": [
+            "POSITIVE",
+            "NEGATIVE"
+          ],
+          "true_positives": 1,
+          "true_negatives": 1
+        }
+      ]
+    },
+    {
+      "check": "P6.8.the_report_of_the_real_runner_states_the_detection_state",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the report of the real runner - with a failing execution in it - carries the detection state of every target, keeps both views of a target in agreement and states the failed target as NOT_EVALUATED",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "baseline": "baseline_1",
+          "targets": 16,
+          "detection_states": [
+            "NOT_EVALUATED"
+          ],
+          "statuses": [
+            "FAILED"
+          ],
+          "execution_mode": "SYNTHETIC_SMOKE_TEST",
+          "is_synthetic_smoke": true
+        }
+      ]
+    },
+    {
+      "check": "P6.9.the_successful_vertical_chain_holds_end_to_end",
+      "status": "PASSED",
+      "error": null,
+      "planned": "producer → capture → evidence artifact → strict validator → billing join → adapter and target manifests → evaluator → report holds end to end for a successful run",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "step": "the digest of the artifact is the digest of the bytes",
+          "recorded": "10affe7c16f6ae7a27b789044157718ea3c35de57d0e8e824154df0823815fd1",
+          "actual": "10affe7c16f6ae7a27b789044157718ea3c35de57d0e8e824154df0823815fd1"
+        },
+        {
+          "step": "the strict consumer",
+          "accepted": true,
+          "error": null
+        },
+        {
+          "step": "the client block",
+          "accepted": true,
+          "error": null
+        },
+        {
+          "step": "the billing join",
+          "matched": "0|ap-gW7GDdh9OlSqjL2tRnB1oJ|H100|2026-11-10T00:00:00Z|the invocation of the closure probe|main",
+          "reason": null
+        },
+        {
+          "step": "the app-id cross-check",
+          "status": "PASSED"
+        },
+        {
+          "step": "the adapter and target manifests",
+          "probes": [
+            {
+              "baseline": "baseline_1",
+              "target_id": "REENT-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "ERC4626-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "AC-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "ORACLE-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "FLASH-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "SIG-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "STATE-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "BIZ-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "LIQ-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "BRIDGE-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "DOS-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "PREC-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "SAFE-01",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "SAFE-02",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "SAFE-03",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            },
+            {
+              "baseline": "baseline_1",
+              "target_id": "SAFE-04",
+              "status": "FAILED",
+              "security_verdict": "COMPILATION_ERROR",
+              "carries_a_detection": false
+            }
+          ]
+        },
+        {
+          "step": "the evaluator and the report",
+          "baseline": "SUCCESS",
+          "detected": true,
+          "detection_state": "POSITIVE"
+        }
+      ]
+    },
+    {
+      "check": "P6.10.the_failure_vertical_chain_keeps_the_failure_visible",
+      "status": "PASSED",
+      "error": null,
+      "planned": "a failed run is reported as a failure everywhere and never as a negative finding",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "baseline": "FAILED",
+          "reason": "All 1 target runs encountered execution failures: the sandbox worker died",
+          "precision": null,
+          "detail": {
+            "target_id": "T1",
+            "is_vulnerable": true,
+            "detected": null,
+            "detection_state": "NOT_EVALUATED",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "EXECUTION_FAILURE",
+            "replay_status": null,
+            "persistence_status": null,
+            "candidates_generated": 0,
+            "verified_breaches": 0,
+            "replayed_breaches": 0,
+            "duration_seconds": 0.0,
+            "cost_usd": null,
+            "status": "FAILED"
+          }
+        }
+      ]
+    },
+    {
+      "check": "P6.11.the_pre_fix_rule_reproduces_the_p0_defect",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the rule of the evaluator before this closure is reproduced here and still turns a failed or unavailable run into a negative finding: the defect was real, and the checks are not vacuous",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "status": "FAILED",
+          "verdict": "COMPILATION_ERROR",
+          "pre_fix_detection": false,
+          "current_detection": null,
+          "current_state": "NOT_EVALUATED"
+        },
+        {
+          "status": "FAILED",
+          "verdict": "RUNTIME_REVERT",
+          "pre_fix_detection": false,
+          "current_detection": null,
+          "current_state": "NOT_EVALUATED"
+        },
+        {
+          "status": "FAILED",
+          "verdict": "GENERATION_FORMAT_ERROR",
+          "pre_fix_detection": false,
+          "current_detection": null,
+          "current_state": "NOT_EVALUATED"
+        },
+        {
+          "status": "FAILED",
+          "verdict": "SAFE_RUN",
+          "pre_fix_detection": false,
+          "current_detection": null,
+          "current_state": "NOT_EVALUATED"
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "COMPILATION_ERROR",
+          "pre_fix_detection": false,
+          "current_detection": null,
+          "current_state": "NOT_EVALUATED"
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "RUNTIME_REVERT",
+          "pre_fix_detection": false,
+          "current_detection": null,
+          "current_state": "NOT_EVALUATED"
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "GENERATION_FORMAT_ERROR",
+          "pre_fix_detection": false,
+          "current_detection": null,
+          "current_state": "NOT_EVALUATED"
+        },
+        {
+          "status": "UNAVAILABLE",
+          "verdict": "SAFE_RUN",
+          "pre_fix_detection": false,
+          "current_detection": null,
+          "current_state": "NOT_EVALUATED"
+        }
+      ],
+      "historical_line": "det = False if (is_compile_err or a.security_verdict in (\"RUNTIME_REVERT\", \"GENERATION_FORMAT_ERROR\", \"SAFE_RUN\")) else (a.detected if a.status == ExecutionStatus.SUCCESS else None)",
+      "historical_commit": "2909b47~1"
+    },
+    {
+      "check": "P6.12.the_pre_fix_rule_reproduces_the_p1_defect",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the evidence contract of the commit before this closure is loaded from its historical source and executed: it accepts the side-less and the wrong-sided run-level application id - the defect was real, and the check is not vacuous",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "case": "worker_side",
+          "accepted_by_the_pre_fix_contract": true,
+          "pre_fix_error": null,
+          "accepted_by_the_current_contract": false,
+          "current_error": "The fact for 'app_id' declares the observation side 'worker', but the registered source 'the provider-issued App.app_id of the running app (Modal SDK 1.5.5, client side)' may only be observed from the 'client' side"
+        },
+        {
+          "case": "missing_side",
+          "accepted_by_the_pre_fix_contract": true,
+          "pre_fix_error": null,
+          "accepted_by_the_current_contract": false,
+          "current_error": "The fact for 'app_id' names no observation side: an observed value has to say which side observed it - the registered source of 'app_id' may only be observed from the 'client' side"
+        },
+        {
+          "case": "legacy_flat_value",
+          "accepted_by_the_pre_fix_contract": true,
+          "pre_fix_error": null,
+          "accepted_by_the_current_contract": false,
+          "current_error": "The run records the application id as a legacy flat value: in the strict mode every fact has to name the side that observed it"
+        }
+      ],
+      "historical_commit": "2909b47~1"
+    },
+    {
+      "check": "P6.13.the_historical_evidence_stays_in_its_state",
+      "status": "PASSED",
+      "error": null,
+      "planned": "every evidence validator of Iterations 14-23 is executed: the validators of Iterations 14-18 keep failing visibly - the 16-target run on disk predates the fixes - and the validators of Iterations 19-23 keep passing",
+      "attempted": true,
+      "executed": true,
+      "history": [
+        {
+          "iteration": 14,
+          "expected": "FAILED",
+          "observed": "FAILED",
+          "bound_code_sha": "43436b0266254d2504b2521f8499aa1604e11280",
+          "returncode": 0,
+          "output": [
+            "wrote benchmarks/evidence/_closure_probe/iteration14.json: FAILED, 16/16 targets failed"
+          ]
+        },
+        {
+          "iteration": 15,
+          "expected": "FAILED",
+          "observed": "FAILED",
+          "bound_code_sha": "cf262236",
+          "returncode": 0,
+          "output": [
+            "wrote benchmarks/evidence/_closure_probe/iteration15.json: FAILED, 16/16 targets failed"
+          ]
+        },
+        {
+          "iteration": 16,
+          "expected": "FAILED",
+          "observed": "FAILED",
+          "bound_code_sha": "b1946536",
+          "returncode": 0,
+          "output": [
+            "wrote benchmarks/evidence/_closure_probe/iteration16.json: FAILED, 16/16 targets failed, producer rehearsal PASSED"
+          ]
+        },
+        {
+          "iteration": 17,
+          "expected": "FAILED",
+          "observed": "FAILED",
+          "bound_code_sha": "e9faff40",
+          "returncode": 0,
+          "output": [
+            "wrote benchmarks/evidence/_closure_probe/iteration17.json: FAILED, 16/16 targets failed, producer rehearsal PASSED"
+          ]
+        },
+        {
+          "iteration": 18,
+          "expected": "FAILED",
+          "observed": "FAILED",
+          "bound_code_sha": "8813cebd",
+          "returncode": 0,
+          "output": [
+            "wrote benchmarks/evidence/_closure_probe/iteration18.json: FAILED, 16/16 targets failed, producer rehearsal PASSED"
+          ]
+        },
+        {
+          "iteration": 19,
+          "expected": "PASSED",
+          "observed": "PASSED",
+          "bound_code_sha": "18ad9740f835e7babb0a7f0fb727752660b2b8f0",
+          "returncode": 0,
+          "output": [
+            "wrote benchmarks/evidence/_closure_probe/iteration19.json: PASSED, 12/12 checks passed"
+          ]
+        },
+        {
+          "iteration": 20,
+          "expected": "PASSED",
+          "observed": "PASSED",
+          "bound_code_sha": "64392a7bc4d4eba45a0fc15aacd4b32e3761dd98",
+          "returncode": 0,
+          "output": [
+            "wrote benchmarks/evidence/_closure_probe/iteration20.json: PASSED, 12/12 checks passed"
+          ]
+        },
+        {
+          "iteration": 21,
+          "expected": "PASSED",
+          "observed": "PASSED",
+          "bound_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
+          "returncode": 0,
+          "output": [
+            "wrote benchmarks/evidence/_closure_probe/iteration21.json: PASSED, 13/13 checks passed"
+          ]
+        },
+        {
+          "iteration": 22,
+          "expected": "PASSED",
+          "observed": "PASSED",
+          "bound_code_sha": "f0ce026d",
+          "returncode": 0,
+          "output": [
+            "wrote benchmarks/evidence/_closure_probe/iteration22.json: PASSED, 11/11 checks passed"
+          ]
+        },
+        {
+          "iteration": 23,
+          "expected": "PASSED",
+          "observed": "PASSED",
+          "bound_code_sha": "749cba24",
+          "returncode": 0,
+          "output": [
+            "wrote benchmarks/evidence/_closure_probe/iteration23.json: PASSED, 12/12 checks passed"
+          ]
+        }
+      ]
+    },
+    {
+      "check": "P6.14.the_producer_source_is_unchanged_since_the_capture",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the producer source is byte-wise unchanged between the commit the capture of Iteration 21 was made from and the commit the report is bound to - the producer is not the defect of this closure",
+      "attempted": true,
+      "executed": true,
+      "capture_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
+      "reported_code_sha": "690f39a125ef091dee61ae9f18550ab068587c4e",
+      "producer_source_changed": false
+    },
+    {
+      "check": "P6.15.the_digest_of_the_artifact_is_the_digest_of_the_bytes",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the SHA-256 and the byte length of the stage evidence artifact on disk equal the values the provenance states",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "recorded": "10affe7c16f6ae7a27b789044157718ea3c35de57d0e8e824154df0823815fd1",
+          "actual": "10affe7c16f6ae7a27b789044157718ea3c35de57d0e8e824154df0823815fd1"
+        }
+      ]
+    },
+    {
+      "check": "P6.16.the_closure_runs_in_a_synthetic_context",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the run of the real runner is a synthetic smoke test and the OBSERVED branch of the producer was exercised in a simulated container context - no Modal invocation, no provider query, no deployment, no GPU and no paid compute is claimed or needed",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "producer_capture_simulated": true,
+          "patched_function_call_id": "fc-01M71H7789CATYCWNEG05916Y3",
+          "captured_function_call_id": "fc-01M71H7789CATYCWNEG05916Y3"
+        },
+        {
+          "execution_mode": "SYNTHETIC_SMOKE_TEST",
+          "is_synthetic_smoke": true
+        }
+      ],
+      "declared": {
+        "live_modal_invocation": false,
+        "provider_queried": false,
+        "deployment": "none",
+        "gpu": "none",
+        "paid_compute": "none",
+        "worker_restarted": false
+      }
+    },
+    {
+      "check": "P6.17.the_report_semantics_are_reconciled",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the report states planned, attempted, executed, observed and reported apart, and unavailable, failed and not-run stay distinct in every output",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "baseline": "baseline_1",
+          "target_id": "REENT-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "ERC4626-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "AC-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "ORACLE-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "FLASH-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "SIG-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "STATE-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "BIZ-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "LIQ-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "BRIDGE-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "DOS-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "PREC-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "SAFE-01",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "SAFE-02",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "SAFE-03",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        },
+        {
+          "baseline": "baseline_1",
+          "target_id": "SAFE-04",
+          "status": "FAILED",
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "detected": null,
+          "detection_state": "NOT_EVALUATED",
+          "layers": {
+            "planned": true,
+            "attempted": true,
+            "executed": true,
+            "observed": true,
+            "reported": true
+          }
+        }
+      ]
+    },
+    {
+      "check": "P6.18.the_run_level_application_id_may_not_contradict_the_stage_copy",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the run-level application id is the application id of the EVM sandbox stage of the same invocation - the two are one fact in two places: an observed value next to a stage copy that observed another value, and an observed value next to a stage copy that could not observe one, are refused - while an absence claim stays an absence claim and is not compared",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "case": "the_stage_could_not_observe_the_application_id",
+          "rejected": true,
+          "error": "The run-level application id contradicts the EVM sandbox stage: the run states an observed application id ('ap-gW7GDdh9OlSqjL2tRnB1oJ') while the stage states 'NOT_AVAILABLE'"
+        },
+        {
+          "case": "the_two_copies_state_another_application_id",
+          "rejected": true,
+          "error": "The run-level application id contradicts the application id of the EVM sandbox stage: the run states 'ap-gW7GDdh9OlSqjL2tRnB1oJ', the stage states 'ap-0000000000000000000' - they are one fact in two places"
+        },
+        {
+          "case": "an_absence_claim_next_to_an_observed_stage_copy",
+          "accepted": true,
+          "error": null
+        }
+      ]
+    },
+    {
+      "check": "P6.19.a_not_available_run_level_application_id_carries_no_value",
+      "status": "PASSED",
+      "error": null,
+      "planned": "an absence claim states that the value could not be observed - it may not state a value as well, exactly as the client-observed facts may not",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "case": "NOT_AVAILABLE_with_a_value",
+          "rejected": true,
+          "error": "The run-level application id is NOT_AVAILABLE but holds a value"
+        }
+      ]
+    },
+    {
+      "check": "P6.20.the_pre_fix_contract_of_the_follow_up_reproduces_the_gap",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the evidence contract of the published closure is loaded from its historical source and executed: it accepts an artifact whose run-level application id contradicts the copy of the EVM sandbox stage - the gap was real, and the check is not vacuous",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "case": "the_stage_could_not_observe_the_application_id",
+          "accepted_by_the_pre_fix_contract": true,
+          "pre_fix_error": null,
+          "accepted_by_the_current_contract": false,
+          "current_error": "The run-level application id contradicts the EVM sandbox stage: the run states an observed application id ('ap-gW7GDdh9OlSqjL2tRnB1oJ') while the stage states 'NOT_AVAILABLE'"
+        },
+        {
+          "case": "the_two_copies_state_another_application_id",
+          "accepted_by_the_pre_fix_contract": true,
+          "pre_fix_error": null,
+          "accepted_by_the_current_contract": false,
+          "current_error": "The run-level application id contradicts the application id of the EVM sandbox stage: the run states 'ap-gW7GDdh9OlSqjL2tRnB1oJ', the stage states 'ap-0000000000000000000' - they are one fact in two places"
+        }
+      ],
+      "historical_commit": "810e89c"
+    },
+    {
+      "check": "P6.21.the_two_views_of_a_target_and_the_empty_run_are_reconciled",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the detail row and the report record use one rule: the breach counters are the raw ones only for a positive finding, the raw claim of the producer is preserved whenever it differs, and a run without a target is not scorable",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "case": "a_negative_verdict_with_a_breach_counter",
+          "detail_verified_breaches": 0,
+          "record_verified_breaches": 0,
+          "producer_verified_breaches": 1
+        },
+        {
+          "case": "a_run_without_a_target",
+          "status": "ExecutionStatus.INCOMPLETE",
+          "candidates_per_verified_finding": null
+        }
+      ]
+    }
+  ],
+  "historical_evidence": [
+    {
+      "iteration": 14,
+      "expected": "FAILED",
+      "observed": "FAILED",
+      "bound_code_sha": "43436b0266254d2504b2521f8499aa1604e11280",
+      "returncode": 0,
+      "output": [
+        "wrote benchmarks/evidence/_closure_probe/iteration14.json: FAILED, 16/16 targets failed"
+      ]
+    },
+    {
+      "iteration": 15,
+      "expected": "FAILED",
+      "observed": "FAILED",
+      "bound_code_sha": "cf262236",
+      "returncode": 0,
+      "output": [
+        "wrote benchmarks/evidence/_closure_probe/iteration15.json: FAILED, 16/16 targets failed"
+      ]
+    },
+    {
+      "iteration": 16,
+      "expected": "FAILED",
+      "observed": "FAILED",
+      "bound_code_sha": "b1946536",
+      "returncode": 0,
+      "output": [
+        "wrote benchmarks/evidence/_closure_probe/iteration16.json: FAILED, 16/16 targets failed, producer rehearsal PASSED"
+      ]
+    },
+    {
+      "iteration": 17,
+      "expected": "FAILED",
+      "observed": "FAILED",
+      "bound_code_sha": "e9faff40",
+      "returncode": 0,
+      "output": [
+        "wrote benchmarks/evidence/_closure_probe/iteration17.json: FAILED, 16/16 targets failed, producer rehearsal PASSED"
+      ]
+    },
+    {
+      "iteration": 18,
+      "expected": "FAILED",
+      "observed": "FAILED",
+      "bound_code_sha": "8813cebd",
+      "returncode": 0,
+      "output": [
+        "wrote benchmarks/evidence/_closure_probe/iteration18.json: FAILED, 16/16 targets failed, producer rehearsal PASSED"
+      ]
+    },
+    {
+      "iteration": 19,
+      "expected": "PASSED",
+      "observed": "PASSED",
+      "bound_code_sha": "18ad9740f835e7babb0a7f0fb727752660b2b8f0",
+      "returncode": 0,
+      "output": [
+        "wrote benchmarks/evidence/_closure_probe/iteration19.json: PASSED, 12/12 checks passed"
+      ]
+    },
+    {
+      "iteration": 20,
+      "expected": "PASSED",
+      "observed": "PASSED",
+      "bound_code_sha": "64392a7bc4d4eba45a0fc15aacd4b32e3761dd98",
+      "returncode": 0,
+      "output": [
+        "wrote benchmarks/evidence/_closure_probe/iteration20.json: PASSED, 12/12 checks passed"
+      ]
+    },
+    {
+      "iteration": 21,
+      "expected": "PASSED",
+      "observed": "PASSED",
+      "bound_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
+      "returncode": 0,
+      "output": [
+        "wrote benchmarks/evidence/_closure_probe/iteration21.json: PASSED, 13/13 checks passed"
+      ]
+    },
+    {
+      "iteration": 22,
+      "expected": "PASSED",
+      "observed": "PASSED",
+      "bound_code_sha": "f0ce026d",
+      "returncode": 0,
+      "output": [
+        "wrote benchmarks/evidence/_closure_probe/iteration22.json: PASSED, 11/11 checks passed"
+      ]
+    },
+    {
+      "iteration": 23,
+      "expected": "PASSED",
+      "observed": "PASSED",
+      "bound_code_sha": "749cba24",
+      "returncode": 0,
+      "output": [
+        "wrote benchmarks/evidence/_closure_probe/iteration23.json: PASSED, 12/12 checks passed"
+      ]
+    }
+  ],
+  "summary": {
+    "checks_total": 21,
+    "checks_passed": 21,
+    "checks_failed": 0,
+    "failed_checks": [],
+    "overall_status": "PASSED"
+  },
+  "interpretation": {
+    "planned": "validate that the evaluator keeps a failed or unavailable run out of the negative findings, that the strict consumer side-checks the run-level application id, that the compatibility path keeps the side-less artifacts readable, that the report states the detection state of every target, that both vertical chains hold, that the pre-fix contracts reproduce the defects, that the historical evidence stays in its state and that the report is bound to the code SHA it was produced from",
+    "attempted": "every non-success status with every negative verdict and every invalid verdict, every side variant of the run-level application id, the digest-recomputed chain, the compatibility path, the report of the real evaluator and of the real runner with a failing execution, both vertical chains, the pre-fix contracts of the historical source, the evidence validator of every iteration from 14 to 23, the producer source and the artifact digest",
+    "executed": "the checks were executed against the artifacts stored on disk",
+    "observed": "the report states exactly what the evaluator and the strict consumer accept and reject; the producer is not changed by this closure and no side is inferred or backfilled into any artifact",
+    "reported": "PASSED means every check of the consolidated closure passed; FAILED means at least one did not. No Modal invocation was made, the provider was never asked, no worker was deployed and no live validation is claimed. The OBSERVED branch of the producer was exercised in a simulated container context and is a simulation. The historical 16-target benchmark evidence stays visibly failed."
+  }
+}

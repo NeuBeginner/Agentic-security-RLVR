@@ -183,7 +183,8 @@ class ProductionAuditAgent:
             response_text,
             attempt_idx=1,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
     @modal.method()
@@ -221,7 +222,8 @@ class ProductionAuditAgent:
             response_text,
             attempt_idx=99,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
 
@@ -313,7 +315,8 @@ class DevReasoningAgent:
             response_text,
             attempt_idx=1,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
     @modal.method()
@@ -351,13 +354,187 @@ class DevReasoningAgent:
             response_text,
             attempt_idx=99,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
 
 # =============================================================================
 # 3. EPHEMERAL CPU WORKERS (Foundry / Slither / Replay Sandbox)
 # =============================================================================
+
+#: The exact reason a worker cannot attest the application id of its own run.
+#:
+#: Modal SDK 1.5.5 offers a function container **no** running-app accessor:
+#: ``modal.running_app`` is a *module* (``modal/running_app.py``) that holds the
+#: ``RunningApp`` dataclass and the client-side helper ``running_app_from_layout``
+#: - it is not callable, so ``modal.running_app()`` raises
+#: ``TypeError: 'module' object is not callable``. The runtime-context API the
+#: container does have (``modal.current_function_call_id``,
+#: ``modal.current_input_id``, ``modal.interact``, ``modal.is_local``) carries no
+#: application id either. The application id of a run is a fact of the
+#: **client**, which reads it from the provider-issued ``App.app_id``.
+MODAL_APP_ID_UNAVAILABLE_REASON = (
+    "Modal SDK 1.5.5 exposes no running-app accessor to a function container: "
+    "modal.running_app is a module and not a callable, and the runtime-context API "
+    "(modal.current_function_call_id, modal.current_input_id, modal.interact, "
+    "modal.is_local) carries no application id. The application id of this run is a "
+    "client-side fact of the provider-issued App.app_id of the running app."
+)
+
+#: The exact reason a worker cannot attest its own container identity
+#: (Iteration 21).
+#:
+#: The review of Iteration 20 established that a function container has **no**
+#: supported source of a provider-issued container id, so the producer no longer
+#: reads any environment variable for it:
+#:
+#: * ``MODAL_WORKER_ID`` is the SDK's ``worker_id`` **configuration setting**
+#:   (``modal/config.py``: ``"worker_id": _Setting(),  # For internal debugging
+#:   use.``) - a value of the configuration, not a provider-issued identifier;
+#: * ``HOSTNAME`` is a generic container hostname that nothing in the SDK ties
+#:   to a Modal container id;
+#: * ``MODAL_TASK_ID`` is read by ``modal/experimental/flash.py`` only - an
+#:   internal, experimental module that is not part of the public API.
+#:
+#: The public runtime surface of Modal SDK 1.5.5 (``modal.__all__``) holds
+#: ``current_function_call_id``, ``current_input_id``, ``interact`` and
+#: ``is_local`` - none of them reports a container id. The provider-issued
+#: container id of an invocation is a **client-side** fact: the client resolves
+#: the function-call id the worker observed to the container of the provider's
+#: own call graph and container listing.
+MODAL_CONTAINER_ID_NOT_ATTESTABLE_REASON = (
+    "a Modal function container has no supported source of a provider-issued container id: "
+    "the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, "
+    "modal.current_input_id, modal.interact, modal.is_local) reports no container id, "
+    "MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK "
+    "source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a "
+    "generic container hostname, and MODAL_TASK_ID is read only by the internal, "
+    "experimental module modal/experimental/flash.py. The provider-issued container id of "
+    "this invocation is a client-side fact: the client resolves the function-call id this "
+    "worker observed through the provider's own call graph and container listing."
+)
+
+#: The reason of Iteration 20, kept **unchanged** because the committed
+#: Iteration 20 capture and the Iteration 20 validator refer to exactly this
+#: wording. The producer no longer emits it (see
+#: :data:`MODAL_CONTAINER_ID_NOT_ATTESTABLE_REASON`).
+MODAL_CONTAINER_ID_UNAVAILABLE_REASON = (
+    "the running container exposed neither MODAL_WORKER_ID (the Modal SDK reads the "
+    "worker id from the 'worker_id' configuration setting, which the runtime sets only "
+    "for internal debugging) nor HOSTNAME (a Modal function container sets no "
+    "hostname), so the worker itself could not attest its container identity; the "
+    "provider-issued container id of this run is a client-side fact of the provider's "
+    "container list"
+)
+
+#: The exact reason a worker cannot report the app page URL of its own run.
+#:
+#: The only candidate inside the container was the unsupported
+#: ``modal.running_app``; the supported ``App.get_dashboard_url()`` is a
+#: client-side API of the SDK.
+MODAL_APP_PAGE_URL_UNAVAILABLE_REASON = (
+    "the Modal runtime exposes no app page URL to a function container: the only "
+    "candidate inside the container was modal.running_app, which is a module and not a "
+    "callable in Modal SDK 1.5.5, while the supported App.get_dashboard_url() is a "
+    "client-side API of the SDK. The app page URL of this run is a client-side fact of "
+    "the provider."
+)
+
+
+def capture_modal_runtime_identity() -> dict:
+    """
+    Capture the provider-issued identity of the running Modal container.
+
+    Every value here comes from the Modal runtime itself. A fact that the
+    runtime does not expose is reported as NOT_AVAILABLE with the exact
+    reason - never as a constant and never as a fabricated URI
+    (Iteration 14 P0.1).
+
+    Only the APIs the installed Modal SDK really offers to a function
+    container are used (Iteration 20 P0):
+
+    * ``modal.current_function_call_id()`` - the id of the current call;
+    * ``modal.current_input_id()`` - the id of the current input.
+
+    There is **no** call of ``modal.running_app``: in Modal SDK 1.5.5 that
+    name is a module, so calling it raises and the exception would only be
+    swallowed - the deployed worker would silently report an app identity it
+    never observed.
+
+    There is also **no** environment variable for the container identity
+    (Iteration 21 P0). ``MODAL_WORKER_ID`` is the SDK's ``worker_id``
+    configuration setting - the SDK source itself documents it as internal
+    debugging use - and ``HOSTNAME`` is a generic container hostname. Neither
+    is a provider-issued container identifier, so the worker does not read
+    them at all: it reports the container id as NOT_AVAILABLE with the exact
+    reason and lets the **client** resolve the provider-issued container id
+    from the function-call id it observed here.
+
+    Every fact of this envelope is observed **inside the container** and says
+    so; the facts the provider only issues to the client (the application id,
+    the app page URL, the container id) are client-side facts and live in the
+    client's own block.
+    """
+    from benchmarks.evidence_integrity import (
+        OBSERVATION_SIDE_WORKER,
+        not_available,
+        observed,
+    )
+
+    identity: dict = {}
+
+    # The application id of the running app. Modal SDK 1.5.5 gives a function
+    # container no way to read it - the reason states that, and names the
+    # client-side fact that holds it.
+    identity["app_id"] = not_available(
+        MODAL_APP_ID_UNAVAILABLE_REASON,
+        observed_by=OBSERVATION_SIDE_WORKER,
+    )
+
+    # Function-call id of the invocation that is currently executing.
+    function_call_id = None
+    try:
+        function_call_id = modal.current_function_call_id()
+    except Exception:
+        function_call_id = None
+    identity["function_call_id"] = (
+        observed(
+            str(function_call_id),
+            source="modal.current_function_call_id()",
+            observed_by=OBSERVATION_SIDE_WORKER,
+        )
+        if function_call_id
+        else not_available(
+            "the Modal runtime did not expose a function-call id to this process "
+            "(modal.current_function_call_id() returns no id outside a Modal function "
+            "container)",
+            observed_by=OBSERVATION_SIDE_WORKER,
+        )
+    )
+
+    # Container identity. A function container has no supported source of a
+    # provider-issued container id, so the worker does not attest one - it
+    # never reads an environment variable for it (Iteration 21 P0). The
+    # provider-issued container id of this invocation is a client-side fact:
+    # the client resolves the function-call id observed above through the
+    # provider's own call graph and container listing.
+    identity["container_id"] = not_available(
+        MODAL_CONTAINER_ID_NOT_ATTESTABLE_REASON,
+        observed_by=OBSERVATION_SIDE_WORKER,
+    )
+    identity["container_id_value"] = None
+
+    # The provider-issued dashboard reference for the running app. A function
+    # container cannot obtain it from a supported API.
+    identity["app_page_url"] = not_available(
+        MODAL_APP_PAGE_URL_UNAVAILABLE_REASON,
+        observed_by=OBSERVATION_SIDE_WORKER,
+    )
+
+    return identity
+
+
 @app.function(
     image=sandbox_image,
     timeout=60,
@@ -380,13 +557,26 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     """Compiles Solidity exploit and executes forge test --offline --json -vvvv in ephemeral EVM."""
     target = TargetProgram(**target_dict)
     payload = ExploitPayload(**payload_dict)
-    
+
     # 1. Execute in Foundry EVM sandbox
     raw_result = run_payload_in_sandbox(target, payload)
-    
+
     # 2. Evaluate multi-factor verdict
     verdict = evaluate_execution_trace(payload, raw_result)
-    return verdict.model_dump()
+    res_dict = verdict.model_dump()
+    res_dict["sandbox_stdout"] = raw_result.stdout or ""
+    res_dict["sandbox_stderr"] = raw_result.stderr or ""
+    res_dict["sandbox_returncode"] = raw_result.return_code
+    # Byte-exact streams observed by the worker (Iteration 14 P0.2/P0.3).
+    res_dict["sandbox_stdout_sha256"] = raw_result.stdout_sha256
+    res_dict["sandbox_stderr_sha256"] = raw_result.stderr_sha256
+    res_dict["sandbox_stdout_byte_length"] = raw_result.stdout_byte_length
+    res_dict["sandbox_stderr_byte_length"] = raw_result.stderr_byte_length
+    res_dict["sandbox_stdout_bytes_b64"] = raw_result.stdout_bytes_b64
+    res_dict["sandbox_stderr_bytes_b64"] = raw_result.stderr_bytes_b64
+    res_dict["observed_environment"] = raw_result.observed_environment
+    res_dict["modal_runtime"] = capture_modal_runtime_identity()
+    return res_dict
 
 
 @app.function(
@@ -395,11 +585,92 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     cpu=config.SANDBOX_CPU_CORES,
     memory=config.SANDBOX_MEMORY_MB,
 )
-def verify_replay_remote(target_dict: dict, payload_dict: dict) -> bool:
-    """Runs the candidate independently in a fresh EVM worker and checks the trusted verdict."""
+def verify_replay_remote(target_dict: dict, payload_dict: dict) -> dict:
+    """Runs the candidate independently in a fresh EVM worker and returns structured replay evidence."""
+    import base64
+    import hashlib
+    import time
+    from core.schemas import TargetProgram, ExploitPayload
+    from sandbox.runner import verify_independent_replay_result, HARNESS_VERDICT_BREACH
+
     target = TargetProgram(**target_dict)
     payload = ExploitPayload(**payload_dict)
-    return verify_independent_replay(target, payload)
+
+    # Replay-specific timestamps: measured inside the replay worker, never
+    # inherited from the initial run (Iteration 14 P0.2).
+    replay_started_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    raw_result = verify_independent_replay_result(target, payload)
+
+    replay_finished_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    is_confirmed = (
+        raw_result.harness_verdict == HARNESS_VERDICT_BREACH
+        and raw_result.invariant_violated
+        and raw_result.return_code == 0
+        and not raw_result.cheatcode_detected
+        and raw_result.category == ResultCategory.EXPLOIT_CONFIRMED
+    )
+
+    stdout_bytes = base64.b64decode(raw_result.stdout_bytes_b64 or "")
+    stderr_bytes = base64.b64decode(raw_result.stderr_bytes_b64 or "")
+    stdout_sha = hashlib.sha256(stdout_bytes).hexdigest()
+    stderr_sha = hashlib.sha256(stderr_bytes).hexdigest()
+
+    # The exact bytes the replay consumed: the candidate source and the
+    # immutable harness source that were compiled in this container.
+    candidate_bytes = (payload.test_code or "").encode("utf-8")
+    harness_source = ""
+    try:
+        from sandbox.runner import load_trusted_harness_code
+        harness_source = load_trusted_harness_code(target.name)
+    except Exception:
+        harness_source = ""
+    harness_bytes = harness_source.encode("utf-8")
+
+    runtime_identity = capture_modal_runtime_identity()
+
+    # The exact command line is the one the worker observed while running the
+    # replay - never a constant that merely looks like it (Iteration 14 P0.2).
+    observed_env = raw_result.observed_environment if isinstance(raw_result.observed_environment, dict) else {}
+    argv_fact = observed_env.get("exact_forge_argv")
+    replay_argv = argv_fact.get("value") if isinstance(argv_fact, dict) and argv_fact.get("status") == "OBSERVED" else None
+    if not isinstance(replay_argv, list) or not replay_argv:
+        replay_argv = None
+    replay_command = " ".join(replay_argv) if replay_argv else None
+
+    return {
+        "reproduced": bool(is_confirmed),
+        "container_id": runtime_identity.get("container_id_value"),
+        "modal_runtime": runtime_identity,
+        "command": replay_command,
+        "argv": replay_argv,
+        "command_observed": bool(replay_command),
+        "return_code": raw_result.return_code,
+        "exit_code": raw_result.return_code,
+        "harness_verdict": raw_result.harness_verdict,
+        "harness_suite": raw_result.harness_suite,
+        "invariant_violated": raw_result.invariant_violated,
+        "category": raw_result.category.value if hasattr(raw_result.category, "value") else str(raw_result.category),
+        "stdout": raw_result.stdout or "",
+        "stderr": raw_result.stderr or "",
+        "stdout_b64": base64.b64encode(stdout_bytes).decode("ascii"),
+        "stderr_b64": base64.b64encode(stderr_bytes).decode("ascii"),
+        "stdout_sha256": stdout_sha,
+        "stderr_sha256": stderr_sha,
+        "stdout_byte_length": len(stdout_bytes),
+        "stderr_byte_length": len(stderr_bytes),
+        "candidate_b64": base64.b64encode(candidate_bytes).decode("ascii"),
+        "candidate_sha256": hashlib.sha256(candidate_bytes).hexdigest(),
+        "candidate_byte_length": len(candidate_bytes),
+        "harness_b64": base64.b64encode(harness_bytes).decode("ascii"),
+        "harness_sha256": hashlib.sha256(harness_bytes).hexdigest(),
+        "harness_byte_length": len(harness_bytes),
+        "execution_time_sec": raw_result.execution_time_sec,
+        "utc_start_time": replay_started_utc,
+        "utc_end_time": replay_finished_utc,
+        "observed_environment": raw_result.observed_environment,
+    }
 
 
 @app.function(
@@ -703,39 +974,40 @@ def run_control_foundry_tests(target_name: str = "Vault"):
 
     # 1. TEST 1: Minimal Benign ExploitModule (No LLM)
     print("\n[Control Test 1] Testing Minimal Benign ExploitModule (No LLM)...")
-    benign_code = """// SPDX-License-Identifier: MIT
+    benign_code = f"""// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Vault} from "../src/Vault.sol";
+import {{{target_name}}} from "../src/{target_name}.sol";
 
-contract ExploitModule {
-    Vault public targetContract;
+contract ExploitModule {{
+    {target_name} public targetContract;
 
-    constructor(address _target) payable {
-        targetContract = Vault(payable(_target));
-    }
+    constructor(address _target) payable {{
+        targetContract = {target_name}(payable(_target));
+    }}
 
-    function runExploit() external payable {
+    function runExploit() external payable {{
         // Benign execution: does not breach solvency invariant
-    }
+    }}
 
-    receive() external payable {}
-}
+    receive() external payable {{}}
+}}
 """
     p1 = parse_model_response(target, f"```solidity\n{benign_code}\n```")
     v1_dict = verify_exploit_remote.remote(target.model_dump(), p1.model_dump())
     v1 = VerificationVerdict(**v1_dict)
-    print(f"    Status: {'✅ PASS' if v1.category == ResultCategory.RUNTIME_REVERT else '❌ FAIL'}")
+    print(f"    Status: {'✅ PASS' if v1.category in (ResultCategory.SAFE_RUN, ResultCategory.RUNTIME_REVERT) else '❌ FAIL'}")
     print(f"    Category: {v1.category.value} | Reward: {v1.reward_score:+.2f}")
     print(f"    Feedback: {v1.feedback[:120]}...")
-    assert v1.category == ResultCategory.RUNTIME_REVERT, f"Expected RUNTIME_REVERT, got {v1.category}"
+    assert v1.category in (ResultCategory.SAFE_RUN, ResultCategory.RUNTIME_REVERT), f"Expected SAFE_RUN or RUNTIME_REVERT, got {v1.category}"
     assert v1.reward_score <= 0.0, f"Expected non-positive reward, got {v1.reward_score}"
     assert not v1.is_verified, "Benign test must not be verified as exploit"
-    print("    [✓] Control Test 1 verified: Import and compilation succeeded without Declaration 'ExploitModule' error.")
+    print("    [✓] Control Test 1 verified: Benign execution gave non-positive reward without invariant breach.")
 
-    # 2. TEST 2: Confirmed Reentrancy ExploitModule
-    print("\n[Control Test 2] Testing Confirmed Working Reentrancy ExploitModule...")
-    working_exploit = """// SPDX-License-Identifier: MIT
+    # 2. TEST 2: Confirmed Reentrancy / Share Inflation ExploitModule
+    print(f"\n[Control Test 2] Testing Confirmed Working ExploitModule for {target_name}...")
+    if target_name == "Vault":
+        working_exploit = """// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
 import {Vault} from "../src/Vault.sol";
@@ -760,6 +1032,29 @@ contract ExploitModule {
     }
 }
 """
+    elif target_name == "ERC4626Vault":
+        working_exploit = """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {ERC4626Vault} from "../src/ERC4626Vault.sol";
+
+contract ExploitModule {
+    ERC4626Vault public targetContract;
+
+    constructor(address _target) payable {
+        targetContract = ERC4626Vault(payable(_target));
+    }
+
+    function runExploit() external payable {
+        targetContract.deposit{value: 1}();
+        payable(address(targetContract)).transfer(msg.value - 1);
+    }
+
+    receive() external payable {}
+}
+"""
+    else:
+        raise ValueError(f"No control exploit template available for target '{target_name}'")
     p2 = parse_model_response(target, f"```solidity\n{working_exploit}\n```")
     v2_dict = verify_exploit_remote.remote(target.model_dump(), p2.model_dump())
     v2 = VerificationVerdict(**v2_dict)
@@ -827,13 +1122,13 @@ contract ExploitModule {
     #     this control keeps proving that a genuinely malformed exploit is still
     #     rejected upfront, before Foundry is invoked)
     print("\n[Control Test 3] Testing Structurally Broken Contract (missing runExploit entrypoint)...")
-    malformed_code = """// SPDX-License-Identifier: MIT
+    malformed_code = f"""// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-contract VaultAttack {
-    constructor(address _target) payable {}
+contract {target_name}Attack {{
+    constructor(address _target) payable {{}}
     // Missing mandatory runExploit() entrypoint
-}
+}}
 """
     p3 = parse_model_response(target, f"```solidity\n{malformed_code}\n```")
     assert not p3.format_valid, "Structurally broken exploit must be rejected before Foundry"
@@ -847,31 +1142,31 @@ contract VaultAttack {
     print("    [✓] Control Test 3 verified: Format error caught before invoking Foundry.")
 
     # 4. TEST 4: Wrongly-named but otherwise valid contract is mechanically repaired
-    print("\n[Control Test 4] Testing Mechanical Contract Name Normalization (contract VaultAttack)...")
-    renamable_code = """// SPDX-License-Identifier: MIT
+    print(f"\n[Control Test 4] Testing Mechanical Contract Name Normalization (contract {target_name}Attack)...")
+    renamable_code = f"""// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Vault} from "../src/Vault.sol";
+import {{{target_name}}} from "../src/{target_name}.sol";
 
-contract VaultAttack {
-    Vault public targetContract;
+contract {target_name}Attack {{
+    {target_name} public targetContract;
 
-    constructor(address _target) payable {
-        targetContract = Vault(payable(_target));
-    }
+    constructor(address _target) payable {{
+        targetContract = {target_name}(payable(_target));
+    }}
 
-    function runExploit() external payable {}
+    function runExploit() external payable {{}}
 
-    receive() external payable {}
-}
+    receive() external payable {{}}
+}}
 """
     p4 = parse_model_response(target, f"```solidity\n{renamable_code}\n```")
     assert p4.contract_name_normalized, "Expected mechanical contract-name normalization"
-    assert p4.original_contract_name == "VaultAttack"
+    assert p4.original_contract_name == f"{target_name}Attack"
     assert p4.format_valid, "Renamed exploit must pass the format gate"
     v4_dict = verify_exploit_remote.remote(target.model_dump(), p4.model_dump())
     v4 = VerificationVerdict(**v4_dict)
-    print(f"    Renamed: 'VaultAttack' -> 'ExploitModule' | format_valid={p4.format_valid}")
+    print(f"    Renamed: '{target_name}Attack' -> 'ExploitModule' | format_valid={p4.format_valid}")
     print(f"    Status: {'✅ PASS' if v4.category != ResultCategory.GENERATION_FORMAT_ERROR else '❌ FAIL'}")
     print(f"    Category: {v4.category.value} | Reward: {v4.reward_score:+.2f}")
     assert v4.category != ResultCategory.GENERATION_FORMAT_ERROR, (

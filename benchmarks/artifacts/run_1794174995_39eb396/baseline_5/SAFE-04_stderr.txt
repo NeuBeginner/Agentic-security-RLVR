@@ -1,0 +1,8 @@
+Warning: dynamic test linking disabled for 2 files: error: file ./SecureOraclePool.sol not found
+Error: Compiler run failed:
+Error (6275): Source "test/SecureOraclePool.sol" not found: File not found. Searched the following locations: "/tmp/tmpg7489s_4".
+ParserError: Source "test/SecureOraclePool.sol" not found: File not found. Searched the following locations: "/tmp/tmpg7489s_4".
+ --> test/SecureOraclePoolHarness.t.sol:5:1:
+  |
+5 | import {SecureOraclePool, ITWAPOracle} from "./SecureOraclePool.sol";
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

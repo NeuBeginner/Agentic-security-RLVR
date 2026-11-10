@@ -29,6 +29,20 @@ TRUSTED_HARNESSES_DIR = "/opt/aegis/trusted_harnesses"
 TRUSTED_HARNESS_CONTRACTS = {
     "Vault": "VaultTrustedHarness",
     "ERC4626Vault": "ERC4626TrustedHarness",
+    "AccessControlVault": "AccessControlVaultHarness",
+    "AuctionDoS": "AuctionDoSHarness",
+    "CrossContractBridge": "CrossContractBridgeHarness",
+    "FeeShareYieldVault": "FeeShareYieldVaultHarness",
+    "FlashLoanRewardPool": "FlashLoanRewardPoolHarness",
+    "LendingLiquidation": "LendingLiquidationHarness",
+    "OracleLendingPool": "OracleLendingPoolHarness",
+    "PrecisionStakingPool": "PrecisionStakingPoolHarness",
+    "RewardDistributorLogic": "RewardDistributorLogicHarness",
+    "SignatureReplayWallet": "SignatureReplayWalletHarness",
+    "SecureVault": "SecureVaultTrustedHarness",
+    "SecureAccessControlVault": "SecureAccessControlVaultHarness",
+    "SecureERC4626Vault": "SecureERC4626TrustedHarness",
+    "SecureOraclePool": "SecureOraclePoolHarness",
 }
 
 # Optimized, Pinned Foundry + Solc + OpenZeppelin + Slither Execution Image for Modal
@@ -50,7 +64,7 @@ sandbox_image = (
     )
     .env({"PATH": "/root/.foundry/bin:$PATH"})
     .pip_install("pydantic>=2.0.0", "slither-analyzer", "solc-select")
-    .add_local_dir(LOCAL_TRUSTED_HARNESSES_DIR, remote_path=TRUSTED_HARNESSES_DIR, copy=False)
+    .add_local_dir(LOCAL_TRUSTED_HARNESSES_DIR, remote_path=TRUSTED_HARNESSES_DIR, copy=True)
     .add_local_python_source("core", "sandbox")
 )
 
@@ -140,7 +154,8 @@ def load_trusted_harness_code(target_name: str, harness_dir=None) -> str:
     if target_name not in TRUSTED_HARNESS_CONTRACTS:
         raise FileNotFoundError(f"No allowlisted repository harness for target {target_name}")
 
-    root = os.path.realpath(harness_dir or TRUSTED_HARNESSES_DIR)
+    default_dir = TRUSTED_HARNESSES_DIR if os.path.isdir(TRUSTED_HARNESSES_DIR) else LOCAL_TRUSTED_HARNESSES_DIR
+    root = os.path.realpath(harness_dir or default_dir)
     harness_path = os.path.realpath(os.path.join(root, f"{target_name}Harness.t.sol"))
     if os.path.dirname(harness_path) != root:
         raise ValueError("trusted harness path escaped its immutable directory")
@@ -156,6 +171,184 @@ class CappedProcessResult:
         self.stdout = stdout
         self.stderr = stderr
         self.timed_out = timed_out
+        # Byte-exact streams (Iteration 14 P0.2). The decoded strings above are
+        # for human/diagnostic use; the digests of the evidence chain are
+        # always computed over these raw bytes.
+        self.stdout_bytes = b""
+        self.stderr_bytes = b""
+
+
+# ---------------------------------------------------------------------------
+# Observed execution environment (Iteration 14 P0.3)
+# ---------------------------------------------------------------------------
+# The remote EVM toolchain description must be OBSERVED inside the worker that
+# actually ran the EVM. Nothing here may be a hardcoded constant: every fact
+# is read from the live container, and a fact that cannot be read is reported
+# as NOT_AVAILABLE together with the reason.
+
+
+def _observed_os_facts():
+    """Read the operating system facts from the running container."""
+    from benchmarks.evidence_integrity import NOT_AVAILABLE, observed, not_available
+
+    remote_os = None
+    try:
+        if os.path.exists("/etc/os-release"):
+            with open("/etc/os-release", "r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith("PRETTY_NAME="):
+                        remote_os = line.split("=", 1)[1].strip().strip('"')
+                        break
+    except OSError:
+        remote_os = None
+
+    if not remote_os:
+        return (
+            not_available("/etc/os-release is not readable in this container"),
+            observed("posix" if os.name == "posix" else os.name, source="os.name"),
+        )
+
+    return (
+        observed(remote_os, source="/etc/os-release:PRETTY_NAME"),
+        observed(os.name, source="os.name"),
+    )
+
+
+def _observed_forge_version(env: dict, cwd: str):
+    """Read the exact Foundry version that is installed in this container."""
+    from benchmarks.evidence_integrity import observed, not_available
+
+    try:
+        proc = run_subprocess_capped(
+            ["forge", "--version"],
+            cwd=cwd,
+            env=env,
+            timeout=30,
+        )
+    except (OSError, ValueError) as exc:
+        return not_available(f"forge --version could not be executed: {type(exc).__name__}: {exc}")
+
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return not_available(
+            f"forge --version did not report a version (exit code {proc.returncode})"
+        )
+    return observed(proc.stdout.strip(), source="forge --version")
+
+
+def _observed_compiler_settings(env: dict, cwd: str):
+    """
+    Read the EFFECTIVE compiler settings and the solc version in use.
+
+    ``forge config --json`` reports the settings Foundry actually applies for
+    the project it is executed in, which is exactly what a benchmark run has
+    to attest.
+    """
+    from benchmarks.evidence_integrity import observed, not_available
+
+    try:
+        proc = run_subprocess_capped(
+            ["forge", "config", "--json"],
+            cwd=cwd,
+            env=env,
+            timeout=60,
+        )
+    except (OSError, ValueError) as exc:
+        return (
+            not_available(f"forge config --json could not be executed: {type(exc).__name__}: {exc}"),
+            not_available("solc version could not be read without the effective Foundry config"),
+        )
+
+    if proc.returncode != 0:
+        return (
+            not_available(f"forge config --json failed with exit code {proc.returncode}"),
+            not_available("solc version could not be read without the effective Foundry config"),
+        )
+
+    try:
+        config_data = json.loads(proc.stdout)
+    except (ValueError, TypeError) as exc:
+        return (
+            not_available(f"forge config --json did not return valid JSON: {exc}"),
+            not_available("solc version could not be read without the effective Foundry config"),
+        )
+
+    settings = {
+        "evm_version": config_data.get("evm_version"),
+        "optimizer": config_data.get("optimizer"),
+        "optimizer_runs": config_data.get("optimizer_runs"),
+        "via_ir": config_data.get("via_ir"),
+        "offline": config_data.get("offline"),
+    }
+    solc_version = config_data.get("solc")
+    if isinstance(solc_version, str):
+        solc_versions = [solc_version]
+    elif isinstance(solc_version, list):
+        solc_versions = [str(item) for item in solc_version]
+    else:
+        solc_versions = []
+    if solc_versions:
+        solc_fact = observed(solc_versions, source="forge config --json:solc")
+    else:
+        solc_fact = not_available("forge config --json did not report a solc version")
+
+    return observed(settings, source="forge config --json"), solc_fact
+
+
+def _observed_image_digest():
+    """
+    Read the immutable image identity of the running container.
+
+    Modal exposes the image object id inside the container. It is immutable and
+    therefore a valid environment identifier, unlike a mutable tag.
+    """
+    from benchmarks.evidence_integrity import observed, not_available
+
+    try:
+        image_id = modal.config.config.get("image_id")
+    except Exception:
+        image_id = None
+
+    if image_id:
+        return observed(str(image_id), source="modal.config.image_id")
+    return not_available(
+        "the Modal runtime did not expose an image id inside this container "
+        "(modal.config.image_id is unset)"
+    )
+
+
+def observe_execution_environment(
+    *,
+    argv: list,
+    working_directory: str,
+    env: dict,
+    observed_exit_code: int,
+) -> dict:
+    """
+    Collect the observed remote EVM toolchain facts for one execution.
+
+    Every entry is either an OBSERVED fact or a NOT_AVAILABLE fact with the
+    reason. No value is ever templated.
+    """
+    from benchmarks.evidence_integrity import observed, not_available
+
+    remote_os, remote_platform = _observed_os_facts()
+    forge_version = _observed_forge_version(env, working_directory)
+    compiler_settings, solc_versions = _observed_compiler_settings(env, working_directory)
+    image_digest = _observed_image_digest()
+
+    return {
+        "remote_os": remote_os,
+        "remote_platform": remote_platform,
+        "image_digest": image_digest,
+        "forge_version": forge_version,
+        "solc_versions": solc_versions,
+        "exact_forge_argv": observed(list(argv), source="the argv that was executed"),
+        "working_directory": observed(working_directory, source="the cwd of the forge process"),
+        "compiler_settings": compiler_settings,
+        "observed_exit_code": observed(
+            int(observed_exit_code), source="the exit code of the forge process"
+        ),
+    }
 
 
 def run_subprocess_capped(
@@ -241,13 +434,17 @@ def run_subprocess_capped(
             output += "\n[LOG_TRUNCATED: retained output capped at configured byte limit]"
         return output
 
-    return CappedProcessResult(
+    result = CappedProcessResult(
         returncode=proc.returncode if proc.returncode is not None else -1,
         stdout=decode("stdout"),
         stderr=decode("stderr"),
         timed_out=timed_out,
     )
-
+    # The raw bytes are the evidence: the decoded strings may have replaced
+    # undecodable sequences, the raw bytes never did.
+    result.stdout_bytes = bytes(buffers["stdout"])
+    result.stderr_bytes = bytes(buffers["stderr"])
+    return result
 
 
 def detect_prohibited_cheatcodes(code: str) -> bool:
@@ -277,17 +474,20 @@ def detect_prohibited_cheatcodes(code: str) -> bool:
     return False
 
 
-def extract_trusted_harness_verdict(
+def extract_trusted_harness_evidence(
     structured_data,
     target_name: str
 ):
-    """Read exactly one immutable repository harness and exact testExploit() result."""
+    """
+    Extract structured verdict, status, reason, deployed harness address,
+    and raw EVM logs for exactly one repository-owned trusted harness suite.
+    """
     if (
         not is_safe_target_name(target_name)
         or target_name not in TRUSTED_HARNESS_CONTRACTS
         or not isinstance(structured_data, dict)
     ):
-        return HARNESS_VERDICT_UNKNOWN, "", None, None
+        return HARNESS_VERDICT_UNKNOWN, "", None, None, None, []
 
     expected_path = trusted_harness_suite_prefix(target_name)
     matches = []
@@ -307,12 +507,26 @@ def extract_trusted_harness_verdict(
             continue
         for test_sig, test_info in test_results.items():
             if str(test_sig).strip() == f"{HARNESS_TEST_NAME}()" and isinstance(test_info, dict):
-                matches.append((path, test_info.get("status"), test_info.get("reason")))
+                status = test_info.get("status")
+                reason = test_info.get("reason")
+                logs = [log for log in test_info.get("logs", []) if isinstance(log, dict)]
+                harness_addr = None
+                traces = test_info.get("traces", [])
+                if isinstance(traces, list):
+                    for stage in traces:
+                        if isinstance(stage, (list, tuple)) and len(stage) == 2 and isinstance(stage[1], dict):
+                            arena = stage[1].get("arena", [])
+                            if arena and isinstance(arena[0], dict):
+                                addr = arena[0].get("trace", {}).get("address")
+                                if addr and isinstance(addr, str):
+                                    harness_addr = addr.strip().lower()
+                                    break
+                matches.append((path, status, reason, harness_addr, logs))
 
     if len(matches) != 1:
-        return HARNESS_VERDICT_UNKNOWN, "", None, None
+        return HARNESS_VERDICT_UNKNOWN, "", None, None, None, []
 
-    suite_path, status, reason = matches[0]
+    suite_path, status, reason, harness_addr, raw_logs = matches[0]
     if status == "Success":
         verdict = HARNESS_VERDICT_BREACH
     elif status == "Failure":
@@ -323,6 +537,17 @@ def extract_trusted_harness_verdict(
         )
     else:
         verdict = HARNESS_VERDICT_UNKNOWN
+    return verdict, suite_path, status, reason, harness_addr, raw_logs
+
+
+def extract_trusted_harness_verdict(
+    structured_data,
+    target_name: str
+):
+    """Read exactly one immutable repository harness and exact testExploit() result."""
+    verdict, suite_path, status, reason, _, _ = extract_trusted_harness_evidence(
+        structured_data, target_name
+    )
     return verdict, suite_path, status, reason
 
 
@@ -488,8 +713,11 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
         os.makedirs(src_dir, exist_ok=True)
         os.makedirs(test_dir, exist_ok=True)
         
-        # Symlink pre-baked libraries in <1ms (zero copying)
-        base_lib = "/opt/foundry_base/lib"
+        # Symlink pre-baked libraries in <1ms (zero copying).
+        # The library root is the image-baked /opt/foundry_base/lib in the Modal
+        # image; FOUNDRY_BASE_LIB_DIR allows a local, non-Linux toolchain to
+        # point at the same pre-baked libraries.
+        base_lib = os.environ.get("FOUNDRY_BASE_LIB_DIR", "/opt/foundry_base/lib")
         target_lib = os.path.join(tmpdir, "lib")
         if os.path.exists(base_lib):
             try:
@@ -501,9 +729,16 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
         with open(os.path.join(tmpdir, "foundry.toml"), "w", encoding="utf-8") as f:
             f.write(FOUNDRY_TOML_CONTENT)
             
-        # Write target contract: src/{target.name}.sol
-        target_path = os.path.join(src_dir, f"{target.name}.sol")
-        with open(target_path, "w", encoding="utf-8") as f:
+        # Write target contract into both src/ and test/ so that both:
+        # 1. import {Target} from "../src/Target.sol" (src-relative)
+        # 2. import {Target} from "./Target.sol" (test-relative)
+        # resolve seamlessly across all repository harnesses and candidate exploits.
+        target_src_path = os.path.join(src_dir, f"{target.name}.sol")
+        with open(target_src_path, "w", encoding="utf-8") as f:
+            f.write(target.source_code)
+            
+        target_test_path = os.path.join(test_dir, f"{target.name}.sol")
+        with open(target_test_path, "w", encoding="utf-8") as f:
             f.write(target.source_code)
             
         # Write only the repository-owned harness loaded from the immutable Modal image.
@@ -534,6 +769,21 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             raw_stdout, raw_stderr = proc.stdout, proc.stderr
             output_text = raw_stdout + "\\n" + raw_stderr
 
+            # Byte-exact evidence streams (Iteration 14 P0.2). The digests of the
+            # evidence chain describe these bytes, never a re-encoded string.
+            import base64
+            import hashlib as _hashlib
+            stdout_bytes = proc.stdout_bytes
+            stderr_bytes = proc.stderr_bytes
+
+            # Observed toolchain facts of THIS execution (Iteration 14 P0.3).
+            observed_environment = observe_execution_environment(
+                argv=cmd,
+                working_directory=tmpdir,
+                env=env,
+                observed_exit_code=proc.returncode if proc.returncode is not None else -1,
+            )
+
             if proc.timed_out:
                 return ExecutionResult(
                     return_code=proc.returncode,
@@ -544,6 +794,13 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                     timed_out=True,
                     invariant_violated=False,
                     verified_by_harness=False,
+                    observed_environment=observed_environment,
+                    stdout_sha256=_hashlib.sha256(stdout_bytes).hexdigest(),
+                    stderr_sha256=_hashlib.sha256(stderr_bytes).hexdigest(),
+                    stdout_byte_length=len(stdout_bytes),
+                    stderr_byte_length=len(stderr_bytes),
+                    stdout_bytes_b64=base64.b64encode(stdout_bytes).decode("ascii"),
+                    stderr_bytes_b64=base64.b64encode(stderr_bytes).decode("ascii"),
                 )
 
             structured_json, test_status, revert_reason, decoded_logs = parse_forge_output(raw_stdout)
@@ -555,7 +812,7 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             # repository-owned harness suite. Log text is model-controllable and
             # is therefore never used to decide whether an exploit succeeded -
             # `decoded_logs` is kept for diagnostics only.
-            harness_verdict, harness_suite, verdict_status, verdict_reason = extract_trusted_harness_verdict(
+            harness_verdict, harness_suite, verdict_status, verdict_reason, harness_addr, trusted_raw_logs = extract_trusted_harness_evidence(
                 structured_json, target.name
             )
 
@@ -593,7 +850,9 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                         execution_time_sec=elapsed,
                         revert_reason=effective_revert_reason,
                         cheatcode_detected=False,
-                        structured_json=structured_json,
+                        structured_json=None,
+                        raw_logs=trusted_raw_logs,
+                        trusted_harness_address=harness_addr,
                     )
                 except Exception as oracle_exc:
                     # The authoritative harness result remains intact; preserve a
@@ -648,6 +907,13 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 evidence=oracle_verification.evidence if oracle_verification else None,
                 invariant_results=oracle_verification.invariant_results if oracle_verification else [],
                 verification_result=oracle_verification,
+                observed_environment=observed_environment,
+                stdout_sha256=_hashlib.sha256(stdout_bytes).hexdigest(),
+                stderr_sha256=_hashlib.sha256(stderr_bytes).hexdigest(),
+                stdout_byte_length=len(stdout_bytes),
+                stderr_byte_length=len(stderr_bytes),
+                stdout_bytes_b64=base64.b64encode(stdout_bytes).decode("ascii"),
+                stderr_bytes_b64=base64.b64encode(stderr_bytes).decode("ascii"),
             )
             
         except FileNotFoundError as fnf:
