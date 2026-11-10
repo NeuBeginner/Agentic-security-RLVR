@@ -779,7 +779,14 @@ def _validate_consolidated_closure(
         from benchmarks.benchmark_runner import AegisBenchmarkSuite
 
         runner_dir = work_dir / "runner"
-        suite = AegisBenchmarkSuite(artifacts_dir=runner_dir)
+        # The suite writes its report next to the dataset - the dataset is
+        # copied into the probe directory so that the closure does not touch
+        # the checkout.
+        dataset_dir = work_dir / "dataset"
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+        dataset_path = dataset_dir / "benchmark_dataset.json"
+        shutil.copyfile(_ROOT / "benchmarks" / "benchmark_dataset.json", dataset_path)
+        suite = AegisBenchmarkSuite(dataset_path=dataset_path, artifacts_dir=runner_dir)
         report = suite.run_benchmark(
             mode="smoke",
             baselines_to_run=["baseline_1"],

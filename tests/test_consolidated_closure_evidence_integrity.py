@@ -638,9 +638,21 @@ def test_the_failure_vertical_chain_keeps_the_failure_visible(tmp_path):
 
 def test_the_report_of_the_real_runner_states_the_detection_state(tmp_path):
     """The report of the real runner carries the state of every target."""
+    import shutil
+
     from benchmarks.benchmark_runner import AegisBenchmarkSuite
 
-    suite = AegisBenchmarkSuite(artifacts_dir=Path(tmp_path))
+    # The suite writes its report next to the dataset - the dataset is copied
+    # into the temporary directory so that the test does not touch the
+    # checkout.
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    dataset_path = dataset_dir / "benchmark_dataset.json"
+    shutil.copyfile(_ROOT / "benchmarks" / "benchmark_dataset.json", dataset_path)
+
+    suite = AegisBenchmarkSuite(
+        dataset_path=dataset_path, artifacts_dir=tmp_path / "artifacts"
+    )
     report = suite.run_benchmark(
         mode="smoke",
         baselines_to_run=["baseline_1"],
