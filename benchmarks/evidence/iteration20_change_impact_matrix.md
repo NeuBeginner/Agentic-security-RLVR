@@ -182,4 +182,90 @@ The `OBSERVED` branches of the producer (function-call id, container id) are exe
 
 ## 8. Results of this iteration
 
-The results are filled in **after** the code, the tests and the CI have run; the local counts and the CI counts are reported separately and are never mixed into one number.
+The local counts and the CI counts are reported **separately** and are never mixed into one number.
+
+### 8.1 The commits of this iteration
+
+| commit | content |
+| --- | --- |
+| `cce5d61` | this matrix — committed **before** any code change |
+| `64392a7` | the fix of the production producer, the contract of the observation side, the client-side observation, the capture, the validator, the test suite, the CI wiring |
+| `2b73f24` | the capture of the producer and the validation report, bound to `64392a7` |
+
+The report is bound to the **code commit** `64392a7` — the commit the capture was made from — and `64392a7` is an ancestor of `HEAD`.
+
+### 8.2 The capture of the producer
+
+| item | value |
+| --- | --- |
+| exact command | `python -m benchmarks.run_iteration20_producer_capture --code-sha 64392a7…` |
+| source commit | `64392a7bc4d4eba45a0fc15aacd4b32e3761dd98` (tracked files clean) |
+| Modal SDK | 1.5.5 (the installed SDK; the producer was executed against it) |
+| producer | the **real** `modal_app.capture_modal_runtime_identity()` |
+| sentinel | `modal.running_app` was replaced by a hostile sentinel for the duration of the call — **0 accesses** |
+| container environment | `MODAL_WORKER_ID` and `HOSTNAME` removed, as in a Modal function container |
+| invocation | `live_modal_invocation: false`, `deployment: none`, `gpu: none` |
+| app id | **NOT_AVAILABLE** — Modal SDK 1.5.5 exposes no running-app accessor to a function container |
+| app page URL | **NOT_AVAILABLE** — the only candidate was the unsupported `modal.running_app` |
+| container id | **NOT_AVAILABLE** — neither `MODAL_WORKER_ID` nor `HOSTNAME` |
+| function-call id | **NOT_AVAILABLE** — `modal.current_function_call_id()` returns no id outside a Modal function container |
+| provider-issued identifiers in the capture | **none** — the capture is local, so it holds no `ap-…`, no `fc-…` and no `ta-…` |
+
+Artifacts on disk:
+
+| artifact | SHA-256 |
+| --- | --- |
+| `benchmarks/evidence/iteration20_producer_capture/ITER20-01_stage_evidence_evm_sandbox.json` | `cdf0653f5f16a6e8174da65ac37073f7e5f8cf69dffdbffa3a742175f3934820` |
+| `benchmarks/evidence/iteration20_producer_capture/capture_record.json` | `e00cb729b5eff35d83ed38c028b45863e3ab4e5eccc7e40c2ff7cee28c6f980d` |
+
+### 8.3 The validator
+
+`python -m benchmarks.validate_iteration20_evidence --code-sha 64392a7bc4d4eba45a0fc15aacd4b32e3761dd98`
+→ **PASSED, 12/12 checks**:
+
+| check | what it proves |
+| --- | --- |
+| `P2.1.producer_source_has_no_running_app_call` | the parsed syntax tree of the producer contains no call of `modal.running_app` |
+| `P2.2.no_live_invocation_and_no_deployment` | the capture declares no live invocation, no deployment, no GPU and states the production-change boundary |
+| `P2.3.sentinel_never_touched` | the sentinel was never touched |
+| `P2.4.envelope_is_typed_and_worker_side` | every identity fact is a typed fact that names the worker side, and the envelope satisfies the unchanged Iteration 18 schema |
+| `P2.5.app_id_is_an_explicit_absence` | the application id is `NOT_AVAILABLE` with the exact reason of the producer and holds no value |
+| `P2.6.app_page_url_is_an_explicit_absence` | the app page URL is `NOT_AVAILABLE` with the exact reason of the producer and holds no value |
+| `P2.7.container_id_is_an_explicit_absence` | the container id is `NOT_AVAILABLE` with the exact reason of the producer and holds no value |
+| `P2.8.client_observation_is_client_side` | the client-side facts name the client side and the worker envelope holds no client-side fact |
+| `P2.9.artifact_digest_matches_the_bytes_on_disk` | the SHA-256 of the artifact on disk equals the recorded digest |
+| `P2.10.stage_evidence_artifact_satisfies_the_contract` | the artifact satisfies the unchanged Iteration 18 contract and carries exactly the envelope of the captured response |
+| `P2.11.stage_facts_keep_the_side_of_the_envelope` | the derived stage facts keep the side the envelope declared |
+| `P2.12.capture_is_bound_to_its_code_sha` | the capture names the commit it was made from |
+
+`python -m benchmarks.validate_iteration20_evidence --check` → published PASSED, revalidated PASSED (12/12), bound to `64392a7`.
+
+### 8.4 The local run (Windows, this machine)
+
+| suite | result |
+| --- | --- |
+| Iteration 20 (`tests/test_iteration20_evidence_integrity.py`) | **33 passed**, 0 skipped |
+| Iteration 19 | 24 passed |
+| Iteration 18 | 44 passed |
+| Iteration 17 | 65 passed |
+| Iteration 16 | 27 passed |
+| Iteration 15 | 33 passed |
+| Iteration 14 | 73 passed, 3 skipped (the real-Foundry probes: `forge` is not on the local PATH) |
+| full suite `tests/` | **684 passed, 7 skipped** (95.62 s) |
+
+The 7 local skips are exactly the pre-existing ones of Iterations 14 and the benchmark execution suite — **none of them belongs to the Iteration 20 suite**:
+
+1. `tests/test_iteration14_evidence_integrity.py::test_real_foundry_integration_observed_environment_carries_real_facts`
+2. `tests/test_iteration14_evidence_integrity.py::test_real_foundry_integration_safe_control_emits_the_exact_documented_sentinel`
+3. `tests/test_iteration14_evidence_integrity.py::test_real_foundry_integration_compilation_error_is_never_a_safe_control`
+4. `tests/test_real_benchmark_execution.py::test_real_slither_integration_is_not_run_when_binary_missing`
+5. `tests/test_real_benchmark_execution.py::test_real_foundry_integration_live_execution`
+6. `tests/test_real_benchmark_execution.py::test_real_foundry_integration_confirmed_exploit_breach`
+7. `tests/test_real_benchmark_execution.py::test_real_foundry_integration_compilation_failure`
+
+`forge` and `slither` are **not installed on this machine**, so the real Foundry probes are skipped locally. The Foundry numbers are therefore taken from the CI job `foundry-integration` and are reported as CI numbers — they are never mixed with the local ones.
+
+### 8.5 The CI run
+
+The CI numbers of this iteration are filled in from the workflow run of the branch and are reported separately from the local numbers above. The CI runs the Iteration 20 suite, the Iteration 20 validator and the unchanged suites of Iterations 14–19; the historical Iteration 14–18 benchmark validation artifacts stay **FAILED (0/16)** — this iteration does not mask them and does not change them.
+
