@@ -215,7 +215,9 @@ This is a **separate, wider** question than the P1 of this iteration: it concern
 
 ## 10. The ancestry of the branch — refreshed against the reviewed head
 
-The review asks for the ancestry to be re-measured against the current head before any merge. Measured at the reviewed head `5e17910d5a99a196cf5fa16268792d3a71d265e2` (base `736f11d` = `integration/minimax-antigravity-reconciled`):
+The review asks for the ancestry to be re-measured against the current head before any merge.
+
+**Measured at the reviewed head `5e17910d5a99a196cf5fa16268792d3a71d265e2`** (base `736f11d` = `integration/minimax-antigravity-reconciled`):
 
 | measurement | value |
 | --- | --- |
@@ -227,9 +229,18 @@ The review asks for the ancestry to be re-measured against the current head befo
 | commits of the iteration work `47e49b9..5e17910` | **40** |
 | diff against the mandated base (`47e49b9...5e17910`) | **84 files changed, +35,369 / −1,258** |
 
+**Measured at the head of this iteration `1e5a1bc7de39036e38a5d1306f43c5ca3a235995`** (the three commits of Iteration 23 added):
+
+| measurement | value |
+| --- | --- |
+| commits ahead of the PR base | **75** |
+| diff against the PR base (`736f11d...1e5a1bc`) | **260 files changed, +86,062 / −357** |
+| commits of the iteration work `47e49b9..1e5a1bc` | **43** |
+| diff against the mandated base (`47e49b9...1e5a1bc`) | **88 files changed, +38,100 / −1,258** |
+
 The 32 commits of the upstream line are **not** contained in the integration branch (`47e49b9` is not an ancestor of `736f11d`), which is why the diff against the PR base carries the whole upstream line as well.
 
-The 40 commits of the iteration work touch **10 files** that the upstream line also touched:
+The 43 commits of the iteration work touch **10 files** that the upstream line also touched:
 
 ```
 .github/workflows/ci.yml
@@ -244,11 +255,19 @@ sandbox/runner.py
 tests/test_real_benchmark_execution.py
 ```
 
-**Consequence for the merge plan.** A clean rebase of the 40 iteration commits onto `736f11d` does **not** apply: those 10 files are rewritten by both lines. The reconciled plan is therefore:
+**Consequence for the merge plan.** A clean rebase of the 43 iteration commits onto `736f11d` does **not** apply: those 10 files are rewritten by both lines. The reconciled plan is therefore:
 
 1. merge the upstream line `736f11d..47e49b9` into `integration/minimax-antigravity-reconciled` **first** — it is the Issue-mandated base and it is not contained in the integration branch today;
-2. after that, the diff of PR #12 shrinks from 256 files to the **84 files** of the iteration work, and the conflicts are confined to the 10 files above;
+2. after that, the diff of PR #12 shrinks from 260 files to the **88 files** of the iteration work, and the conflicts are confined to the 10 files above;
 3. resolve those 10 files by hand, keeping the upstream behaviour where the two lines do not touch the same hunk, and the evidence contract of Iterations 14–23 where they do.
+
+The three commits of Iteration 23 themselves touch **4 files** and none of the 10 contested ones except the CI workflow:
+
+| commit | files |
+| --- | --- |
+| `73de47e` (the matrix) | `benchmarks/evidence/iteration23_change_impact_matrix.md` |
+| `749cba2` (the code) | `benchmarks/evidence_integrity.py`, `benchmarks/validate_iteration23_evidence.py`, `tests/test_iteration23_evidence_integrity.py`, `.github/workflows/ci.yml` |
+| `1e5a1bc` (the evidence) | `benchmarks/evidence/iteration23_validation_evidence.json` |
 
 No merge of PR #12 is performed by this iteration.
 
@@ -256,4 +275,147 @@ No merge of PR #12 is performed by this iteration.
 
 ## 11. The results of this iteration
 
-*(filled in after the code, the evidence and the CI run — the local numbers and the CI numbers are reported separately and are never mixed)*
+### 11.1 The commits
+
+| | SHA | content |
+| --- | --- | --- |
+| Change impact matrix | `73de47e` | this document, **before** any code change |
+| **Code** | **`749cba2`** | the fix of the registered observation side, the validator of the iteration, the focused test suite, the two CI steps |
+| Validation evidence | `1e5a1bc` | `benchmarks/evidence/iteration23_validation_evidence.json`, bound to `749cba2` |
+| Completed matrix | *(this commit)* | this document with the local and the CI numbers |
+
+The validation evidence is bound to the exact code SHA `749cba244b58fd76a3b91efe46df0c6bac204af6` (field `code_sha`). `python -m benchmarks.validate_iteration23_evidence --check` re-validates the report against that commit and refuses a foreign SHA.
+
+### 11.2 The validator
+
+```
+$ python -m benchmarks.validate_iteration23_evidence --code-sha 749cba244b58fd76a3b91efe46df0c6bac204af6
+wrote benchmarks/evidence/iteration23_validation_evidence.json: PASSED, 12/12 checks passed
+
+$ python -m benchmarks.validate_iteration23_evidence --check
+validation report benchmarks/evidence/iteration23_validation_evidence.json: published PASSED, revalidated PASSED (12/12 checks), bound to 749cba244b58fd76a3b91efe46df0c6bac204af6
+```
+
+| check | what it proves |
+| --- | --- |
+| `P5.1.the_strict_consumer_accepts_the_registered_side_of_every_field` | the worker field and every client field are accepted with their **own** registered side |
+| `P5.2.the_missing_null_and_unknown_side_are_rejected` | the missing, the null and the unknown side are rejected for every registered field |
+| `P5.3.the_cross_side_direction_stays_closed` | a client field may not be presented as a worker observation, and the worker field may not be presented as a client observation |
+| `P5.4.a_worker_envelope_may_not_carry_a_client_observation` | the separate rule of the worker runtime-identity envelope is preserved |
+| `P5.5.the_rejection_comes_from_the_side_rule_and_not_from_a_stale_digest` | the artifact is rewritten, the digests are recomputed from the bytes on disk, and the wrong side is refused by the side rule |
+| `P5.6.the_published_capture_passes_the_strict_mode` | the published capture of Iteration 21 still passes the strict mode |
+| `P5.7.the_producer_source_is_unchanged_since_the_capture` | the producer source is byte-wise unchanged between `40c0630` (the commit the capture was made from) and the reported commit |
+| `P5.8.the_artifact_digest_is_the_digest_of_the_bytes_on_disk` | the SHA-256 of the stage evidence artifact is the digest of the bytes on disk |
+| `P5.9.the_historical_evidence_stays_valid` | the evidence of Iterations 20, 21 and 22 still satisfies its own validator |
+| `P5.10.no_live_invocation_no_provider_query_no_deployment_and_no_gpu` | the boundary of the iteration |
+| `P5.11.the_pre_fix_rule_reproduces_the_defect` | the rule of Iteration 22 — the expected side of a stage fact is hardcoded to `worker` — is reproduced inside the validator and still rejects the correctly sided client fact: the defect was real and the checks are not vacuous |
+| `P5.12.the_compatibility_path_still_accepts_the_side_less_facts` | the side-less facts of Iterations 14–20 stay valid — no side is inferred and none is backfilled |
+
+### 11.3 The local test runs — exact raw counts
+
+The machine that produced these numbers has **no Foundry toolchain on `PATH`** (`forge` is not installed; the local Foundry directory is empty), so the real Foundry integration is **not** part of the local numbers — it is part of the CI numbers in §11.4.
+
+Focused Iteration 23 suite:
+
+```
+$ python -m pytest -q tests/test_iteration23_evidence_integrity.py
+34 passed in 0.47s
+```
+
+The suites of the earlier iterations, unchanged:
+
+| suite | result |
+| --- | --- |
+| `tests/test_iteration14_evidence_integrity.py` | 73 passed, 3 skipped in 0.30s |
+| `tests/test_iteration15_evidence_integrity.py` | 33 passed in 0.15s |
+| `tests/test_iteration16_evidence_integrity.py` | 27 passed in 17.97s |
+| `tests/test_iteration17_evidence_integrity.py` | 65 passed in 0.16s |
+| `tests/test_iteration18_evidence_integrity.py` | 44 passed in 7.24s |
+| `tests/test_iteration19_evidence_integrity.py` | 24 passed in 0.33s |
+| `tests/test_iteration20_evidence_integrity.py` | 33 passed in 0.42s |
+| `tests/test_iteration21_evidence_integrity.py` | 41 passed in 0.46s |
+| `tests/test_iteration22_evidence_integrity.py` | 28 passed in 0.40s |
+
+Full regression, **without** `forge` on `PATH`:
+
+```
+$ python -m pytest -q tests/ -rs
+787 passed, 7 skipped in 102.31s (0:01:42)
+```
+
+(the skips are the real-Foundry and real-Slither probes — `forge` and `slither` are not on `PATH` in that shell). The count grew by exactly the 34 new tests of this iteration: 753 + 34 = 787.
+
+**The checks are not vacuous.** With the fix reverted, the new suite fails 7 of its 34 tests — every positive probe of the defect fails, including the digest-recomputed chain:
+
+```
+$ # the contract of Iteration 22 is restored (the expected side of a stage fact
+$ # is hardcoded to 'worker' again) and the suite is run unchanged
+$ python -m pytest -q tests/test_iteration23_evidence_integrity.py
+FAILED tests/test_iteration23_evidence_integrity.py::test_iteration23_the_strict_consumer_accepts_a_client_observed_app_id_in_a_stage
+FAILED tests/test_iteration23_evidence_integrity.py::test_iteration23_the_strict_consumer_accepts_a_client_observed_container_id_in_a_stage
+FAILED tests/test_iteration23_evidence_integrity.py::test_iteration23_the_strict_consumer_accepts_a_client_observed_app_page_url_in_a_stage
+FAILED tests/test_iteration23_evidence_integrity.py::test_iteration23_the_registry_is_the_single_source_of_truth_for_the_stage_side
+FAILED tests/test_iteration23_evidence_integrity.py::test_iteration23_the_strict_consumer_accepts_a_client_observed_app_id_with_the_billing_cross_check
+FAILED tests/test_iteration23_evidence_integrity.py::test_iteration23_the_client_side_facts_are_accepted_with_recomputed_digests
+FAILED tests/test_iteration23_evidence_integrity.py::test_iteration23_the_strict_consumer_rejects_the_wrong_side_with_recomputed_digests
+7 failed, 27 passed in 0.60s
+```
+
+The pre-fix error is the envelope rule applied to a stage fact:
+
+```
+AssertionError: The fact for 'app_id' declares the observation side 'client', but this envelope is 'worker'-side
+```
+
+### 11.4 The CI run — these are CI numbers, never mixed with the local ones
+
+CI run [`42810765129`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42810765129) (head `1e5a1bc`) is **green** — both jobs:
+
+| job | result |
+| --- | --- |
+| Reward v2 and trusted harness regression suite | success |
+| Real Foundry EVM integration probe | success |
+
+The numbers of the **raw workflow log**:
+
+| step | result |
+| --- | --- |
+| trusted evidence and reward contract tests | 58 passed / 25 passed / 23 passed, 4 skipped |
+| Iteration 23 suite | **34 passed** |
+| Iteration 22 / 21 / 20 / 19 / 18 / 17 / 16 / 15 suites | 28 / 41 / 33 / 24 / 44 / 65 / 27 / 33 passed |
+| Iteration 14 suite | 73 passed, 3 skipped |
+| GRPO and trajectory integrity tests | 6 / 5 / 5 / 6 passed |
+| complete test suite | **783 passed, 11 skipped** |
+| real Foundry EVM integration (`tests/test_real_benchmark_execution.py -k test_real_foundry_integration`) | **4 passed**, 65 deselected |
+| real Foundry probes of Iteration 14 (`-k real_foundry`) | **3 passed**, 73 deselected |
+
+Foundry in CI: `forge Version: 1.9.1-nightly`, commit `5745b69600a557aec7e6f4598ccfa1efc64b6add`.
+
+The **evidence validators of the earlier iterations** in the same run:
+
+| validator | result |
+| --- | --- |
+| Iteration 14 | `FAILED (0/16 targets)`, bound to `43436b02…` — the historical benchmark result, unchanged |
+| Iteration 15 | `FAILED (0/16 targets)`, bound to `cf262236…` |
+| Iteration 16 | `FAILED (0/16 targets)`, bound to `b1946536…` |
+| Iteration 17 | `FAILED (0/16 targets)`, bound to `e9faff40…` |
+| Iteration 18 | `FAILED (0/16 targets)`, bound to `8813cebd…` |
+| Iteration 19 | published PASSED, revalidated PASSED (12/12), bound to `18ad9740…` |
+| Iteration 20 | published PASSED, revalidated PASSED (12/12), bound to `64392a7b…` |
+| Iteration 21 | published PASSED, revalidated PASSED (13/13), bound to `40c06309…` |
+| Iteration 22 | published PASSED, revalidated PASSED (11/11), bound to `f0ce026d…` |
+| **Iteration 23** | **published PASSED, revalidated PASSED (12/12), bound to `749cba24…`** |
+
+The raw log of the run shows the command of this iteration explicitly — the claim is not inferred:
+
+```
+Real Foundry EVM integration probe	Validate Iteration 23 registered observation side
+validation report benchmarks/evidence/iteration23_validation_evidence.json: published PASSED, revalidated PASSED (12/12 checks), bound to 749cba244b58fd76a3b91efe46df0c6bac204af6
+```
+
+The benchmark result of the 16-target run stays **FAILED (0/16 targets)**: this iteration does not change it and does not claim otherwise.
+
+### 11.5 The boundary of this iteration
+
+No live Modal invocation, no provider query, no deployment, no redeployment, no restart, no modification of a live worker, no GPU (H100/T4 or any other), no paid compute. The `OBSERVED` branch of the producer was exercised in a **simulated** container context (a patched `modal.current_function_call_id`) and is called a simulation wherever it is mentioned. `main`, PR #8 and the integration branch are untouched, and PR #12 is **not** merged.
+
