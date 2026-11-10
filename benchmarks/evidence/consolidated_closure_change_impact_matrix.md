@@ -501,6 +501,30 @@ The validator and the matrix were reviewed **independently**, against the contra
 **The second, independent review of the P0 and the P1 fixes themselves** is the one of §11.5a below.
 
 
+### 11.5a The focused review of the P0 and the P1 fixes themselves
+
+A second review — **focused on the code** of the two fixes (`benchmarks/evaluator.py`, `benchmarks/evidence_integrity.py`), not on the validator and not on this matrix — returned **PASS** for both points of the contract and **10 findings**: 2 major and 8 minor. Every finding was checked against the code by hand before it was accepted or rejected; none of them was taken on trust.
+
+| # | finding | severity | decision |
+| --- | --- | --- | --- |
+| R12 | the docstring of `validate_run_level_application_id()` promises that the consumer "may not let it contradict the stage copy of the same field", but **no value is ever compared**: the run-level fact and the stage copy are checked against the billing export **separately**, so one artifact may state **two different** application ids for one invocation — the run-level `ap-A…` next to the stage copy `ap-B…`, or next to a stage copy that says `NOT_AVAILABLE` | major | **fixed by this follow-up** — §12.1 |
+| R13 | the resolver treats every verdict that is not `INFRA_ERROR` as a valid evaluation: a `SUCCESS` artifact **without** a verdict (`security_verdict = None`) counts as a negative finding | major | **not changed** — the semantics are the ones of §8.1 and the ones of the producer; §12.4 states why |
+| R14 | a `NOT_AVAILABLE` run-level fact may carry a value; the client block refuses exactly that | minor | **fixed by this follow-up** — §12.2 |
+| R15 | the two views of one target disagree about the breach counters: the report record zeroes them only for `NOT_EVALUATED`, the detail row also for a compilation error | minor | **fixed by this follow-up** — §12.3 |
+| R16 | a run **without** a target is scored: `precision` / `recall` / `f1` are `0.0` and `candidates_per_verified_finding` is `inf`, and `json.dump` writes `Infinity` — an invalid JSON | minor | **fixed by this follow-up** — §12.3 |
+| R17 | a negative verdict keeps the raw claim of the producer nowhere: a `CHEATCODE_DETECTED` run is presented as `detected: false` next to `verified_breaches: 1`, and the claim the producer made is lost | minor | **fixed by this follow-up** — §12.3 |
+| R18 | the per-target artifact file on disk keeps the raw `"detected": false` of a failed target, without a `NOT_EVALUATED` marker | minor | **not changed** — the hashed artifact is evidence; only the presentation is normalized (§4.1) |
+| R19 | `validate_run_level_application_id()` is public and defaults to `strict=False` | minor | **not changed** — the default **is** the compatibility path; the strict branch is the opt-in contract of Iterations 21–23 |
+| R20 | the run-level error is raised before the errors of the stages, so a wrong source masks the diagnostics of the stage | minor | **not changed** — the side rule keeps its precedence, and the contradiction rule of §12.1 is evaluated **after** it |
+| R21 | a target without a ground-truth entry is marked `is_vulnerable = false` in the detail row | minor | **not changed** — the metric path raises a `KeyError` for such a target, so no metric is ever computed from it |
+
+Two of the findings deserve one more sentence each, because they are the ones that would have been easy to get wrong.
+
+**R12 is a real gap of the closure, not a wording problem.** The intent of the closure is stated in §2.2 of this matrix: *"the strict mode accepts two contradictory statements about the same application id in one artifact"*. The rule of §4.2 closes the **side** dimension of that contradiction — a run-level fact that names the wrong side is refused — but the **value** dimension was never closed: the run-level fact and the stage copy of the same field are two statements about the same application id, and nothing compared them. The follow-up closes it.
+
+**R13 is not a defect in the state of the producer.** A `SUCCESS` artifact means that the execution **completed**: the producer sets that status only after the audit ran, and the LLM auditor adapters never set a verdict at all (`benchmarks/adapters.py:805`). Treating a missing verdict as "not evaluated" would make every LLM-auditor baseline **unscoreable** — a fail-closed rule that refuses the legitimate negative finding of a baseline that ran and found nothing. The follow-up therefore states the rule exactly as it is implemented instead of changing it (§12.4).
+
+
 ### 11.6 The boundary of this closure
 
 | claim | state |
@@ -513,4 +537,76 @@ The validator and the matrix were reviewed **independently**, against the contra
 | the historical 16-target benchmark evidence | **still visibly failed** — the validators of Iterations 14–18 report `FAILED (0/16 targets)` in CI |
 | the compatibility path | **unchanged** — the artifacts of Iterations 14–20 are read exactly as before, and no side is inferred or backfilled into any artifact |
 | a merge, a rebase of a shared branch | **none** — the merge of the upstream head was only *computed* with `git merge-tree`, which touches neither the working tree nor any branch |
+
+---
+
+## 12. The follow-up — the contradiction rule and the presentation rules
+
+The follow-up closes **R12**, **R14**, **R15**, **R16** and **R17**. It is written **before** the code, like the closure itself, and it is a part of the same closure — not a new iteration.
+
+### 12.1 Rule F1 — the run-level application id may not contradict the stage copy
+
+The run-level application id **is** the application id of the EVM sandbox stage of the same invocation: the producer writes the very same fact in both places (`benchmarks/adapters.py:2366`). The two are therefore **one fact in two places**, and the strict consumer may not let them contradict each other.
+
+| the stage copy `stages.evm_sandbox.app_id` | the run-level fact | strict mode |
+| --- | --- | --- |
+| `OBSERVED` with the value `V` | `OBSERVED` with **the same** value `V` | **accepted** |
+| `OBSERVED` with the value `V` | `OBSERVED` with another value | **rejected** — the two copies of one fact disagree |
+| `OBSERVED` with the value `V` | `NOT_AVAILABLE` | **rejected** — the stage observed what the run claims not to have observed |
+| `NOT_AVAILABLE` | `OBSERVED` | **rejected** — the run claims an application id that the stage could not observe |
+| `NOT_AVAILABLE` | `NOT_AVAILABLE` | **accepted** — two absence claims agree |
+| a legacy flat value | any | the strict loop over the stages refuses the flat value on its own; the contradiction rule adds no second reason to the same refusal |
+| the stage `evm_sandbox` is absent | any | the rule does not fire — the stages are not mandatory (§3.1, F7), and this follow-up does not make them mandatory |
+
+**The precedence is fixed.** The side, the source and the shape of the run-level fact are checked **first**, so a wrong-sided claim is still refused by the **side rule** (P6.3 stays true); only a claim that passed the side rule is compared with the stage copy.
+
+**The compatibility path is untouched.** The whole rule lives in the strict branch.
+
+### 12.2 Rule F2 — an absence claim carries no value
+
+A `NOT_AVAILABLE` run-level fact that holds a value is refused, exactly as the client block refuses it (`benchmarks/evidence_integrity.py`, the client-observed facts). `value: null` is **not** a value: the artifact of Iteration 21 carries exactly that and stays valid.
+
+### 12.3 Rule F3 — one presentation rule for both views of a target
+
+| what | the rule |
+| --- | --- |
+| the presented detection | the one of `resolve_detection()` — `true`, `false` or `null` |
+| the presented breach counters | the raw counters **only** when the presented detection is a positive finding; otherwise `0` — a report never shows a breach count next to a target that found nothing |
+| the raw claim of the producer | preserved under `producer_detected`, `producer_verified_breaches` and `producer_replayed_breaches` **whenever the presented value differs from the raw one** — the raw claim is never lost and never presented as a finding |
+| the two views of a target | the detail row and the report record use **one** rule |
+| the aggregate counters | the sum of the **presented** counters — the metric and the per-target rows cannot disagree |
+| a run **without** a target | not scorable: `INCOMPLETE` with an explicit reason. A run with no target has no metric, and `Infinity` never reaches the JSON |
+
+### 12.4 What the follow-up does **not** change
+
+* it does **not** change the producer `modal_app.py` and does **not** change the registry;
+* it does **not** change the metric computation of a normal run: for a positive finding the counters are the raw ones, and the confusion matrix is untouched;
+* it does **not** weaken the compatibility path: `strict_sources=False` reads the artifacts of Iterations 14–20 exactly as before, and no side is inferred and no value is backfilled into any artifact;
+* it does **not** turn the stages into mandatory ones (F7 of §3.1 stays open);
+* it does **not** change the meaning of a **missing verdict** (R13): a completed execution is a valid evaluation unless its verdict names an invalid category (`INFRA_ERROR`). The LLM auditor adapters never set a verdict (`benchmarks/adapters.py:805`), so a missing verdict is the normal shape of a completed audit of those baselines and not a reason to discard their finding. The rule is now stated exactly as it is implemented, instead of the "semantically valid" wording of §4.1;
+* it does **not** change the treatment of `INVARIANT_BREACH_UNREPLAYED` and of the mix of a target-side and a candidate-side compilation error — both stay documented limitations of §8.1;
+* it does **not** rewrite the per-target artifact file on disk: its hash is in the manifest, and the file is evidence.
+
+### 12.5 The checks that must exist
+
+| check | what it proves |
+| --- | --- |
+| P6.18 | the strict consumer **refuses** a run-level application id that contradicts the stage copy — the three contradicting cases of §12.1 |
+| P6.19 | the strict consumer **refuses** a `NOT_AVAILABLE` run-level fact that carries a value |
+| P6.20 | the **pre-fix contract of the follow-up** — the evidence contract of the published closure (`810e89c`) — is loaded from its historical source and **executed**: it accepts the contradictory artifact, so the gap was real and the check is not vacuous |
+| P6.21 | the two views of a target agree about the counters, the raw claim is preserved whenever it differs from the presented one, and a run without a target is not scorable |
+
+P6.1 is reworded: the strict consumer accepts a client-observed run-level application id **that agrees with the stage copy**. The probe of the acceptance builds an artifact that is consistent in both places, because an artifact that contradicts itself is refused by design.
+
+### 12.6 The boundary of the follow-up
+
+| claim | state |
+| --- | --- |
+| a live Modal invocation | **none** — the `OBSERVED` branch of the producer is exercised in a simulated container context, exactly as in §11.6 |
+| a provider query, a deployment, a GPU, a paid compute | **none** |
+| the producer `modal_app.py` | **unchanged** |
+| the published evidence of Iterations 14–23 | **untouched** — their validators keep their own state, and the historical 16-target benchmark stays visibly failed |
+| the compatibility path | **untouched** |
+| the evidence of this closure | **re-bound** to the code SHA of the follow-up and re-published with the new checks |
+| a merge, a rebase of a shared branch | **none** |
 
