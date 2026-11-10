@@ -415,6 +415,12 @@ validation report benchmarks/evidence/iteration23_validation_evidence.json: publ
 
 The benchmark result of the 16-target run stays **FAILED (0/16 targets)**: this iteration does not change it and does not claim otherwise.
 
+The **final** CI run of the head of this iteration is [`42811416769`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42811416769) (head `19ad672`, the completed matrix) — **green** as well, with the same numbers in the raw log: the Iteration 23 suite **34 passed**, the complete suite **783 passed, 11 skipped**, the real Foundry EVM integration **4 passed**, the Iteration 14 Foundry probes **3 passed**, and the validator of this iteration again
+
+```
+validation report benchmarks/evidence/iteration23_validation_evidence.json: published PASSED, revalidated PASSED (12/12 checks), bound to 749cba244b58fd76a3b91efe46df0c6bac204af6
+```
+
 ### 11.5 The boundary of this iteration
 
 No live Modal invocation, no provider query, no deployment, no redeployment, no restart, no modification of a live worker, no GPU (H100/T4 or any other), no paid compute. The `OBSERVED` branch of the producer was exercised in a **simulated** container context (a patched `modal.current_function_call_id`) and is called a simulation wherever it is mentioned. `main`, PR #8 and the integration branch are untouched, and PR #12 is **not** merged.
