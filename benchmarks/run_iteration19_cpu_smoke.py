@@ -29,6 +29,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import subprocess
@@ -284,7 +285,11 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     if args.profile:
         os.environ["MODAL_PROFILE"] = args.profile
 
-    from benchmarks.modal_cpu_smoke_app import DECLARED_RESOURCES, cpu_smoke  # noqa: E402
+    from benchmarks.modal_cpu_smoke_app import (  # noqa: E402
+        DECLARED_RESOURCES,
+        app,
+        cpu_smoke,
+    )
 
     import modal  # noqa: E402  (imported after the profile was set)
 
@@ -300,7 +305,13 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     response: Optional[Any] = None
     invocation_error: Optional[str] = None
     try:
-        response = cpu_smoke.remote(args.seed)
+        # The function of an app can only run inside the context of that app:
+        # ``app.run()`` starts the ephemeral app and hydrates the function.
+        async def _invoke() -> Any:
+            async with app.run():
+                return await cpu_smoke.remote.aio(args.seed)
+
+        response = asyncio.run(_invoke())
     except Exception as exc:  # noqa: BLE001 - the failure is the evidence
         invocation_error = f"{type(exc).__name__}: {exc}"
 
