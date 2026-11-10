@@ -294,37 +294,51 @@ The report has to keep these apart, in **every** output:
 
 ---
 
-## 10. The ancestry of the branch — measured at the head of this closure
+## 10. The ancestry of the branch — measured at the current head of the PR branch
 
-Measured in the worktree of the PR branch against the base of PR #12 (`736f11d` = `integration/minimax-antigravity-reconciled`) and against the current upstream head (`7876f6e` = `feat/empirical-benchmark-runner`). Every number below is a measurement, not an estimate.
+Measured in the worktree of the PR branch at the head that carries this matrix. Every number below is a measurement, not an estimate, and every one of them is reproducible with the command that is written next to it.
+
+**Four refs have to be kept apart**, because they are three different things:
+
+| ref | what it is | commit |
+| --- | --- | --- |
+| the **base of PR #12** | the branch the pull request is opened against — `integration/minimax-antigravity-reconciled` | `736f11d` |
+| the **base of the iteration line** | the commit the PR branch was cut from — the tip of the upstream line that is already an ancestor of the PR head | `47e49b9` |
+| the **tip of the upstream line** | the current head of `feat/empirical-benchmark-runner` — the line the PR branch has to be reconciled with | `7876f6e` |
+| the **head of PR #12** | the head that carries this matrix — the branch under review | *this commit* |
+
+The three upstream refs are **not** interchangeable: `736f11d` is the base of the pull request, `47e49b9` is the point where the iteration line was branched off, and `7876f6e` is where the upstream line stands **now**.
 
 ### 10.1 The two lines
 
 | line | range | commits | in the PR branch? |
 | --- | --- | --- | --- |
 | the **upstream** line | `736f11d..7876f6e` (`feat/empirical-benchmark-runner`) | **34** | 32 of them (up to `47e49b9`) are already ancestors of the PR head; the last **2** (`9bc6ebf`, `7876f6e`) are not |
-| the **iteration** line | `47e49b9..HEAD` (Iterations 14–23 and this closure) | **52** | yes — it is the branch itself |
-| the branch as a whole | `736f11d..HEAD` | **84** | 32 upstream + 52 iteration |
+| the **iteration** line | `47e49b9..HEAD` (Iterations 14–23, this closure and its follow-up) | **61** | yes — it is the branch itself |
+| the branch as a whole | `736f11d..HEAD` | **93** | 32 upstream + 61 iteration |
 
-The history is **linear**: the PR branch is the upstream line up to `47e49b9` plus the iteration line on top of it. The upstream branch has since advanced by two commits.
+The history is **linear**: the merge base of `7876f6e` and the PR head is `47e49b9` — the PR branch is the upstream line up to `47e49b9` plus the iteration line on top of it. The upstream branch has since advanced by two commits.
 
 ### 10.2 The diffs
 
-| comparison | result |
-| --- | --- |
-| `git diff --shortstat 736f11d..HEAD` (against the base of the PR) | **264 files changed, 89,679 insertions(+), 357 deletions(-)** |
-| `git diff --shortstat 7876f6e..HEAD` (against the current upstream head) | **116 files changed, 44,514 insertions(+), 3,370 deletions(-)** |
-| `git diff --shortstat 47e49b9..HEAD` (against the mandatory base of the iteration line) | **93 files changed, 41,733 insertions(+), 1,274 deletions(-)** |
+| comparison | command | result |
+| --- | --- | --- |
+| against the **base of the PR** | `git diff --shortstat 736f11d..HEAD` | **264 files changed, 91,931 insertions(+), 357 deletions(-)** |
+| against the **current upstream tip** | `git diff --shortstat 7876f6e..HEAD` | **116 files changed, 46,769 insertions(+), 3,373 deletions(-)** |
+| against the **base of the iteration line** | `git diff --shortstat 47e49b9..HEAD` | **93 files changed, 43,988 insertions(+), 1,277 deletions(-)** |
+
+The 264 files of the first row are **251 added** and **13 modified**; nothing is deleted. The insertions of this matrix itself are counted in all three rows — it is one of the 264 files.
 
 ### 10.3 The files that both lines touch
 
-The upstream line and the iteration line changed **10** files in common — this is the surface a squash or a rebase of the PR would have to reconcile:
+The upstream line and the iteration line changed **11** files in common — this is the surface a squash or a rebase of the PR would have to reconcile:
 
 ```
 .github/workflows/ci.yml
 .gitignore
 benchmarks/adapters.py
 benchmarks/benchmark_runner.py
+benchmarks/evaluator.py
 benchmarks/evidence/modal_billing_join_table.json
 benchmarks/protocol.py
 core/schemas.py
@@ -333,12 +347,16 @@ sandbox/runner.py
 tests/test_real_benchmark_execution.py
 ```
 
+The overlap grew from **10** to **11** because the closure itself changed `benchmarks/evaluator.py` (the P0 fix, commit `2909b47`): that file is now touched by both lines. It is **not** a conflict — the two upstream commits do not touch it (§10.4).
+
 ### 10.4 The merge test — what a merge of the upstream head would actually cost
 
-The merge was **not** performed. It was computed with `git merge-tree --write-tree`, which touches neither the working tree nor any branch:
+The merge was **not** performed. It was recomputed with `git merge-tree --write-tree`, which touches neither the working tree nor any branch:
 
 ```
-git merge-tree --write-tree --name-only 1c75495 7876f6e
+git merge-base 7876f6e HEAD
+→ 47e49b9389753d6ce3a7075d0d1cef9cc2c5d5d7
+git merge-tree --write-tree --name-only 7876f6e HEAD
 → CONFLICT (content): benchmarks/adapters.py
 → CONFLICT (content): benchmarks/benchmark_runner.py
 → CONFLICT (content): benchmarks/evidence/modal_billing_join_table.json
@@ -346,18 +364,18 @@ git merge-tree --write-tree --name-only 1c75495 7876f6e
 → CONFLICT (content): tests/test_real_benchmark_execution.py
 ```
 
-**5 files conflict** — exactly the files that the two new upstream commits (`9bc6ebf`, `7876f6e`) and the iteration line both changed. The other two files of the upstream commits (`benchmarks/benchmark_results.json`, `benchmarks/evidence/modal_control_harness_validation.json`, `benchmarks/artifacts/…`) are not touched by the iteration line and merge cleanly.
+**5 files conflict** — the same five as before, recomputed at the current head against the **actual current upstream tip** `7876f6e`. The two upstream commits touch **30** files; the other **25** (the artifacts of the run, `benchmarks/benchmark_results.json`, `benchmarks/evidence/modal_control_harness_validation.json`) are not touched by the iteration line and merge cleanly.
 
 ### 10.5 The safe minimal plan
 
 | option | what it does | what it costs | verdict |
 | --- | --- | --- | --- |
 | **A — merge the upstream head into the PR branch** (`git merge 7876f6e` on the PR branch) | keeps both lines, adds one merge commit | 5 conflicts to resolve by hand; the resolutions belong to the maintainer of the two lines | **recommended** — it is the only option that preserves the published, SHA-bound evidence of Iterations 14–23 and of this closure, because every one of them names a commit of this branch |
-| B — rebase the 52 iteration commits onto `7876f6e` | one linear history | rewrites 52 published commits; every SHA-bound evidence file of Iterations 14–23 and of this closure would have to be regenerated, and the published reports would no longer name an ancestor of the head | not recommended |
+| B — rebase the 61 iteration commits onto `7876f6e` | one linear history | rewrites 61 published commits; every SHA-bound evidence file of Iterations 14–23 and of this closure would have to be regenerated, and the published reports would no longer name an ancestor of the head | not recommended |
 | C — squash the iteration line into the upstream line | one commit per logical change | the same as B, plus the loss of the per-iteration evidence chain | not recommended |
 | D — leave the branch as it is | the PR stays 2 commits behind the upstream head | the 5 conflicting files stay unresolved until someone merges | acceptable as an interim state, but it should be stated, not hidden |
 
-**This closure performs none of A, B or C.** No branch was merged, no branch was rebased, no shared branch was touched, and `main`, PR #8 and the integration branch are untouched.
+**This closure performs none of A, B or C.** No branch was merged, no branch was rebased, no shared branch was touched, and `main`, PR #8 and the base branch `integration/minimax-antigravity-reconciled` are untouched.
 
 **The recommended order for the maintainer:**
 
@@ -627,7 +645,8 @@ P6.1 is reworded: the strict consumer accepts a client-observed run-level applic
 | 2 | `b4aa020` | the correction of the rule: it is **one-directional**, because the mirrored direction contradicts the published contract of Iteration 23 (§12.1) |
 | 3 | `690f39a` | the code of the follow-up: F1, F2 and F3, the eight new tests and the four new checks of the validator |
 | 4 | `a9bb2df` | the re-published evidence, bound to the code SHA `690f39a125ef091dee61ae9f18550ab068587c4e` |
-| 5 | *this commit* | the results of the follow-up and the pointer at the CI run |
+| 5 | `037838f` | the results of the follow-up and the pointer at the CI run |
+| 6 | *this commit* | the **refresh of the ancestry** of §10 — documentation only: no code, no validator, no test and no published evidence |
 
 ### 13.2 The validator — **21 checks, 21 passed**
 
@@ -692,6 +711,8 @@ These are the **local** numbers of this machine (Windows, Python 3.10, **no Foun
 | | the validator of Iteration 23 | `published PASSED, revalidated PASSED (12/12 checks), bound to 749cba24…` |
 | | **the validator of the consolidated closure** | **`published PASSED, revalidated PASSED (21/21 checks), bound to 690f39a12…`** |
 
+The follow-up was validated by **two** CI runs: [`42839711601`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42839711601) on the head `a9bb2df` (the code and the evidence) and [`42840686482`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42840686482) on the head `037838f` (the final head of the follow-up) — both jobs **success** in both runs. The second run repeats the same raw results: the complete suite **836 passed, 11 skipped**, the closure suite **53 passed**, the Foundry probe **4 passed** and the Iteration 14 subset **3 passed**, the billing join table `PASSED (no error)`, the validators of Iterations 14–18 `FAILED (0/16 targets)` and of Iterations 19–23 `published PASSED, revalidated PASSED`, and the validator of this closure **`published PASSED, revalidated PASSED (21/21 checks), bound to 690f39a12…`**.
+
 The local suite and the CI suite run the **same 847 tests** on different platforms, and the two numbers are reported separately and are never added together:
 
 | | passed | skipped | the skips |
@@ -712,4 +733,37 @@ The six Foundry tests that the *tests* job skips are executed by the **foundry**
 | the registry of the observation sources | **untouched** |
 | the stages | **not** made mandatory — F7 of §3.1 stays open |
 | a merge, a rebase of a shared branch | **none** |
+
+### 13.6 The refresh of the ancestry — a documentation-only change
+
+An independent review of the closure at the head `037838f` confirmed the **code** of the closure (PASS for both points of the contract), the validator (21/21) and the CI run (both jobs green), and found exactly **one** blocker: the ancestry report of §10 was still measured at the earlier head `b3fbda7` — 84 commits ahead of the base, 52 iteration commits, +89,679 insertions — while the head of the pull request was `037838f`.
+
+**What was changed: only this matrix.** No code, no validator, no test and no published evidence file was touched — the review forbade a code change, and none was made. The published evidence of Iterations 14–23 and of this closure is byte-wise untouched.
+
+**What was refreshed**, every value measured at the head that carries this matrix:
+
+| what | as it stood at `b3fbda7` | as it is now |
+| --- | --- | --- |
+| the commits against the base of the PR | 84 | **93** |
+| the commits of the iteration line `47e49b9..HEAD` | 52 | **61** |
+| the diff against the base of the PR | 264 files, +89,679 / −357 | **264 files, +91,931 / −357** |
+| the diff against the current upstream tip `7876f6e` | 116 files, +44,514 / −3,370 | **116 files, +46,769 / −3,373** |
+| the diff against the base of the iteration line `47e49b9` | 93 files, +41,733 / −1,274 | **93 files, +43,988 / −1,277** |
+| the files that both lines touch | 10 | **11** — `benchmarks/evaluator.py` was added by the closure itself (`2909b47`) |
+| the merge test against the current upstream tip | 5 conflicts | **5 conflicts** — the same five, recomputed with `git merge-tree` at this head |
+| the merge plan | option A, B, C, D | option A, B, C, D — unchanged in substance, with the commit counts of B and D refreshed |
+
+The three refs are now named apart in §10: the **base of the PR** (`736f11d` = `integration/minimax-antigravity-reconciled`), the **base of the iteration line** (`47e49b9`) and the **current tip of the upstream line** (`7876f6e` = `feat/empirical-benchmark-runner`).
+
+**The published evidence is deliberately not regenerated.** `benchmarks/evidence/consolidated_closure_validation_evidence.json` stays bound to the code SHA `690f39a125ef091dee61ae9f18550ab068587c4e`; re-running the validator would rebind it to the head of this documentation commit and would break the chain of the evidence of Iterations 14–23, each of which names a commit of its own. The CI run that validates the code of the closure is [`42840686482`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42840686482) on the head `037838f` — the same code SHA, the same 21/21 checks, the same 836 passed / 11 skipped. This refresh carries no code, so the CI run of this head validates exactly the same artifacts; its id is published in the comment on the pull request.
+
+**The boundary of the refresh:**
+
+| claim | state |
+| --- | --- |
+| a code change | **none** — the review forbade it, and none was made |
+| a published evidence file | **none** — the evidence stays bound to `690f39a12…` |
+| a merge, a rebase, a push to a shared branch | **none** — the merge of the upstream head was only *computed* with `git merge-tree`, which touches neither the working tree nor any branch |
+| a live Modal invocation, a provider query, a deployment, a GPU, a paid compute | **none** |
+| the benchmark result of the 16-target run | **unchanged** — it stays FAILED (0/16 targets) |
 
