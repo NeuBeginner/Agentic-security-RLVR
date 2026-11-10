@@ -408,6 +408,8 @@ git merge-tree --write-tree --name-only 1c75495 7876f6e
 | P6.16 | the closure runs in a **synthetic** context: the run of the real runner is a synthetic smoke test, and the `OBSERVED` branch of the producer was captured under the simulated container context |
 | P6.17 | the report states **planned, attempted, executed, observed and reported** apart, and unavailable, failed and not-run stay distinct in every output |
 
+**The follow-up of §12 added four checks (P6.18–P6.21) and re-bound the evidence to the code SHA of the follow-up — see §13.**
+
 
 **The pre-fix reproduction is checked against the historical source, not against a strawman.** The line that P6.11 reproduces is the line of the repository before the fix:
 
@@ -611,5 +613,103 @@ P6.1 is reworded: the strict consumer accepts a client-observed run-level applic
 | the published evidence of Iterations 14–23 | **untouched** — their validators keep their own state, and the historical 16-target benchmark stays visibly failed |
 | the compatibility path | **untouched** |
 | the evidence of this closure | **re-bound** to the code SHA of the follow-up and re-published with the new checks |
+| a merge, a rebase of a shared branch | **none** |
+
+---
+
+## 13. The results of the follow-up
+
+### 13.1 The commits
+
+| # | commit | what it carries |
+| --- | --- | --- |
+| 1 | `218da73` | the design of the follow-up: the review of §11.5a and the rules of §12 — **written before the code** |
+| 2 | `b4aa020` | the correction of the rule: it is **one-directional**, because the mirrored direction contradicts the published contract of Iteration 23 (§12.1) |
+| 3 | `690f39a` | the code of the follow-up: F1, F2 and F3, the eight new tests and the four new checks of the validator |
+| 4 | `a9bb2df` | the re-published evidence, bound to the code SHA `690f39a125ef091dee61ae9f18550ab068587c4e` |
+| 5 | *this commit* | the results of the follow-up and the pointer at the CI run |
+
+### 13.2 The validator — **21 checks, 21 passed**
+
+`benchmarks/validate_consolidated_closure_evidence.py --code-sha 690f39a` → `wrote benchmarks/evidence/consolidated_closure_validation_evidence.json: PASSED, 21/21 checks passed`; `--check --code-sha 690f39a` → `published PASSED, revalidated PASSED (21/21 checks), bound to 690f39a125ef091dee61ae9f18550ab068587c4e`.
+
+The four checks of the follow-up:
+
+| check | what it proves |
+| --- | --- |
+| P6.18 | the strict consumer **refuses** a run-level application id that contradicts the copy of the EVM sandbox stage — an observed value next to a stage copy that observed another value, and an observed value next to a stage copy that could not observe one — while an **absence claim** stays an absence claim and is not compared |
+| P6.19 | the strict consumer **refuses** a `NOT_AVAILABLE` run-level fact that carries a value |
+| P6.20 | the **pre-fix contract of the follow-up** — the evidence contract of the published closure (`810e89c`) — is loaded from its historical source and **executed**: it accepts the contradicting artifact, so the gap was real and the check is not vacuous |
+| P6.21 | the two views of a target agree about the breach counters, the raw claim of the producer is preserved whenever it differs, and a run without a target is not scorable |
+
+**The published evidence of the other iterations is untouched.** P6.13 executes the validator of every iteration from 14 to 23 with the current code: 14–18 stay visibly **FAILED** (0/16 targets), 19–23 stay **PASSED** (12/12, 12/12, 13/13, 11/11, 12/12).
+
+### 13.3 The local test runs — exact raw counts
+
+These are the **local** numbers of this machine (Windows, Python 3.10, **no Foundry installed**). They are never mixed with the CI numbers of §13.4.
+
+| run | result |
+| --- | --- |
+| the focused suite `tests/test_consolidated_closure_evidence_integrity.py` | **53 passed** (before the follow-up: 45 — the difference of 8 is exactly the new tests) |
+| the complete local regression `python -m pytest -q` | **840 passed, 7 skipped** in 91.16 s (before the follow-up: 832 passed, 7 skipped — the difference of 8 is exactly the new tests) |
+| the evidence validator of this closure | **21/21 checks passed** |
+| the evidence validator of this closure in `--check` mode | `published PASSED, revalidated PASSED (21/21 checks), bound to 690f39a12…` |
+| the evidence validators of Iterations 14–18 | **FAILED, 16/16 targets failed** — the historical 16-target run stays visibly failed |
+| the evidence validators of Iterations 19–23 | **PASSED** — 12/12, 12/12, 13/13, 11/11, 12/12 |
+
+### 13.4 The CI run of the follow-up — these are CI numbers
+
+**Run [`42839711601`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42839711601)** on the head `a9bb2df` — both jobs **success**.
+
+| job | step | raw result |
+| --- | --- | --- |
+| Reward v2 and trusted harness regression suite | the trusted evidence and reward contract tests | 58 passed; 25 passed; 23 passed, 4 skipped |
+| | Iteration 14 | 73 passed, 3 skipped |
+| | Iteration 15 | 33 passed |
+| | Iteration 16 | 27 passed |
+| | Iteration 17 | 65 passed |
+| | Iteration 18 | 44 passed |
+| | Iteration 19 | 24 passed |
+| | Iteration 20 | 33 passed |
+| | Iteration 21 | 41 passed |
+| | Iteration 22 | 28 passed |
+| | Iteration 23 | 34 passed |
+| | **consolidated closure** | **53 passed** |
+| | GRPO, GRPO integrity, trajectory integrity, round-5 regression | 6 passed; 5 passed; 5 passed; 6 passed |
+| | **the complete test suite** | **836 passed, 11 skipped** |
+| Real Foundry EVM integration probe | the live Foundry integration tests | **4 passed**, 65 deselected |
+| | the live Foundry tests of Iteration 14 | **3 passed**, 73 deselected |
+| | the billing join table | `join table validation: PASSED (no error)` |
+| | the validator of Iteration 14 | `FAILED (0/16 targets), bound to 43436b02…` — **the historical evidence stays visibly failed** |
+| | the validator of Iteration 15 | `FAILED (0/16 targets), bound to cf262236…` |
+| | the validator of Iteration 16 | `FAILED (0/16 targets), bound to b1946536…` |
+| | the validator of Iteration 17 | `FAILED (0/16 targets), bound to e9faff40…` |
+| | the validator of Iteration 18 | `FAILED (0/16 targets), bound to 8813cebd…` |
+| | the validator of Iteration 19 | `published PASSED, revalidated PASSED (12/12 checks), bound to 18ad9740…` |
+| | the validator of Iteration 20 | `published PASSED, revalidated PASSED (12/12 checks), bound to 64392a7b…` |
+| | the validator of Iteration 21 | `published PASSED, revalidated PASSED (13/13 checks), bound to 40c06309…` |
+| | the validator of Iteration 22 | `published PASSED, revalidated PASSED (11/11 checks), bound to f0ce026d…` |
+| | the validator of Iteration 23 | `published PASSED, revalidated PASSED (12/12 checks), bound to 749cba24…` |
+| | **the validator of the consolidated closure** | **`published PASSED, revalidated PASSED (21/21 checks), bound to 690f39a12…`** |
+
+The local suite and the CI suite run the **same 847 tests** on different platforms, and the two numbers are reported separately and are never added together:
+
+| | passed | skipped | the skips |
+| --- | --- | --- | --- |
+| local (Windows, no Foundry, no Slither, a local `solc`) | **840** | **7** | 6 × "Real Foundry integration unavailable on system PATH", 1 × "Real Slither integration unavailable" |
+| CI, the complete suite of the *tests* job (Linux, no Foundry, no Slither, no prebaked `solc` on the PATH) | **836** | **11** | the same 6 × Foundry + 1 × Slither, plus 4 × "real solc" of `tests/test_contract_normalization_v2.py` |
+
+The six Foundry tests that the *tests* job skips are executed by the **foundry** job of the same run and **pass** there (4 passed, 65 deselected; and 3 passed, 73 deselected for the Iteration 14 subset).
+
+### 13.5 The boundary of the follow-up
+
+| claim | state |
+| --- | --- |
+| a live Modal invocation, a provider query, a deployment, a GPU, a paid compute | **none** |
+| the producer `modal_app.py` | **unchanged** — P6.14 proves it byte-wise against the commit the capture of Iteration 21 was made from |
+| the published evidence of Iterations 14–23 | **untouched** — 14–18 stay visibly FAILED, 19–23 stay PASSED (P6.13) |
+| the compatibility path (`strict_sources=False`) | **untouched** — the artifacts of Iterations 14–20 are read exactly as before, and no side is inferred and no value is backfilled into any artifact |
+| the registry of the observation sources | **untouched** |
+| the stages | **not** made mandatory — F7 of §3.1 stays open |
 | a merge, a rebase of a shared branch | **none** |
 
