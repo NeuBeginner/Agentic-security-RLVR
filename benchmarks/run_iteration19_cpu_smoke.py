@@ -75,9 +75,12 @@ IMAGE_DIGEST_UNAVAILABLE_REASON = (
     "image identity the runtime does expose"
 )
 SESSION_ID_UNAVAILABLE_REASON = (
-    "Modal SDK 1.5.5 exposes no session-id accessor: modal.running_app() provides "
-    "app_id, app_page_url, app_logs_url, function_ids, class_ids, object_handle_metadata "
-    "and interactive"
+    "Modal SDK 1.5.5 exposes no session-id accessor: the runtime-context API "
+    "(modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) "
+    "carries no session id, and the modal.running_app module holds only the RunningApp "
+    "dataclass (app_id, app_page_url, app_logs_url, function_ids, class_ids, "
+    "object_handle_metadata, interactive) - there is no callable running_app() and no "
+    "session in it"
 )
 
 
@@ -223,7 +226,8 @@ def _collect_billed_usage(profile: str, app_id: Optional[str]) -> Dict[str, Any]
             "value": None,
             "reason": (
                 "the provider's workspace billing report contains no line item for the "
-                f"application {app_id!r} of this run"
+                f"application {app_id!r} of this run; the report itself holds "
+                f"{len(items)} line items"
             ),
             "command": command,
             "provider_returncode": result["returncode"],
@@ -304,13 +308,15 @@ def _list_containers(profile: str, app_id: Optional[str]) -> Dict[str, Any]:
         entries = []
 
     container_ids: List[str] = []
+    container_fields: List[str] = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        for key in ("container_id", "worker_id", "id"):
+        for key in ("container_id", "worker_id", "id", "task_id"):
             value = entry.get(key)
             if isinstance(value, str) and value.strip():
                 container_ids.append(value.strip())
+                container_fields.append(key)
                 break
 
     if not container_ids:
@@ -334,14 +340,19 @@ def _list_containers(profile: str, app_id: Optional[str]) -> Dict[str, Any]:
             ),
             "command": command,
             "container_ids": container_ids,
+            "provider_payload": payload,
         }
 
     return {
         "status": OBSERVED,
         "value": container_ids[0],
-        "source": "the provider's own container list (modal container list --app-id --json)",
+        "source": (
+            "the provider's own container list (modal container list --app-id --json), "
+            f"field {container_fields[0]!r} of the container entry"
+        ),
         "command": command,
         "container_ids": container_ids,
+        "provider_payload": payload,
     }
 
 
