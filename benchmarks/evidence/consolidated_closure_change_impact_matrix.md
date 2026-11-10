@@ -381,7 +381,8 @@ git merge-tree --write-tree --name-only 1c75495 7876f6e
 | 6 | `029eb7f` | the git manifest of the smoke probe is resolved from the repository |
 | 7 | `1c75495` | the first published evidence of the closure |
 | 8 | `810e89c` | the **independent review** of the validator and the matrix, and the rework it forced: the historical contract is now **executed**, the vacuous checks are gone, and the probe directory is ignored by git |
-| 9 | *this commit* | the completed matrix and the re-published evidence |
+| 9 | `b3fbda7` | the completed matrix and the re-published evidence (17 checks), bound to the code SHA `810e89c74b525d7c0c351b85a9998ee880f4544d` |
+| 10 | *this commit* | the pointer of this matrix at the final CI run |
 
 ### 11.2 The validator
 
@@ -424,15 +425,16 @@ These are the **local** numbers of this machine (Windows, Python 3.10, **no Foun
 
 | run | result |
 | --- | --- |
-| the focused suite `tests/test_consolidated_closure_evidence_integrity.py` | **45 passed** in 0.54 s |
-| the complete local regression `python -m pytest -q` | **832 passed, 7 skipped** in 102.83 s (before the closure: 787 passed, 7 skipped — the difference of 45 is exactly the new suite) |
-| the evidence validator of this closure | **16/16 checks passed** |
+| the focused suite `tests/test_consolidated_closure_evidence_integrity.py` | **45 passed** |
+| the complete local regression `python -m pytest -q` | **832 passed, 7 skipped** in 98.67 s (before the closure: 787 passed, 7 skipped — the difference of 45 is exactly the new suite) |
+| the evidence validator of this closure | **17/17 checks passed** |
+| the evidence validator of this closure in `--check` mode | `published PASSED, revalidated PASSED (17/17 checks), bound to 810e89c7…` |
 | the evidence validators of Iterations 14–18 (re-run locally) | **FAILED, 16/16 targets failed** — the historical 16-target run stays visibly failed |
 | the evidence validators of Iterations 19–23 (re-run locally, bound to their own code SHA) | **PASSED** — 12/12, 12/12, 13/13, 11/11, 12/12 |
 
 ### 11.4 The CI run — these are CI numbers, never mixed with the local ones
 
-**Run [`42827984060`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42827984060)** on the head `1c75495` — both jobs **success**.
+**Run [`42832300015`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42832300015)** on the head `b3fbda7` — both jobs **success**.
 
 | job | step | raw result |
 | --- | --- | --- |
@@ -463,9 +465,12 @@ These are the **local** numbers of this machine (Windows, Python 3.10, **no Foun
 | | the validator of Iteration 21 | `published PASSED, revalidated PASSED (13/13 checks), bound to 40c06309…` |
 | | the validator of Iteration 22 | `published PASSED, revalidated PASSED (11/11 checks), bound to f0ce026d…` |
 | | the validator of Iteration 23 | `published PASSED, revalidated PASSED (12/12 checks), bound to 749cba24…` |
-| | **the validator of the consolidated closure** | **`published PASSED, revalidated PASSED (16/16 checks), bound to 029eb7f3…`** |
+| | **the validator of the consolidated closure** | **`published PASSED, revalidated PASSED (17/17 checks), bound to 810e89c7…`** |
+
+The earlier run of the closure, [`42827984060`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42827984060) on the head `1c75495`, is green as well — it carries the first publication of the evidence (16 checks at that time).
 
 The local suite and the CI suite run the **same 839 tests** on different platforms, and the two numbers are reported separately and are never added together:
+
 
 | | passed | skipped | the skips |
 | --- | --- | --- | --- |
