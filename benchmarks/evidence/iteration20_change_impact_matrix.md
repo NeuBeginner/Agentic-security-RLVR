@@ -267,5 +267,20 @@ The 7 local skips are exactly the pre-existing ones of Iterations 14 and the ben
 
 ### 8.5 The CI run
 
-The CI numbers of this iteration are filled in from the workflow run of the branch and are reported separately from the local numbers above. The CI runs the Iteration 20 suite, the Iteration 20 validator and the unchanged suites of Iterations 14–19; the historical Iteration 14–18 benchmark validation artifacts stay **FAILED (0/16)** — this iteration does not mask them and does not change them.
+CI run [`42790479610`](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/42790479610) of the branch (`3780d63`) — **green**. These are **CI** numbers; they are never mixed with the local numbers above.
+
+| step | result |
+| --- | --- |
+| Iteration 20 suite (`tests/test_iteration20_evidence_integrity.py`) | **33 passed** |
+| complete test suite | **680 passed, 11 skipped** (9.37 s) |
+| Foundry EVM integration (`tests/test_real_benchmark_execution.py -k real_foundry`) | **4 passed** |
+| Foundry EVM integration (`tests/test_iteration14_evidence_integrity.py -k real_foundry`) | **3 passed** |
+| `python -m benchmarks.validate_iteration20_evidence --check` | published PASSED, revalidated PASSED (**12/12**), bound to `64392a7` |
+| `python -m benchmarks.validate_iteration19_evidence --check` | published PASSED, revalidated PASSED (**12/12**), bound to `18ad974` |
+| Iterations 14–18 benchmark validation | still **FAILED (0/16 targets)** — the CI reports it explicitly, the green workflow does not mask it |
+
+The 11 CI skips are the pre-existing ones: four `solc` compile probes of the contract normalization suite and the seven Foundry/slither probes that the CI runs in the separate `foundry-integration` job (where they pass: 4 + 3). **None of them belongs to the Iteration 20 suite.**
+
+The CI count grew by exactly the 33 tests of the new suite: 647 passed + 33 = 680 passed, with the same 11 skips as before.
+
 
