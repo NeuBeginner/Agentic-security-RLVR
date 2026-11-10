@@ -177,3 +177,104 @@ The report is bound to the exact code SHA of this iteration, and `--check` refus
 * It does not change the historical benchmark result: the 16-target run on disk still fails the Iteration 16–18 validators, and this iteration does not change that and does not claim otherwise.
 * It does not weaken the compatibility path to make a new test pass: the strict mode is stricter, the compatibility path is unchanged.
 * It does not merge PR #12 and does not touch `main`, PR #8 or the integration branch.
+
+---
+
+## 9. The results of this iteration
+
+### 9.1 The commits
+
+| | SHA | content |
+| --- | --- | --- |
+| Change impact matrix | `e77b896` | this document, **before** any code change |
+| **Code** | **`f0ce026`** | the fix of the strict observation side, the validator of the iteration, the focused test suite, the two CI steps |
+| Validation evidence | `bb50ac6` | `benchmarks/evidence/iteration22_validation_evidence.json`, bound to `f0ce026` |
+
+The validation evidence is bound to the exact code SHA `f0ce026d446e2c69a87f2bb4c155dcf0d36cd58b` (field `code_sha`). `python -m benchmarks.validate_iteration22_evidence --check` re-validates the report against that commit and refuses a foreign SHA.
+
+### 9.2 The validator
+
+```
+$ python -m benchmarks.validate_iteration22_evidence --code-sha f0ce026d446e2c69a87f2bb4c155dcf0d36cd58b
+wrote benchmarks/evidence/iteration22_validation_evidence.json: PASSED, 11/11 checks passed
+
+$ python -m benchmarks.validate_iteration22_evidence --check
+validation report benchmarks/evidence/iteration22_validation_evidence.json: published PASSED, revalidated PASSED (11/11 checks), bound to f0ce026d446e2c69a87f2bb4c155dcf0d36cd58b
+```
+
+| check | what it proves |
+| --- | --- |
+| `P4.1.the_strict_mode_rejects_an_observed_fact_without_a_side` | the omission is rejected for the worker field and for every client field |
+| `P4.2.null_unknown_and_contradictory_sides_are_rejected` | the null, the unknown and the contradictory side are rejected |
+| `P4.3.the_strict_mode_accepts_the_valid_facts` | the valid worker fact, the valid client facts and the client block are accepted |
+| `P4.4.the_compatibility_path_still_accepts_a_side_less_fact` | the side-less fact stays valid — no side is inferred, none is backfilled |
+| `P4.5.the_strict_consumer_rejects_the_omission_with_recomputed_digests` | the **actual** strict provenance consumer rejects the omission while the digests are recomputed from the bytes on disk, and accepts the very same artifact once the side is back |
+| `P4.6.the_published_capture_passes_the_strict_mode` | the published capture of Iteration 21 still passes the strict mode |
+| `P4.7.the_producer_source_is_unchanged_since_the_capture` | the producer source is byte-wise unchanged between `40c0630` (the commit the capture was made from) and the reported commit — the capture is still the capture of this producer |
+| `P4.8.the_artifact_digest_is_the_digest_of_the_bytes_on_disk` | the SHA-256 of the stage evidence artifact is the digest of the bytes on disk |
+| `P4.9.the_historical_evidence_stays_valid` | the evidence of Iterations 20 and 21 still satisfies its own validator |
+| `P4.10.no_live_invocation_no_provider_query_no_deployment_and_no_gpu` | the boundary of the iteration |
+| `P4.11.the_pre_fix_rule_reproduces_the_defect` | the rule of Iteration 21 — the side is compared only when the fact names one — is reproduced inside the validator and **still accepts** the omission: the defect was real and the checks are not vacuous |
+
+### 9.3 The local test runs — exact raw counts
+
+Focused Iteration 22 suite:
+
+```
+$ python -m pytest -q tests/test_iteration22_evidence_integrity.py
+28 passed in 0.40s
+```
+
+The suites of the earlier iterations, unchanged:
+
+| suite | result |
+| --- | --- |
+| `tests/test_iteration14_evidence_integrity.py` | 73 passed, 3 skipped in 0.34s |
+| `tests/test_iteration15_evidence_integrity.py` | 33 passed in 0.18s |
+| `tests/test_iteration16_evidence_integrity.py` | 27 passed in 23.02s |
+| `tests/test_iteration17_evidence_integrity.py` | 65 passed in 0.17s |
+| `tests/test_iteration18_evidence_integrity.py` | 44 passed in 8.47s |
+| `tests/test_iteration19_evidence_integrity.py` | 24 passed in 0.34s |
+| `tests/test_iteration20_evidence_integrity.py` | 33 passed in 0.48s |
+| `tests/test_iteration21_evidence_integrity.py` | 41 passed in 0.50s |
+
+Full regression, **without** `forge` on `PATH`:
+
+```
+$ python -m pytest -q tests/ -rs
+753 passed, 7 skipped in 108.59s (0:01:48)
+```
+
+(the skips are the real-Foundry and real-Slither probes — `forge` was not on `PATH` in that shell)
+
+Full regression, **with** the real Foundry toolchain (`forge 1.9.0`, commit `6056c5845d34205a83cf7108042adb137325c9df`, solc `0.8.20`, `forge-std v1.9.5`, `openzeppelin-contracts v5.0.2`, `FOUNDRY_CI=true`):
+
+```
+$ python -m pytest -q tests/ -rs
+759 passed, 1 skipped in 150.41s (0:02:30)
+```
+
+(the only skip is the real Slither probe — `slither` is not installed on this machine)
+
+Real Foundry EVM integration (positive and negative):
+
+```
+$ python -m pytest -v -rA tests/test_real_benchmark_execution.py -k "test_real_foundry_integration"
+PASSED tests/test_real_benchmark_execution.py::test_real_foundry_integration_live_execution
+PASSED tests/test_real_benchmark_execution.py::test_real_foundry_integration_confirmed_exploit_breach
+PASSED tests/test_real_benchmark_execution.py::test_real_foundry_integration_compilation_failure
+PASSED tests/test_real_benchmark_execution.py::test_real_foundry_integration_is_not_run_when_binary_missing
+4 passed, 65 deselected in 9.27s
+
+$ python -m pytest -v -rA tests/test_iteration14_evidence_integrity.py -k "real_foundry"
+PASSED tests/test_iteration14_evidence_integrity.py::test_real_foundry_integration_observed_environment_carries_real_facts
+PASSED tests/test_iteration14_evidence_integrity.py::test_real_foundry_integration_safe_control_emits_the_exact_documented_sentinel
+PASSED tests/test_iteration14_evidence_integrity.py::test_real_foundry_integration_compilation_error_is_never_a_safe_control
+3 passed, 73 deselected in 4.20s
+```
+
+### 9.4 What the numbers are and what they are not
+
+The local numbers above are the numbers of **this machine**: a Windows host with the repository's own Foundry toolchain (`forge 1.9.0`) and the pre-baked `solc 0.8.20`. The CI numbers of the branch are reported separately — they are never mixed with the local ones.
+
+The benchmark result of the 16-target run stays **FAILED** (0/16 targets): this iteration does not change it and does not claim otherwise.
