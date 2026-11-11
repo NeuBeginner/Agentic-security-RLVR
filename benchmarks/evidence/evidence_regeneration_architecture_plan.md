@@ -687,21 +687,23 @@ which found the invocation caps of R3b and R4 to be under-specified.
 
 At `benchmarks/adapters.py:1830-1871` the adapter runs a closed-loop refinement:
 
-| # | Call | Source | Dispatched when |
-|---|---|---|---|
-| 1 | `ProductionAuditAgent.generate_solidity_exploit.remote(...)` — GPU | `:1785-1792` | always (the `modal_h100` branch) |
-| 2 | `verify_exploit_remote.remote(...)` — CPU | `:1826` | always |
-| 3 | `ProductionAuditAgent.refine_solidity_exploit.remote(...)` — GPU | `:1844-1851` | the first verdict is neither `INVARIANT_BREACH_UNREPLAYED` nor `EXPLOIT_CONFIRMED`, the candidate is non-empty, **no** `candidate_generator` is injected and the provider is `modal_h100` or `modal_t4` (`:1833-1840`) |
-| 4 | `verify_exploit_remote.remote(...)` — CPU | `:1860-1867` | the refinement returned a usable payload (`test_code` longer than 20 characters) |
-| 5 | `verify_replay_remote.remote(...)` — CPU | `:1873-1885` | the **final** verdict is `INVARIANT_BREACH_UNREPLAYED` (`:1882`) |
-| 6 | `record_trajectory_remote.remote(...)` — volume | `:2128-2145` | `is_verified`, i.e. the replay confirmed the breach (`:2104-2109`, `:2133`) |
+| # | Call | Modal function | Resource class | Source | Dispatched when |
+|---|---|---|---|---|---|
+| 1 | the inference | `ProductionAuditAgent.generate_solidity_exploit` | **GPU** (H100) | `:1785-1792` | always (the `modal_h100` branch) |
+| 2 | the first verification | `verify_exploit_remote` | **sandbox CPU** — `cpu=config.SANDBOX_CPU_CORES` (2.0 cores), `memory=config.SANDBOX_MEMORY_MB` (2048 MiB) | `:1826` | always |
+| 3 | the refinement | `ProductionAuditAgent.refine_solidity_exploit` | **GPU** (H100) | `:1844-1851` | the first verdict is neither `INVARIANT_BREACH_UNREPLAYED` nor `EXPLOIT_CONFIRMED`, the candidate is non-empty, **no** `candidate_generator` is injected and the provider is `modal_h100` or `modal_t4` (`:1833-1840`) |
+| 4 | the second verification | `verify_exploit_remote` | **sandbox CPU** — 2.0 cores, 2048 MiB | `:1860-1867` | the refinement returned a usable payload (`test_code` longer than 20 characters) |
+| 5 | the replay | `verify_replay_remote` | **sandbox CPU** — 2.0 cores, 2048 MiB | `:1873-1885` | the **final** verdict is `INVARIANT_BREACH_UNREPLAYED` (`:1882`) |
+| 6 | the persistence | `record_trajectory_remote` | **persistence function** — *its own* profile: **no** explicit `cpu=`, a persistent volume at `/vol/models`, `timeout=60` (§5.6 g) | `:2128-2145` | `is_verified`, i.e. the replay confirmed the breach (`:2104-2109`, `:2133`) |
 
 `max_refinements = 1` (`:1831`), so a target makes **at most one** refinement: there is no
 seventh call. The loop swallows every exception and breaks (`:1870-1871`), so a failed
 refinement or a failed second verification ends the branch without adding a call.
 
-**Therefore: at most six Modal calls per target — two GPU and four CPU.** §8.2.5 turns this
-trace into the exact counts of the three compute steps.
+**Therefore: at most six Modal calls per target — 2 GPU + 3 sandbox-CPU + 1 persistence
+function.** The persistence call is **not** a sandbox-CPU call and is **not** a free volume
+operation: it is a container of its own, with its own resource profile, and it is billed as
+compute (§5.6 g). §8.2.5 turns this trace into the exact counts of the three compute steps.
 
 #### (b) The branch fired in the published run, and the published provenance under-reports it
 
@@ -725,13 +727,19 @@ for f in sorted(files):
 PY
 ```
 
-| Published artifacts | `candidates_generated` | What that proves | Modal calls actually made |
-|---|---|---|---|
-| 14 of 16 — `BIZ-01`, `BRIDGE-01`, `DOS-01`, `ERC4626-01`, `FLASH-01`, `LIQ-01`, `ORACLE-01`, `PREC-01`, `SAFE-01`, `SAFE-02`, `SAFE-03`, `SAFE-04`, `SIG-01`, `STATE-01` | **2** | the refinement fired and the refined candidate was **dispatched for a second verification** | **4**: generate, verify, refine, verify |
-| 2 of 16 — `AC-01`, `REENT-01` | **1** | the first candidate breached, the loop was never entered | **4**: generate, verify, replay, persist |
+| Published artifacts | `candidates_generated` | What that proves | Modal calls actually made | Resource classes of those calls |
+|---|---|---|---|---|
+| 14 of 16 — `BIZ-01`, `BRIDGE-01`, `DOS-01`, `ERC4626-01`, `FLASH-01`, `LIQ-01`, `ORACLE-01`, `PREC-01`, `SAFE-01`, `SAFE-02`, `SAFE-03`, `SAFE-04`, `SIG-01`, `STATE-01` | **2** | the refinement fired and the refined candidate was **dispatched for a second verification** | **4**: generate, verify, refine, verify | **2 GPU + 2 sandbox-CPU** |
+| 2 of 16 — `AC-01`, `REENT-01` | **1** | the first candidate breached, the loop was never entered | **4**: generate, verify, replay, persist | **1 GPU + 2 sandbox-CPU + 1 persistence function** |
 
-Every published target therefore made **four** Modal calls — **64** in the run: **30** GPU and
-**34** CPU. The published `tool_metadata.modal_functions`, however, name **two** functions for
+Every published target therefore made **four** Modal calls — **64** in the run. Split by
+resource class, that is **30 GPU + 32 sandbox-CPU + 2 persistence-function** invocations:
+14 × (2 GPU + 2 sandbox-CPU) = 28 GPU + 28 sandbox-CPU, plus 2 × (1 GPU + 1 sandbox-CPU
+verify + 1 sandbox-CPU replay + 1 persistence) = 2 GPU + 4 sandbox-CPU + 2 persistence.
+
+**The 2 persistence calls are neither sandbox-CPU calls nor zero-cost volume operations:**
+each is a container of its own, with its own resource profile and its own compute charge
+(§5.6 g). The published `tool_metadata.modal_functions`, however, name **two** functions for
 each of the 14 refined targets and **four** for the two confirmed ones: the refinement and the
 second verification are missing from all 14 refined artifacts.
 
@@ -763,14 +771,14 @@ in the published bytes only because those bytes are rejected for other reasons f
 
 #### (d) The six stage keys
 
-| # | Stage key | Function | Resource | `attempted: true` when |
+| # | Stage key | Function | Resource class | `attempted: true` when |
 |---|---|---|---|---|
-| 1 | `inference` | `ProductionAuditAgent.generate_solidity_exploit` | GPU | always (the provider branch) |
-| 2 | `evm_sandbox` | `verify_exploit_remote` | CPU | always (the first verification) |
-| 3 | `refinement` | `ProductionAuditAgent.refine_solidity_exploit` | GPU | the loop was entered (§5.6 (a), call 3) |
-| 4 | `evm_sandbox_after_refinement` | `verify_exploit_remote` | CPU | the refinement returned a usable payload (call 4) |
-| 5 | `independent_replay` | `verify_replay_remote` | CPU | the final verdict is `INVARIANT_BREACH_UNREPLAYED` (call 5) |
-| 6 | `trajectory_persistence` | `record_trajectory_remote` | volume | the replay confirmed the breach (call 6) |
+| 1 | `inference` | `ProductionAuditAgent.generate_solidity_exploit` | GPU (H100) | always (the provider branch) |
+| 2 | `evm_sandbox` | `verify_exploit_remote` | sandbox CPU (2.0 cores / 2048 MiB) | always (the first verification) |
+| 3 | `refinement` | `ProductionAuditAgent.refine_solidity_exploit` | GPU (H100) | the loop was entered (§5.6 (a), call 3) |
+| 4 | `evm_sandbox_after_refinement` | `verify_exploit_remote` | sandbox CPU (2.0 cores / 2048 MiB) | the refinement returned a usable payload (call 4) |
+| 5 | `independent_replay` | `verify_replay_remote` | sandbox CPU (2.0 cores / 2048 MiB) | the final verdict is `INVARIANT_BREACH_UNREPLAYED` (call 5) |
+| 6 | `trajectory_persistence` | `record_trajectory_remote` | persistence function — Modal default request (0.125 cores / 128 MiB), default limit 16.125 cores, `timeout=60`, persistent volume attached (§5.6 g) | the replay confirmed the breach (call 6) |
 
 The keys are written in **pipeline order**, all six are always present, and `attempted` is
 derived from the capture — exactly the rule the four existing keys already follow
@@ -812,6 +820,76 @@ the producer source** at the baseline commit and at the published run's commit `
 from **reading the published artifacts' own bytes** (`candidates_generated`,
 `tool_metadata.modal_functions`). No Modal call, no deployment, no GPU allocation and no
 credit spend were involved (§12).
+
+#### (g) The persistence function's own resource profile — and what the billing data can and cannot resolve
+
+`record_trajectory_remote` is **not** a sandbox-CPU function and **not** a zero-cost volume
+operation. It is a container of its own, and its resource profile differs from the sandbox
+functions' — so the cost estimate of §8.2.5 may not fold it into the sandbox-CPU rate, and
+it may not be priced at zero either.
+
+**What the repository proves.** At `modal_app.py:695-700` the function is declared as
+
+```python
+@app.function(
+    image=sandbox_image,
+    volumes={"/vol/models": model_volume},
+    timeout=60,
+)
+def record_trajectory_remote(trajectory_dict: dict) -> str:
+```
+
+It carries **no** `cpu=` and **no** `memory=` argument. It is therefore *not* the
+`cpu=config.SANDBOX_CPU_CORES` / `memory=config.SANDBOX_MEMORY_MB` profile of
+`verify_exploit_remote` and `verify_replay_remote` (`modal_app.py:550-556`, `:582-588`;
+`core/config.py:37-38` — **2.0 cores, 2048 MiB**). It has its own `timeout=60`, and it
+**commits the persistent volume** (`:709-711`, inside a `try/except` that swallows the
+failure). The commit is I/O against the volume; the volume's **storage** is billed separately
+from the container's **compute** (the table below).
+
+**What the provider's own documentation adds.** For a Modal Function with no explicit
+resource request, the platform default is:
+
+| Property | Value | Source |
+|---|---|---|
+| Default CPU **request** | **0.125 physical cores** | Modal Docs, *Configuring CPU, memory, and disk* — "Each Modal Function or Sandbox container has a default request of 0.125 CPU cores and 128 MiB of memory" (https://modal.com/docs/guide/resources) |
+| Default memory **request** | **128 MiB** | same |
+| Default CPU **limit** | **16.125 cores** (= request + 16), enforced by throttling | same — "Modal containers have a default CPU limit that is set at 16 physical cores above the CPU request… The host enforces this limit by throttling the container's CPU usage so it cannot exceed the limit" |
+| Billing basis | **max(request, actual usage)**, per second | same — "For CPU and memory, you'll be charged based on whichever is higher: your request or actual usage" |
+| Core semantics | 1 physical core = 2 vCPUs | Modal Docs / pricing FAQ |
+| Rate class | the **base list price** — Functions are preemptible by default; the 3× non-preemptible multiplier applies to Sandboxes, not to these `@app.function` targets | Modal pricing FAQ (https://modal.com/pricing) |
+| Container idle time | billed too — containers are kept alive 60 s after the last input by default | Modal pricing FAQ |
+| Persistent volume | its own **storage** pricing, separate from compute | Modal pricing FAQ — "Volumes include up to 1 TiB free" |
+
+**Therefore the persistence call is a real, billable compute call.** Its *request* is 0.125
+cores / 128 MiB, but it is billed on `max(request, actual usage)`, and its actual usage is
+bounded by the **16.125-core** default limit and the **60-second** function timeout — so its
+CPU cost is bounded **above** by `60 s × 16.125 cores` of the base CPU rate and **below** by
+`60 s × 0.125 cores`. It is not free, and it is not the sandbox's 2-core profile. The same
+holds for the **GPU** containers: `ProductionAuditAgent` is declared
+(`modal_app.py:74-80`) with `gpu=config.AUDIT_GPU_TYPE` and **no** `cpu=`, so the H100 line
+and the CPU/Memory lines are **separate charges on the same container**, not one number.
+
+**What the repository's billing data can and cannot resolve.** The published raw export
+(`benchmarks/evidence/modal_billing_report_raw.json`) is aggregated **per app session**: each
+of its 25 line items is `{object_id (app id), description (app name), environment,
+interval_start, resource, cost}`, and `resource` is one of `CPU`, `Memory`, `H100`,
+`Network Egress`. **There is no function-level dimension in it.** For the canonical run's app
+session (`ap-EDUitOwWeMrIdYbTh4kB63`, `aegis-rlvr-security`, `2026-11-09`) the measured line
+items are exactly four: `H100 $0.74323683`, `CPU $0.03001687`, `Memory $0.00696753`,
+`Network Egress $2.6E-7`. The **$0.03001687 CPU line is the aggregate of every CPU-bearing
+container in that app session** — the 30 GPU containers' own CPU, the 32 sandbox-CPU calls and
+the 2 persistence calls alike. The published evidence therefore **cannot** attribute the
+persistence function's own share of it, nor anyone else's.
+
+That share is an **unresolved input** — not a zero, not an estimate, not the sandbox-CPU
+rate. It can only be established by a measurement (one dispatched persistence call, read back
+from the provider's own billing report) or by the provider's per-function usage data. Until
+it is established, **R3b and R4 are not dispatchable** (§8.2.5, Q5).
+
+*Nothing in this subsection was measured on a live provider.* Its facts come from reading
+`modal_app.py` and `core/config.py`, from reading the published raw billing export's own
+bytes, and from the provider's own published documentation, quoted above with its URL.
 
 ---
 
@@ -1087,8 +1165,8 @@ the last committed step (§8.4).
 | **R1** | Implement the §5 schema in the producer (`adapters.py`, `modal_app.py`, `benchmark_runner.py`), the §6.5 validator changes (**C1–C6**, **C7**, **C8**), the `modal_functions` fix of §8.2.1 (e) — the function list must be derived from the attempts, not from the provider — the **refinement work of §5.6 (d)**: the two additional stage captures, the six stage keys, the function name bound to its capture, the trace-derived `modal_functions`, and the **refinement switch of §8.2.2 (a)** — and the R3 fixture **plus its loader** of §8.2.1 (b). | code only | unit tests green; **no** published file touched; R1 does **not** yet seal the producer commit `P` — R2 does |
 | **R2** | Add the §6.6 negative tests T1–T16. | tests | each test fails on the pre-fix code and passes on the post-fix code (proven by running both revisions; **T16** is the one positive test and passes only after the fix); **R2 seals the producer commit `P`** — `P` is the commit that closes the producer surface, it is sealed *before* the first container is dispatched, and no commit after it may touch a producer path (§8.2.6, §9.3, D18) |
 | **R3** | **CPU-only plumbing smoke** on one target (`AC-01` / `AccessControlVault`), run through the producer's own `execute_target()` with the inference stage **not attempted** (D17): the adapter's candidate-generator branch supplies a **checked-in, non-breaching fixture** as the candidate (D19), so the **only** stage whose attempt actually happens is `evm_sandbox`. The `inference`, `refinement`, `evm_sandbox_after_refinement`, `independent_replay` and `trajectory_persistence` stage blocks are still present in the artifact — the producer always writes all six stage keys (`benchmarks/adapters.py:2377-2409`, §5.6 d) — but they record `attempted: false` (§8.2.1). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.1 gate: the stage matrix is **exactly** §8.2.1 (c); every stage **whose attempt actually happened** satisfies the §5 contract; **nothing is claimed about the stages that were not attempted** — in particular **nothing about the replay**; the caps and the approval **A-R3** of §8.2.5 hold before the first container starts, and the pre-dispatch estimate gate of §8.2.5 is passed; **R3 is a single attempt** — exactly one dispatch, no automatic retry (D20); any failure ends the step, and a retry is a new, separately named and separately approved step (§8.2.5) |
-| **R3b** | **Inference-plumbing smoke** — one GPU-backed inference call for one target, to obtain a real worker-observed `function_call_id` and the client-resolved `app_id` / `container_id` for that call, **with the closed-loop refinement switched off** (§8.2.2 a). The candidate comes from the model, so the verdict — and with it the replay branch — is **not** predictable in advance (§8.2.2). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.2 gate; **separately authorised** (**A-R3b**), because it spends GPU time and Modal credits; its caps of §8.2.5 — including its **hard maximum cost** — are fixed **before** the first call, and a pre-dispatch estimate at or below that ceiling exists; while the numeric ceiling of **Q5** is unanswered the step is **not dispatchable**; **R3b is a single attempt** — at most **4** Modal invocations in total (the GPU inference call, the CPU verification and at most one replay and one persistence; the refinement branch is off, so no `refine_solidity_exploit` call and no second verification), all of them inside that one attempt, and no automatic retry (D20); the cap of 4 is a property of the **R1** producer — against the pre-R1 producer the worst case is 6 (§8.2.5), and this plan does not authorise that; any failure ends the step, and a retry is a new, separately named and separately approved step (§8.2.5) |
-| **R4** | Authorised live run: 16 targets, the same provider configuration as the published run (`modal_h100`, `qtum/Qwen3-Coder-30B-A3B-Audit`, `--hypotheses=3` — the flag spelling is settled at `P`, §10.1), **with the closed-loop refinement enabled**, as in the published run (§8.2.5, D23), executed from the detached worktree at `P` (§8.2.6). | a **new** run directory `run_<epoch>_<P[:7]>/` | every stage **whose attempt actually happened** has an observed-or-explicitly-`NOT_AVAILABLE` provenance, and every stage that was not attempted is recorded `attempted: false` and is not claimed; the run completes; the directory suffix equals the manifest's `git.commit_sha[:7]` (§8.2.3); the manifest's SHA is `P` (§8.2.6); the approval **A-R4**, its ceiling and a pre-dispatch estimate at or below that ceiling hold — the ceiling itself is unresolved (**Q5**) until the maintainer supplies and approves it; the run makes **at most 6 Modal invocations per target and 96 in the run** (32 GPU + 64 CPU), the bound of §8.2.5 |
+| **R3b** | **Inference-plumbing smoke** — one GPU-backed inference call for one target, to obtain a real worker-observed `function_call_id` and the client-resolved `app_id` / `container_id` for that call, **with the closed-loop refinement switched off** (§8.2.2 a). The candidate comes from the model, so the verdict — and with it the replay branch — is **not** predictable in advance (§8.2.2). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.2 gate; **separately authorised** (**A-R3b**), because it spends GPU time and Modal credits; its caps of §8.2.5 — including its **hard maximum cost** — are fixed **before** the first call, and a pre-dispatch estimate at or below that ceiling exists; while the numeric ceiling of **Q5** is unanswered the step is **not dispatchable**; **R3b is a single attempt** — at most **4** Modal invocations in total (the GPU inference call, the sandbox-CPU verification and at most one sandbox-CPU replay and one persistence-function call; the refinement branch is off, so no `refine_solidity_exploit` call and no second verification), all of them inside that one attempt, and no automatic retry (D20); the cap of 4 is a property of the **R1** producer — against the pre-R1 producer the worst case is 6 (§8.2.5), and this plan does not authorise that; any failure ends the step, and a retry is a new, separately named and separately approved step (§8.2.5) |
+| **R4** | Authorised live run: 16 targets, the same provider configuration as the published run (`modal_h100`, `qtum/Qwen3-Coder-30B-A3B-Audit`, `--hypotheses=3` — the flag spelling is settled at `P`, §10.1), **with the closed-loop refinement enabled**, as in the published run (§8.2.5, D23), executed from the detached worktree at `P` (§8.2.6). | a **new** run directory `run_<epoch>_<P[:7]>/` | every stage **whose attempt actually happened** has an observed-or-explicitly-`NOT_AVAILABLE` provenance, and every stage that was not attempted is recorded `attempted: false` and is not claimed; the run completes; the directory suffix equals the manifest's `git.commit_sha[:7]` (§8.2.3); the manifest's SHA is `P` (§8.2.6); the approval **A-R4**, its ceiling and a pre-dispatch estimate at or below that ceiling hold — the ceiling itself is unresolved (**Q5**) until the maintainer supplies and approves it; the run makes **at most 6 Modal invocations per target and 96 in the run** (≤ 32 GPU + ≤ 48 sandbox-CPU + ≤ 16 persistence-function invocations), the bound of §8.2.5 |
 | **R5** | Verify the new run **before** it becomes published: run the §5 validators over the new run dir; assert `has_synthetic_modal_uri` is false for every file; assert no `SYNTHETIC_CONTAINER_ID_RE` match anywhere. | a verification transcript | all assertions hold |
 | **R6** | **Publish the new run tree additively** (D9): the new run's 16 target artifacts, its manifest, its `summary.json`, and the root-level `latest_summary.json` — which becomes the byte-identical mirror of the **new** run's `summary.json`. The published run `run_1794209615_70f5d22/` is **not** modified, moved or deleted. | new published bytes | `git diff --stat` shows only the expected files; `latest_summary.json` is byte-identical to the new run's `summary.json`; the old run directory is untouched in the diff |
 | **R7** | Regenerate `modal_control_harness_validation.json` (re-pin the 32 stdout/stderr digests and the 16 `input_sha256` values over blob bytes). | new digest | the file validates against the new run dir |
@@ -1170,9 +1248,10 @@ R3b's business, and there its trigger is the model's candidate, not a fixture.
 | `independent_replay` | `NOT_ATTEMPTED` | **false** | `null` | **nothing.** The replay function is not called by R3, so R3 says nothing about `verify_replay_remote` — neither about its `function_call_id` nor about its `container_id` |
 | `trajectory_persistence` | `NOT_ATTEMPTED` | **false** | `null` | nothing. Persistence requires a confirmed replay (`:2104-2109`), which cannot exist here |
 
-**The Modal invocations of R3 are exactly one:** `verify_exploit_remote` (CPU). No GPU call,
-no replay call, no persistence call. The pre-dispatch estimate of §8.2.5 is computed over
-that one invocation.
+**The Modal invocations of R3 are exactly one:** `verify_exploit_remote` (**sandbox CPU** —
+2.0 cores / 2048 MiB). No GPU call, no replay call, and **no persistence call at all** — the
+persistence function is not dispatched (§5.6 g). The pre-dispatch estimate of §8.2.5 is
+computed over that one invocation.
 
 **R3 is a single attempt.** The step is dispatched once; there is no automatic retry. If that
 one attempt fails — the container fails to start, the call times out, the worker returns no
@@ -1337,8 +1416,8 @@ and for R3b only**.
 | Aspect | R3 (CPU) | R3b (GPU) |
 |---|---|---|
 | Stages exercised | `evm_sandbox` **only** | `inference` and `evm_sandbox`; `independent_replay` **only if** the model's verdict triggers it (`adapters.py:1882`), and `trajectory_persistence` only if that replay confirmed the breach (`:2104-2109`). The `refinement` and `evm_sandbox_after_refinement` stages are **never** attempted — the branch is switched off (§8.2.2 a) |
-| Modal invocations | exactly **1** (`verify_exploit_remote`) | **1** GPU inference call + **1** CPU verify + **≤ 1** CPU replay + **≤ 1** CPU persistence — worst case **4**, all of them inside the step's **single** attempt (§8.2.5, D20). The refinement branch is switched off, so there is no `refine_solidity_exploit` call and no second verification; against the **pre-R1** producer the worst case would be **6** (§8.2.5) |
-| Cost | CPU containers only — its own, smaller ceiling | one GPU inference call — Modal credits — its own **hard maximum cost** (§8.2.5) |
+| Modal invocations | exactly **1** (`verify_exploit_remote`, **sandbox CPU** — 2.0 cores / 2048 MiB) | **1** GPU inference call + **1** **sandbox-CPU** verify + **≤ 1** **sandbox-CPU** replay + **≤ 1** **persistence-function** call — worst case **4**, all of them inside the step's **single** attempt (§8.2.5, D20). The refinement branch is switched off, so there is no `refine_solidity_exploit` call and no second verification; against the **pre-R1** producer the worst case would be **6** (§8.2.5). The persistence call is billed on its **own** resource profile, not the sandbox-CPU rate (§5.6 g) |
+| Cost | sandbox-CPU containers only — its own, smaller ceiling | one GPU inference call — Modal credits — its own **hard maximum cost** (§8.2.5); the optional replay and persistence calls are priced separately (§8.2.5) |
 | Authorisation | its own approval **A-R3** (§8.2.5) | **separate, explicit authorisation** **A-R3b** |
 | Proves | the producer/validator plumbing, the envelopes, the evidence references, the EVM fact sourcing | that the inference `function_call_id` is worker-observed, and that the client resolves the provider-issued `app_id` / `container_id` for that call — and, **only if** the replay was actually dispatched, that the replay stage's identities resolve as well |
 | Does **not** prove | anything about inference; **anything about the replay** | the 16-target behaviour |
@@ -1618,45 +1697,49 @@ Every invocation count below is derived from **one** table — the trace of a si
 through the producer (`benchmarks/adapters.py:1785-1871`, `:1882-1885`, `:2133-2145`;
 §5.6 (a)):
 
-| # | Call | Function | Resource | Dispatched when |
+| # | Call | Function | Resource class | Dispatched when |
 |---|---|---|---|---|
-| 1 | the inference | `ProductionAuditAgent.generate_solidity_exploit` | GPU | always |
-| 2 | the first verification | `verify_exploit_remote` | CPU | always |
-| 3 | the refinement | `ProductionAuditAgent.refine_solidity_exploit` | GPU | the first verdict is neither `INVARIANT_BREACH_UNREPLAYED` nor `EXPLOIT_CONFIRMED` |
-| 4 | the second verification | `verify_exploit_remote` | CPU | the refinement returned a usable payload |
-| 5 | the replay | `verify_replay_remote` | CPU | the final verdict is `INVARIANT_BREACH_UNREPLAYED` |
-| 6 | the persistence | `record_trajectory_remote` | volume | the replay confirmed the breach |
+| 1 | the inference | `ProductionAuditAgent.generate_solidity_exploit` | **GPU** (H100) | always |
+| 2 | the first verification | `verify_exploit_remote` | **sandbox CPU** (2.0 cores / 2048 MiB) | always |
+| 3 | the refinement | `ProductionAuditAgent.refine_solidity_exploit` | **GPU** (H100) | the first verdict is neither `INVARIANT_BREACH_UNREPLAYED` nor `EXPLOIT_CONFIRMED` |
+| 4 | the second verification | `verify_exploit_remote` | **sandbox CPU** (2.0 cores / 2048 MiB) | the refinement returned a usable payload |
+| 5 | the replay | `verify_replay_remote` | **sandbox CPU** (2.0 cores / 2048 MiB) | the final verdict is `INVARIANT_BREACH_UNREPLAYED` |
+| 6 | the persistence | `record_trajectory_remote` | **persistence function** — own profile: default 0.125-core request / 128 MiB, default 16.125-core limit, `timeout=60`, persistent volume attached (§5.6 g) | the replay confirmed the breach |
 
-**Per target: at most 6 calls — 2 GPU and 4 CPU.** There is no seventh call:
-`max_refinements = 1` (`:1831`), so the refinement is attempted at most once, and the replay
-and the persistence each depend on the verdict of the call before them.
+**Per target: at most 6 calls — 2 GPU + 3 sandbox-CPU + 1 persistence function.** There is no
+seventh call: `max_refinements = 1` (`:1831`), so the refinement is attempted at most once,
+and the replay and the persistence each depend on the verdict of the call before them.
 
 **What the published run actually made** — measured, not assumed (§5.6 (b)): every one of the
 16 targets made **4** calls — the 14 refined ones `generate → verify → refine → verify`, the
-two confirmed ones `generate → verify → replay → persist` — so **64** calls in the run:
-**30** GPU and **34** CPU.
+two confirmed ones `generate → verify → replay → persist` — so **64** calls in the run, split
+by resource class into **30 GPU + 32 sandbox-CPU + 2 persistence-function** invocations
+(14 × (2 GPU + 2 sandbox-CPU) + 2 × (1 GPU + 2 sandbox-CPU + 1 persistence)).
 
 **The step totals:**
 
-| Step | Targets | Invocations | GPU | CPU |
-|---|---|---|---|---|
-| **R3** | 1 — no inference, no refinement | **1** | 0 | 1 |
-| **R3b**, refinement switched off (§8.2.2 a) | 1 | **≤ 4** | 1 | ≤ 3 |
-| **R3b** against the pre-R1 producer — **not authorised** | 1 | ≤ 6 | 2 | ≤ 4 |
-| **R4** | 16 | **≤ 96** | ≤ 32 | ≤ 64 |
-| **R4**, the published run's measured trace | 16 | 64 | 30 | 34 |
+| Step | Targets | Invocations | GPU | sandbox CPU | persistence function |
+|---|---|---|---|---|---|
+| **R3** | 1 — no inference, no refinement | **1** | 0 | 1 | 0 |
+| **R3b**, refinement switched off (§8.2.2 a) | 1 | **≤ 4** | 1 | ≤ 2 | ≤ 1 |
+| **R3b** against the pre-R1 producer — **not authorised** | 1 | ≤ 6 | 2 | ≤ 3 | ≤ 1 |
+| **R4** | 16 | **≤ 96** | ≤ 32 | ≤ 48 | ≤ 16 |
+| **R4**, the published run's measured trace | 16 | 64 | 30 | 32 | 2 |
 
-The estimate gate below multiplies the **GPU rate** by the GPU invocation count and the **CPU
-rate** by the CPU invocation count — the numbers of this table — so the estimate refers to
-counts this plan defines, not to a number nobody has written down.
+The three total caps — **R3 = 1**, **R3b ≤ 4**, **R4 ≤ 96** — are unchanged by this
+refinement; only the **split by resource class** is corrected.
+
+The estimate gate below multiplies **one rate per resource class** by the invocation count of
+**that** class — the numbers of this table — so the estimate refers to counts this plan
+defines, not to a number nobody has written down.
 
 #### The caps
 
 | Step | Compute | Hard cap | Timeout / stop condition |
 |---|---|---|---|
-| **R3** (CPU plumbing smoke) | **exactly 1** Modal invocation — the CPU `verify_exploit_remote`; 1 CPU container, 1 target (`AC-01`), **0** inference calls, **0** replay calls, **0** persistence calls (§8.2.1 a, c) | **1** container, **1** target, `--hypotheses=1`, **exactly 1 attempt** — no automatic retry (D20) — a wall-clock budget of **20 minutes** for that attempt, and a **monetary ceiling of its own** (Q5) | the per-call timeout stays at the published value (`timeout_sec = 120`, §10.1); the client aborts the attempt at the 20-minute budget, stops the app (`modal app stop`) and records the failure; **any failure ends the step** — there is no second attempt, and a retry is a new, separately named and separately approved step (D20) |
-| **R3b** (inference-plumbing smoke) | **worst case 4** Modal invocations — **1** GPU inference call + **1** CPU `verify_exploit_remote` + **≤ 1** CPU `verify_replay_remote` + **≤ 1** CPU `record_trajectory_remote` (§8.2.2, §8.2.5); 1 GPU container (`modal_h100`), 1 target, **exactly 1** inference call — all of them inside the step's **single** attempt. The **refinement branch is switched off** for this step (§8.2.2 a): no `refine_solidity_exploit` call and no second verification. Against the **pre-R1** producer the worst case would be **6** — which is why R3b is dispatched only after R1 and R2, and why the plan authorises no pre-R1 R3b | **1** GPU call, `--hypotheses=1`, **exactly 1 attempt** — no automatic retry (D20) — whose worst case is the 4 invocations above, a wall-clock budget of **20 minutes**, and a **hard maximum cost** of its own (Q5) | the same abort rule; **any failure ends the step** — a failed R3b **ends the sequence**, R4 does not start (§8.3); there is no second attempt, and a retry is a new, separately named and separately approved step (D20) |
-| **R4** (the 16-target run) | 16 targets × H100, the published configuration — **one** authorised run: the 16 targets are dispatched once, and a target that fails inside the run is that target's recorded result, not a retried attempt (D20). The **refinement branch is enabled**, because it is part of the published configuration — 14 of the 16 published targets refined (§5.6 b) — so the worst case is **6** invocations per target: **≤ 96** for the run, **≤ 32** GPU and **≤ 64** CPU (the trace table above). The published run's own measured trace was **64** (**30** GPU, **34** CPU) | the monetary ceiling of **Q5** (§10.3) — no per-call cost may exceed it — and **exactly 1** run attempt (D20) | the per-call timeout stays at `timeout_sec = 120` per target; the operator stops the app when the accumulated spend reaches the ceiling; the partial result and its billing window are published, and the run is **not** retried silently |
+| **R3** (CPU plumbing smoke) | **exactly 1** Modal invocation — the **sandbox-CPU** `verify_exploit_remote`; 1 CPU container, 1 target (`AC-01`), **0** inference calls, **0** replay calls, **0** persistence calls (§8.2.1 a, c) | **1** container, **1** target, `--hypotheses=1`, **exactly 1 attempt** — no automatic retry (D20) — a wall-clock budget of **20 minutes** for that attempt, and a **monetary ceiling of its own** (Q5) | the per-call timeout stays at the published value (`timeout_sec = 120`, §10.1); the client aborts the attempt at the 20-minute budget, stops the app (`modal app stop`) and records the failure; **any failure ends the step** — there is no second attempt, and a retry is a new, separately named and separately approved step (D20) |
+| **R3b** (inference-plumbing smoke) | **worst case 4** Modal invocations — **1** GPU inference call + **1** **sandbox-CPU** `verify_exploit_remote` + **≤ 1** **sandbox-CPU** `verify_replay_remote` + **≤ 1** **persistence-function** `record_trajectory_remote` (§8.2.2, §8.2.5); 1 GPU container (`modal_h100`), 1 target, **exactly 1** inference call — all of them inside the step's **single** attempt. The **refinement branch is switched off** for this step (§8.2.2 a): no `refine_solidity_exploit` call and no second verification. Against the **pre-R1** producer the worst case would be **6** — which is why R3b is dispatched only after R1 and R2, and why the plan authorises no pre-R1 R3b | **1** GPU call, `--hypotheses=1`, **exactly 1 attempt** — no automatic retry (D20) — whose worst case is the 4 invocations above, a wall-clock budget of **20 minutes**, and a **hard maximum cost** of its own (Q5) | the same abort rule; **any failure ends the step** — a failed R3b **ends the sequence**, R4 does not start (§8.3); there is no second attempt, and a retry is a new, separately named and separately approved step (D20) |
+| **R4** (the 16-target run) | 16 targets × H100, the published configuration — **one** authorised run: the 16 targets are dispatched once, and a target that fails inside the run is that target's recorded result, not a retried attempt (D20). The **refinement branch is enabled**, because it is part of the published configuration — 14 of the 16 published targets refined (§5.6 b) — so the worst case is **6** invocations per target: **≤ 96** for the run, split as **≤ 32** GPU + **≤ 48** sandbox-CPU + **≤ 16** persistence-function (the trace table above). The published run's own measured trace was **64** (**30** GPU, **32** sandbox-CPU, **2** persistence-function) | the monetary ceiling of **Q5** (§10.3) — no per-call cost may exceed it — and **exactly 1** run attempt (D20) | the per-call timeout stays at `timeout_sec = 120` per target; the operator stops the app when the accumulated spend reaches the ceiling; the partial result and its billing window are published, and the run is **not** retried silently |
 
 Two invariants apply to all three steps:
 
@@ -1692,24 +1775,47 @@ the step must pass a **pre-dispatch estimate gate** — three conditions, all of
    supplies and approves them, R3, R3b and R4 are **not dispatchable at all**. An unresolved
    ceiling is not a generous default — it is the absence of a budget, and this plan does
    not invent one.
-2. **An estimate exists.** The estimate is the **worst case** the step can spend under its
-   own caps: the provider's published rate for the declared resources, multiplied by the
-   step's hard wall-clock budget — and by the **number of Modal invocations the step can
-   actually make** (**the per-target trace table above**: R3 = **1** CPU call, R3b = **≤ 4**
-   — 1 GPU + ≤ 3 CPU — R4 = **≤ 96** — ≤ 32 GPU + ≤ 64 CPU). Because every step is a single
-   attempt (D20), there is **no attempt multiplier**: the estimate covers the one attempt,
-   and a retry — a separately named step — needs its own estimate against its own ceiling.
-   For R3 that is one CPU container × its 20-minute budget × 1 attempt; for R3b it is one H100
-   container × 20 minutes × 1 attempt **plus** the CPU invocations of that same attempt (one
-   `verify_exploit_remote`, at most one `verify_replay_remote`, at most one
-   `record_trajectory_remote` — §8.2.2); for R4 it is the GPU rate × 32 GPU calls + the CPU
-   rate × 64 CPU calls, each bounded by the per-call timeout, over the run's wall-clock
-   budget. The rate is an
-   **input to the approval**, recorded with its source and its date; it is never hardcoded
-   in the repository, for the same reason the producer does not hardcode cost estimates
-   (`benchmarks/adapters.py:19` — "No hardcoded cost estimates: unmeasured runs report
-   cost_usd as None"; the published `summary.json` carries `cost_status: "unmeasured"` and
-   `cost_usd: null`, `benchmarks/artifacts/run_1794209615_70f5d22/summary.json:167-168`).
+2. **An estimate exists, and each of its inputs is named.** The estimate is the **worst case**
+   the step can spend under its own caps. The **formula** is fixed by this plan; the
+   **inputs** are recorded with their source and their date in that step's approval record:
+
+   ```
+   estimate(step) =
+       GPU_rate             × GPU_seconds(step)                 [input 1]
+     + CPU_list_rate        × sandbox_CPU_core_seconds(step)     [input 2]
+     + Memory_list_rate     × container_GiB_seconds(step)        [input 3]
+     + Persistence_rate     × persistence_core_seconds(step)     [input 4]
+     + Default_CPU_rate     × gpu_container_core_seconds(step)   [input 5]
+     + Storage_rate         × volume_GB_months(step)             [input 6]
+   ```
+
+   | # | Input | What it prices | Where it comes from | Status |
+   |---|---|---|---|---|
+   | 1 | `GPU_rate` | the H100 seconds of the GPU calls (`generate_solidity_exploit`, `refine_solidity_exploit`) | the provider's published H100 rate | **input to the approval** — never a repository constant |
+   | 2 | `CPU_list_rate` | the CPU core-seconds of the **sandbox** functions (`verify_exploit_remote`, `verify_replay_remote`), at their declared **2.0 cores** (`core/config.py:37`) | the provider's published CPU rate (physical cores; 1 core = 2 vCPUs) | **input to the approval** |
+   | 3 | `Memory_list_rate` | the memory GiB-seconds of **every** container — the sandbox functions at their declared 2048 MiB (`core/config.py:38`), the GPU and persistence containers at the platform default 128 MiB | the provider's published memory rate | **input to the approval** |
+   | 4 | `Persistence_rate` | the CPU core-seconds of the **persistence function** `record_trajectory_remote` — billed on `max(0.125-core request, actual usage)` under the **16.125-core** default limit and its own **60-second** timeout (§5.6 g). It is **not** covered by input 2: it declares no `cpu=`, so it is neither at the sandbox's 2.0 cores nor free | the provider's published CPU rate applied to the persistence function's **own** profile (§5.6 g) | **UNRESOLVED for the published evidence** — the raw export is aggregated per app session and has no function dimension (§5.6 g), so the persistence function's share of the aggregate `$0.03001687` CPU line is **not derivable from the repository**. It must be **measured** (one dispatched persistence call, read back from the provider's billing report) or taken from the provider's per-function usage data. **Until it is established, R3b and R4 are not dispatchable** |
+   | 5 | `Default_CPU_rate` | the CPU core-seconds of the **GPU containers' own** CPU — `ProductionAuditAgent` declares `gpu=…` and **no** `cpu=` (`modal_app.py:74-80`), so it too runs on the platform default request (§5.6 g) | the provider's published CPU rate | **input to the approval** |
+   | 6 | `Storage_rate` | the persistent volume's **storage** (`model_volume`) and the write/commit the persistence function performs (`modal_app.py:709-711`) — storage is billed separately from compute | the provider's published volume-storage rate | **input to the approval** |
+
+   The **call counts** come from the per-target trace table above and are fixed by this plan:
+   R3 = **1** sandbox-CPU call; R3b = **≤ 4** (1 GPU + ≤ 2 sandbox-CPU + ≤ 1 persistence);
+   R4 = **≤ 96** (≤ 32 GPU + ≤ 48 sandbox-CPU + ≤ 16 persistence). Each call is bounded by its
+   own function timeout (`timeout_sec = 120` per target, §10.1; the persistence function's own
+   `timeout=60`) and by the step's wall-clock budget. Because every step is a single attempt
+   (D20), there is **no attempt multiplier**: the estimate covers the one attempt, and a retry
+   — a separately named step — needs its own estimate against its own ceiling.
+
+   **The persistence call is priced neither at the sandbox-CPU rate nor at zero.** It is a
+   container of its own (§5.6 g): the estimate prices it with **inputs 4 and 6**. If input 4
+   cannot be established from provider documentation or from a measurement, the step is **not
+   dispatched** — the same "estimate unavailable ⇒ no dispatch" rule that applies to every
+   other input below.
+
+   No rate is hardcoded in the repository, for the same reason the producer does not hardcode
+   cost estimates (`benchmarks/adapters.py:19` — "No hardcoded cost estimates: unmeasured runs
+   report cost_usd as None"; the published `summary.json` carries `cost_status: "unmeasured"`
+   and `cost_usd: null`, `benchmarks/artifacts/run_1794209615_70f5d22/summary.json:167-168`).
 3. **The estimate is at or below the ceiling.** If `estimate > ceiling`, the step is **not
    dispatched**: either the ceiling is raised by a new, explicit approval, or the compute cap
    (container count, wall-clock budget) is lowered until the worst case fits under it. A retry
@@ -1726,6 +1832,17 @@ billing collection returns the provider's own line items or an explicit `NOT_AVA
 the exact reason and the failed command, and states that the value "is never estimated"
 (`benchmarks/run_iteration19_cpu_smoke.py:169-204`).
 
+**This applies in particular to the persistence function's own rate (input 4).** The
+repository's billing evidence resolves the persistence function's cost only to the level of
+the **app-session aggregate** — the canonical run's `$0.03001687` CPU line covers the GPU
+containers' CPU, the 32 sandbox-CPU calls and the 2 persistence calls together, and the export
+carries no function dimension (§5.6 g). A per-function share therefore has to be **measured**
+(one dispatched persistence call, read back from the provider's billing report) or taken from
+the provider's per-function usage data. Until then the estimate for **R3b** and **R4** is
+incomplete by exactly this input, and an incomplete estimate is an unavailable estimate:
+**R3b and R4 are not dispatchable.** R3 is unaffected — it dispatches the sandbox function
+only, and dispatches no persistence call at all.
+
 **After the dispatch, the actual spend is read back from the provider and compared with the
 ceiling.** The provider's billing report is the only source of the actual spend
 (`modal billing report --for today --resolution h --show-resources --json --profile <p>`,
@@ -1738,9 +1855,9 @@ recorded as an overrun. The estimate is a *pre-dispatch* bound, the provider's r
 
 | Approval | Covers | Does **not** cover |
 |---|---|---|
-| **A-R3** | R3 only: the CPU container, one target, one hypothesis, the CPU ceiling — and the pre-dispatch estimate at or below that ceiling | R3b (GPU), R4 (16 targets, H100) |
-| **A-R3b** | R3b only: one GPU inference call for one target, the GPU hard maximum cost — and the pre-dispatch estimate at or below that ceiling | R3, R4 |
-| **A-R4** | R4 only: the 16-target H100 run, the Q5 ceiling — and the pre-dispatch estimate at or below that ceiling | R3, R3b, and any retry step of either — a retry is a separate step with a separate approval (D20) |
+| **A-R3** | R3 only: the sandbox-CPU container, one target, one hypothesis, the CPU ceiling — and the pre-dispatch estimate at or below that ceiling | R3b (GPU), R4 (16 targets, H100) |
+| **A-R3b** | R3b only: one GPU inference call for one target, the GPU hard maximum cost — and the pre-dispatch estimate at or below that ceiling, **including the persistence input (input 4)**, which must be established by measurement or by the provider's per-function usage data before the approval can be granted (§8.2.5) | R3, R4 |
+| **A-R4** | R4 only: the 16-target H100 run, the Q5 ceiling — and the pre-dispatch estimate at or below that ceiling, **including the persistence input (input 4)** (§8.2.5) | R3, R3b, and any retry step of either — a retry is a separate step with a separate approval (D20) |
 
 The rules:
 
@@ -1757,8 +1874,9 @@ The rules:
    table of the PR.
 4. **The approval record is part of the PR.** The PR of the regeneration iteration records,
    per step: the approver, the date, the approved ceiling, the pre-dispatch estimate with
-   the rate source it was computed from, and the actual spend read back from the provider. A
-   step without that record did not run.
+   the rate source it was computed from — **and, for each of the estimate's six inputs
+   (§8.2.5), the source and the date of that input** — and the actual spend read back from
+   the provider. A step without that record did not run.
 5. **No approval implies an estimate.** The pre-dispatch estimate belongs to the approval of
    the step it belongs to: the estimate of R3b is part of **A-R3b**, not of **A-R4**. An
    estimate prepared for R4 does not authorise R3b, and the absence of an estimate stops the
@@ -2280,15 +2398,16 @@ because the entrypoint *is* the producer. What the regeneration must preserve is
 |---|---|
 | Per-step ceilings | **three separate numbers** — the CPU ceiling of R3, the GPU hard maximum cost of R3b, and the ceiling of R4 (§8.2.5). All three are **not yet set** — open question **Q5** (§11.2); a step whose ceiling is unset is **not dispatchable** |
 | Pre-dispatch estimate | every compute step passes the estimate gate of §8.2.5 **before** the first container: a numeric ceiling approved for that step, a worst-case estimate at or below it, and a recorded rate source. An unavailable estimate ⇒ **no dispatch** |
-| Estimate source | the provider's published rate for the declared resources — an input to the approval record, never a constant in the repository (`benchmarks/adapters.py:19`; `cost_status: "unmeasured"` in the published `summary.json:167`) |
+| Estimate source | the provider's published rate for the declared resources — an input to the approval record, never a constant in the repository (`benchmarks/adapters.py:19`; `cost_status: "unmeasured"` in the published `summary.json:167`). The estimate has **six named inputs** (§8.2.5), and the **persistence function's own input (4) is not resolvable from the repository's billing evidence** — it must be measured or taken from the provider's per-function usage data, and until it is, R3b and R4 are **not dispatchable** |
+| Estimate formula | `GPU_rate × GPU_seconds + CPU_list_rate × sandbox_CPU_core_seconds + Memory_list_rate × container_GiB_seconds + Persistence_rate × persistence_core_seconds + Default_CPU_rate × gpu_container_core_seconds + Storage_rate × volume_GB_months` (§8.2.5). The persistence term is priced on the persistence function's **own** resource profile, not at the sandbox-CPU rate and not at zero |
 | Actual spend | the provider's own billing report after the run (`benchmarks/run_iteration19_cpu_smoke.py:177-189`), compared with the ceiling; an overrun aborts the step (`modal app stop`) and is recorded as an overrun |
 | Per-step approvals | **A-R3**, **A-R3b**, **A-R4** — one per step, each with its own ceiling (§8.2.5). No approval implies another: the approval of R4 approves R4 and nothing else |
-| Per-step caps | **exactly 1 attempt** per step, no automatic retry (D20): R3 = **1** Modal invocation (CPU), R3b = at most **4** (1 GPU + ≤ 3 CPU; the refinement branch is switched off, §8.2.2 a — **6** against the pre-R1 producer, which is not authorised), R4 = one authorised run of 16 targets making at most **96** Modal invocations (**32** GPU + **64** CPU); the published run's own measured trace was 64 (§8.2.5) |
+| Per-step caps | **exactly 1 attempt** per step, no automatic retry (D20): R3 = **1** Modal invocation (sandbox CPU), R3b = at most **4** (1 GPU + ≤ 2 sandbox-CPU + ≤ 1 persistence function; the refinement branch is switched off, §8.2.2 a — **6** against the pre-R1 producer, which is not authorised), R4 = one authorised run of 16 targets making at most **96** Modal invocations (**≤ 32** GPU + **≤ 48** sandbox-CPU + **≤ 16** persistence function); the published run's own measured trace was 64 (**30** GPU + **32** sandbox-CPU + **2** persistence function) (§8.2.5) |
 | Target cost attribution | `null` + `UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN` unless a proven join exists — the existing policy already prevents a target cost from being invented |
 | Aggregate allocation | `FORBIDDEN` (`attribution_policy.aggregate_bucket_allocation`) — no aggregate bucket may be spread over targets |
 | App-session granularity | the app-session total is the only cost that may be published |
 | Pre-flight | the smoke run in step 2 happens **before** the 16-target run and must be reviewed; a failed smoke ends the sequence (§8.3) |
-| GPU | `H100` only where the original run used it; `CPU` for the EVM-sandbox and replay stages |
+| GPU | `H100` only where the original run used it; **sandbox CPU** (2.0 cores / 2048 MiB) for the EVM-sandbox and replay stages; the **persistence function** on its own default profile — no `cpu=`, default 0.125-core request / 128 MiB, 16.125-core limit, `timeout=60`, persistent volume attached (§5.6 g) |
 | Executed code | the run is executed from the detached worktree at `P` (§8.2.6) — the manifest, the run directory, the report and the closure carry that one SHA |
 
 ### 10.4 The billing join fields
@@ -2327,15 +2446,16 @@ something this plan settles; anything that is still the maintainer's call is a q
 | **D13** | **The authoritative run is selected by a literal path, through the replacement iteration's own validator module.** The new module is `benchmarks/validate_iteration24_evidence.py`; it reuses the Iteration 18 check logic unchanged and adds the manifest-integrity check that no iteration validator performs today. The closure selects the run through an explicit `--run-dir` argument. | D9 states the principle — explicit selection, never by recency — and this is its concrete form: the value is a literal in exactly two places, and the run is bound to the SHA in its own manifest (§8.2.4). The Iteration 18 validator cannot be reused: it writes to a fixed report path and would overwrite the published Iteration 18 report (D8). |
 | **D14** | **Every compute step has its own hard cap, its own stop condition and its own explicit approval.** No approval implies another, and no approval implies a retry (D20). | A CPU container on Modal is compute, too, and R3b spends GPU credits before the Q5 ceiling is set. A cap that is not fixed before the step starts is not a cap (§8.2.5). |
 | **D15** | **The run executes from a detached worktree pinned at the producer commit `P`.** The manifest's `git.commit_sha`, the run directory's suffix, the report's `code_sha` and the closure's capture binding are therefore the same value by construction. | The manifest reads its SHA from the checkout that executes the run, so the risk is not a lying manifest but running from the wrong checkout. A detached worktree is the only arrangement in which the four bindings cannot drift apart (§8.2.6, §9.3). |
-| **D16** | **No compute step is dispatched without a pre-dispatch cost estimate at or below its own approved ceiling. If the estimate is unavailable, the step does not start.** The estimate covers the step's **single** attempt (D20); a retry step needs its own estimate against its own ceiling. The three monetary ceilings — R3, R3b, R4 — remain **Q5** (§11.2) and are **not** set by this plan; until they are supplied and approved, all three steps are undispatchable. | A cap that is only checked after the spend is not a gate, and R3b spends GPU credits before the full-run ceiling exists, so it needs a ceiling, an approval and an estimate of its own. The repository deliberately has no cost estimator (`benchmarks/adapters.py:19`; `cost_status: "unmeasured"`), so the estimate has to come from the provider and be recorded with its source — it cannot be invented here (§8.2.5). |
+| **D16** | **No compute step is dispatched without a pre-dispatch cost estimate at or below its own approved ceiling. If the estimate is unavailable, the step does not start.** The estimate covers the step's **single** attempt (D20); a retry step needs its own estimate against its own ceiling. The three monetary ceilings — R3, R3b, R4 — remain **Q5** (§11.2) and are **not** set by this plan; until they are supplied and approved, all three steps are undispatchable. **Independently of the ceilings**, the estimate has one input that the repository's billing evidence cannot resolve — the persistence function's own rate (D25) — so **R3b and R4 are not dispatchable even if their ceilings were set today**; R3 is unaffected, because it dispatches no persistence call. | A cap that is only checked after the spend is not a gate, and R3b spends GPU credits before the full-run ceiling exists, so it needs a ceiling, an approval and an estimate of its own. The repository deliberately has no cost estimator (`benchmarks/adapters.py:19`; `cost_status: "unmeasured"`), so the estimate has to come from the provider and be recorded with its source — it cannot be invented here (§8.2.5). |
 | **D17** | **R3 runs the producer's own `execute_target()` and takes the adapter's candidate-generator branch, so the inference stage is not attempted.** The mechanism is the `candidate_generator` parameter the production adapter already has (`benchmarks/adapters.py:1596`, stored at `:1603`, used at `:1783-1784`) — not a separate smoke app, and not a `modal_cpu` provider, which does not exist in the code. R1 introduces the **fixture and its loader**, not a bypass mechanism. | Only the producer writes the §5 stage block (`benchmarks/adapters.py:2377-2411`); the dedicated CPU app (`benchmarks/modal_cpu_smoke_app.py`) produces a single-function identity record and stays a pre-flight check. The candidate generator short-circuits the provider dispatch **before** the GPU call (`:1783` vs `:1785-1792`), and the refinement loop cannot fire because it requires `candidate_generator is None` (`:1838`), so R3 makes exactly one Modal call, and it is a CPU one. The stage block is always complete — all six keys are written (`:2377-2409`, §5.6 d) — so the attempt flag inside it is what distinguishes "not attempted" from "attempted and failed" (`evidence_integrity.py:1829-1836`, `:608-614`) (§8.2.1, §10.2). |
 | **D18** | **The producer surface is sealed at `P`, and the run is bound to the bytes of `P`.** Every execution step and every step that judges the run's bytes happens in the detached worktree at `P`; the executed producer bytes are verified by digest; and any commit after `P` that touches a producer path **invalidates the run** and requires a fresh capture. | The manifest's SHA binds a commit; a digest binds the bytes, and only the second one rules out "the code that ran is not the code that was named". A producer-changing commit between the capture and the closure is detected by P6.14's diff, and the consequence is fixed in advance — a new capture, not a re-labelled one (§8.2.6, §9.3). |
 | **D19** | **R3's candidate is a checked-in, non-breaching fixture — a negative control — and R3 claims only the EVM-sandbox stage.** The fixture is never presented as model output, is written outside `benchmarks/evidence/`, and its digest is recorded with the smoke. R3 records `independent_replay.attempted = false` and proves nothing about the replay stage. | A plumbing smoke needs a candidate that costs no GPU credits and cannot fabricate a finding. A model candidate would make R3 a paid inference test — that is R3b. A breaching candidate would make the replay branch fire (`adapters.py:1882`) and turn a plumbing smoke into an accidental benchmark run. The producer enters that branch only on `INVARIANT_BREACH_UNREPLAYED`, so a non-breaching fixture keeps the smoke deterministic and its stage matrix fixed (§8.2.1 b, c). |
 | **D20** | **Every compute step is a single attempt.** R3 is dispatched exactly once — worst case **1** Modal invocation; R3b exactly once — worst case **4** Modal invocations under the refinement-disabled producer of D22 (**6** against the pre-R1 producer), all of them inside that one attempt; R4 as one authorised run of its 16 targets, at most **96** Modal invocations (D23). There is **no automatic retry**: a failure ends the step, and a retry is a **new, separately named step** (for example `R3r`, `R3br`, `R4r`) with its own approval, its own ceiling, its own pre-dispatch estimate and its own row in the approval record. | A "1 invocation" description next to a "≤ 2 attempts" cap is not an execution contract but two contradicting ones, and a cap that silently permits a second attempt is a cap with two budgets. Settling the semantics in one place — one attempt per step — keeps the invocation maxima exact (1, 4 and 96, with no hidden second path), keeps the cost ceiling meaningful and keeps the pre-dispatch estimate equal to the worst case (§8.2.1 c, §8.2.2, §8.2.5, §10.3). |
-| **D21** | **The closed-loop refinement is a real part of the producer's contract, and the plan models it explicitly.** A target makes **up to six** Modal calls — 2 GPU and 4 CPU (§5.6 a) — and the published bytes prove the branch fires: 14 of the 16 published artifacts record `candidates_generated = 2`, while their `modal_functions` name only two functions (§5.6 b). | A cap that counts one inference call per target is wrong about the code that runs; the plan cannot specify an invocation budget, an artifact schema and a cost estimate while ignoring a branch that two thirds of the published targets took. The published run made **64** calls, not the 48 the earlier draft implied. |
+| **D21** | **The closed-loop refinement is a real part of the producer's contract, and the plan models it explicitly.** A target makes **up to six** Modal calls — **2 GPU + 3 sandbox-CPU + 1 persistence function** (§5.6 a) — and the published bytes prove the branch fires: 14 of the 16 published artifacts record `candidates_generated = 2`, while their `modal_functions` name only two functions (§5.6 b). | A cap that counts one inference call per target is wrong about the code that runs; the plan cannot specify an invocation budget, an artifact schema and a cost estimate while ignoring a branch that two thirds of the published targets took. The published run made **64** calls, not the 48 the earlier draft implied. |
 | **D22** | **R3b runs with the refinement branch disabled** — through a producer switch that **R1 adds** (`enable_refinement: bool = True`, the default being today's behaviour, so R4 is unaffected). R3b's worst case is therefore **4** invocations, and the negative test **T13** proves the R3b configuration cannot dispatch `refine_solidity_exploit`. Against the **pre-R1** producer the worst case is 6, and this plan authorises no pre-R1 R3b. | The refinement is a **second GPU call** whose trigger is the model's *failure* — the likely outcome of a smoke — so leaving it on would make R3b's cap and its stage matrix outcome-dependent in a second, unplanned way. R3b exists to prove the **inference** plumbing before the paid run; the refinement path is covered at no cost by the mocked trace test (**T16**) and, for real, by R4. The switch does not exist today, and the plan does not pretend it does (§8.2.2 a). |
-| **D23** | **R4 keeps the refinement branch enabled**, because it is part of the published configuration — 14 of the 16 published targets refined (§5.6 b). R4's worst case is therefore **6 invocations per target and 96 for the run** (**32** GPU + **64** CPU); the published run's own measured trace was **64** (**30** GPU, **34** CPU). | Switching the refinement off for R4 would change the benchmark's meaning and turn a provenance migration into a benchmark re-run — the thing §10.1 forbids. The bound is therefore stated exactly and priced, not avoided: the pre-dispatch estimate of §8.2.5 refers to these counts. |
+| **D23** | **R4 keeps the refinement branch enabled**, because it is part of the published configuration — 14 of the 16 published targets refined (§5.6 b). R4's worst case is therefore **6 invocations per target and 96 for the run** (**≤ 32** GPU + **≤ 48** sandbox-CPU + **≤ 16** persistence function); the published run's own measured trace was **64** (**30** GPU + **32** sandbox-CPU + **2** persistence function). | Switching the refinement off for R4 would change the benchmark's meaning and turn a provenance migration into a benchmark re-run — the thing §10.1 forbids. The bound is therefore stated exactly and priced, not avoided: the pre-dispatch estimate of §8.2.5 refers to these counts. |
 | **D24** | **The stage set becomes six keys** — `inference`, `evm_sandbox`, `refinement`, `evm_sandbox_after_refinement`, `independent_replay`, `trajectory_persistence` — all always present, in pipeline order; the producer stops **overwriting** the inference and first-verification captures under the refinement; a stage's `function_name` is bound to the capture that produced its facts (**C7**); and `modal_functions` becomes the **ordered invocation trace** (**C8**). | Under the refinement the current producer gives two stages the **wrong call's** facts (§5.6 c): the `inference` stage carries the refinement's response and identity, and the `evm_sandbox` stage the second verification's. A stage that names one function and carries another function's identity is a false provenance statement — the exact failure the §5 contract exists to prevent. The function name is bound to the capture because `StageResponseCapture` has no name field today (`evidence_integrity.py:1019-1042`) and the name is taken from the provider instead (`adapters.py:2246-2254`). |
+| **D25** | **The persistence function is its own resource class, and it is priced as compute.** `record_trajectory_remote` declares no `cpu=` and no `memory=` (`modal_app.py:695-700`), so it runs on the platform default — a 0.125-core / 128 MiB request, a 16.125-core default limit and its own `timeout=60` — and it is billed on `max(request, actual usage)`; the persistent volume's storage is billed separately from its compute. It is therefore **neither** a sandbox-CPU call (2.0 cores / 2048 MiB) **nor** a free volume operation, and the estimate of §8.2.5 prices it on its own profile. | Grouping the persistence call with the sandbox-CPU calls understates the sandbox calls and overstates the persistence call's rate; labelling it "volume" omits a real compute charge altogether. The published raw billing export is aggregated **per app session** and carries no function dimension, so the persistence function's share of the run's aggregate `$0.03001687` CPU line is **not derivable from the repository** — that input stays **unresolved** until it is measured or taken from the provider's per-function usage data, and **R3b and R4 are not dispatchable until then** (§5.6 g, §8.2.5). No rate is invented: the formula names the input, the source states its status, and the gate blocks the dispatch. |
 
 ### 11.2 Unresolved questions for the maintainer
 
@@ -2351,7 +2471,7 @@ every reference to a question elsewhere in this document stays valid.
 | **Q1** | What should the run-level identity field be called — `modal_app_id`, `app_session_id` or `app_id`? | It changes the published field name in the new artifacts + manifest + summaries. The semantics and the envelope are already fixed (§5.3, D3); only the spelling is open. | (a) `app_session_id` — upstream's spelling, slightly imprecise; (b) keep `modal_app_id`; (c) `app_id` — the accurate name, since the value is the app id and not a session |
 | **Q2** | Are upstream's *other* field removals (`stages.*.resource_interval`, `stages.*.billing_line_item`) in scope as well? | The upstream removed those fields; the iteration line's validator expects per-stage `app_id`/`function_call_id`/`container_id`, and the join table carries the billing detail | (a) keep the iteration-line field set; (b) adopt upstream's set and relax the validator |
 | **Q3** | Is `remote_os` allowed to keep its coincident legacy value? | `EVM_FACTS_WITH_COINCIDENT_LEGACY_VALUE` already permits it **when the source proves it**; the plan makes the source real. If the worker's real `/etc/os-release` says something else, the value changes and the pin changes | (a) accept whatever the worker observes; (b) require an exact value match as a gate |
-| **Q5** | What are the three monetary ceilings — the CPU smoke **R3**, the GPU smoke **R3b** and the 16-target run **R4**? | §10.3, §8.2.5. R3b spends GPU credits *before* R4, so its own ceiling must exist before its approval **A-R3b** is granted; R4's ceiling must exist before **A-R4**; R3 is billed Modal compute too, so it has its own, smaller ceiling before **A-R3**. All three are also the input to the pre-dispatch estimate gate (D16): a step whose ceiling is unset is **not dispatchable**, so this question blocks the whole sequence, not only its paid part. **The bound each ceiling has to cover is now fixed** (§8.2.5): R3 = 1 CPU call, R3b = 1 GPU + ≤ 3 CPU calls (refinement switched off, D22), R4 = ≤ 32 GPU + ≤ 64 CPU calls — the published run's own trace was 64 calls in total (§5.6 b). | to be set by the maintainer |
+| **Q5** | What are the three monetary ceilings — the CPU smoke **R3**, the GPU smoke **R3b** and the 16-target run **R4**? | §10.3, §8.2.5. R3b spends GPU credits *before* R4, so its own ceiling must exist before its approval **A-R3b** is granted; R4's ceiling must exist before **A-R4**; R3 is billed Modal compute too, so it has its own, smaller ceiling before **A-R3**. All three are also the input to the pre-dispatch estimate gate (D16): a step whose ceiling is unset is **not dispatchable**, so this question blocks the whole sequence, not only its paid part. **The bound each ceiling has to cover is now fixed** (§8.2.5): R3 = 1 sandbox-CPU call; R3b = 1 GPU + ≤ 2 sandbox-CPU + ≤ 1 persistence-function call (refinement switched off, D22); R4 = ≤ 32 GPU + ≤ 48 sandbox-CPU + ≤ 16 persistence-function calls — the published run's own trace was 64 calls in total, split into 30 GPU + 32 sandbox-CPU + 2 persistence-function (§5.6 b). **The estimate behind each ceiling also has six named inputs** (§8.2.5), one of which — the persistence function's own rate — is **not resolvable from the repository's billing evidence** (D25): the raw export is aggregated per app session and carries no function dimension, so that input must be measured or taken from the provider's per-function usage data before **A-R3b** or **A-R4** can be granted. | to be set by the maintainer |
 | **Q6** | Under which iteration number is the replacement run published? | The closure's `REPLACEMENT_EVIDENCE` needs a row for it (§9.4), and the new validator module is named after the number (§8.2.4 a). The *module* is already decided — a new module, not a reuse of the Iteration 18 validator (D13) | (a) Iteration 24; (b) Iteration 25; (c) a different number |
 | **Q7** | How is the superseded run marked, so that "no `modal-app://` in the published evidence" stays checkable without touching the historical bytes? | The old run keeps its 66 pseudo-URIs (D8, D9); the answer decides whether the invariant is checked per run or globally | (a) mark it only *outside* the artifacts (change-impact matrix + closure report) and scope the invariant to the authoritative run — this is the plan's default; (b) add a `superseded_by` marker inside the old run's JSON — that changes historical bytes and therefore conflicts with D8 |
 
@@ -2456,9 +2576,10 @@ The regeneration is acceptable only when **all** of the following hold:
     `attempted: false` carries `STAGE_NOT_ATTEMPTED` and nothing else, and a stage with
     `attempted: true` carries none (C6, T12, §8.2.1 d).
 23. **Every compute step was dispatched exactly once.** R3 made exactly **1** Modal
-    invocation; R3b at most **4**, all of them inside its single attempt; R4 was one
-    authorised run of its 16 targets and made at most **96** Modal invocations (**32** GPU +
-    **64** CPU, D23). No step was retried automatically: a step that failed
+    invocation (a sandbox-CPU call); R3b at most **4**, all of them inside its single attempt
+    (1 GPU + ≤ 2 sandbox-CPU + ≤ 1 persistence function); R4 was one authorised run of its 16
+    targets and made at most **96** Modal invocations (**≤ 32** GPU + **≤ 48** sandbox-CPU +
+    **≤ 16** persistence function, D23). No step was retried automatically: a step that failed
     ended there with the failure recorded, and any retry appears as a **separately named
     step** with its own approval, its own ceiling, its own pre-dispatch estimate and its own
     row in the approval record of the PR (D20, §8.2.5, §10.3).
@@ -2469,8 +2590,26 @@ The regeneration is acceptable only when **all** of the following hold:
     usable payload; each stage's `function_name` and its identity facts come from the **same**
     call (C7, T15); and the R3b configuration cannot dispatch `refine_solidity_exploit` at
     all (T13, D22). The mocked six-call trace (T16) covers the branch at no cost, and the
-    published run's own trace — 4 calls per target, 64 in the run — is the reference point
-    the new run is compared against (§5.6 b).
+    published run's own trace — 4 calls per target, 64 in the run, split into **30 GPU + 32
+    sandbox-CPU + 2 persistence function** — is the reference point the new run is compared
+    against (§5.6 b).
+25. **The resource classes are accounted for separately, and the persistence function is
+    priced as compute.** The invocation trace of the authoritative run is split into **GPU**,
+    **sandbox CPU** and **persistence function** counts, and no stage's invocation is counted
+    in two classes; the per-target worst case is **2 GPU + 3 sandbox-CPU + 1 persistence
+    function** (§5.6 a, D21, D23). The persistence call is priced on its **own** resource
+    profile — default 0.125-core / 128 MiB request, 16.125-core limit, `timeout=60`, volume
+    attached (§5.6 g, D25) — and **not** at the sandbox-CPU rate and **not** at zero. The
+    estimate behind every approval is computed with the **six named inputs** of §8.2.5, each
+    recorded with its source and its date; and the persistence function's own input is
+    established by a measurement or by the provider's per-function usage data **before**
+    **A-R3b** or **A-R4** is granted — otherwise the step is recorded as "not dispatched —
+    estimate unavailable" with its reason (D25, Q5, §8.2.5).
+26. **The persistence stage is represented once per actual invocation.** The
+    `trajectory_persistence` stage appears **once** in the stage set (§5.6 d) and its
+    invocation appears **once** in the ordered `modal_functions` trace (C8, D24) — a target
+    that did not dispatch it names it neither in the trace nor as a stage's `function_name`,
+    and a target that did dispatch it names it exactly once (T14, §5.6 d).
 
 ---
 
@@ -2487,7 +2626,16 @@ The regeneration is acceptable only when **all** of the following hold:
   `70f5d22`, and by measuring the published artifacts' own bytes (`candidates_generated`,
   `tool_metadata.modal_functions`, §5.6 b) — not by a live run. The counts of §8.2.5 are
   derived from that source, and the 64-call figure is a measurement of the published run,
-  not an estimate.
+  not an estimate. Its **resource-class split** — 30 GPU + 32 sandbox-CPU + 2 persistence
+  function — is derived from the same source and the same artifact bytes, split by the
+  function each call went to (§5.6 a, b, g).
+* **No live call was made to measure the persistence function's own cost.** Its resource
+  profile was established from `modal_app.py:695-700` and from the provider's published
+  documentation (§5.6 g), and the fact that the repository's billing evidence **cannot**
+  resolve its per-function share — the export is aggregated per app session and carries no
+  function dimension — was established by reading the published raw export's own 25 line
+  items. No persistence call was dispatched to measure it, so the estimate input stays
+  **unresolved** and R3b and R4 stay **not dispatchable** (D25, Q5).
 * No compute step was authorised: the approvals **A-R3**, **A-R3b** and **A-R4** of §8.2.5 are
   specified here, and none of them was granted. The caps and the ceilings of §8.2.5 are a
   specification, not a budget that was spent. No step was dispatched, no step was retried and
@@ -2495,7 +2643,9 @@ The regeneration is acceptable only when **all** of the following hold:
 * No cost estimate was computed for any step and no provider rate was read: the
   pre-dispatch estimate gate (D16, §8.2.5) is specified, not exercised. The numeric
   ceilings of R3, R3b and R4 remain unresolved (**Q5**), so none of the three steps is
-  dispatchable.
+  dispatchable. Independently of the ceilings, the **persistence function's own rate**
+  (input 4 of the estimate) is unresolved as well (D25, §5.6 g), so R3b and R4 are
+  not dispatchable even if their ceilings were set today.
 * No producer commit `P` was created, no worktree was pinned, and no producer byte was
   digest-verified (§8.2.6, D18): the producer surface is still open.
 * No run was executed from the detached worktree at `P` (§8.2.6): the producer commit `P` does
