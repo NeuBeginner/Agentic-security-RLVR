@@ -705,7 +705,7 @@ function.** These are **invocation** counts; a container may serve several invoc
 invocation count is an upper bound on the number of containers (§5.6 g, D27). The persistence
 call is **not** a sandbox-CPU call and is **not** a free volume operation: it is a container of
 its own, with its own resource profile, and it is billed as compute (§5.6 g). §8.2.5 turns
-this trace into the exact counts of the three compute steps.
+this trace into the exact counts of the compute steps.
 
 #### (b) The branch fired in the published run, and the published provenance under-reports it
 
@@ -926,7 +926,8 @@ autoscaler setting is an unknown in exactly the same way an unset memory limit i
 memory limit has no ceiling at all — *Containers can exceed this minimum*, Modal Docs,
 *Configuring CPU, memory, and disk*). The invocation bound therefore holds **only** once R1
 declares `min_containers=0` and `buffer_containers=0`; §8.2.5 specifies that policy, the
-per-step `max_containers` caps and the read-back that proves the deployed settings are the
+deployed `max_containers` ceiling that never changes between the steps, the per-step caps the
+**dispatch helper** enforces, and the read-back that proves the deployed settings are the
 approved ones (D27). `max_containers` adds a second, independent provider-enforced bound —
 the **concurrency** of a class — and the workspace's own plan-level limits (100 containers +
 10 GPU concurrency on Starter, 5000 containers + 50 GPU concurrency on Team) can only *lower*
@@ -1218,11 +1219,13 @@ closed — the pointer option is not part of this plan.
    one recorded in the published artifacts.
 5. A cost ceiling for every compute step, a separate approval for every compute step, and a
    **pre-dispatch cost estimate at or below that ceiling** — §8.2.5. The monetary ceilings of
-   the three compute steps are open question **Q5** (§11.2), still unanswered; the CPU smoke
+   the compute steps are open question **Q5** (§11.2), still unanswered; the CPU smoke
    has its own, smaller ceiling. **No** step starts without its own ceiling, its own
    approval and its own estimate: an approval for R4 approves R4 and nothing else. While Q5
-   is unanswered, R3, R3b and R4 are **not dispatchable at all** — they are not "cheap enough
-   to try", they are undefined. Independently of Q5, the **R1 resource precondition** of
+   is unanswered, R2p, R3, R3b and R4 are **not dispatchable at all** — they are not "cheap enough
+   to try", they are undefined. Every step also declares its own **wall-clock budget**, which
+   is the second, independent bound on the storage duration (D28) — **R4 declares none
+   today**, which is itself a blocker. Independently of Q5, the **R1 resource precondition** of
    §8.2.5 must hold: the explicit request/limit pairs and the explicit lifecycle bounds that
    make the estimate a worst case rather than an open-ended quantity (D26). Without them the
    estimate is unbounded and **no** step is dispatchable either.
@@ -1234,18 +1237,25 @@ closed — the pointer option is not part of this plan.
    manifest, the run directory, the report and the closure all carry the same SHA.
 8. The **autoscaler policy** of §8.2.5 (D27) must be deployed and verified before the first
    container: `min_containers=0` and `buffer_containers=0` for every container class, and a
-   `max_containers` no greater than the step's own invocation cap for that class. Without it
-   the estimate's container bound is an arithmetic hope, not a provider-enforced fact, and the
-   step is **not dispatchable**.
+   deployed `max_containers` equal to the **union** of the steps' caps for that class (48 /
+   32 / 16) — never lowered and never raised at runtime, with the per-step cap enforced by the
+   dispatch helper. Without it the estimate's container bound is an arithmetic hope, not a
+   provider-enforced fact, and the step is **not dispatchable**.
 9. The **volume state** of §8.2.5 (D28) must be known before the first container: the
-   baseline of `aegis-model-cache` **measured**, the incremental cap fixed in R1, and the
-   retention/cleanup rule scheduled. An unmeasurable volume is a fail-closed stop, not a
-   permissive default.
+   baseline of `aegis-model-cache` **measured**, the incremental cap fixed in R1, the
+   **storage duration bounded** (the step's wall-clock budget and the ceiling) and the
+   retention/cleanup rule scheduled. An unmeasurable volume and an unbounded duration are both
+   fail-closed stops, not permissive defaults.
 10. The **egress policy** of §8.2.5 (D29) must be established per container class before the
-    first container: a provider-enforced zero where the class needs no network, a pinned or
-    measured bound where it does (the GPU class' model download), and the provider's own
-    `Network Egress` line as the read-back. A class whose egress cannot be bounded makes the
-    estimate unavailable, and the step is **not dispatchable**.
+    first container: a provider-enforced zero where the class needs no network, a
+    **per-container** bound where it does — the GPU class' model download is priced to the
+    **prefetch step R2p**, not to the run steps — and the provider's own `Network Egress` line
+    as the **post-run audit** of that bound, never as its substitute. A class whose egress
+    cannot be bounded makes the estimate unavailable, and the step is **not dispatchable**.
+11. The **prefetch step R2p** must have completed and its cache must have been **verified**
+    against the pinned revision's file manifest before R3b or R4 is dispatched: the GPU
+    containers run with `local_files_only=True` and refuse to start on an incomplete cache, so
+    an unprepared cache is a failed container, not a download (D29).
 
 ### 8.2 The sequence
 
@@ -1255,11 +1265,12 @@ the last committed step (§8.4).
 | Step | Action | Produces | Gate before proceeding |
 |---|---|---|---|
 | **R0** | Branch `iter-24/evidence-regeneration` from the authorised base. | — | clean tree, base SHA recorded |
-| **R1** | Implement the §5 schema in the producer (`adapters.py`, `modal_app.py`, `benchmark_runner.py`), the §6.5 validator changes (**C1–C6**, **C7**, **C8**), the `modal_functions` fix of §8.2.1 (e) — the function list must be derived from the attempts, not from the provider — the **refinement work of §5.6 (d)**: the two additional stage captures, the six stage keys, the function name bound to its capture, the trace-derived `modal_functions`, and the **refinement switch of §8.2.2 (a)** — and the R3 fixture **plus its loader** of §8.2.1 (b) — and the **resource profiles of §8.2.5**: an explicit `cpu=(request, limit)` and `memory=(request, limit)` pair, an explicit `startup_timeout` and an explicit `scaledown_window` for each of the three container classes — the sandbox functions, the GPU class and the persistence function (D26), without which the estimate of §8.2.5 has no upper bound and no compute step is dispatchable — and the **autoscaler policy of §8.2.5 (D27)**: `min_containers=0`, `buffer_containers=0` and a `max_containers` per class, so that the estimate's container bound is provider-enforced rather than arithmetic — and the **egress policy of §8.2.5 (D29)**: a network-blocking declaration for the sandbox class, the pinned model revision for the GPU class, and the read-back of the provider's `Network Egress` line — and the **volume policy of §8.2.5 (D28)**: a hard byte cap on the trajectory write of the persistence function and the cleanup helper that removes the run's own files from `aegis-model-cache` and re-measures the volume. | code only | unit tests green; **no** published file touched; R1 does **not** yet seal the producer commit `P` — R2 does |
+| **R1** | Implement the §5 schema in the producer (`adapters.py`, `modal_app.py`, `benchmark_runner.py`), the §6.5 validator changes (**C1–C6**, **C7**, **C8**), the `modal_functions` fix of §8.2.1 (e) — the function list must be derived from the attempts, not from the provider — the **refinement work of §5.6 (d)**: the two additional stage captures, the six stage keys, the function name bound to its capture, the trace-derived `modal_functions`, and the **refinement switch of §8.2.2 (a)** — and the R3 fixture **plus its loader** of §8.2.1 (b) — and the **resource profiles of §8.2.5**: an explicit `cpu=(request, limit)` and `memory=(request, limit)` pair, an explicit `startup_timeout` and an explicit `scaledown_window` for each of the three container classes — the sandbox functions, the GPU class and the persistence function (D26), without which the estimate of §8.2.5 has no upper bound and no compute step is dispatchable — and the **autoscaler policy of §8.2.5 (D27)**: `min_containers=0`, `buffer_containers=0` and a deployed `max_containers` per class equal to the **union** of the steps' caps, with **no** mutating autoscaler call anywhere in the repository — and the **dispatch helper of §8.2.5 (D27)**: the single path through which a Modal call is dispatched, enforcing the per-step **invocation budget**, the **concurrency gate** and the **ceiling assertion**, and reading the effective settings back with the **no-argument** `update_autoscaler()` — and the **egress policy of §8.2.5 (D29)**: a network-blocking declaration for the sandbox class, the **prefetch function** of R2p, `local_files_only=True` plus the offline environment and the cache-manifest check in the GPU class' `@modal.enter()`, the per-container caps and the protocol allowance, and the provider's `Network Egress` line as the **post-run audit** — and the **volume policy of §8.2.5 (D28)**: a hard byte cap on the trajectory write of the persistence function, the **wall-clock budget** each step declares, and the cleanup helper that removes the run's own files from `aegis-model-cache` and re-measures the volume. | code only | unit tests green; **no** published file touched; R1 does **not** yet seal the producer commit `P` — R2 does |
 | **R2** | Add the §6.6 negative tests T1–T16. | tests | each test fails on the pre-fix code and passes on the post-fix code (proven by running both revisions; **T16** is the one positive test and passes only after the fix); **R2 seals the producer commit `P`** — `P` is the commit that closes the producer surface, it is sealed *before* the first container is dispatched, and no commit after it may touch a producer path (§8.2.6, §9.3, D18) |
-| **R3** | **CPU-only plumbing smoke** on one target (`AC-01` / `AccessControlVault`), run through the producer's own `execute_target()` with the inference stage **not attempted** (D17): the adapter's candidate-generator branch supplies a **checked-in, non-breaching fixture** as the candidate (D19), so the **only** stage whose attempt actually happens is `evm_sandbox`. The `inference`, `refinement`, `evm_sandbox_after_refinement`, `independent_replay` and `trajectory_persistence` stage blocks are still present in the artifact — the producer always writes all six stage keys (`benchmarks/adapters.py:2377-2409`, §5.6 d) — but they record `attempted: false` (§8.2.1). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.1 gate: the stage matrix is **exactly** §8.2.1 (c); every stage **whose attempt actually happened** satisfies the §5 contract; **nothing is claimed about the stages that were not attempted** — in particular **nothing about the replay**; the caps and the approval **A-R3** of §8.2.5 hold before the first container starts, and the pre-dispatch estimate gate of §8.2.5 is passed — which requires R1's explicit resource limits and lifecycle bounds (D26), its autoscaler, volume and egress policies (D27–D29), because without them the estimate is unbounded and the step is not dispatchable; **R3 is also where the sandbox class's egress policy is established** (D29) — the network-blocking declaration is verified on this one CPU container, so the question is never first answered on a paid GPU step; **R3 is a single attempt** — exactly one dispatch, no automatic retry (D20); any failure ends the step, and a retry is a new, separately named and separately approved step (§8.2.5) |
-| **R3b** | **Inference-plumbing smoke** — one GPU-backed inference call for one target, to obtain a real worker-observed `function_call_id` and the client-resolved `app_id` / `container_id` for that call, **with the closed-loop refinement switched off** (§8.2.2 a). The candidate comes from the model, so the verdict — and with it the replay branch — is **not** predictable in advance (§8.2.2). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.2 gate; **separately authorised** (**A-R3b**), because it spends GPU time and Modal credits; its caps of §8.2.5 — including its **hard maximum cost** — are fixed **before** the first call, and a pre-dispatch estimate at or below that ceiling exists, computed against R1's explicit resource limits and lifecycle bounds (D26) and its autoscaler, volume and egress policies (D27–D29); while the numeric ceiling of **Q5** is unanswered the step is **not dispatchable**; **R3b is a single attempt** — at most **4** Modal invocations in total (the GPU inference call, the sandbox-CPU verification and at most one sandbox-CPU replay and one persistence-function call; the refinement branch is off, so no `refine_solidity_exploit` call and no second verification), all of them inside that one attempt, and no automatic retry (D20); the cap of 4 is a property of the **R1** producer — against the pre-R1 producer the worst case is 6 (§8.2.5), and this plan does not authorise that; any failure ends the step, and a retry is a new, separately named and separately approved step (§8.2.5) |
-| **R4** | Authorised live run: 16 targets, the same provider configuration as the published run (`modal_h100`, `qtum/Qwen3-Coder-30B-A3B-Audit`, `--hypotheses=3` — the flag spelling is settled at `P`, §10.1), **with the closed-loop refinement enabled**, as in the published run (§8.2.5, D23), executed from the detached worktree at `P` (§8.2.6). | a **new** run directory `run_<epoch>_<P[:7]>/` | every stage **whose attempt actually happened** has an observed-or-explicitly-`NOT_AVAILABLE` provenance, and every stage that was not attempted is recorded `attempted: false` and is not claimed; the run completes; the directory suffix equals the manifest's `git.commit_sha[:7]` (§8.2.3); the manifest's SHA is `P` (§8.2.6); the approval **A-R4**, its ceiling and a pre-dispatch estimate at or below that ceiling hold — the ceiling itself is unresolved (**Q5**) until the maintainer supplies and approves it, and the estimate is computed against R1's explicit resource limits and lifecycle bounds (D26) and its autoscaler, volume and egress policies (D27–D29), without which it is unbounded and the step is not dispatchable; the run makes **at most 6 Modal invocations per target and 96 in the run** (≤ 32 GPU + ≤ 48 sandbox-CPU + ≤ 16 persistence-function invocations), the bound of §8.2.5 |
+| **R2p** | **Model-cache prefetch** — populate the volume's model cache **once**, before any GPU step: **one CPU container** (no GPU), one attempt, the **pinned revision** (a commit SHA, not a branch name) of `qtum/Qwen3-Coder-30B-A3B-Audit` downloaded into `/vol/models/huggingface` by `huggingface_hub.snapshot_download(...)` and committed to the volume; the revision's **file manifest** (path, size, digest per file) is recorded and the volume is **re-measured**. The step exists because `@modal.enter()` runs on **every** container start and downloads the model whenever the cache is cold — so without it the GPU class' egress is a **per-container** cost that up to 32 cold containers in R4 would each pay (D29). | the prefetch's own record: the pinned revision, the file manifest, the measured cache size, the download's byte count | **separately authorised** (**A-R2p**), with its own ceiling; its pre-dispatch estimate at or below that ceiling exists and is computed against R1's explicit resource limits and lifecycle bounds (D26) and its autoscaler, volume and egress policies (D27–D29); the download's egress is bounded by `pinned_bytes × (1 + R_download)`; **R2p is a single attempt** — a failed prefetch ends the step, and a retry is a new, separately named and separately approved step (§8.2.5); **R3b and R4 are not dispatchable until R2p has completed and the cache has been verified** against the manifest (§8.1, precondition 11) |
+| **R3** | **CPU-only plumbing smoke** on one target (`AC-01` / `AccessControlVault`), run through the producer's own `execute_target()` with the inference stage **not attempted** (D17): the adapter's candidate-generator branch supplies a **checked-in, non-breaching fixture** as the candidate (D19), so the **only** stage whose attempt actually happens is `evm_sandbox`. The `inference`, `refinement`, `evm_sandbox_after_refinement`, `independent_replay` and `trajectory_persistence` stage blocks are still present in the artifact — the producer always writes all six stage keys (`benchmarks/adapters.py:2377-2409`, §5.6 d) — but they record `attempted: false` (§8.2.1). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.1 gate: the stage matrix is **exactly** §8.2.1 (c); every stage **whose attempt actually happened** satisfies the §5 contract; **nothing is claimed about the stages that were not attempted** — in particular **nothing about the replay**; the caps and the approval **A-R3** of §8.2.5 hold before the first container starts, and the pre-dispatch estimate gate of §8.2.5 is passed — which requires R1's explicit resource limits and lifecycle bounds (D26), its autoscaler, volume and egress policies (D27–D29), because without them the estimate is unbounded and the step is not dispatchable; **R3 is also where the sandbox class' blocking declaration is confirmed empirically** (D29) — the pre-dispatch bound comes from the declaration itself plus the dispatch helper's assertion, and this one CPU container is where the provider's behaviour is observed for the first time, so the question is never first answered on a paid GPU step; **R3 is a single attempt** — exactly one dispatch, no automatic retry (D20); any failure ends the step, and a retry is a new, separately named and separately approved step (§8.2.5) |
+| **R3b** | **Inference-plumbing smoke** — one GPU-backed inference call for one target, to obtain a real worker-observed `function_call_id` and the client-resolved `app_id` / `container_id` for that call, **with the closed-loop refinement switched off** (§8.2.2 a). The candidate comes from the model, so the verdict — and with it the replay branch — is **not** predictable in advance (§8.2.2). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.2 gate; **separately authorised** (**A-R3b**), because it spends GPU time and Modal credits; its caps of §8.2.5 — including its **hard maximum cost** — are fixed **before** the first call, and a pre-dispatch estimate at or below that ceiling exists, computed against R1's explicit resource limits and lifecycle bounds (D26) and its autoscaler, volume and egress policies (D27–D29); while the numeric ceiling of **Q5** is unanswered the step is **not dispatchable**; **R2p has completed and its cache has been verified** against the pinned revision's file manifest, so the GPU container loads the model locally and downloads nothing (§8.1, precondition 11, D29); **R3b is a single attempt** — at most **4** Modal invocations in total (the GPU inference call, the sandbox-CPU verification and at most one sandbox-CPU replay and one persistence-function call; the refinement branch is off, so no `refine_solidity_exploit` call and no second verification), all of them inside that one attempt, and no automatic retry (D20); the cap of 4 is a property of the **R1** producer — against the pre-R1 producer the worst case is 6 (§8.2.5), and this plan does not authorise that; any failure ends the step, and a retry is a new, separately named and separately approved step (§8.2.5) |
+| **R4** | Authorised live run: 16 targets, the same provider configuration as the published run (`modal_h100`, `qtum/Qwen3-Coder-30B-A3B-Audit`, `--hypotheses=3` — the flag spelling is settled at `P`, §10.1), **with the closed-loop refinement enabled**, as in the published run (§8.2.5, D23), executed from the detached worktree at `P` (§8.2.6). | a **new** run directory `run_<epoch>_<P[:7]>/` | every stage **whose attempt actually happened** has an observed-or-explicitly-`NOT_AVAILABLE` provenance, and every stage that was not attempted is recorded `attempted: false` and is not claimed; the run completes; the directory suffix equals the manifest's `git.commit_sha[:7]` (§8.2.3); the manifest's SHA is `P` (§8.2.6); the approval **A-R4**, its ceiling **and its wall-clock budget** hold — the ceiling itself is unresolved (**Q5**) until the maintainer supplies and approves it, and **R4 declares no wall-clock budget today**, which leaves the storage duration unbounded and the volume term unavailable (D28) — and the estimate is computed against R1's explicit resource limits and lifecycle bounds (D26) and its autoscaler, volume and egress policies (D27–D29), without which it is unbounded and the step is not dispatchable; **R2p has completed and its cache has been verified** against the pinned revision's file manifest (§8.1, precondition 11, D29); the run makes **at most 6 Modal invocations per target and 96 in the run** (≤ 32 GPU + ≤ 48 sandbox-CPU + ≤ 16 persistence-function invocations), the bound of §8.2.5 |
 | **R5** | Verify the new run **before** it becomes published: run the §5 validators over the new run dir; assert `has_synthetic_modal_uri` is false for every file; assert no `SYNTHETIC_CONTAINER_ID_RE` match anywhere. | a verification transcript | all assertions hold |
 | **R6** | **Publish the new run tree additively** (D9): the new run's 16 target artifacts, its manifest, its `summary.json`, and the root-level `latest_summary.json` — which becomes the byte-identical mirror of the **new** run's `summary.json`. The published run `run_1794209615_70f5d22/` is **not** modified, moved or deleted. | new published bytes | `git diff --stat` shows only the expected files; `latest_summary.json` is byte-identical to the new run's `summary.json`; the old run directory is untouched in the diff |
 | **R7** | Regenerate `modal_control_harness_validation.json` (re-pin the 32 stdout/stderr digests and the 16 `input_sha256` values over blob bytes). | new digest | the file validates against the new run dir |
@@ -1781,12 +1792,13 @@ validator reads the same directory and produces the same output — which is wha
 
 ### 8.2.5 The compute caps, the stop conditions and the approval boundaries
 
-Three steps of §8.2 start Modal containers, and **all three cost money**. A CPU container on
+Four steps of §8.2 start Modal containers, and **all four cost money**. A CPU container on
 Modal is compute, not a free local test: it is billed per second, and the GPU step is
-billed per second of an H100. Every one of the three steps therefore gets its own hard cap,
+billed per second of an H100. Every one of the four steps therefore gets its own hard cap,
 its own stop condition and its own explicit approval — fixed **before** the step runs — and
 its own **pre-dispatch cost estimate** that must be at or below its ceiling before the first
-container is dispatched.
+container is dispatched. The fourth is **R2p**, the model-cache prefetch: one CPU container,
+one attempt, its own approval **A-R2p** (D29).
 
 #### The per-target Modal invocation trace
 
@@ -1834,9 +1846,10 @@ defines, not to a number nobody has written down.
 
 | Step | Compute | Hard cap | Timeout / stop condition |
 |---|---|---|---|
-| **R3** (CPU plumbing smoke) | **exactly 1** Modal invocation — the **sandbox-CPU** `verify_exploit_remote`; 1 CPU container, 1 target (`AC-01`), **0** inference calls, **0** replay calls, **0** persistence calls (§8.2.1 a, c) | **1** container, **1** target, `--hypotheses=1`, **exactly 1 attempt** — no automatic retry (D20) — a wall-clock budget of **20 minutes** for that attempt, and a **monetary ceiling of its own** (Q5) | the per-call timeout stays at the published value (`timeout_sec = 120`, §10.1); the client aborts the attempt at the 20-minute budget, stops the app (`modal app stop`) and records the failure; **any failure ends the step** — there is no second attempt, and a retry is a new, separately named and separately approved step (D20). The **R1 resource precondition** below must hold first: without explicit request/limit pairs, explicit lifecycle bounds, an enforced container count, a bounded volume and a bounded egress the estimate has **no upper bound** and the step is **not dispatchable** (D26–D29) |
-| **R3b** (inference-plumbing smoke) | **worst case 4** Modal invocations — **1** GPU inference call + **1** **sandbox-CPU** `verify_exploit_remote` + **≤ 1** **sandbox-CPU** `verify_replay_remote` + **≤ 1** **persistence-function** `record_trajectory_remote` (§8.2.2, §8.2.5); 1 GPU container (`modal_h100`), 1 target, **exactly 1** inference call — all of them inside the step's **single** attempt. The **refinement branch is switched off** for this step (§8.2.2 a): no `refine_solidity_exploit` call and no second verification. Against the **pre-R1** producer the worst case would be **6** — which is why R3b is dispatched only after R1 and R2, and why the plan authorises no pre-R1 R3b | **1** GPU call, `--hypotheses=1`, **exactly 1 attempt** — no automatic retry (D20) — whose worst case is the 4 invocations above, a wall-clock budget of **20 minutes**, and a **hard maximum cost** of its own (Q5) | the same abort rule; **any failure ends the step** — a failed R3b **ends the sequence**, R4 does not start (§8.3); there is no second attempt, and a retry is a new, separately named and separately approved step (D20). The **R1 resource precondition** below must hold first: without explicit request/limit pairs, explicit lifecycle bounds, an enforced container count, a bounded volume and a bounded egress the estimate has **no upper bound** and the step is **not dispatchable** (D26–D29) |
-| **R4** (the 16-target run) | 16 targets × H100, the published configuration — **one** authorised run: the 16 targets are dispatched once, and a target that fails inside the run is that target's recorded result, not a retried attempt (D20). The **refinement branch is enabled**, because it is part of the published configuration — 14 of the 16 published targets refined (§5.6 b) — so the worst case is **6** invocations per target: **≤ 96** for the run, split as **≤ 32** GPU + **≤ 48** sandbox-CPU + **≤ 16** persistence-function (the trace table above). The published run's own measured trace was **64** (**30** GPU, **32** sandbox-CPU, **2** persistence-function) | the monetary ceiling of **Q5** (§10.3) — no per-call cost may exceed it — and **exactly 1** run attempt (D20) | the per-call timeout stays at `timeout_sec = 120` per target; the operator stops the app when the accumulated spend reaches the ceiling; the partial result and its billing window are published, and the run is **not** retried silently. The **R1 resource precondition** below must hold first: without explicit request/limit pairs, explicit lifecycle bounds, an enforced container count, a bounded volume and a bounded egress the estimate has **no upper bound** and the step is **not dispatchable** (D26–D29) |
+| **R2p** (model-cache prefetch) | **exactly 1** CPU container — no GPU — that downloads the **pinned revision** of the model into the volume's cache and commits it (§8.2, D29); the file manifest and the re-measured volume are its output | **1** container, **exactly 1 attempt** — no automatic retry (D20) — a wall-clock budget of its own, and a **monetary ceiling of its own** (Q5) | the client aborts the attempt at its wall-clock budget, stops the app and records the failure; **any failure ends the step** — there is no second attempt, and a retry is a new, separately named and separately approved step (D20). The **R1 resource precondition** below must hold first, and the download's egress must be bounded by `pinned_bytes × (1 + R_download)`; without them the estimate has **no upper bound** and the step is **not dispatchable** (D26–D29) |
+| **R3** (CPU plumbing smoke) | **exactly 1** Modal invocation — the **sandbox-CPU** `verify_exploit_remote`; 1 CPU container, 1 target (`AC-01`), **0** inference calls, **0** replay calls, **0** persistence calls (§8.2.1 a, c) | **1** container, **1** target, `--hypotheses=1`, **exactly 1 attempt** — no automatic retry (D20) — a wall-clock budget of **20 minutes** for that attempt, and a **monetary ceiling of its own** (Q5) | the per-call timeout stays at the published value (`timeout_sec = 120`, §10.1); the client aborts the attempt at the 20-minute budget, stops the app (`modal app stop`) and records the failure; **any failure ends the step** — there is no second attempt, and a retry is a new, separately named and separately approved step (D20). The **R1 resource precondition** below must hold first: without explicit request/limit pairs, explicit lifecycle bounds, a provider-enforced container count, a bounded volume over a bounded duration and a bounded egress the estimate has **no upper bound** and the step is **not dispatchable** (D26–D29) |
+| **R3b** (inference-plumbing smoke) | **worst case 4** Modal invocations — **1** GPU inference call + **1** **sandbox-CPU** `verify_exploit_remote` + **≤ 1** **sandbox-CPU** `verify_replay_remote` + **≤ 1** **persistence-function** `record_trajectory_remote` (§8.2.2, §8.2.5); 1 GPU container (`modal_h100`), 1 target, **exactly 1** inference call — all of them inside the step's **single** attempt. The **refinement branch is switched off** for this step (§8.2.2 a): no `refine_solidity_exploit` call and no second verification. Against the **pre-R1** producer the worst case would be **6** — which is why R3b is dispatched only after R1 and R2, and why the plan authorises no pre-R1 R3b | **1** GPU call, `--hypotheses=1`, **exactly 1 attempt** — no automatic retry (D20) — whose worst case is the 4 invocations above, a wall-clock budget of **20 minutes**, and a **hard maximum cost** of its own (Q5) | the same abort rule; **any failure ends the step** — a failed R3b **ends the sequence**, R4 does not start (§8.3); there is no second attempt, and a retry is a new, separately named and separately approved step (D20). The **R1 resource precondition** below must hold first: without explicit request/limit pairs, explicit lifecycle bounds, a provider-enforced container count, a bounded volume over a bounded duration and a bounded egress the estimate has **no upper bound** and the step is **not dispatchable** (D26–D29) |
+| **R4** (the 16-target run) | 16 targets × H100, the published configuration — **one** authorised run: the 16 targets are dispatched once, and a target that fails inside the run is that target's recorded result, not a retried attempt (D20). The **refinement branch is enabled**, because it is part of the published configuration — 14 of the 16 published targets refined (§5.6 b) — so the worst case is **6** invocations per target: **≤ 96** for the run, split as **≤ 32** GPU + **≤ 48** sandbox-CPU + **≤ 16** persistence-function (the trace table above). The published run's own measured trace was **64** (**30** GPU, **32** sandbox-CPU, **2** persistence-function) | the monetary ceiling of **Q5** (§10.3) — no per-call cost may exceed it — **a wall-clock budget of its own**, which the plan does **not** set today and which the maintainer must supply with the ceiling (**Q5**): without it the storage duration is unbounded and the volume term is unavailable (D28) — and **exactly 1** run attempt (D20) | the per-call timeout stays at `timeout_sec = 120` per target; the operator stops the app when the accumulated spend reaches the ceiling **or** when the declared wall-clock budget expires, whichever comes first; the partial result and its billing window are published, and the run is **not** retried silently. The **R1 resource precondition** below must hold first: without explicit request/limit pairs, explicit lifecycle bounds, a provider-enforced container count, a bounded volume over a bounded duration and a bounded egress the estimate has **no upper bound** and the step is **not dispatchable** (D26–D29) |
 
 #### The R1 resource precondition: explicit limits, an enforced container count and a bounded lifecycle
 
@@ -1846,7 +1859,7 @@ limit, §5.6 g), a **bounded billable lifetime of the container** (an execution 
 the billable lifetime, §5.6 g) and an **autoscaler that cannot add billable containers of
 its own** (the invocation bound is only provider-enforced when no container is kept warm or
 buffered without an invocation, §5.6 g). R1 therefore has to change the three container
-classes before any of the three compute steps may be dispatched:
+classes before any of the compute steps may be dispatched:
 
 | Container class | What R1 must declare | What it buys the estimate |
 |---|---|---|
@@ -1888,62 +1901,134 @@ R1 therefore declares, for **each** of the three container classes:
 |---|---|---|
 | `min_containers` | **0** | no container is kept warm while the Function is inactive ⇒ every billed container exists to serve a demand |
 | `buffer_containers` | **0** | no idle container is maintained while the Function is active ⇒ no billed container is idle by design |
-| `max_containers` | the class's **step cap** (table below) | the **concurrency** of the class — a second, independent provider-enforced bound |
+| `max_containers` | the class's **union ceiling** — the largest cap any authorised step uses for that class (table below) | the **concurrency** of the class — a second, independent provider-enforced bound |
 | `scaledown_window` | explicit (R1, D26) | the idle tail of `T_billable` is a number |
 
-**The per-step caps.** A `max_containers` is a property of the **deployment**, not of a step,
-so the deployed value is the largest cap any authorised step may use, and the *effective* cap
-of a smaller step is set by a **tightening-only** update at dispatch time:
+**The deployed configuration — one union ceiling, never changed between the steps.** A
+`max_containers` is a property of the **deployment**, not of a step, so the deployed value is
+the **union** of the caps of every authorised step, and the *effective* cap of a smaller step
+is enforced at dispatch time by a mechanism that cannot raise it:
 
-| Step | sandbox CPU | GPU class | persistence function |
-|---|---|---|---|
-| **R3** | **1** | — | — |
-| **R3b** | **2** | **1** | **1** |
-| **R4** | **48** | **32** | **16** |
-| **deployed ceiling (R1)** | **48** | **32** | **16** |
+| Container class | `min_containers` | `buffer_containers` | `max_containers` (deployed, R1) | per-step invocation caps |
+|---|---|---|---|---|
+| **sandbox CPU** | **0** | **0** | **48** | R3 = 1, R3b ≤ 2, R4 ≤ 48 |
+| **GPU class** | **0** | **0** | **32** | R3b = 1, R4 ≤ 32 |
+| **persistence function** | **0** | **0** | **16** | R3b ≤ 1, R4 ≤ 16 |
 
-Each row's number is the class's invocation cap for that step (§8.2.5, the trace table), so
-the deployed ceiling is never greater than the biggest authorised step's cap, and the effective
-cap of a smaller step is never greater than that step's own cap. One provider detail matters
-for the GPU class: a `modal.Cls` autoscales **per instance-parameter combination** ("instances
-with different parameter values use separate container pools which autoscale independently",
-Modal Docs, *Scaling out*) — `ProductionAuditAgent` declares **no** `modal.parameter`
-(`modal_app.py:74-80`; the only parameterised class in the file is `DevReasoningAgent`,
-`modal_app.py:241-242`, which is not part of this trace), so it has exactly **one** container
-pool and one `max_containers`.
+The deployed ceiling is **never lowered and never raised** during the sequence. R3 → R3b → R4
+is possible **in that order** precisely because the deployed value is the union (48 / 32 / 16)
+and **not** the first step's value. An earlier draft of this plan deployed R3's own sandbox
+value of 1 and then tried to raise it to 2 for R3b and to 48 for R4 under a "tightening-only"
+rule — that lifecycle was **internally impossible**: a cap that may only be tightened cannot
+go from 1 back to 2, let alone from 1 to 48. The lifecycle above replaces it with one that is
+executable in the stated order and still fail-closed: the deployed ceiling is the **union**,
+the per-step cap is enforced by the dispatch helper, and neither can be raised.
 
-**The update may only tighten.** The provider allows the settings to be changed at runtime
-without a redeploy — "It's also possible to view and update the autoscaler settings dynamically
-(i.e., without redeploying the App) using the `Function.autoscaler.update()` method" — and
-"the autoscaler settings will revert to the configuration in the function decorator the next
-time you deploy the App" (Modal Docs, *Scaling out*). A silent *raise* of a cap would break
-the estimate without changing a line of the repository, so:
+**How the GPU and the persistence pools come into use — without a separate "enabling" step.**
+They are **deployed from the start** at their union ceilings (32 and 16) and are never
+touched afterwards, so there is nothing to enable and nothing to tighten: in **R3** they are
+simply **not dispatched**, and the dispatch helper's invocation budget for them in R3 is
+**0**, so a stray GPU or persistence call in R3 is refused by the helper and recorded. In
+**R3b** and **R4** their per-step caps (1 and 1, then 32 and 16) are ≤ their deployed
+ceilings, so the ceiling assertion passes and the concurrency gate bounds them. A class that
+a step does not use therefore costs **nothing** in that step — no container starts, because a
+container only exists to serve a dispatch (D27).
 
-1. the dispatch procedure may call the update **only** to **lower** `max_containers` to the
-   step's cap; a request to raise any cap is refused by the dispatch helper and is a hard stop;
-2. **no** code path in the repository may call the autoscaler update at all, except that
-   single helper — R2 adds a test that fails if any other call site appears;
-3. the **effective settings are read back** before the first container is dispatched and
-   recorded in the approval record, and read back again after the step. The pinned local SDK
-   (1.5.5) returns the current settings from `Function.update_autoscaler(...)`
-   (`modal.types.FunctionAutoscalerSettings`); the current SDK documentation describes the same
-   read-back through `Function.autoscaler.settings()`. Whichever API the pinned SDK exposes is
-   the one R1 uses — and if the pinned SDK provides **no** read-back, the step is **not
-   dispatchable**: an unverifiable cap is an unbounded one.
+One provider detail matters for the GPU class: a `modal.Cls` autoscales **per
+instance-parameter combination** ("instances with different parameter values use separate
+container pools which autoscale independently", Modal Docs, *Scaling out*) —
+`ProductionAuditAgent` declares **no** `modal.parameter` (`modal_app.py:74-80`; the only
+parameterised class in the file is `DevReasoningAgent`, `modal_app.py:241-242`, which is not
+part of this trace), so it has exactly **one** container pool and one `max_containers`.
 
-**What this buys the estimate.** The bound changes from arithmetic to enforcement:
+**The repository makes no autoscaler call at all.** The provider allows the settings to be
+changed at runtime without a redeploy — "It's also possible to view and update the autoscaler
+settings dynamically (i.e., without redeploying the App) using the `Function.autoscaler.update()`
+method" — and "the autoscaler settings will revert to the configuration in the function
+decorator the next time you deploy the App" (Modal Docs, *Scaling out*). A runtime override is
+therefore a **stale, invisible** object: it can raise a cap without a line of the repository
+changing, and it survives until the next deploy resets it.
+
+So the repository contains **no mutating autoscaler call anywhere**. R1 adds **no**
+`update_autoscaler(min_containers=…, max_containers=…, …)` call, and R2 adds a test that
+fails if any mutating call site appears. With no mutating call:
+
+1. **no cap can be raised at runtime** — the deployed decorator values are the only values that
+   ever exist, so "tightening-only" stops being a rule that has to be policed and becomes a
+   **property** of the design;
+2. **no stale or dynamic override can survive** a step, a redeploy or a rollback — a redeploy
+   restores the decorator's values by the provider's own rule, and there is nothing else to
+   restore;
+3. the per-step cap is therefore enforced **client-side**, by the dispatch helper R1 adds, and
+   the deployed ceiling is the provider's outer backstop (below).
+
+**The per-step effective cap: the dispatch helper.** R1 adds one dispatch helper — the only
+path through which this workflow dispatches a Modal call — and it enforces three things per
+step:
+
+1. an **invocation budget** per container class: at most `invocations(c)` dispatches of class
+   `c` in the step; the helper **refuses** the next one and records the refusal. The budget is
+   the trace table's number (§8.2.5), so the helper is what turns the trace into an executed
+   contract;
+2. a **concurrency gate** per container class: at most `cap(c)` dispatches of class `c` in
+   flight at the same time — a client-side semaphore in the dispatch path. The cap comes from
+   the step's **approval record**, which is fixed before the step;
+3. a **ceiling assertion**: `cap(c) ≤ max_containers_deployed(c)`. If a step's approved cap
+   exceeds the deployed ceiling, the helper refuses to dispatch and the step is recorded as
+   **"not dispatched — deployed ceiling too low"**.
+
+The cap table is part of the **approval record**, not a runtime parameter: raising a per-step
+cap is a change to the approval record and needs a **new approval**, exactly like raising the
+monetary ceiling. There is no code path that can raise it, and no code path that can raise the
+deployed ceiling either.
+
+**The read-back.** The effective settings are read back **before the first container** of
+each step and **again after the step**, and both readings are recorded in the approval record.
+The pinned local SDK (1.5.5) has **no** `Function.autoscaler` namespace, so the read-back is
+the **no-argument** call `Function.update_autoscaler()`: its own documentation states that
+"Unspecified parameters will retain their current value, i.e. either the static value from the
+function decorator, or an override value from a previous call to this method" — a call with
+**no** argument therefore changes nothing and returns the current settings as a
+`modal.types.FunctionAutoscalerSettings`. R1 contains exactly **one** such call site (in the
+dispatch helper, before the first container) and **no** mutating one. If the pinned SDK
+provides **no** read-back at all, the step is **not dispatchable**: an unverifiable cap is an
+unbounded one.
+
+**What this buys the estimate — and which of the bounds the provider enforces.** The
+distinction is stated explicitly, because the estimate depends on it and the reader must not
+have to guess which of the four bounds is the provider's:
+
+| Bound | Enforced by | What it bounds |
+|---|---|---|
+| `min_containers=0`, `buffer_containers=0` | **the provider** | every billed container exists to serve a demand ⇒ `containers(c) ≤ invocations(c)` |
+| `max_containers` (deployed: 48 / 32 / 16) | **the provider** | the **concurrency** of a class — the outer backstop |
+| invocation budget per class per step | the dispatch helper (client) | the number of dispatches of class `c` in the step |
+| concurrency gate per class per step | the dispatch helper (client) | the dispatches of class `c` in flight |
+
+The **compute** terms of the estimate multiply `containers(c)`, and that bound is the
+**provider-enforced** one:
 
 ```
-containers(c)             ≤ invocations(c)            # provider-enforced: min_containers=0, buffer_containers=0
-concurrent_containers(c)  ≤ max_containers(c)         # provider-enforced: the deployment's concurrency cap
+containers(c)             ≤ invocations(c)               # provider-enforced: min_containers=0, buffer_containers=0
+concurrent_containers(c)  ≤ max_containers_deployed(c)   # provider-enforced: the deployment's concurrency cap
+concurrent_containers(c)  ≤ cap(c)                       # client-enforced: the step's own concurrency gate
 ```
 
-The first line is what the estimate multiplies (§8.2.5). The second is the wall-clock
-consequence: at most `max_containers(c)` containers of a class are billed at the same moment,
+The first line is what the estimate multiplies (§8.2.5). The concurrency bounds are the
+wall-clock consequence: at most `cap(c)` containers of a class are billed at the same moment,
 which is what makes the step's wall-clock budget meaningful. Note that `max_containers` does
 **not** cap the number of containers a class starts *over time* — a container that scales down
 and is replaced by a new one is a second container — which is exactly why the estimate's bound
 is the invocation count and not `min(invocations, max_containers)`.
+
+**Why the client-side gate does not weaken the cost bound.** If the helper were bypassed by a
+bug, the per-step caps would degrade to the deployed ceiling — 48 concurrent sandbox
+containers instead of 1. That would break the *wall-clock* budget, not the *cost* bound: the
+number of billed containers stays bounded by the invocation count (a provider-enforced fact,
+because `min_containers=0` and `buffer_containers=0`), and the invocation budget is itself the
+number of dispatches the step is allowed to make at all. The compute term therefore survives
+the failure of the client-side gate; the step's own wall-clock budget and its stop condition
+are what end a degenerate step (§8.2.5, D28).
 
 #### The volume bound: baseline, increment, retention and the fail-closed stop (D28)
 
@@ -1954,15 +2039,18 @@ volume is `aegis-model-cache` (`core/config.py:9`), mounted at `/vol/models`
 
 | What | Where | How big |
 |---|---|---|
-| the model cache | `/vol/models/huggingface` (`core/config.py:10`), written by the GPU class' `@modal.enter()` (`modal_app.py:87-113`), which downloads the model and commits it (`modal_app.py:110`) | the **dominant** term — the pinned model's byte size, or 0 if the cache is already warm |
+| the model cache | `/vol/models/huggingface` (`core/config.py:10`), written by the **prefetch step R2p** (D29) — the GPU class' inference path no longer downloads anything, it only reads the cache (`modal_app.py:87-113` becomes `local_files_only=True` plus a manifest check) | the **dominant** term — the pinned model's byte size, **once**, in R2p; 0 in R3b/R4 |
 | the training trajectories | `/vol/models/trajectories` (`core/config.py:11`), one JSON file per confirmed target, written and committed by the persistence function (`modal_app.py:702-711`) | **one file per dispatched persistence call** — 0 for R3, ≤ 1 for R3b, ≤ 16 for R4 |
 | everything else already on the volume | — | **measured**, not assumed |
 
-The estimate's volume term is therefore bounded in three pieces:
+The estimate's volume term is bounded in three pieces — **how many bytes**, **for how long**,
+and **what happens to them afterwards**:
 
 ```
 volume_GiB(step)       = baseline_GiB + incremental_GiB(step)
-volume_GB_months(step) = volume_GiB(step) × retention_months(step)
+T_store(step)          = T_exec(step) + T_retention(step)
+months(step)           = 1 + ceil(T_store(step) / 28 days)     # conservative calendar treatment
+volume_GB_months(step) = volume_GiB(step) × months(step)
 ```
 
 1. **`baseline_GiB` is measured, immediately before the dispatch.** The measurement is the
@@ -1974,24 +2062,55 @@ volume_GB_months(step) = volume_GiB(step) × retention_months(step)
 2. **`incremental_GiB` is bounded by construction, not by hope.** The trajectory write is
    capped **in the producer**: R1 fixes a hard byte cap for one trajectory payload, and the
    persistence function refuses a larger payload instead of writing it (the refusal is an
-   infrastructure error, recorded as such). The model-cache write is bounded by the **pinned
-   model revision** — either 0, if the measurement shows the cache is already populated, or
-   the byte size of the pinned revision's files, read from the provider's own file listing and
-   recorded with its date. A model revision that cannot be pinned to a byte size has **no
-   bound**, and the GPU steps are then not dispatchable.
-3. **`retention_months` is a rule, not a hope.** The run's **own** bytes — the trajectory files
-   it writes — are deleted by the cleanup rule within **30 days** of the run's publication, and
-   immediately on an abort or a failure; the deletion is performed with the provider's own
-   tool (`modal volume rm aegis-model-cache <path> -r`, or `Volume.remove_file(path,
-   recursive=True)`), and the volume is **re-measured** afterwards and the measurement is
-   recorded. The baseline is what the workspace keeps; the estimate prices it over the same
-   one-month window, because a GB-month is a GB-month whatever the reason.
+   infrastructure error, recorded as such). The model-cache write belongs to **R2p**, and its
+   size is the **pinned model revision's** byte size — read from the provider's own file
+   listing and recorded with its date; a revision that cannot be pinned to a byte size has **no
+   bound**, and R2p is then not dispatchable. After R2p has committed, the cache is part of the
+   **measured baseline** of the later steps — it is never counted twice.
+3. **`T_store` — the storage duration — is bounded, and it is a sum, not a maximum.** The
+   bytes exist **from the first write** (during the execution) **until the deletion is
+   verified** (up to 30 days after the publication). The earlier draft of this plan priced
+   `(baseline + increment) × 1 month`, which is an upper bound only if the whole
+   first-write-to-deletion interval fits inside one month. It does not: the execution happens
+   **before** the publication, and the 30-day retention starts **after** it. The interval is
+   therefore the **sum**:
+   * `T_exec(step)` — the step's **hard wall-clock budget**, a number in the approval record.
+     It is bounded twice over: by the declared budget itself, and by the monetary ceiling,
+     because the estimate's own worst-case burn rate turns a finite ceiling into a finite
+     duration: `T_exec(step) ≤ ceiling(step) / burn_rate_upper_bound(step)`. R3 and R3b
+     declare a 20-minute budget; **R4 declares none today** — its stop condition is the
+     monetary ceiling — so **R4's volume term is unavailable** until the maintainer declares
+     R4's wall-clock budget together with its ceiling (**Q5**). An unbounded storage duration
+     is an unbounded storage quantity, so **R4 is not dispatchable** on that ground alone.
+   * `T_retention` — **30 days**, from the publication to the verified deletion. The abort
+     path deletes immediately, but the bound keeps the **same 30 days**: the abort cleanup can
+     itself fail, and the plan does not assume a deletion it has not verified.
+4. **`months(step)` — the calendar treatment.** The provider bills a volume per GiB-month.
+   The plan prices **whole months, rounded up**, and counts a span of `T` days as touching at
+   most `1 + ceil(T / 28)` calendar months — 28 days is the shortest month, so no span of `T`
+   days can cross more month boundaries than that. Rounding up is conservative against a
+   prorated billing convention, and the extra month covers a span that crosses a boundary.
 
-**The estimate therefore covers the complete quantity, including the post-run retention**:
-`(baseline_GiB + incremental_GiB) × 1 month` for the worst case. The provider's published
-free allowance (1 TiB/month, §5.6 g) is recorded as a **fact** in the approval record and is
-deliberately **not** netted out of the estimate: the allowance belongs to the workspace's plan,
-not to the run, and an estimate that depends on a plan-level allowance is not a worst case.
+**The estimate therefore covers the complete quantity — the execution *and* the post-run
+retention**: `(baseline_GiB + incremental_GiB) × (1 + ceil(T_store / 28 days))` for the worst
+case. Two clarifications the earlier draft left open:
+
+* the **baseline** is priced for the **same bounded interval** — conservatively, because a
+  GB-month is a GB-month whatever the reason. The baseline's storage **after** the run's
+  window is a **standing workspace cost** and is excluded from the run's estimate by the same
+  rule that excludes the workspace's pre-existing compute from it; the estimate covers the
+  run's attributable window;
+* **all run-created bytes are counted until the deletion is verified.** The increment is
+  priced for the whole `T_store` window — the estimate never assumes an early deletion — and
+  if the deletion cannot be verified, the increment stays in the **baseline of the next
+  step**, where it is measured and priced again. The next step's baseline measurement is
+  therefore not a formality: it is the mechanism that keeps a failed cleanup from being
+  forgotten.
+
+The provider's published free allowance (1 TiB/month, §5.6 g) is recorded as a **fact** in the
+approval record and is deliberately **not** netted out of the estimate: the allowance belongs
+to the workspace's plan, not to the run, and an estimate that depends on a plan-level
+allowance is not a worst case.
 
 **The fail-closed stop.** Three conditions end the step rather than continue it:
 
@@ -2003,7 +2122,10 @@ not to the run, and an estimate that depends on a plan-level allowance is not a 
   runs;
 * the volume cannot be measured after the step — the step is recorded as **not measurable**,
   the cleanup rule runs, and the residual is reported as an open item rather than as a
-  passing bound.
+  passing bound;
+* the step's **storage duration** cannot be bounded — no declared wall-clock budget and no
+  finite ceiling, so `T_store` is unknown — the volume term is **unavailable** and the step is
+  **not dispatchable** (this is R4's state today, §8.2.5, D28).
 
 **A commit is not a fee.** The provider publishes **no** separate commit charge — the volume's
 price is its storage rate per GiB-month (§5.6 g) — so the "write/commit" of the persistence
@@ -2020,18 +2142,97 @@ canonical app session `ap-EDUitOwWeMrIdYbTh4kB63` (`aegis-rlvr-security`, 2026-1
 (`benchmarks/evidence/modal_billing_report_raw.json`). An estimate that omits egress is
 therefore an estimate of a cost that has already been observed.
 
-Where the egress of this workflow comes from, read from the source:
+**The quantity is per container, and the step total is a sum over the step's containers.** The
+earlier draft of this plan wrote `network_egress_GiB(step) = Σ_c egress_bound_GiB(c)` without
+saying whether a class's bound was **per container** or **for the whole step** — and its GPU
+row was **wrong**: it priced **one** pinned model revision, while the same plan allows up to
+**1** GPU container in R3b and **32** in R4. The reason is in the source: the GPU class'
+`@modal.enter()` (`modal_app.py:87-113`) runs
+`AutoModelForCausalLM.from_pretrained(..., cache_dir=…)`, and `@modal.enter()` runs on
+**every container start**, not once per app. A cold or incomplete cache therefore makes
+**each** cold GPU container download the model. A shared volume does **not** prevent that:
+the commit happens **after** the load (`modal_app.py:109-113`), so concurrent cold starts
+race on an empty cache. Without a prefetch the honest bound is
+`cold_gpu_containers × pinned_bytes` — **not** `pinned_bytes`.
 
-| Container class | What it does at runtime | Egress bound | How the bound is established |
-|---|---|---|---|
-| **sandbox CPU** — `verify_exploit_remote`, `verify_replay_remote` | runs Foundry **inside the function container** — the EVM "sandbox" is not a separate Modal Sandbox container (`sandbox/runner.py:644`, `modal_app.py:550-556`, `:582-588`); the whole toolchain (Foundry, solc 0.8.19–0.8.28, forge-std v1.9.5, openzeppelin-contracts v5.0.2) is installed **into the image at build time** (`sandbox/runner.py:49-69`), and the runtime invocation runs with `offline = true` (`sandbox/runner.py:79`) | **0** | provider-enforced: R1 declares the network-blocking declaration (`block_network` — SDK: "Whether to block network access"). R1 first verifies on the **R3 smoke** — one CPU container — that the blocking declaration does not break the function's own call path; if it does, the fallback is `restrict_modal_access` plus the source-level no-egress assertion, and the provider's `Network Egress` line remains the read-back in either case |
-| **GPU class** — `ProductionAuditAgent` | loads the pinned model into the volume cache at `@modal.enter()` (`modal_app.py:97-105`); the inference itself is **local** to the container | **0** if the volume measurement shows the cache is already warm, otherwise the **byte size of the pinned model revision**, read from the provider's own file listing and recorded with its date | measurement + a pinned revision. A revision whose size cannot be pinned has **no bound**, and the GPU steps are then not dispatchable |
-| **persistence function** — `record_trajectory_remote` | writes one file and commits the volume (`modal_app.py:702-711`); it makes **no** outbound request | **0** | by construction (no outbound client in its call path) and read back from the provider's `Network Egress` line for the app session. It cannot use the network-blocking declaration, because the volume commit needs Modal's own data path |
+**The model download is therefore moved out of the run steps, into a separately approved
+prefetch step.** R1 adds **R2p — the model-cache prefetch** (§8.2):
 
-The estimate's ninth input is therefore
+* **one CPU container**, one attempt, no GPU: the pinned **revision** (a commit SHA, not a
+  branch name) of `qtum/Qwen3-Coder-30B-A3B-Audit` is downloaded into the volume's cache by
+  `huggingface_hub.snapshot_download(repo_id=…, revision=…, cache_dir=config.MODEL_CACHE_DIR)`
+  — the same cache layout `from_pretrained` reads — followed by `model_volume.commit()`;
+* the **file manifest** of that revision (path, size and digest per file) is recorded, and the
+  volume is **re-measured** after the commit;
+* R1 changes the GPU class' inference path to **`local_files_only=True`** (plus
+  `HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1` in the class env) and makes `@modal.enter()`
+  **verify the cache against the recorded manifest** and **refuse to start** when it is
+  incomplete. With `local_files_only=True` the hub client raises instead of downloading, so a
+  GPU container in R3b or R4 makes **no** model request at all — and a wrong cache fails the
+  container **closed** instead of quietly downloading.
+
+The bound the estimate needs follows directly: the GPU class' per-container egress in R3b and
+R4 is **0**, and the model bytes are billed **once**, to R2p, where they are a single
+container's single download.
+
+**The per-container caps.**
+
+| Container class | per-container egress cap | how the cap is established |
+|---|---|---|
+| **sandbox CPU** — `verify_exploit_remote`, `verify_replay_remote` | **0** | the provider-enforced blocking declaration on the **exact** function, under the three conditions below |
+| **GPU class** (R3b, R4) | **0** | `local_files_only=True` + the verified cache manifest; the inference itself is local to the container |
+| **GPU class** (R2p prefetch) | `pinned_bytes × (1 + R_download)` | one container, one attempt, one pinned revision — the download plus its retry allowance |
+| **persistence function** — `record_trajectory_remote` | **0 external** | by construction — it opens a file and commits the volume (`modal_app.py:700-712`) and makes no outbound request |
+
+**The sandbox class' zero is conditional, and the conditions are checkable before the
+dispatch.** The pinned SDK (1.5.5) exposes `block_network` on both `App.function` and
+`App.cls` ("Whether to block network access"), so R1 declares it on the two sandbox
+functions. Three facts make the zero hold, and each is established **before** the first
+dispatch, not after the run:
+
+1. the declaration sits on the **exact** function the producer dispatches. The sandbox
+   functions declare **no** `volumes=` (`modal_app.py:550-556`, `:582-588`), so they have no
+   Modal data path to lose. The two classes that *do* mount the volume — the GPU class
+   (`modal_app.py:74-80`) and the persistence function (`:695-700`) — **cannot** use the
+   declaration, which is why their zero comes from their own construction and not from the
+   blocking declaration;
+2. the runtime path needs **no** external network: the whole toolchain — Foundry, solc
+   0.8.19–0.8.28, forge-std v1.9.5, openzeppelin-contracts v5.0.2 — is installed **into the
+   image at build time** (`sandbox/runner.py:49-69`), and the Foundry profile runs
+   `offline = true` (`sandbox/runner.py:79`);
+3. the **dispatch helper asserts** the declaration on the function object it is about to
+   call, before the first dispatch of the step.
+
+If any of the three cannot be established — the SDK exposes no way to assert the declaration,
+or the blocking declaration breaks the function's own call path — the sandbox class is **not**
+priced at 0 but at a **conservative per-container allowance**, recorded with its source and
+its date; and if no allowance can be justified, the step is **not dispatchable**. The **R3
+smoke's** billing read-back is the *post-run* check and is explicitly **not** the substitute
+for this pre-dispatch bound: a post-run report can prove an overrun, it cannot prove a bound.
+
+**The overhead is included, not assumed away.** The model file sizes are not the whole of a
+billable egress: HTTP metadata requests, CDN redirects, protocol handshakes and retries are
+billed too. They enter the bound in two forms:
+
+* the **download allowance**: the prefetch's cap is `pinned_bytes × (1 + R_download)`, where
+  `R_download` is the **declared maximum number of download attempts** of that step — an
+  approval input with its source. If the client library's retry behaviour cannot be pinned to
+  a number, a conservative `R_download` is used; if it cannot be bounded at all, **R2p is not
+  dispatchable**;
+* the **protocol allowance**: every runtime container carries the provider's control-plane and
+  volume data-path traffic. `protocol_allowance_GiB(c)` is an approval input with its source
+  and date. **If the provider's documentation does not establish that platform-internal
+  traffic is excluded from the `Network Egress` rate class, the allowance is used
+  conservatively rather than assumed to be zero** — and if it cannot be bounded at all, the
+  affected step is **not dispatchable**.
+
+**The step total.**
 
 ```
-network_egress_GiB(step) = Σ_c egress_bound_GiB(c)
+cold_containers(c) ≤ min( invocations(c), max_containers_deployed(c) )
+network_egress_GiB(step) =
+      Σ_c [ cold_containers(c) × egress_cap_per_container_GiB(c) ]   # the payload itself
+    + Σ_c [ containers(c)     × protocol_allowance_GiB(c) ]           # the protocol overhead
 ```
 
 and the term is `Network_egress_rate × network_egress_GiB(step)` — the rate being an approval
@@ -2044,27 +2245,38 @@ the step's containers and outside this estimate; if a rebuild is authorised as p
 iteration, its egress is priced as a separate, separately recorded action, not folded into
 the step's bound.
 
-**The read-back is the provider's own report.** After the step, the app session's
-`Network Egress` line is read from the provider's billing report — the same report the
-existing CPU-smoke script already invokes (`benchmarks/run_iteration19_cpu_smoke.py:177-189`).
-A line larger than the estimated bound is an **overrun**: the app is stopped and the step is
-recorded as such, exactly like a spend overrun (§8.2.5).
+**The fallback, and why the prefetch is not optional.** Without the prefetch and the offline
+path, the GPU class' honest per-container cap is the **pinned revision's byte size**, and the
+step total is `cold_gpu_containers × pinned_bytes` — up to **32 model downloads** in R4. A
+single revision of a 30B model is tens of GiB, so that bound exceeds any plausible ceiling:
+**in that configuration R3b and R4 are non-dispatchable.** This is stated as a rule, not as a
+worry: the prefetch + offline path is the **only** configuration in which the GPU steps have
+a bounded egress, and R1 must establish it.
+
+**The read-back is the provider's own report — and it is an audit, not the bound.** After the
+step, the app session's `Network Egress` line is read from the provider's billing report —
+the same report the existing CPU-smoke script already invokes
+(`benchmarks/run_iteration19_cpu_smoke.py:177-189`). A line larger than the estimated bound
+is an **overrun**: the app is stopped and the step is recorded as such, exactly like a spend
+overrun (§8.2.5). The read-back **verifies** the pre-dispatch bound; it never **substitutes**
+for it.
 
 **An unbounded class is an unavailable estimate.** If any class's egress cannot be bounded —
-the GPU revision cannot be pinned, the volume measurement cannot be made, the blocking
-declaration cannot be established — then the estimate is **unavailable** and the affected step
-is **not dispatchable**. That is the same rule the memory term already follows (D26), applied
-to the egress term: a missing bound is not a small bound.
+the GPU revision cannot be pinned to a byte size, the prefetch cannot complete, the blocking
+declaration cannot be established, the retry count or the protocol allowance cannot be
+bounded — then the estimate is **unavailable** and the affected step is **not dispatchable**.
+That is the same rule the memory term already follows (D26), applied to the egress term: a
+missing bound is not a small bound.
 
 Until all three classes declare them, the **memory term of the estimate has no upper bound at
 all** — a scalar `memory=` is a request, and a container may exceed its request. The estimate
 of §8.2.5 would then not be a worst case but an **open-ended** quantity, and the rule of
 §8.2.5 applies to it verbatim: **the estimate cannot be bounded ⇒ the step is not
-dispatchable.** That holds today for R3, R3b and R4 alike — the ceilings (Q5) are unset, *and*
+dispatchable.** That holds today for R2p, R3, R3b and R4 alike — the ceilings (Q5) are unset, *and*
 the bounds are missing: no explicit limit, no bounded lifecycle, no enforced container count
 (D27), no bounded volume (D28) and no bounded egress (D29).
 
-Two invariants apply to all three steps:
+Two invariants apply to all the compute steps:
 
 * **A cap is a stop condition, not a target.** The step stops when the cap is reached; it
   never continues because the result is "almost" there.
@@ -2078,10 +2290,10 @@ Two invariants apply to all three steps:
   invocation for R3, **at most 4** for R3b and **at most 96** for R4 (16 targets × the
   6-call per-target trace), with no second path (D20, §8.2.1 c, §8.2.2, §8.2.5).
 
-The monetary ceilings of R3, R3b and R4 are **three separate numbers**, each attached to the
-approval of the respective step. **Q5** (§11.2) holds all three of them — the GPU smoke
-R3b, the 16-target run R4, and, with its own, smaller number, the CPU smoke R3, because a
-CPU container is a separate authorisation and not a free preliminary. None of the three
+The monetary ceilings of R2p, R3, R3b and R4 are **four separate numbers**, each attached to the
+approval of the respective step. **Q5** (§11.2) holds all four of them — the prefetch R2p, the
+GPU smoke R3b, the 16-target run R4, and, with its own, smaller number, the CPU smoke R3,
+because a CPU container is a separate authorisation and not a free preliminary. None of the four
 numbers is set by this plan, and a step whose ceiling is unset is **not dispatchable**: the
 pre-dispatch gate below is the mechanism, and an unresolved ceiling means the gate cannot be
 passed.
@@ -2093,9 +2305,9 @@ the step must pass a **pre-dispatch estimate gate** — three conditions, all of
 *before* the dispatch:
 
 1. **The ceiling exists and is approved.** The step's monetary ceiling is a number, written
-   down, and attached to that step's approval (**A-R3**, **A-R3b**, **A-R4**). The three
+   down, and attached to that step's approval (**A-R2p**, **A-R3**, **A-R3b**, **A-R4**). The four
    ceilings are open question **Q5** (§11.2) and are **not yet set**; until the maintainer
-   supplies and approves them, R3, R3b and R4 are **not dispatchable at all**. An unresolved
+   supplies and approves them, R2p, R3, R3b and R4 are **not dispatchable at all**. An unresolved
    ceiling is not a generous default — it is the absence of a budget, and this plan does
    not invent one.
 2. **An estimate exists, and each of its inputs is named.** The estimate is the **worst case**
@@ -2124,9 +2336,13 @@ the step must pass a **pre-dispatch estimate gate** — three conditions, all of
    containers(c)   ≤ invocations(c)      # provider-enforced: min_containers=0, buffer_containers=0 (D27)
    concurrent(c)   ≤ max_containers(c)   # provider-enforced: the deployment's concurrency cap (D27)
 
-   volume_GiB(step)         = baseline_GiB + incremental_GiB(step)        # measured + bounded (D28)
-   volume_GB_months(step)   = volume_GiB(step) × retention_months(step)   # the retention rule (D28)
-   network_egress_GiB(step) = Σ_c egress_bound_GiB(c)                     # policy + measurement (D29)
+   volume_GiB(step)         = baseline_GiB + incremental_GiB(step)          # measured + bounded (D28)
+   T_store(step)            = T_exec(step) + T_retention(step)              # bounded duration (D28)
+   months(step)             = 1 + ceil(T_store(step) / 28 days)             # conservative calendar months (D28)
+   volume_GB_months(step)   = volume_GiB(step) × months(step)               # the retention rule (D28)
+   cold_containers(c)       ≤ min( invocations(c), max_containers_deployed(c) )   # (D27, D29)
+   network_egress_GiB(step) = Σ_c [ cold_containers(c) × egress_cap_per_container_GiB(c) ]  # the payload (D29)
+                            + Σ_c [ containers(c)     × protocol_allowance_GiB(c) ]      # the overhead (D29)
    ```
 
    `cpu_limit` and `memory_limit` are the **explicit** limits R1 adds (the R1 resource
@@ -2135,8 +2351,9 @@ the step must pass a **pre-dispatch estimate gate** — three conditions, all of
    idle retention, all of it billed (§5.6 g). The container count, the volume quantity and the
    egress quantity are the three bounds of the subsections above: the container count is
    **provider-enforced** by the autoscaler policy (D27), the volume quantity is **measured and
-   bounded by construction** with a retention rule (D28), and the egress quantity is
-   **policy-bound or measurement-bound** per class (D29).
+   bounded by construction** over a **bounded duration** (D28), and the egress quantity is
+   **per-container policy-bound or measurement-bound** and summed over the step's containers
+   (D29).
 
    | # | Input | What it prices | Where it comes from | Status |
    |---|---|---|---|---|
@@ -2147,8 +2364,8 @@ the step must pass a **pre-dispatch estimate gate** — three conditions, all of
    | 5 | `Memory_rate` | the memory GiB-seconds of the **persistence** container, at its **explicit hard memory limit** after R1 (today: a 128 MiB request with **no** limit) | the **same published memory rate** as input 3 | **input to the approval**; the bound is R1's explicit limit — **without it this term is unbounded** (D26) |
    | 6 | `CPU_rate` | the CPU core-seconds of the **GPU containers' own** CPU — `ProductionAuditAgent` declares `gpu=…` and **no** `cpu=` (`modal_app.py:74-80`), so it too runs on the platform default request (§5.6 g) | the **same published Function CPU rate** as input 2 | **input to the approval**; the bound is R1's explicit limit (D26) |
    | 7 | `Memory_rate` | the memory GiB-seconds of the **GPU containers** — the H100 line and the memory line are separate charges on the same container | the **same published memory rate** as input 3 | **input to the approval**; the bound is R1's explicit limit — **without it this term is unbounded** (D26) |
-   | 8 | `Volume_storage_rate` | the persistent volume's **storage** — the bytes stored in `aegis-model-cache` over the step's retention window, **including the post-run retention** (D28). The write/commit of the persistence function (`modal_app.py:709-711`) contributes **bytes stored**, not a second charge: the provider publishes **no** commit fee, so there is no commit line in the estimate (§8.2.5) | the provider's published volume-storage rate (per GiB-month, with its published free allowance recorded but **not** netted out) | **input to the approval**; the *quantity* it multiplies is the measured baseline plus the bounded increment, times the retention window (D28) |
-   | 9 | `Network_egress_rate` | the **network egress** of the step — the data each container class sends out, at its per-class bound: 0 for the sandbox class under the provider-enforced blocking declaration, 0 or the pinned model revision's byte size for the GPU class, 0 for the persistence function (D29, §8.2.5). This is a **separate rate class** of the provider's, and the published app session already carries a non-zero `Network Egress` line (`$2.6E-7`) | the provider's published network-egress rate (per GiB, with the plan-level allowance recorded but **not** netted out) | **input to the approval**; the *quantity* it multiplies is the per-class bound — **without it this term is unbounded** (D29) |
+   | 8 | `Volume_storage_rate` | the persistent volume's **storage** — the bytes stored in `aegis-model-cache` over the step's **bounded storage duration**, **including the execution and the post-run retention** (D28). The write/commit of the persistence function (`modal_app.py:709-711`) contributes **bytes stored**, not a second charge: the provider publishes **no** commit fee, so there is no commit line in the estimate (§8.2.5) | the provider's published volume-storage rate (per GiB-month, with its published free allowance recorded but **not** netted out) | **input to the approval**; the *quantity* it multiplies is the measured baseline plus the bounded increment, over the bounded duration `(1 + ceil(T_store / 28 days))` months (D28) |
+   | 9 | `Network_egress_rate` | the **network egress** of the step — the payload each container sends out plus the protocol overhead, at a **per-container** cap summed over the step's containers: 0 for the sandbox class under the provider-enforced blocking declaration (verified before the dispatch), 0 for the GPU class in R3b/R4 (offline mode + the verified cache manifest), `pinned_bytes × (1 + R_download)` for the GPU class in the **R2p prefetch**, 0 external for the persistence function (D29, §8.2.5), plus a `protocol_allowance_GiB(c)` per container. This is a **separate rate class** of the provider's, and the published app session already carries a non-zero `Network Egress` line (`$2.6E-7`) | the provider's published network-egress rate (per GiB, with the plan-level allowance recorded but **not** netted out) | **input to the approval**; the *quantity* it multiplies is the per-container cap × the cold containers of the step + the protocol allowance — **without it this term is unbounded** (D29) |
 
    **There is no `Persistence_rate`.** The provider publishes CPU and memory rates by resource
    class; the persistence function is a Function, so it is priced with the **same** CPU and
@@ -2197,8 +2414,11 @@ limit, §5.6 g), **the billable lifetime of a container is not bounded** (no exp
 the bound), **the container count is not provider-enforced** (no `min_containers=0` and no
 `buffer_containers=0`, so the provider may bill warm or buffered containers that carry no
 invocation, D27), **the volume quantity cannot be measured or bounded** (the baseline
-listing fails, or the increment has no cap, D28), **a class's egress cannot be bounded**
-(D29), or the estimate command fails. In every one of those cases the step is recorded
+listing fails, the increment has no cap, **or the storage duration is not bounded** — no
+declared wall-clock budget and no finite ceiling, D28), **a class's egress cannot be bounded**
+(the GPU revision cannot be pinned, the prefetch cannot complete, the blocking declaration
+cannot be established, the retry count or the protocol allowance cannot be bounded, D29), or
+the estimate command fails. In every one of those cases the step is recorded
 as **"not dispatched — estimate unavailable"**, with the reason — never as "dispatched, cost
 unknown, we will see". The repository already holds the pattern for this: the CPU smoke's
 billing collection returns the provider's own line items or an explicit `NOT_AVAILABLE` with
@@ -2212,9 +2432,11 @@ provider's default `request + 16` rule, which moves with the request rather than
 declared. The **container count** (the multiplier of inputs 1–7) is bounded only by
 invocation arithmetic, because no class declares `min_containers`, `buffer_containers` or
 `max_containers`; the **volume quantity** (input 8) has neither a measured baseline nor a
-capped increment; and the **egress quantity** (input 9) is not bounded at all. The estimate
-for **R3**, **R3b** and **R4** is therefore **unbounded**, and an unbounded estimate is an
-unavailable estimate: **none of the three steps is dispatchable.** R1's explicit
+capped increment nor a bounded duration; and the **egress quantity** (input 9) is not bounded
+at all — the GPU class' model download is a **per-container** cost that every cold GPU
+container would pay, and the plan allows up to 32 of them in R4 (D29). The estimate
+for **R2p**, **R3**, **R3b** and **R4** is therefore **unbounded**, and an unbounded estimate is an
+unavailable estimate: **none of the four steps is dispatchable.** R1's explicit
 request/limit pairs and explicit lifecycle bounds (the R1 resource precondition above, D26),
 its autoscaler policy (D27), its volume policy (D28) and its egress policy (D29) are what
 turn the estimate into a worst case.
@@ -2239,17 +2461,20 @@ recorded as an overrun. The estimate is a *pre-dispatch* bound, the provider's r
 
 | Approval | Covers | Does **not** cover |
 |---|---|---|
-| **A-R3** | R3 only: the sandbox-CPU container, one target, one hypothesis, the CPU ceiling — and the pre-dispatch estimate at or below that ceiling | R3b (GPU), R4 (16 targets, H100) |
-| **A-R3b** | R3b only: one GPU inference call for one target, the GPU hard maximum cost — and the pre-dispatch estimate at or below that ceiling, computed against the **explicit** CPU and memory limits and the **explicit** lifecycle bounds that R1 declares for the GPU, the sandbox and the persistence classes (§8.2.5, D26), against the **enforced autoscaler policy** (D27), against the **measured volume baseline and capped increment** (D28) and against the **per-class egress bounds** (D29). Without them the estimate is **unbounded**, and the approval cannot be granted | R3, R4 |
-| **A-R4** | R4 only: the 16-target H100 run, the Q5 ceiling — and the pre-dispatch estimate at or below that ceiling, computed against the same explicit limits, lifecycle bounds, autoscaler policy, volume policy and egress policy (§8.2.5, D26–D29) | R3, R3b, and any retry step of either — a retry is a separate step with a separate approval (D20) |
+| **A-R2p** | R2p only: the model-cache prefetch — **one CPU container**, one attempt, the pinned revision's download, its own ceiling — and the pre-dispatch estimate at or below that ceiling, computed against the explicit limits and lifecycle bounds of the prefetch container, against the deployed autoscaler policy (D27), against the **measured volume baseline** and the **pinned revision's byte size** over the **bounded storage duration** (D28) and against the **download allowance** `pinned_bytes × (1 + R_download)` plus the protocol allowance (D29). Without them the estimate is **unbounded**, and the approval cannot be granted | R3, R3b, R4 — the prefetch populates a cache; it is not a benchmark run |
+| **A-R3** | R3 only: the sandbox-CPU container, one target, one hypothesis, the CPU ceiling — and the pre-dispatch estimate at or below that ceiling | R2p, R3b (GPU), R4 (16 targets, H100) |
+| **A-R3b** | R3b only: one GPU inference call for one target, the GPU hard maximum cost — and the pre-dispatch estimate at or below that ceiling, computed against the **explicit** CPU and memory limits and the **explicit** lifecycle bounds that R1 declares for the GPU, the sandbox and the persistence classes (§8.2.5, D26), against the **deployed autoscaler policy and the dispatch helper's per-step caps** (D27), against the **measured volume baseline and capped increment over the bounded storage duration** (D28) and against the **per-container egress bounds** (D29). Without them the estimate is **unbounded**, and the approval cannot be granted | R2p, R3, R4 |
+| **A-R4** | R4 only: the 16-target H100 run, the Q5 ceiling **and R4's wall-clock budget** (D28) — and the pre-dispatch estimate at or below that ceiling, computed against the same explicit limits, lifecycle bounds, autoscaler policy, volume policy and egress policy (§8.2.5, D26–D29) | R2p, R3, R3b, and any retry step of either — a retry is a separate step with a separate approval (D20) |
 
 The rules:
 
-1. **Approval for R4 does not approve R3 or R3b, and approval for R3 does not approve R3b.**
-   Each step is authorised separately, in writing, with its own ceiling attached.
+1. **Approval for R4 does not approve R2p, R3 or R3b; approval for R3 does not approve R3b; and
+   approval for R3b does not approve R2p.** Each step is authorised separately, in writing, with
+   its own ceiling attached.
 2. **Approval for R3b does not approve R4.** R3b exists to prove the inference plumbing
    *before* the expensive run; if it fails, the sequence stops at R3b (§8.3) and R4 needs a
-   **new** approval, not the old one.
+   **new** approval, not the old one. **Approval for R2p does not approve R3b either** — the
+   prefetch populates a cache and proves nothing about the inference path (§8.3).
 3. **One approval covers one attempt.** The approval of a step covers exactly the attempt its
    cap states — and the cap states **one**, because no step is retried automatically (D20).
    There is no approval of the form "the step and a second try if it fails": a retry is a
@@ -2257,13 +2482,17 @@ The rules:
    `A-R3r`), its own ceiling, its own pre-dispatch estimate and its own row in the approval
    table of the PR.
 4. **The approval record is part of the PR.** The PR of the regeneration iteration records,
-   per step: the approver, the date, the approved ceiling, the pre-dispatch estimate with
+   per step: the approver, the date, the approved ceiling, **the step's wall-clock budget**
+   (D28), the pre-dispatch estimate with
    the rate source it was computed from — **and, for each of the estimate's nine inputs
    (§8.2.5), the source and the date of that input** — and the actual spend read back from
    the provider. The record also carries the **bounds**, not only the rates: the effective
-   autoscaler settings read back before and after the step (D27), the measured volume
-   baseline and the post-step re-measurement with the cleanup event (D28), and the
-   provider's `Network Egress` line for the app session (D29). A step without that record
+   autoscaler settings read back before and after the step and the step's own per-class caps
+   from the dispatch helper (D27), the measured volume
+   baseline, the **bounded storage duration** (`T_exec`, `T_retention`) and the post-step
+   re-measurement with the cleanup event (D28), and the
+   provider's `Network Egress` line for the app session — an **audit** of the egress bound,
+   never its substitute (D29). A step without that record
    did not run.
 5. **No approval implies an estimate.** The pre-dispatch estimate belongs to the approval of
    the step it belongs to: the estimate of R3b is part of **A-R3b**, not of **A-R4**. An
@@ -2292,7 +2521,7 @@ therefore **cannot** claim a SHA other than the code that actually executed — 
 long as the *intended* checkout is the one that runs. The risk is not a lying manifest; it is
 running from the wrong checkout.
 
-The chain R1 → R2 → R3/R3b → R4 advances HEAD: R2 adds the negative tests, R3 and R3b are
+The chain R1 → R2 → R2p → R3/R3b → R4 advances HEAD: R2 adds the negative tests, R2p, R3 and R3b are
 run steps whose transcripts land on the branch, and R4's run directory is named after the SHA
 that happened to be checked out at that moment. If the run were executed from the branch head
 of that moment, the manifest would record the *tests* commit — a SHA that is not the commit
@@ -2309,7 +2538,7 @@ the producer was written in, and not the commit the closure's producer-immutabil
    *before* the first container is dispatched. No commit after `P` may touch a producer path
    — that is what makes P6.14's diff empty (§9.3) and what makes the invalidation rule of
    item 10 unambiguous.
-2. **R3, R3b and R4 are executed from a detached worktree at `P`, and so are the two steps
+2. **R2p, R3, R3b and R4 are executed from a detached worktree at `P`, and so are the two steps
    that judge their bytes (R5, R9):**
 
    ```bash
@@ -2406,25 +2635,34 @@ that invalidates the run and forces a fresh capture (item 10, §9.3).
 The order is a strict dependency chain:
 
 ```
-R3 (CPU smoke) ──> R3b (GPU inference smoke, separately authorised) ──> R4 (run)
-                                                                            │
-                                                                            v
-                                              R5 (verify new bytes) ──> R6 (publish run tree additively)
-                                                                            │
-              ┌─────────────────────────────────────────────────────────────┤
-              v                             v                               v
-        R7 (harness)              R9 (new run report)                R6 artifacts
-              │                             │
-              v                             │
-        R8 (join table)                    │
-              │                             │
-              └─────────────┬───────────────┘
-                            v
-              R10 (iter 19-23 + closure) ──> R11 (full suite) ──> R12 (PR)
+R2p (model-cache prefetch, separately authorised) ──> R3 (CPU smoke) ──> R3b (GPU inference smoke) ──> R4 (run)
+                                                                                                             │
+                                                                                                             v
+                                                                                       R5 (verify new bytes) ──> R6 (publish run tree additively)
+                                                                                                             │
+                                                                                   ┌─────────────────────────────────────────────────────────────┤
+                                                                                   v                             v                               v
+                                                                             R7 (harness)              R9 (new run report)                R6 artifacts
+                                                                                   │                             │
+                                                                                   v                             │
+                                                                             R8 (join table)                    │
+                                                                                   │                             │
+                                                                                   └─────────────┬───────────────┘
+                                                                                                 v
+                                                                               R10 (iter 19-23 + closure) ──> R11 (full suite) ──> R12 (PR)
 ```
 
 R5 sits **before** R6 on purpose: the new bytes are verified while they are still outside
 the published tree, so a bad run never becomes published evidence.
+
+**R2p sits before every GPU step on purpose.** The GPU class' `@modal.enter()` downloads the
+model whenever the cache is cold, and it runs on **every** container start — so without a
+prefetch, the model's bytes are a **per-container** egress cost that up to 32 cold containers
+in R4 would each pay, and the egress bound of the GPU steps is not a worst case but a wish
+(D29). The prefetch pays that cost **once**, under its own approval and its own ceiling, and
+after it the GPU containers load the model locally (`local_files_only=True`) and fail **closed**
+on an incomplete cache. R2p is not a benchmark run: it produces no artifact and proves nothing
+about the inference path, which is why it has its own, separate approval.
 
 R3b sits **before** R4 on purpose: the inference plumbing is the one part of the provenance
 contract that R3 cannot exercise, and R4 is the expensive step. Paying for 16 GPU targets
@@ -2433,7 +2671,9 @@ unpublishable artifacts.
 
 **A failed smoke ends the sequence.** A smoke that fails its gate stops the regeneration
 there (§8.2.5): the sequence does not continue into R4 with a producer that is known to be
-broken, and R4 requires its own approval in any case. There is **no automatic retry** of a
+broken, and R4 requires its own approval in any case. The same holds for the prefetch: a
+failed R2p ends the sequence before R3b, and a retry is a new, separately named step. There is
+**no automatic retry** of a
 failed smoke: every smoke is a single attempt (D20), so a retry is a **new, separately named
 step** with its own approval, its own ceiling and its own pre-dispatch estimate — it is
 recorded as its own step in the sequence and in the PR, never as a second try of R3 or R3b.
@@ -2735,7 +2975,17 @@ because the entrypoint *is* the producer. What the regeneration must preserve is
 1. **Pre-flight (no cost):** confirm the app exists and the model is available; confirm the
    worker image contains `forge`; confirm the client can reach the provider's container
    listing (`ModalProvider.containers_of_app`).
-2. **CPU plumbing smoke (small cost):** one target, executed through the producer's own path
+2. **Model-cache prefetch (small cost, own approval):** one CPU container that downloads the
+   **pinned revision** of the model into the volume's cache and commits it — this is **R2p**
+   (§8.2, D29). It exists because the GPU class' `@modal.enter()` downloads the model whenever
+   the cache is cold, and it runs on **every** container start: without the prefetch, the
+   model's bytes are a **per-container** egress cost that up to 32 cold containers in R4 would
+   each pay, and the GPU steps' egress has no worst case. The prefetch has its own ceiling,
+   its own approval **A-R2p** and its own pre-dispatch estimate gate (§8.2.5), and it is a
+   **single attempt** (D20). Its output is the **file manifest** of the pinned revision and
+   the re-measured volume — after it, the GPU containers load the model locally and download
+   nothing.
+3. **CPU plumbing smoke (small cost):** one target, executed through the producer's own path
    with the inference stage not attempted — this is **R3** (§8.2.1, D17, D19). The mechanism
    is the adapter's **existing** `candidate_generator` parameter (`benchmarks/adapters.py:1596`,
    `:1603`, used at `:1783-1784`), so **no new CPU mode has to be invented**: with a
@@ -2756,49 +3006,50 @@ because the entrypoint *is* the producer. What the regeneration must preserve is
    before any paid run. A CPU container is still Modal compute and still costs money, so R3
    has its own ceiling, its own approval **A-R3** and its own pre-dispatch estimate gate
    (§8.2.5).
-3. **Inference-plumbing smoke (minimal GPU cost):** one target with the published inference
+4. **Inference-plumbing smoke (minimal GPU cost):** one target with the published inference
    configuration, exercising the `inference` stage and resolving its provider-issued identities
    — this is **R3b** (§8.2.2), and it needs its **own explicit authorisation** **A-R3b** with
    its cap fixed before the first call (§8.2.5). It is a **single attempt** (D20): dispatched
    once, never retried automatically, and any failure ends it. The **refinement branch is
    switched off** for this step (§8.2.2 a) — the smoke proves the inference plumbing, not the
    refinement branch, and it must not pay for a second GPU call it did not plan for.
-4. **Full run (cost):** the 16 targets, `modal_h100`, `--hypotheses=3`, executed from the
+5. **Full run (cost):** the 16 targets, `modal_h100`, `--hypotheses=3`, executed from the
    detached worktree at `P` (§8.2.6) under the approval **A-R4** and the ceiling of Q5. The
    **refinement branch is enabled** here, as in the published run — the published
    configuration refined on 14 of 16 targets (§5.6 b) — so the run may make up to **6** Modal
    invocations per target and **96** in the run (§8.2.5).
-5. **Client-side correlation:** for every stage, resolve the provider-issued
+6. **Client-side correlation:** for every stage, resolve the provider-issued
    `container_id` from the `function_call_id` the worker observed, using
    `call_graph_inputs` → `containers_of_app` → `task_app_id`, with the last one as an
    independent cross-check. If the provider does not answer, the field is recorded
    `NOT_AVAILABLE` with the provider's own reason — **never** a synthetic id (§6.6 T5).
-6. **Billing export:** export the raw billing line items for the run's window
+7. **Billing export:** export the raw billing line items for the run's window
    (`modal app billing` / the workspace's billing export) into
    `modal_billing_report_raw.json`. **Only if a new billing window is opened** — otherwise the
    raw export, and its digest in the join table, stay exactly as they are (§4.4, §7.3).
-7. **Join table:** regenerate schema 3.0.0 from the raw export; target-level costs stay
+8. **Join table:** regenerate schema 3.0.0 from the raw export; target-level costs stay
    `null` unless an exact, unique provider join exists.
 
 ### 10.3 Cost controls
 
 | Control | Value |
 |---|---|
-| Per-step ceilings | **three separate numbers** — the CPU ceiling of R3, the GPU hard maximum cost of R3b, and the ceiling of R4 (§8.2.5). All three are **not yet set** — open question **Q5** (§11.2); a step whose ceiling is unset is **not dispatchable** |
+| Per-step ceilings | **four separate numbers** — the prefetch ceiling of **R2p**, the CPU ceiling of **R3**, the GPU hard maximum cost of **R3b**, and the ceiling of **R4** (§8.2.5). All four are **not yet set** — open question **Q5** (§11.2); a step whose ceiling is unset is **not dispatchable** |
+| Per-step wall-clock budgets | every step declares its own **wall-clock budget** in its approval record. It is the step's execution bound, and through `T_exec ≤ ceiling / burn_rate` it is also the **second, independent bound on the storage duration** (D28). **R4 declares none today** — its stop condition is the monetary ceiling alone — so R4's volume term is unavailable and **R4 is not dispatchable** until the maintainer supplies one (Q5) |
 | Pre-dispatch estimate | every compute step passes the estimate gate of §8.2.5 **before** the first container: a numeric ceiling approved for that step, a worst-case estimate at or below it, and a recorded rate source. An unavailable estimate ⇒ **no dispatch** |
-| Estimate source | the provider's published rate for the declared resources — an input to the approval record, never a constant in the repository (`benchmarks/adapters.py:19`; `cost_status: "unmeasured"` in the published `summary.json:167`). The estimate has **nine named inputs** (§8.2.5). The **rates** are all published — CPU, memory, GPU, volume storage **and network egress**; the **bounds** those rates multiply are not, until R1 declares the explicit request/limit pairs, the explicit lifecycle bounds, the autoscaler policy, the volume policy and the egress policy. Until then the estimate is **unbounded**, and R3, R3b and R4 are **not dispatchable** (§8.2.5, D26–D29) |
-| Estimate formula | `GPU_rate × gpu_container_seconds + CPU_rate × sandbox_core_seconds + Memory_rate × sandbox_GiB_seconds + CPU_rate × persistence_core_seconds + Memory_rate × persistence_GiB_seconds + CPU_rate × gpu_container_core_seconds + Memory_rate × gpu_container_GiB_seconds + Volume_storage_rate × volume_GB_months + Network_egress_rate × network_egress_GiB` (§8.2.5), where every container term is `limit × T_billable`, `T_billable = startup_bound + execution_bound + idle_bound`, the container count is **at most** the invocation count — a bound the autoscaler policy makes **provider-enforced** (§5.6 g, D27) — and the volume and egress quantities are the measured/bounded and policy-bound quantities of D28 and D29. The persistence function is priced with the **same published Function CPU and memory rates** as the other Functions — there is **no separate persistence rate class** — plus the volume's storage rate (D25); there is **no commit fee** and **no per-function egress rate** |
+| Estimate source | the provider's published rate for the declared resources — an input to the approval record, never a constant in the repository (`benchmarks/adapters.py:19`; `cost_status: "unmeasured"` in the published `summary.json:167`). The estimate has **nine named inputs** (§8.2.5). The **rates** are all published — CPU, memory, GPU, volume storage **and network egress**; the **bounds** those rates multiply are not, until R1 declares the explicit request/limit pairs, the explicit lifecycle bounds, the autoscaler policy, the volume policy and the egress policy. Until then the estimate is **unbounded**, and R2p, R3, R3b and R4 are **not dispatchable** (§8.2.5, D26–D29) |
+| Estimate formula | `GPU_rate × gpu_container_seconds + CPU_rate × sandbox_core_seconds + Memory_rate × sandbox_GiB_seconds + CPU_rate × persistence_core_seconds + Memory_rate × persistence_GiB_seconds + CPU_rate × gpu_container_core_seconds + Memory_rate × gpu_container_GiB_seconds + Volume_storage_rate × volume_GB_months + Network_egress_rate × network_egress_GiB` (§8.2.5), where every container term is `limit × T_billable`, `T_billable = startup_bound + execution_bound + idle_bound`, the container count is **at most** the invocation count — a bound the autoscaler policy makes **provider-enforced** (§5.6 g, D27) — the volume quantity is the measured baseline plus the capped increment over the **bounded storage duration** (D28), and the egress quantity is the **per-container** cap × the step's cold containers plus the protocol allowance (D29). The persistence function is priced with the **same published Function CPU and memory rates** as the other Functions — there is **no separate persistence rate class** — plus the volume's storage rate (D25); there is **no commit fee** and **no per-function egress rate** |
 | Resource profile and lifecycle bounds | before any compute step is dispatched, every container class must declare `cpu=(request, limit)`, `memory=(request, limit)`, `startup_timeout` and `scaledown_window` — the **R1 resource precondition** (§8.2.5, D26). A **request** is not a limit, and a **timeout** is not the billable lifetime (§5.6 g) |
-| Autoscaler policy | every container class declares `min_containers=0`, `buffer_containers=0` and a `max_containers` no greater than the step's own invocation cap for that class (sandbox 1 / 2 / 48, GPU 1 / 32, persistence 1 / 16 for R3 / R3b / R4) — the **R1 autoscaler policy** (§8.2.5, D27). The effective settings are **read back** before the first container and again after the step, and recorded; an update may only **tighten** a cap, never raise one, and no other code path may call the autoscaler update. Without this the container count is an arithmetic hope, not a provider-enforced bound, and the step is **not dispatchable** |
-| Volume storage bound | the billable volume quantity is the **measured baseline** of `aegis-model-cache` plus the **capped increment** (one capped trajectory file per dispatched persistence call; the pinned model revision's bytes for a cold model cache), multiplied by the **retention window** — the run's own files are deleted within 30 days of the publication and immediately on an abort, and the volume is re-measured afterwards (§8.2.5, D28). An unmeasurable volume is a fail-closed stop, not a small one; a **commit is not a fee** — the provider publishes none |
-| Network egress | every container class has a **bounded** egress quantity: the sandbox class under the provider-enforced blocking declaration (verified on the R3 smoke), the GPU class at 0 or the pinned model revision's byte size, the persistence function at 0 (§8.2.5, D29). The estimate carries the term as its **ninth input**; the provider's own `Network Egress` line for the app session is the read-back, and a line above the estimate is an overrun. A class whose egress cannot be bounded makes the estimate unavailable, and the step is **not dispatchable** |
+| Autoscaler policy | every container class declares `min_containers=0`, `buffer_containers=0` and a deployed `max_containers` equal to the **union** of the steps' caps for that class (sandbox 48, GPU 32, persistence 16) — the **R1 autoscaler policy** (§8.2.5, D27). The deployed configuration **never changes between the steps**: the repository contains **no mutating autoscaler call**, so no cap can be raised and no stale override can survive; the **per-step** cap is enforced by the **dispatch helper** (invocation budget + concurrency gate + ceiling assertion) from the step's approval record, and the effective settings are **read back** — with the **no-argument** `update_autoscaler()`, which changes nothing — before the first container and again after the step, and both readings are recorded. Without this the container count is an arithmetic hope, not a provider-enforced bound, and the step is **not dispatchable** |
+| Volume storage bound | the billable volume quantity is the **measured baseline** of `aegis-model-cache` plus the **capped increment** (one capped trajectory file per dispatched persistence call; the pinned model revision's bytes in the **prefetch step R2p**), multiplied by the **bounded storage duration** — `T_store = T_exec + T_retention` (30 days after the publication, the same 30 days on the abort path), priced as `1 + ceil(T_store / 28 days)` months (§8.2.5, D28). The **baseline** is priced for the same bounded interval; **all run-created bytes are counted until the deletion is verified**. Every step declares a **wall-clock budget**, and `T_exec ≤ ceiling / burn_rate` bounds it a second time. An unmeasurable volume, an unbounded duration and an exceeded cap are fail-closed stops, not small ones; a **commit is not a fee** — the provider publishes none |
+| Network egress | every container class has a **per-container** egress bound, summed over the step's containers (§8.2.5, D29): the sandbox class at **0** under the provider-enforced blocking declaration (established before the dispatch — the declaration, the source-level proof and the dispatch helper's assertion — with the R3 smoke as the empirical confirmation), the GPU class at **0** in R3b/R4 (offline mode + the verified cache manifest), the GPU class in the **prefetch step R2p** at `pinned_bytes × (1 + R_download)`, the persistence function at **0 external** — plus a `protocol_allowance_GiB(c)` per container for the control-plane and volume data-path traffic, used conservatively unless the provider's documentation excludes platform-internal traffic from the egress rate class. The estimate carries the term as its **ninth input**; the provider's own `Network Egress` line for the app session is the **post-run audit** of that bound, never its substitute. A class whose egress cannot be bounded makes the estimate unavailable, and the step is **not dispatchable** |
 | Actual spend | the provider's own billing report after the run (`benchmarks/run_iteration19_cpu_smoke.py:177-189`), compared with the ceiling; an overrun aborts the step (`modal app stop`) and is recorded as an overrun |
-| Per-step approvals | **A-R3**, **A-R3b**, **A-R4** — one per step, each with its own ceiling (§8.2.5). No approval implies another: the approval of R4 approves R4 and nothing else |
-| Per-step caps | **exactly 1 attempt** per step, no automatic retry (D20): R3 = **1** Modal invocation (sandbox CPU), R3b = at most **4** (1 GPU + ≤ 2 sandbox-CPU + ≤ 1 persistence function; the refinement branch is switched off, §8.2.2 a — **6** against the pre-R1 producer, which is not authorised), R4 = one authorised run of 16 targets making at most **96** Modal invocations (**≤ 32** GPU + **≤ 48** sandbox-CPU + **≤ 16** persistence function); the published run's own measured trace was 64 (**30** GPU + **32** sandbox-CPU + **2** persistence function) (§8.2.5) |
+| Per-step approvals | **A-R2p**, **A-R3**, **A-R3b**, **A-R4** — one per step, each with its own ceiling (§8.2.5). No approval implies another: the approval of R4 approves R4 and nothing else |
+| Per-step caps | **exactly 1 attempt** per step, no automatic retry (D20): R2p = **1** CPU container (the prefetch), R3 = **1** Modal invocation (sandbox CPU), R3b = at most **4** (1 GPU + ≤ 2 sandbox-CPU + ≤ 1 persistence function; the refinement branch is switched off, §8.2.2 a — **6** against the pre-R1 producer, which is not authorised), R4 = one authorised run of 16 targets making at most **96** Modal invocations (**≤ 32** GPU + **≤ 48** sandbox-CPU + **≤ 16** persistence function); the published run's own measured trace was 64 (**30** GPU + **32** sandbox-CPU + **2** persistence function) (§8.2.5) |
 | Target cost attribution | `null` + `UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN` unless a proven join exists — the existing policy already prevents a target cost from being invented |
 | Aggregate allocation | `FORBIDDEN` (`attribution_policy.aggregate_bucket_allocation`) — no aggregate bucket may be spread over targets |
 | App-session granularity | the app-session total is the only cost that may be published |
-| Pre-flight | the smoke run in step 2 happens **before** the 16-target run and must be reviewed; a failed smoke ends the sequence (§8.3) |
+| Pre-flight | the prefetch (step 2) and the smoke run (step 3) happen **before** the 16-target run and must be reviewed; a failed prefetch or a failed smoke ends the sequence (§8.3) |
 | GPU | `H100` only where the original run used it; **sandbox CPU** (request 2.0 cores / 2048 MiB) for the EVM-sandbox and replay stages; the **persistence function** on its own default profile — no `cpu=`, no `memory=`, request 0.125 cores / 128 MiB, default CPU limit 16.125 cores, **no hard memory limit**, `timeout=60`, persistent volume attached (§5.6 g). All three classes are **unbounded** until R1 declares their explicit limits and lifecycle bounds (D26) and its autoscaler, volume and egress policies (D27–D29) |
 | Executed code | the run is executed from the detached worktree at `P` (§8.2.6) — the manifest, the run directory, the report and the closure carry that one SHA |
 
@@ -2838,7 +3089,7 @@ something this plan settles; anything that is still the maintainer's call is a q
 | **D13** | **The authoritative run is selected by a literal path, through the replacement iteration's own validator module.** The new module is `benchmarks/validate_iteration24_evidence.py`; it reuses the Iteration 18 check logic unchanged and adds the manifest-integrity check that no iteration validator performs today. The closure selects the run through an explicit `--run-dir` argument. | D9 states the principle — explicit selection, never by recency — and this is its concrete form: the value is a literal in exactly two places, and the run is bound to the SHA in its own manifest (§8.2.4). The Iteration 18 validator cannot be reused: it writes to a fixed report path and would overwrite the published Iteration 18 report (D8). |
 | **D14** | **Every compute step has its own hard cap, its own stop condition and its own explicit approval.** No approval implies another, and no approval implies a retry (D20). | A CPU container on Modal is compute, too, and R3b spends GPU credits before the Q5 ceiling is set. A cap that is not fixed before the step starts is not a cap (§8.2.5). |
 | **D15** | **The run executes from a detached worktree pinned at the producer commit `P`.** The manifest's `git.commit_sha`, the run directory's suffix, the report's `code_sha` and the closure's capture binding are therefore the same value by construction. | The manifest reads its SHA from the checkout that executes the run, so the risk is not a lying manifest but running from the wrong checkout. A detached worktree is the only arrangement in which the four bindings cannot drift apart (§8.2.6, §9.3). |
-| **D16** | **No compute step is dispatched without a pre-dispatch cost estimate at or below its own approved ceiling. If the estimate is unavailable — and an estimate over unbounded resources is unavailable — the step does not start.** The estimate covers the step's **single** attempt (D20); a retry step needs its own estimate against its own ceiling. The three monetary ceilings — R3, R3b, R4 — remain **Q5** (§11.2) and are **not** set by this plan; until they are supplied and approved, all three steps are undispatchable. **Independently of the ceilings**, the estimate is **unbounded** today: no container class declares a hard memory limit, no class declares an explicit startup or idle bound, the default CPU limit moves with the request, no class declares an autoscaler policy that keeps the container count at the invocation count, no volume baseline was measured and no class's egress is bounded (D26–D29) — so **none of the three steps is dispatchable even if its ceiling were set today**. | A cap that is only checked after the spend is not a gate, and R3b spends GPU credits before the full-run ceiling exists, so it needs a ceiling, an approval and an estimate of its own. The repository deliberately has no cost estimator (`benchmarks/adapters.py:19`; `cost_status: "unmeasured"`), so the estimate has to come from the provider and be recorded with its source — it cannot be invented here (§8.2.5). |
+| **D16** | **No compute step is dispatched without a pre-dispatch cost estimate at or below its own approved ceiling. If the estimate is unavailable — and an estimate over unbounded resources is unavailable — the step does not start.** The estimate covers the step's **single** attempt (D20); a retry step needs its own estimate against its own ceiling. The monetary ceilings — R2p, R3, R3b, R4 — remain **Q5** (§11.2) and are **not** set by this plan; until they are supplied and approved, all four steps are undispatchable. **Independently of the ceilings**, the estimate is **unbounded** today: no container class declares a hard memory limit, no class declares an explicit startup or idle bound, the default CPU limit moves with the request, no class declares an autoscaler policy that keeps the container count at the invocation count, no volume baseline was measured, no step declares a wall-clock budget and no class's egress is bounded (D26–D29) — so **none of the four steps is dispatchable even if its ceiling were set today**. | A cap that is only checked after the spend is not a gate, and R3b spends GPU credits before the full-run ceiling exists, so it needs a ceiling, an approval and an estimate of its own. The repository deliberately has no cost estimator (`benchmarks/adapters.py:19`; `cost_status: "unmeasured"`), so the estimate has to come from the provider and be recorded with its source — it cannot be invented here (§8.2.5). |
 | **D17** | **R3 runs the producer's own `execute_target()` and takes the adapter's candidate-generator branch, so the inference stage is not attempted.** The mechanism is the `candidate_generator` parameter the production adapter already has (`benchmarks/adapters.py:1596`, stored at `:1603`, used at `:1783-1784`) — not a separate smoke app, and not a `modal_cpu` provider, which does not exist in the code. R1 introduces the **fixture and its loader**, not a bypass mechanism. | Only the producer writes the §5 stage block (`benchmarks/adapters.py:2377-2411`); the dedicated CPU app (`benchmarks/modal_cpu_smoke_app.py`) produces a single-function identity record and stays a pre-flight check. The candidate generator short-circuits the provider dispatch **before** the GPU call (`:1783` vs `:1785-1792`), and the refinement loop cannot fire because it requires `candidate_generator is None` (`:1838`), so R3 makes exactly one Modal call, and it is a CPU one. The stage block is always complete — all six keys are written (`:2377-2409`, §5.6 d) — so the attempt flag inside it is what distinguishes "not attempted" from "attempted and failed" (`evidence_integrity.py:1829-1836`, `:608-614`) (§8.2.1, §10.2). |
 | **D18** | **The producer surface is sealed at `P`, and the run is bound to the bytes of `P`.** Every execution step and every step that judges the run's bytes happens in the detached worktree at `P`; the executed producer bytes are verified by digest; and any commit after `P` that touches a producer path **invalidates the run** and requires a fresh capture. | The manifest's SHA binds a commit; a digest binds the bytes, and only the second one rules out "the code that ran is not the code that was named". A producer-changing commit between the capture and the closure is detected by P6.14's diff, and the consequence is fixed in advance — a new capture, not a re-labelled one (§8.2.6, §9.3). |
 | **D19** | **R3's candidate is a checked-in, non-breaching fixture — a negative control — and R3 claims only the EVM-sandbox stage.** The fixture is never presented as model output, is written outside `benchmarks/evidence/`, and its digest is recorded with the smoke. R3 records `independent_replay.attempted = false` and proves nothing about the replay stage. | A plumbing smoke needs a candidate that costs no GPU credits and cannot fabricate a finding. A model candidate would make R3 a paid inference test — that is R3b. A breaching candidate would make the replay branch fire (`adapters.py:1882`) and turn a plumbing smoke into an accidental benchmark run. The producer enters that branch only on `INVARIANT_BREACH_UNREPLAYED`, so a non-breaching fixture keeps the smoke deterministic and its stage matrix fixed (§8.2.1 b, c). |
@@ -2849,9 +3100,9 @@ something this plan settles; anything that is still the maintainer's call is a q
 | **D24** | **The stage set becomes six keys** — `inference`, `evm_sandbox`, `refinement`, `evm_sandbox_after_refinement`, `independent_replay`, `trajectory_persistence` — all always present, in pipeline order; the producer stops **overwriting** the inference and first-verification captures under the refinement; a stage's `function_name` is bound to the capture that produced its facts (**C7**); and `modal_functions` becomes the **ordered invocation trace** (**C8**). | Under the refinement the current producer gives two stages the **wrong call's** facts (§5.6 c): the `inference` stage carries the refinement's response and identity, and the `evm_sandbox` stage the second verification's. A stage that names one function and carries another function's identity is a false provenance statement — the exact failure the §5 contract exists to prevent. The function name is bound to the capture because `StageResponseCapture` has no name field today (`evidence_integrity.py:1019-1042`) and the name is taken from the provider instead (`adapters.py:2246-2254`). |
 | **D25** | **The persistence function is its own container class, and it is priced as compute at the published Function rates.** `record_trajectory_remote` declares no `cpu=` and no `memory=` (`modal_app.py:695-700`), so it runs on the platform default — a 0.125-core / 128 MiB **request**, a 16.125-core default limit, **no hard memory limit** and its own `timeout=60` — and it is billed on `max(request, actual usage)`; the persistent volume's storage is billed separately from its compute. It is therefore **neither** a sandbox-CPU call (a 2.0-core / 2048 MiB request) **nor** a free volume operation. **There is no separate "persistence" rate class**: the provider publishes CPU and memory rates by resource class, so the persistence function is priced with the **same** Function CPU and memory rates as the other Functions, plus the volume's storage rate (§8.2.5, inputs 4, 5 and 8). | Grouping the persistence call with the sandbox-CPU calls understates the sandbox calls and overstates the persistence call's rate; labelling it "volume" omits a real compute charge altogether. What the published raw billing export **cannot** resolve is the **historical** per-function share of the run's aggregate `$0.03001687` CPU line — the export is aggregated **per app session** and carries no function dimension (§5.6 g). That is an **attribution** limitation of the old evidence, not a missing price, and it blocks nothing: the published evidence publishes the app-session total, the only level the provider's export resolves (§4.4, §10.3). |
 | **D26** | **A request is not a limit, and the billable lifetime is the container's, not the function's.** Every container class declares an explicit `cpu=(request, limit)` and `memory=(request, limit)` pair, an explicit `startup_timeout` and an explicit `scaledown_window`; the estimate is computed against those **limits** and against `T_billable = startup_bound + execution_bound + idle_bound`; and until the declarations are in place, the memory term of the estimate is **unbounded** and the affected steps are **not dispatchable**. | A scalar `cpu=`/`memory=` is a *request*: the provider's default CPU limit is `request + 16` and therefore moves with the request, and there is **no** default memory ceiling at all, so a container may exceed its request. And a function's `timeout` covers the **execution** phase alone, while the provider bills the container's startup and its idle retention as well. An estimate that treats requests as caps and timeouts as lifetimes is not a worst case but an understatement (§5.6 g, §8.2.5). |
-| **D27** | **The container-count bound is provider-enforced, not arithmetic.** Every container class declares `min_containers=0`, `buffer_containers=0` and a `max_containers` no greater than the step's own invocation cap for that class; the effective cap may only be **tightened** at dispatch time, never raised; the effective settings are read back before the first container and again after the step, and both readings are recorded; no other code path may call the autoscaler update. Until this is in place, the estimate's container multiplier is an arithmetic hope, and the affected steps are **not dispatchable**. | A warm pool (`min_containers`) and an idle buffer (`buffer_containers`) are billed **without carrying an invocation** — "The minimum number of containers that should be kept warm, even when the Function is inactive", "The size of the buffer to maintain while the Function is active" (Modal Docs, *Scaling out*) — and the provider publishes **no default** for either, so an unset autoscaler setting is an unknown in exactly the sense an unset memory limit is. The provider also allows the settings to be changed at runtime without a redeploy, so a silent raise would break the estimate without touching the repository. And `max_containers` caps the **concurrency**, not the number of containers a class starts over time — a container that scales down and is replaced is a second container — so it adds a second, independent bound and cannot replace the invocation bound (§5.6 g, §8.2.5). |
-| **D28** | **The volume is a billable object with a measured baseline, a capped increment and a retention rule.** The estimate's volume term is `(measured baseline + capped increment) × retention window`; the baseline of `aegis-model-cache` is measured by the provider's own listing before the dispatch, the increment is capped in the producer (one capped trajectory file per dispatched persistence call; the pinned model revision's bytes for a cold model cache), the run's own files are deleted within 30 days of the publication and immediately on an abort, and the volume is re-measured afterwards. An unmeasurable volume, an exceeded cap and an unmeterable post-step size are **fail-closed stops**, and the affected steps are **not dispatchable**. | The provider prices volumes per GiB-month, separately from the compute of the container that writes to them, and the run writes to one (`modal_app.py:702-711`) — an unbounded storage quantity is an unbounded estimate. A commit is **I/O**, not a fee: the provider publishes no commit charge, so the estimate does not invent one. And the provider's free allowance belongs to the workspace's plan, not to the run, so the estimate prices the full quantity and records the allowance instead of netting it out (§5.6 g, §8.2.5). |
-| **D29** | **Network egress is a named term with a per-class bound.** The estimate carries `Network_egress_rate × network_egress_GiB` as its **ninth** input; each container class has a bound — the sandbox class at 0 under the provider-enforced blocking declaration, the GPU class at 0 or the pinned model revision's byte size, the persistence function at 0 — and the provider's own `Network Egress` line for the app session is the read-back after the step. A class whose egress cannot be bounded makes the estimate unavailable, and the affected steps are **not dispatchable**. | The provider publishes a **separate egress rate class**, and the repository's own published billing export already carries a non-zero `Network Egress` line for the canonical app session (`$2.6E-7`) — so egress is an observed cost of this workflow, not a theoretical one. An estimate that omits a line the provider bills is not a worst case. The sandbox class provably sends nothing out (the whole toolchain is baked into the image at build time and the runtime runs `offline = true`), the GPU class's only egress is the model download, and the persistence function makes no outbound request — so every class is boundable, and a class that is not boundable is a step that does not start (§5.6 g, §8.2.5). |
+| **D27** | **The container-count bound is provider-enforced, and the autoscaler is never mutated at runtime.** Every container class declares `min_containers=0`, `buffer_containers=0` and a deployed `max_containers` equal to the **union** of the authorised steps' caps for that class (48 / 32 / 16); the repository contains **no** mutating autoscaler call at all; the **per-step** effective cap is enforced by the **dispatch helper** (per-class invocation budget, per-class concurrency gate, and a ceiling assertion against the deployed value) from the step's approval record; and the effective settings are **read back** — with the **no-argument** `update_autoscaler()`, which changes nothing — before the first container and again after the step, both readings recorded. Until this is in place, the estimate's container multiplier is an arithmetic hope, and the affected steps are **not dispatchable**. | A warm pool (`min_containers`) and an idle buffer (`buffer_containers`) are billed **without carrying an invocation** — "The minimum number of containers that should be kept warm, even when the Function is inactive", "The size of the buffer to maintain while the Function is active" (Modal Docs, *Scaling out*) — and the provider publishes **no default** for either, so an unset autoscaler setting is an unknown in exactly the sense an unset memory limit is. The provider also allows the settings to be changed at runtime without a redeploy, so a silent raise would break the estimate without touching the repository — and a runtime override is a **stale** object that survives until the next deploy. That is why the repository makes **no** autoscaler call: a deployed ceiling that never changes needs no policing, and the "tightening-only" rule of the earlier draft was **internally impossible** (R3 tightens the sandbox pool to 1, and no tightening-only rule can then reach R3b's 2 or R4's 48). Note also that `max_containers` caps the **concurrency**, not the number of containers a class starts over time — a container that scales down and is replaced is a second container — so it adds a second, independent bound and cannot replace the invocation bound (§5.6 g, §8.2.5). |
+| **D28** | **The volume is a billable object with a measured baseline, a capped increment, a bounded storage duration and a retention rule.** The estimate's volume term is `(measured baseline + capped increment) × (1 + ceil(T_store / 28 days))`, where `T_store = T_exec + T_retention`: `T_exec` is the step's **declared wall-clock budget** (bounded a second time by `ceiling / burn_rate`), and `T_retention` is **30 days** from the publication to the verified deletion. The baseline of `aegis-model-cache` is measured by the provider's own listing before the dispatch, the increment is capped in the producer (one capped trajectory file per dispatched persistence call; the pinned model revision's bytes in the **prefetch step R2p**), the run's own files are deleted within 30 days of the publication and immediately on an abort, and the volume is re-measured afterwards. The baseline is priced for the same bounded interval, and **all run-created bytes are counted until the deletion is verified**. An unmeasurable volume, an exceeded cap, an unmeterable post-step size and an **unbounded duration** are fail-closed stops, and the affected steps are **not dispatchable**. | The provider prices volumes per GiB-month, separately from the compute of the container that writes to them, and the run writes to one (`modal_app.py:702-711`) — an unbounded storage quantity is an unbounded estimate. The earlier draft's `(baseline + increment) × 1 month` was **not** an upper bound: the bytes exist from the first write **during** the execution until the deletion **after** the publication, so the interval is a sum, not a maximum, and a run whose execution is not itself bounded has an unbounded storage duration — which is R4's state today. The provider publishes no commit charge (a commit is I/O, not a fee), so the estimate does not invent one; and the free allowance belongs to the workspace's plan, not the run, so the estimate prices the full quantity and records the allowance instead of netting it out (§5.6 g, §8.2.5). |
+| **D29** | **Network egress is a named term with a per-container bound, and the model download is moved into a separately approved prefetch step.** The estimate carries `Network_egress_rate × network_egress_GiB` as its **ninth** input; each container class has a **per-container** cap — the sandbox class at 0 under the provider-enforced blocking declaration, the GPU class at 0 in R3b/R4 (offline mode plus the verified cache manifest), the GPU class in the **prefetch step R2p** at `pinned_bytes × (1 + R_download)`, the persistence function at 0 external — plus a `protocol_allowance_GiB(c)` per container for the control-plane and data-path traffic; the **step total** sums those over the step's cold containers; and the provider's own `Network Egress` line for the app session is the **post-run audit** of the bound, never its substitute. A class whose egress cannot be bounded makes the estimate unavailable, and the affected steps are **not dispatchable**. | The provider publishes a **separate egress rate class**, and the repository's own published billing export already carries a non-zero `Network Egress` line for the canonical app session (`$2.6E-7`) — so egress is an observed cost of this workflow, not a theoretical one. An estimate that omits a line the provider bills is not a worst case. The earlier draft priced **one** model revision for the whole GPU class, which is wrong by the source: `@modal.enter()` runs on **every** container start and downloads the model whenever the cache is cold, so the cost is **per cold container** — up to 32 of them in R4 — and a shared volume does not prevent it, because the commit follows the load. The prefetch plus the offline path is the only configuration in which the GPU steps have a bounded egress. The sandbox class provably sends nothing out (the toolchain is baked into the image and the runtime runs `offline = true`), but its zero is **conditional** on the blocking declaration being provider-enforced for that exact function and path, and the proof must exist **before** the dispatch: a post-run billing report can prove an overrun, it cannot prove a bound (§5.6 g, §8.2.5). |
 
 ### 11.2 Unresolved questions for the maintainer
 
@@ -2867,7 +3118,7 @@ every reference to a question elsewhere in this document stays valid.
 | **Q1** | What should the run-level identity field be called — `modal_app_id`, `app_session_id` or `app_id`? | It changes the published field name in the new artifacts + manifest + summaries. The semantics and the envelope are already fixed (§5.3, D3); only the spelling is open. | (a) `app_session_id` — upstream's spelling, slightly imprecise; (b) keep `modal_app_id`; (c) `app_id` — the accurate name, since the value is the app id and not a session |
 | **Q2** | Are upstream's *other* field removals (`stages.*.resource_interval`, `stages.*.billing_line_item`) in scope as well? | The upstream removed those fields; the iteration line's validator expects per-stage `app_id`/`function_call_id`/`container_id`, and the join table carries the billing detail | (a) keep the iteration-line field set; (b) adopt upstream's set and relax the validator |
 | **Q3** | Is `remote_os` allowed to keep its coincident legacy value? | `EVM_FACTS_WITH_COINCIDENT_LEGACY_VALUE` already permits it **when the source proves it**; the plan makes the source real. If the worker's real `/etc/os-release` says something else, the value changes and the pin changes | (a) accept whatever the worker observes; (b) require an exact value match as a gate |
-| **Q5** | What are the three monetary ceilings — the CPU smoke **R3**, the GPU smoke **R3b** and the 16-target run **R4**? | §10.3, §8.2.5. R3b spends GPU credits *before* R4, so its own ceiling must exist before its approval **A-R3b** is granted; R4's ceiling must exist before **A-R4**; R3 is billed Modal compute too, so it has its own, smaller ceiling before **A-R3**. All three are also the input to the pre-dispatch estimate gate (D16): a step whose ceiling is unset is **not dispatchable**, so this question blocks the whole sequence, not only its paid part. **The bound each ceiling has to cover is now fixed** (§8.2.5): R3 = 1 sandbox-CPU call; R3b = 1 GPU + ≤ 2 sandbox-CPU + ≤ 1 persistence-function call (refinement switched off, D22); R4 = ≤ 32 GPU + ≤ 48 sandbox-CPU + ≤ 16 persistence-function calls — the published run's own trace was 64 calls in total, split into 30 GPU + 32 sandbox-CPU + 2 persistence-function (§5.6 b). **The estimate behind each ceiling has nine named inputs** (§8.2.5). Its **rates** are all published — CPU, memory, GPU, volume storage **and network egress** — and the persistence function has **no separate rate class** (D25), the volume has **no commit fee** (D28) and egress has **no per-function rate** (D29). What the estimate still needs is the **bounds**: the explicit request/limit pairs and the explicit lifecycle bounds of all three container classes (D26), the **enforced container count** of the autoscaler policy (D27), the **measured volume baseline and capped increment** with their retention window (D28) and the **per-class egress bounds** (D29). Until those exist the estimate is **unbounded**, and **no** approval — A-R3, A-R3b or A-R4 — can be granted, whatever the ceilings are. The **historical** per-function split of the published app-session aggregate stays unresolved (D25) and blocks nothing: it is an attribution limitation of the old evidence, and the estimate prices the future run with the published rates. | to be set by the maintainer |
+| **Q5** | What are the four monetary ceilings — the prefetch **R2p**, the CPU smoke **R3**, the GPU smoke **R3b** and the 16-target run **R4** — and the **wall-clock budget** each step declares? | §10.3, §8.2.5. R2p spends CPU time and egress *before* everything else, so its own ceiling must exist before its approval **A-R2p** is granted; R3b spends GPU credits *before* R4, so its own ceiling must exist before **A-R3b**; R4's ceiling must exist before **A-R4**; R3 is billed Modal compute too, so it has its own, smaller ceiling before **A-R3**. All four are also the input to the pre-dispatch estimate gate (D16): a step whose ceiling is unset is **not dispatchable**, so this question blocks the whole sequence, not only its paid part. **The wall-clock budgets belong to the same question**, because the budget is the step's execution bound and, through `T_exec ≤ ceiling / burn_rate`, the second bound on the **storage duration** (D28): R3 and R3b declare 20 minutes today, and **R4 declares none**, which leaves its volume term unavailable and R4 itself undispatchable until a budget is supplied. **The bound each ceiling has to cover is now fixed** (§8.2.5): R2p = 1 CPU container and one download of the pinned revision; R3 = 1 sandbox-CPU call; R3b = 1 GPU + ≤ 2 sandbox-CPU + ≤ 1 persistence-function call (refinement switched off, D22); R4 = ≤ 32 GPU + ≤ 48 sandbox-CPU + ≤ 16 persistence-function calls — the published run's own trace was 64 calls in total, split into 30 GPU + 32 sandbox-CPU + 2 persistence-function (§5.6 b). **The estimate behind each ceiling has nine named inputs** (§8.2.5). Its **rates** are all published — CPU, memory, GPU, volume storage **and network egress** — and the persistence function has **no separate rate class** (D25), the volume has **no commit fee** (D28) and egress has **no per-function rate** (D29). What the estimate still needs is the **bounds**: the explicit request/limit pairs and the explicit lifecycle bounds of all three container classes (D26), the **provider-enforced container count** of the autoscaler policy together with the dispatch helper's per-step caps (D27), the **measured volume baseline and capped increment** over the **bounded storage duration** (D28) and the **per-container egress bounds** with the prefetch's download allowance (D29). Until those exist the estimate is **unbounded**, and **no** approval — A-R2p, A-R3, A-R3b or A-R4 — can be granted, whatever the ceilings are. The **historical** per-function split of the published app-session aggregate stays unresolved (D25) and blocks nothing: it is an attribution limitation of the old evidence, and the estimate prices the future run with the published rates. | to be set by the maintainer |
 | **Q6** | Under which iteration number is the replacement run published? | The closure's `REPLACEMENT_EVIDENCE` needs a row for it (§9.4), and the new validator module is named after the number (§8.2.4 a). The *module* is already decided — a new module, not a reuse of the Iteration 18 validator (D13) | (a) Iteration 24; (b) Iteration 25; (c) a different number |
 | **Q7** | How is the superseded run marked, so that "no `modal-app://` in the published evidence" stays checkable without touching the historical bytes? | The old run keeps its 66 pseudo-URIs (D8, D9); the answer decides whether the invariant is checked per run or globally | (a) mark it only *outside* the artifacts (change-impact matrix + closure report) and scope the invariant to the authoritative run — this is the plan's default; (b) add a `superseded_by` marker inside the old run's JSON — that changes historical bytes and therefore conflicts with D8 |
 
@@ -3003,7 +3254,7 @@ The regeneration is acceptable only when **all** of the following hold:
     **nine named inputs** of §8.2.5, each recorded with its source and its date; the rates
     are published, and the bounds they multiply are the explicit limits and lifecycle bounds
     of D26, the enforced container count of D27, the measured-and-capped volume quantity of
-    D28 and the per-class egress bounds of D29 — and **no** approval was granted while any of
+    D28 and the per-container egress bounds of D29 — and **no** approval was granted while any of
     those bounds was missing (D25, D26, D27, D28, D29, Q5, §8.2.5).
 26. **The persistence stage is represented once per actual invocation.** The
     `trajectory_persistence` stage appears **once** in the stage set (§5.6 d) and its
@@ -3022,35 +3273,57 @@ The regeneration is acceptable only when **all** of the following hold:
     OOM-kill the real workload; and the recorded `T_billable = startup_timeout + timeout +
     scaledown_window` is the bound the estimate was computed against. The same classes
     declare the **autoscaler policy**: `min_containers=0`, `buffer_containers=0` and a
-    `max_containers` no greater than the step's own invocation cap for that class, with the
-    effective settings **read back** before the first container and again after the step,
-    both readings recorded, and no call site of the autoscaler update anywhere else in the
-    repository. The approval record of each compute step names those declarations, the
-    resulting `T_billable`, and the rate source of each of the estimate's **nine** inputs.
+    deployed `max_containers` equal to the **union** of the authorised steps' caps for that
+    class (48 / 32 / 16) — a value that is **never changed at runtime** and never raised;
+    the repository contains **no** mutating autoscaler call, and a test fails if one appears;
+    the **per-step** effective cap is enforced by the **dispatch helper** (per-class
+    invocation budget, per-class concurrency gate, ceiling assertion against the deployed
+    value) from the step's approval record, and the effective settings are **read back** —
+    with the **no-argument** `update_autoscaler()`, which changes nothing — before the first
+    container and again after the step, both readings recorded. The approval record of each
+    compute step names those declarations, the resulting `T_billable`, the step's
+    **wall-clock budget**, and the rate source of each of the estimate's **nine** inputs.
     **No compute step was dispatched while any of them was missing** — such a step is
     recorded as "not dispatched — estimate unavailable" with its reason (D26, D27, D16,
     AC 18, §8.2.5).
-28. **The volume quantity is measured, capped, retained and re-measured.** The approval
-    record of each compute step carries the **measured baseline** of `aegis-model-cache` —
+28. **The volume quantity is measured, capped, bounded in time, retained and re-measured.**
+    The approval record of each compute step carries the **measured baseline** of
+    `aegis-model-cache` —
     the provider's own recursive listing, with its date — the **capped increment** the step
     may write (one trajectory file per dispatched persistence call, within the producer's
-    hard byte cap; the pinned model revision's bytes for a cold model cache), the
-    **retention window**, the **cleanup event** (the run's own files deleted within 30 days
-    of the publication, and immediately on an abort) and the **post-step re-measurement** of
-    the volume. The estimate's volume term is `(baseline + increment) × retention window`,
-    with its rate source and date recorded; the provider's free allowance is recorded but
+    hard byte cap; the pinned model revision's bytes in the **prefetch step R2p**), the
+    **bounded storage duration** (`T_exec` = the step's declared wall-clock budget, itself
+    bounded by `ceiling / burn_rate`; `T_retention` = 30 days from the publication to the
+    verified deletion), the **months** the interval is priced over
+    (`1 + ceil(T_store / 28 days)`), the
+    **cleanup event** (the run's own files deleted within 30 days of the publication, and
+    immediately on an abort) and the **post-step re-measurement** of the
+    volume. The estimate's volume term is `(baseline + increment) × months`, with its rate
+    source and date recorded; the baseline is priced for the same bounded interval; **all
+    run-created bytes are counted until the deletion is verified**, and an unverified
+    deletion carries the increment into the next step's baseline, where it is priced again;
+    the provider's free allowance is recorded but
     **not** netted out, and no commit fee appears anywhere in the estimate. A step whose
-    volume could not be measured, or whose measured size exceeded the bound, is recorded as
+    volume could not be measured, whose **duration was not bounded**, or whose measured size
+    exceeded the bound, is recorded as
     "not dispatched — estimate unavailable" or as an overrun with the cleanup run — never as
     a passing step (D28, §8.2.5).
-29. **Every container class's egress is bounded, and the provider's own line is the
-    read-back.** The approval record of each compute step names the per-class egress bound
-    and how it was established — the sandbox class under the provider-enforced blocking
-    declaration (verified on the R3 smoke, one CPU container), the GPU class at 0 or the
-    pinned model revision's byte size, the persistence function at 0 — together with the
-    rate source and the date of the egress input. After the step, the app session's
+29. **Every container class's egress is bounded per container, and the provider's own line is
+    the post-run audit.** The approval record of each compute step names the **per-container**
+    egress bound and how it was established — the sandbox class at 0 under the
+    provider-enforced blocking declaration, proved **before** the dispatch (the declaration
+    on that exact function, the source-level proof that the runtime path needs no external
+    network, and the dispatch helper's assertion), the GPU class at 0 in R3b/R4 under the
+    offline mode plus the verified cache manifest, the GPU class in the **prefetch step R2p**
+    at `pinned_bytes × (1 + R_download)`, the persistence function at 0 external — together
+    with the `protocol_allowance_GiB(c)` per container and
+    the rate source and the date of the egress input. The **step total** is the per-container
+    cap summed over the step's cold containers
+    (`cold_containers(c) ≤ min(invocations(c), max_containers_deployed(c))`) plus the
+    protocol allowance. After the step, the app session's
     `Network Egress` line is read from the provider's own billing report and is **not** above
-    the estimated bound; a larger line is an overrun that aborts the step. A class whose
+    the estimated bound; a larger line is an overrun that aborts the step. That report is an
+    **audit** of the bound and never its substitute. A class whose
     egress could not be bounded makes the estimate unavailable, and that step was recorded
     as "not dispatched — estimate unavailable" with its reason (D29, §8.2.5).
 
@@ -3081,28 +3354,38 @@ The regeneration is acceptable only when **all** of the following hold:
   old evidence, not a missing price, and it blocks nothing (D25). The **blocking** gap is a
   different one, and the plan names it: the estimate's **bounds** — the explicit
   request/limit pairs and the explicit lifecycle bounds — do not exist in the producer yet,
-  so the estimate is **unbounded** and R3, R3b and R4 stay **not dispatchable** (D26, Q5).
-* No compute step was authorised: the approvals **A-R3**, **A-R3b** and **A-R4** of §8.2.5 are
+  so the estimate is **unbounded** and R2p, R3, R3b and R4 stay **not dispatchable** (D26, Q5).
+* No compute step was authorised: the approvals **A-R2p**, **A-R3**, **A-R3b** and **A-R4** of
+  §8.2.5 are
   specified here, and none of them was granted. The caps and the ceilings of §8.2.5 are a
   specification, not a budget that was spent. No step was dispatched, no step was retried and
   no retry step was created (D20).
 * No cost estimate was computed for any step and no provider rate was read into the
   repository: the pre-dispatch estimate gate (D16, §8.2.5) is specified, not exercised. The
-  numeric ceilings of R3, R3b and R4 remain unresolved (**Q5**), so none of the three steps
+  numeric ceilings of R2p, R3, R3b and R4 remain unresolved (**Q5**), so none of the four steps
   is dispatchable. Independently of the ceilings, the estimate's **bounds** are missing as
   well: no container class declares a hard memory limit, no class declares an explicit
   startup or idle bound, and the default CPU limit moves with the request — so the memory
   term is **unbounded** and no step is dispatchable even if its ceiling were set today
   (D26, §5.6 g). The same holds for the container count (no autoscaler setting is declared),
-  the volume quantity (no baseline was measured) and the egress quantity (no class's egress
-  was bounded). The **rates** the estimate multiplies were checked against the provider's
+  the volume quantity (no baseline was measured, no increment capped and no duration bounded —
+  **R4 declares no wall-clock budget at all**) and the egress quantity (no class's egress
+  was bounded, and the GPU model's download is a **per-cold-container** cost that the plan
+  moves into the prefetch step R2p). The **rates** the estimate multiplies were checked
+  against the provider's
   published documentation, but no rate was read, copied or hardcoded anywhere.
 * **No autoscaler setting was changed, and no deployed Function was inspected.** No
   `min_containers`, `buffer_containers` or `max_containers` was set, no autoscaler update was
   called, and no deployment was made or redeployed; the effective-settings read-back that
   D27 requires is specified, not performed. The provider facts it rests on — the four
   autoscaler settings, their runtime mutability and the platform's concurrency limits — come
-  from the provider's published documentation, quoted with their URL in §5.6 g.
+  from the provider's published documentation, quoted with their URL in §5.6 g. The **SDK
+  facts** of the read-back come from the **pinned local SDK 1.5.5** itself: it exposes
+  `Function.update_autoscaler(min_containers=…, max_containers=…, buffer_containers=…,
+  scaledown_window=…)`, whose own documentation states that unspecified parameters retain
+  their current value — which is what makes the **no-argument** call a non-mutating read-back
+  — and it has **no** `Function.autoscaler` namespace, so the read-back path D27 names is the
+  one this SDK actually offers.
 * **No volume was measured, written or deleted.** The volume `aegis-model-cache` was not
   listed, no byte size was read, no trajectory file was created or removed, and the cleanup
   rule of D28 does not exist yet in the producer. The volume's baseline is therefore
@@ -3110,8 +3393,9 @@ The regeneration is acceptable only when **all** of the following hold:
   are not dispatchable.
 * **No egress was measured.** No container was dispatched and no traffic was observed, so no
   egress quantity was measured; the bounds of D29 rest on the source (the toolchain is baked
-  into the image, the runtime runs `offline = true`, the GPU class' only egress is the model
-  download) and on the provider's published rate class. The one egress figure in this plan is
+  into the image, the runtime runs `offline = true`, the GPU class' model download happens in
+  `@modal.enter()` on **every** container start and is therefore a **per-cold-container**
+  cost) and on the provider's published rate class. The one egress figure in this plan is
   the repository's own published evidence — the `Network Egress $2.6E-7` line of the
   canonical app session in `benchmarks/evidence/modal_billing_report_raw.json`.
 * No producer commit `P` was created, no worktree was pinned, and no producer byte was
