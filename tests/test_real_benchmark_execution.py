@@ -3243,3 +3243,92 @@ def test_manifest_rejects_missing_remote_toolchain_provenance():
     }
     is_valid, err = validate_remote_evm_toolchain_provenance(art_not_run)
     assert is_valid is True
+
+
+def test_modal_billing_reconciliation_integrity():
+    """
+    Iteration 14 Requirement 1, expressed against the authoritative API.
+
+    The upstream line (7876f6e) shipped a billing reconciliation validator
+    together with five negative cases. This branch keeps the stricter
+    iteration-line validator (benchmarks.evidence_integrity), so the upstream
+    coverage is ported onto that API instead of being dropped together with
+    the conflicting file:
+
+    1. the published join table reconciles exactly with the raw export;
+    2. a target-level cost without a proven invocation-level join is rejected;
+    3. a raw billing line item that is accounted for twice is rejected;
+    4. a manufactured 'modal-app://' pseudo-URI is detected;
+    5. a raw billing line item that is not accounted for at all is rejected.
+    """
+    from benchmarks.evidence_integrity import (
+        has_synthetic_modal_uri,
+        load_raw_billing_line_items,
+        validate_billing_attribution,
+    )
+
+    root = Path(__file__).parent.parent
+    raw_path = root / "benchmarks" / "evidence" / "modal_billing_report_raw.json"
+    join_path = root / "benchmarks" / "evidence" / "modal_billing_join_table.json"
+
+    assert raw_path.is_file(), "the raw billing export must exist"
+    assert join_path.is_file(), "the billing join table must exist"
+
+    items = load_raw_billing_line_items(raw_path)
+    join_table = json.loads(join_path.read_text(encoding="utf-8"))
+    known_app_ids = [item.object_id for item in items]
+
+    # 1. The published join table reconciles exactly with the raw export.
+    is_valid, err = validate_billing_attribution(
+        join_table, items, known_app_ids=known_app_ids
+    )
+    assert is_valid is True, f"billing reconciliation failed: {err}"
+    assert err is None
+
+    # 2. A target-level cost without a proven invocation-level join is rejected.
+    bad_cost_join = json.loads(json.dumps(join_table))
+    bad_cost_join["target_level"][0]["cost_usd"] = 0.05
+    bad_cost_join["target_level"][0]["cost_usd_exact"] = "0.05"
+    is_valid, err = validate_billing_attribution(
+        bad_cost_join, items, known_app_ids=known_app_ids
+    )
+    assert is_valid is False
+    assert "without a proven invocation-level join" in err
+
+    # 3. A raw billing line item that is accounted for twice is rejected.
+    bad_item_join = json.loads(json.dumps(join_table))
+    first_row = bad_item_join["app_session_level"][0]
+    second_row = bad_item_join["app_session_level"][1]
+    second_row["line_item_keys"] = list(second_row["line_item_keys"]) + list(
+        first_row["line_item_keys"]
+    )
+    is_valid, err = validate_billing_attribution(
+        bad_item_join, items, known_app_ids=known_app_ids
+    )
+    assert is_valid is False
+    assert "double-counts at least one raw billing line item" in err
+
+    # 4. A manufactured modal-app:// pseudo-URI is detected.
+    bad_uri_join = json.loads(json.dumps(join_table))
+    bad_uri_join["target_level"][0]["durable_log_ref"] = "modal-app://logs/app-123"
+    assert has_synthetic_modal_uri(bad_uri_join) is True
+    assert has_synthetic_modal_uri(join_table) is False
+
+    # 5a. A raw billing line item that is not accounted for at all is rejected.
+    incomplete_join = json.loads(json.dumps(join_table))
+    dropped_row = incomplete_join["app_session_level"].pop()
+    is_valid, err = validate_billing_attribution(
+        incomplete_join, items, known_app_ids=known_app_ids
+    )
+    assert is_valid is False
+    assert "omits" in err
+    assert dropped_row["line_item_keys"]
+
+    # 5b. A raw billing line item the attribution does not know is rejected.
+    is_valid, err = validate_billing_attribution(
+        join_table,
+        items[:-1],
+        known_app_ids=[item.object_id for item in items[:-1]],
+    )
+    assert is_valid is False
+    assert "references unknown line item" in err
