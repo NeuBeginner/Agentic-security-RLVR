@@ -738,6 +738,7 @@ by a validator unless the call path proves it."*
 | **C3** | Apply it to the **join table** as a verdict inside `validate_billing_attribution` itself, so the enforcement lives in the validator and not only in a test. | `evidence_integrity.py::validate_billing_attribution` | §6.4 |
 | **C4** | Keep the inline `legacy_key` loop as the second line of defence. | `evidence_integrity.py:2664` | already correct; do not weaken it |
 | **C5** | Add `synthetic_uri_present` as a *rejection reason* in the report, so a failure explains itself. | all validators | diagnosability |
+| **C6** | Cross-check the target artifact's own `attempted` flag against the state of that stage's evidence artifact: a stage with `attempted: false` may carry `STAGE_NOT_ATTEMPTED` and **no other** kind; a stage with `attempted: true` may not carry it at all. | `evidence_integrity.py::validate_modal_invocation_provenance` → `validate_stage_evidence_binding` (`:2671-2678`) | the digest-verified stage artifact is already the authority for the kind (`:1782-1789`), but nothing checks the boolean of the target artifact against it — so "not attempted" and "attempted and failed" can only be told apart by opening the stage artifact by hand (§8.2.1 d). The published artifacts carry exactly that contradiction: 14 of the 16 record `trajectory_persistence.attempted = true` while the same artifact says `persistence_status = "not_eligible"` (§8.2.1 d) |
 
 ### 6.6 Required negative tests
 
@@ -756,6 +757,7 @@ Each of these must fail **before** the fix and pass **after**:
 | **T9** | the *published* artifacts, if not regenerated, still fail — the historical FAILED state is preserved | §9.4 |
 | **T10** | the effective `--run-dir` default of each of the historical validators (14–18) is still `benchmarks/artifacts/run_1794209615_70f5d22` — a repointed default fails the suite | §8.2.4 (e) |
 | **T11** | no code path selects the authoritative run by recency: a **newer** run directory in the tree is not selected, because the selection is a literal path | §8.2.4 (b) |
+| **T12** | a stage with `attempted: false` whose identity fact carries `absence_kind = "STAGE_ATTEMPT_FAILED_NO_RESPONSE"` → FAILED; and the reverse case (`attempted: true` with `STAGE_NOT_ATTEMPTED`) → FAILED | C6 — "not attempted" and "attempted and failed" must not be interchangeable |
 
 ---
 
@@ -924,11 +926,11 @@ the last committed step (§8.4).
 | Step | Action | Produces | Gate before proceeding |
 |---|---|---|---|
 | **R0** | Branch `iter-24/evidence-regeneration` from the authorised base. | — | clean tree, base SHA recorded |
-| **R1** | Implement the §5 schema in the producer (`adapters.py`, `modal_app.py`, `benchmark_runner.py`) and the §6.5 validator changes. | code only | unit tests green; **no** published file touched; R1 does **not** yet seal the producer commit `P` — R2 does |
+| **R1** | Implement the §5 schema in the producer (`adapters.py`, `modal_app.py`, `benchmark_runner.py`), the §6.5 validator changes (**C1–C6**), the `modal_functions` fix of §8.2.1 (e) — the function list must be derived from the attempts, not from the provider — and the R3 fixture **plus its loader** of §8.2.1 (b). | code only | unit tests green; **no** published file touched; R1 does **not** yet seal the producer commit `P` — R2 does |
 | **R2** | Add the §6.6 negative tests T1–T9. | tests | each test fails on the pre-fix code and passes on the post-fix code (proven by running both revisions); **R2 seals the producer commit `P`** — `P` is the commit that closes the producer surface, it is sealed *before* the first container is dispatched, and no commit after it may touch a producer path (§8.2.6, §9.3, D18) |
-| **R3** | **CPU-only plumbing smoke** on one target (`AC-01`), run through the producer's own execution path with the inference stage **not attempted** (D17): the stages `evm_sandbox` and `independent_replay` only. The `inference` stage block is still present in the artifact — the producer always writes all four stage keys (`benchmarks/adapters.py:2377-2409`) — but it records `attempted: false` and no identity (§8.2.1). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.1 gate: every stage **whose attempt actually happened** satisfies the §5 contract; **nothing is claimed about the stages that were not attempted**; the caps and the approval **A-R3** of §8.2.5 hold before the first container starts, and the pre-dispatch estimate gate of §8.2.5 is passed |
-| **R3b** | **Inference-plumbing smoke** — one GPU-backed inference call for one target, to obtain a real worker-observed `function_call_id` and the client-resolved `app_id` / `container_id` for that call. | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.2 gate; **separately authorised** (**A-R3b**), because it spends GPU time and Modal credits; its caps of §8.2.5 — including its **hard maximum cost** — are fixed **before** the first call, and a pre-dispatch estimate at or below that ceiling exists; while the numeric ceiling of **Q5** is unanswered the step is **not dispatchable** |
-| **R4** | Authorised live run: 16 targets, the same provider configuration as the published run (`modal_h100`, `qtum/Qwen3-Coder-30B-A3B-Audit`, `--hypotheses=3` — the flag spelling is settled at `P`, §10.1), executed from the detached worktree at `P` (§8.2.6). | a **new** run directory `run_<epoch>_<P[:7]>/` | every stage's provenance is observed-or-explicitly-`NOT_AVAILABLE`; the run completes; the directory suffix equals the manifest's `git.commit_sha[:7]` (§8.2.3); the manifest's SHA is `P` (§8.2.6); the approval **A-R4**, its ceiling and a pre-dispatch estimate at or below that ceiling hold — the ceiling itself is unresolved (**Q5**) until the maintainer supplies and approves it |
+| **R3** | **CPU-only plumbing smoke** on one target (`AC-01` / `AccessControlVault`), run through the producer's own `execute_target()` with the inference stage **not attempted** (D17): the adapter's candidate-generator branch supplies a **checked-in, non-breaching fixture** as the candidate (D19), so the **only** stage whose attempt actually happens is `evm_sandbox`. The `inference`, `independent_replay` and `trajectory_persistence` stage blocks are still present in the artifact — the producer always writes all four stage keys (`benchmarks/adapters.py:2377-2409`) — but they record `attempted: false` (§8.2.1). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.1 gate: the stage matrix is **exactly** §8.2.1 (c); every stage **whose attempt actually happened** satisfies the §5 contract; **nothing is claimed about the stages that were not attempted** — in particular **nothing about the replay**; the caps and the approval **A-R3** of §8.2.5 hold before the first container starts, and the pre-dispatch estimate gate of §8.2.5 is passed |
+| **R3b** | **Inference-plumbing smoke** — one GPU-backed inference call for one target, to obtain a real worker-observed `function_call_id` and the client-resolved `app_id` / `container_id` for that call. The candidate comes from the model, so the verdict — and with it the replay branch — is **not** predictable in advance (§8.2.2). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.2 gate; **separately authorised** (**A-R3b**), because it spends GPU time and Modal credits; its caps of §8.2.5 — including its **hard maximum cost** — are fixed **before** the first call, and a pre-dispatch estimate at or below that ceiling exists; while the numeric ceiling of **Q5** is unanswered the step is **not dispatchable** |
+| **R4** | Authorised live run: 16 targets, the same provider configuration as the published run (`modal_h100`, `qtum/Qwen3-Coder-30B-A3B-Audit`, `--hypotheses=3` — the flag spelling is settled at `P`, §10.1), executed from the detached worktree at `P` (§8.2.6). | a **new** run directory `run_<epoch>_<P[:7]>/` | every stage **whose attempt actually happened** has an observed-or-explicitly-`NOT_AVAILABLE` provenance, and every stage that was not attempted is recorded `attempted: false` and is not claimed; the run completes; the directory suffix equals the manifest's `git.commit_sha[:7]` (§8.2.3); the manifest's SHA is `P` (§8.2.6); the approval **A-R4**, its ceiling and a pre-dispatch estimate at or below that ceiling hold — the ceiling itself is unresolved (**Q5**) until the maintainer supplies and approves it |
 | **R5** | Verify the new run **before** it becomes published: run the §5 validators over the new run dir; assert `has_synthetic_modal_uri` is false for every file; assert no `SYNTHETIC_CONTAINER_ID_RE` match anywhere. | a verification transcript | all assertions hold |
 | **R6** | **Publish the new run tree additively** (D9): the new run's 16 target artifacts, its manifest, its `summary.json`, and the root-level `latest_summary.json` — which becomes the byte-identical mirror of the **new** run's `summary.json`. The published run `run_1794209615_70f5d22/` is **not** modified, moved or deleted. | new published bytes | `git diff --stat` shows only the expected files; `latest_summary.json` is byte-identical to the new run's `summary.json`; the old run directory is untouched in the diff |
 | **R7** | Regenerate `modal_control_harness_validation.json` (re-pin the 32 stdout/stderr digests and the 16 `input_sha256` values over blob bytes). | new digest | the file validates against the new run dir |
@@ -940,23 +942,123 @@ the last committed step (§8.4).
 
 ### 8.2.1 The R3 gate, stated exactly
 
-R3 exists to prove the **plumbing** of the §5 contract — not the inference identity. The
-distinction is enforced by the artifact itself: the smoke artifact contains stage blocks for
-`evm_sandbox` and `independent_replay` whose attempts actually happened, and its `inference`
-block records `attempted: false`. The producer always writes **all four** stage keys
-(`benchmarks/adapters.py:2377-2409`), so "not attempted" is a **stated fact inside the
-block** (`attempted`, `benchmarks/evidence_integrity.py:1829-1836`), never the absence of a
-key.
+R3 exists to prove the **plumbing** of the §5 contract — the envelopes, the evidence
+references, the stage block, the identity facts — on the one stage that can be exercised
+without a GPU: the EVM sandbox. It proves **nothing** about the inference stage and
+**nothing** about the replay stage, because neither of them is called.
 
-**What R3 must show.**
+#### (a) The exact control flow R3 takes
 
-1. **The stage block of every stage that is present** carries `app_id`, `function_call_id` and
-   `container_id` as `observed()` / `not_available()` envelopes (§5.1, §5.5) — no bare
-   strings, no `modal-app://`, and no `durable_log_ref` / `provider_log_uri` / `log_uri` key
-   at all.
-2. **Every `not_available` envelope carries** a reason, an absence kind from `ABSENCE_KINDS`,
-   an `observed_by` side, and an `evidence_ref` whose digest verifies. The last requirement
-   means the validator must be called **with an evidence root**:
+R3 does not use a separate smoke app, and it does not invent a CPU provider. It runs the
+producer's own `execute_target()` — the same method the 16-target run calls — and it takes
+the **candidate-generator branch that already exists in the adapter**.
+
+| # | Step in the producer | What happens in R3 | Reference |
+|---|---|---|---|
+| 1 | the adapter is constructed | `candidate_generator` is a parameter of the production adapter (`benchmarks/adapters.py:1596`), stored at `:1603`. It is not a new hook: the repository already drives this very adapter through it (`benchmarks/validate_iteration16_evidence.py:597-611`, `tests/test_real_benchmark_execution.py:298`) | `adapters.py:1592-1603` |
+| 2 | availability | with a candidate generator the provider check is skipped entirely (`:1666-1670`), so **no** LLM provider is contacted and no API key is needed. Modal itself must still be authenticated (`:1660-1665`), because the EVM call of R3 is a real one | `adapters.py:1657-1671` |
+| 3 | candidate production | `if self.candidate_generator:` is the **first** branch of the candidate block (`:1783-1784`), so the `modal_h100` branch that calls `ProductionAuditAgent.generate_solidity_exploit.remote(...)` (`:1785-1792`) is never entered | `adapters.py:1783-1800` |
+| 4 | the inference response stays empty | `inference_response` is initialised to `None` (`:1780`) and is assigned only inside the two provider branches, so the inference capture is `attempted=False` (`:2260-2270`) | `adapters.py:1780`, `:2262` |
+| 5 | the refinement loop cannot fire | the closed-loop refinement requires `self.candidate_generator is None` (`:1838`), so R3 cannot make a second, hidden inference call | `adapters.py:1833-1840` |
+| 6 | **one** Modal call | the candidate is verified by the real CPU worker: `verify_exploit_remote.remote(target_dict, payload_dict)` (`:1826`), a CPU function (`modal_app.py:550-556`, `cpu=config.SANDBOX_CPU_CORES`) | `adapters.py:1826`, `modal_app.py:550-556` |
+| 7 | the replay branch is **not** entered | the producer dispatches `verify_replay_remote` only if `verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED` (`:1882-1885`). R3's fixture does not breach the invariant, so the branch is not taken, `replay_attempted` stays `False` (`:1875`) and the replay capture is `attempted=False` (`:2282-2294`) | `adapters.py:1875`, `:1882-1883`, `:2284` |
+| 8 | the persistence branch is **not** entered | persistence runs only `if is_verified` (`:2133`), and `is_verified` requires a confirmed replay (`:2104-2109`) — which R3 cannot have | `adapters.py:2104-2109`, `:2133` |
+| 9 | the provenance block is the published one | the stage block is written by the same code the 16-target run uses (`:2362-2411`), with **all four** stage keys always present (`:2377-2409`) | `adapters.py:2362-2411` |
+
+The empirical confirmation that the replay branch is the exception and not the rule: in the
+published run only **2 of the 16** targets have a replay at all — `AC-01` and `REENT-01` are
+the only targets with `*_replay_stdout.txt` files, and they are the only two whose artifacts
+record `independent_replay.attempted = true`. The other fourteen never reach the branch.
+
+#### (b) The payload source — and why it fabricates nothing
+
+R3's candidate is a **checked-in fixture**, not a model output:
+
+* **R1** adds the fixture to the repository as a tracked file
+  (`benchmarks/evidence/fixtures/r3_smoke_candidate_ac01.sol`) together with the loader that
+  turns it into the `ExploitPayload` the adapter expects. The file's SHA-256 is recorded in
+  the smoke transcript, so the artifact is bound to the exact bytes that were sent to the
+  EVM worker. The bypass mechanism itself needs no new code — only the fixture and its
+  loader are new (D17, D19).
+* The fixture is a **negative control**: it compiles against the trusted harness of the
+  target (`AccessControlVault` — the target of `AC-01`; the harness file is read by the
+  adapter at `adapters.py:1746-1755`, and the allowlist that maps a target to its harness is
+  `sandbox/runner.py:29-44`), it runs, and the trusted harness returns **no** breach
+  verdict. A negative control is what makes the smoke honest: it cannot produce a "verified
+  breach", and it therefore cannot be mistaken for a finding.
+* It is **never presented as model output**: the inference stage is recorded
+  `attempted: false`, its three identity facts are `not_available` with the absence kind
+  `STAGE_NOT_ATTEMPTED`, and the artifact is written **outside** `benchmarks/evidence/` (a
+  throwaway directory), so no report, no manifest and no closure can ever refer to it.
+* Precedent: the producer rehearsal of Iteration 16 already drives this adapter with an
+  injected payload (`benchmarks/validate_iteration16_evidence.py:597-611`). R3 differs from
+  that rehearsal in exactly two ways — the EVM call is **real** (not mocked) and the
+  candidate comes from a **tracked file** (not from an inline literal).
+
+**If the fixture unexpectedly breaches the invariant**, the producer dispatches the replay
+(`:1882`), the artifact records `independent_replay.attempted = true`, and R3's negative
+control is broken. In that case R3 **fails its gate**, the step is stopped and the
+discrepancy is recorded. R3 is not re-interpreted as a replay test: the replay stage is
+R3b's business, and there its trigger is the model's candidate, not a fixture.
+
+#### (c) The stage matrix of R3
+
+| Stage | State (`STAGE_STATE_TABLE`) | `attempted` | `function_name` | What R3 proves about this stage |
+|---|---|---|---|---|
+| `inference` | `NOT_ATTEMPTED` | **false** | `null` — after R1's fix; today the producer writes the provider's function name here (e, item 7) | nothing. The block is present because the producer always writes all four keys (`adapters.py:2377-2409`); its `attempted: false` is the honest statement |
+| `evm_sandbox` | `EXECUTED_WITH_RUNTIME_ENVELOPE` (or `EXECUTED_NO_RUNTIME_ENVELOPE`) | **true** | `verify_exploit_remote` | the real CPU worker call; the worker-observed `function_call_id`; the client-observed `app_id` / `container_id`; the eight remote-EVM facts of §5.4; the stage's own evidence artifact |
+| `independent_replay` | `NOT_ATTEMPTED` | **false** | `null` | **nothing.** The replay function is not called by R3, so R3 says nothing about `verify_replay_remote` — neither about its `function_call_id` nor about its `container_id` |
+| `trajectory_persistence` | `NOT_ATTEMPTED` | **false** | `null` | nothing. Persistence requires a confirmed replay (`:2104-2109`), which cannot exist here |
+
+**The Modal invocations of R3 are exactly one:** `verify_exploit_remote` (CPU). No GPU call,
+no replay call, no persistence call. The pre-dispatch estimate of §8.2.5 is computed over
+that one invocation.
+
+#### (d) "Not attempted" is not "attempted and failed"
+
+The two states are already distinguishable in the bytes, and the distinction is enforced on
+the side that matters:
+
+* the producer derives the four flags of a stage from its capture
+  (`adapters.py:2259-2308`) and the identity facts from the state those flags describe:
+  `build_stage_identity_facts` → `classify_stage_absence` → `STAGE_STATE_TABLE`
+  (`evidence_integrity.py:1303-1340`, `:1356`; `ABSENCE_KIND_RULES` `:636-660`);
+* a stage that was never invoked may carry `STAGE_NOT_ATTEMPTED` only, and that kind is
+  allowed in exactly one state — `NOT_ATTEMPTED` (`:637-640`). A stage that was invoked and
+  failed is a **different** state (`ATTEMPT_FAILED_NO_RESPONSE`, `:590`, `:610`) with a
+  different kind (`:641-644`);
+* the digest-verified stage evidence artifact is the authority, and the fact in the target
+  artifact may not disagree with it (`evidence_integrity.py:1782-1789`).
+
+**The published artifacts show exactly this defect.** In **14 of the 16** published target
+artifacts the persistence stage is recorded `attempted: true` with
+`function_name: "record_trajectory_remote"`, while the *same* artifact records
+`tool_metadata.remote_stages.trajectory_persistence = "not_eligible"` and
+`tool_metadata.persistence_status = "not_eligible"` — the stage was never eligible and the
+function was never called. The producer revision at this PR head derives the flag from the
+status (`adapters.py:2255`) and the function name from the same flag (`:2401-2408`), so the
+contradiction is gone in the code; what is missing is a **validator** that refuses an
+artifact in which the flag and the rest of the artifact disagree (C6). The published
+artifacts also carry the `attempted` key on only **two of the four** stages — `inference`
+and `evm_sandbox` have no `attempted` key at all — which is the gap §5.1 closes.
+
+**The remaining gap is that no validator cross-checks the target artifact's own `attempted`
+flag against that authority.** The validator iterates the stages the artifact *contains* and
+asks only whether the three identity fields are present and well-formed
+(`evidence_integrity.py:2551-2577`); it never reads `attempted`. §6.5 **C6** closes that
+gap: a stage whose `attempted` is `false` may carry `STAGE_NOT_ATTEMPTED` and nothing else,
+and a stage whose `attempted` is `true` may not. Until C6 is implemented, R3's gate checks
+the state itself (it reads the stage evidence artifact directly) instead of relying on the
+validator to do it.
+
+#### (e) What the R3 gate asserts
+
+1. **Every stage whose attempt actually happened** satisfies the §5 contract: its three
+   identity facts are `observed(...)` / `not_available(...)` envelopes — no bare strings,
+   no `modal-app://`, and no `durable_log_ref` / `provider_log_uri` / `log_uri` key at all.
+2. **Every `not_available` envelope** carries a reason, an absence kind from
+   `ABSENCE_KINDS`, an `observed_by` side, and an `evidence_ref` whose digest verifies. The
+   last requirement means the validator must be called **with an evidence root**:
    `validate_modal_invocation_provenance(artifact, evidence_root=<smoke run dir>/baseline_5)`.
    Without `evidence_root` the referenced bytes cannot be resolved and the validator rejects
    **every** `NOT_AVAILABLE` fact with "no evidence root was provided"
@@ -964,43 +1066,63 @@ key.
    that argument (`validate_iteration14_evidence.py:185`), while Iteration 15 passes
    `evidence_root=run_dir / baseline_id` (`validate_iteration15_evidence.py:254`) — the smoke
    must follow the latter form.
-3. **The remote-EVM block** of the smoke artifact passes
+3. **The stage matrix is exactly §8.2.1 (c)**: `inference: false`, `evm_sandbox: true`,
+   `independent_replay: false`, `trajectory_persistence: false` — and the state of every
+   stage is one of the five states of `STAGE_STATE_TABLE`
+   (`evidence_integrity.py:608-614`).
+4. **The remote-EVM block** of the smoke artifact passes
    `validate_remote_evm_toolchain_provenance(artifact)` (`evidence_integrity.py:3557`): all
    eight facts of `REMOTE_EVM_REQUIRED_FACTS` (`evidence_integrity.py:3510`) are sourced
    `observed(...)` envelopes, or explicit `not_available(...)` with a reason and an evidence
    reference.
-4. **The run-level block** validates: the identity field (§5.2, name open per Q1) is an
-   envelope, `target_id` and `correlation_id` are present, and the stage set is the §5 stage
-   set with each block's `attempted` flag matching what the smoke actually ran —
-   `inference: false`, `evm_sandbox: true`, `independent_replay: true`.
-5. **No synthetic identity**: no string in the artifact matches `SYNTHETIC_CONTAINER_ID_RE`
+5. **The run-level block** validates: the identity field (§5.2, name open per Q1) is an
+   envelope, `target_id` and `correlation_id` are present.
+6. **No synthetic identity**: no string in the artifact matches `SYNTHETIC_CONTAINER_ID_RE`
    and none is in `FORBIDDEN_SYNTHETIC_CONTAINER_IDS`.
+7. **The function names agree with the attempts.** A stage that was not attempted records
+   `function_name: null` — the §5.1 schema allows it (`str | null`) — and the run-level
+   `tool_metadata.modal_functions` names only the functions that were actually invoked: for
+   R3 that is `verify_exploit_remote` alone. Two places in the producer get this wrong
+   today. `modal_functions` is built from the **provider** and not from the attempts
+   (`adapters.py:2154-2163`), so with `provider="modal_h100"` it would name
+   `ProductionAuditAgent.generate_solidity_exploit` although no such call was made. And the
+   `inference` stage's `function_name` is likewise taken from the provider
+   (`adapters.py:2246-2254`, `:2378-2384`) instead of from the attempt — while the
+   `independent_replay` and `trajectory_persistence` stages already derive their name from
+   the attempt (`:2392-2400`, `:2401-2408`). **R1** fixes all three. Until it is fixed, R3's
+   gate checks them against the recorded attempts and reports the discrepancy instead of
+   ignoring it.
 
-**What R3 must NOT claim.**
+#### (f) What R3 must NOT claim
 
-R3 does **not** verify the inference stage, and no artifact, report, commit message or PR
-description may say that it does. Specifically, R3 does not establish:
+R3 does **not** verify the inference stage and does **not** verify the replay stage, and no
+artifact, report, commit message or PR description may say that it does. Specifically, R3
+does not establish:
 
 * that the `inference` stage's `function_call_id` is worker-observed — no inference call is
   made at all;
 * that the `inference` stage's `app_id` or `container_id` resolves against the provider's
   call graph (`call_graph_inputs` → `containers_of_app` → `task_app_id`, §4.1);
 * that the smoke artifact is comparable with the published run's `inference` block;
-* any end-to-end statement about the inference path.
+* any end-to-end statement about the inference path;
+* **that the replay plumbing works** — `verify_replay_remote` is never called by R3, so R3
+  establishes nothing about the replay's `function_call_id`, its `container_id`, its evidence
+  artifact or its absence kinds;
+* anything about the 16-target behaviour.
 
-The reason is structural, not a matter of extra effort: `validate_modal_invocation_provenance`
-iterates the stages the artifact *contains* (`for stage_name, stage in stages.items()`,
-`evidence_integrity.py:2551`) and asks only whether the three identity fields are present and
-well-formed (`evidence_integrity.py:2555-2577`) — it never reads the `attempted` flag. A
-stage block whose attempt never happened therefore passes the stage checks **without proving
-anything about inference** — and the plan must not let that pass be read as inference
-evidence. This is exactly why the §5 contract requires the attempt flag to be explicit: the
-honest statement is "the `inference` stage was not attempted", never "there was no
-`inference` stage" — the key is always written
-(`benchmarks/adapters.py:2377-2409`).
-`MODAL_PROVENANCE_STAGES` (`evidence_integrity.py:1806`) cannot be used to constrain the stage
-set either: it is defined once and referenced nowhere in the repository, so no validator
-constrains the stage set.
+The reason the first two points are structural, not a matter of extra effort:
+`validate_modal_invocation_provenance` iterates the stages the artifact *contains* (`for
+stage_name, stage in stages.items()`, `evidence_integrity.py:2551`) and asks only whether
+the three identity fields are present and well-formed (`evidence_integrity.py:2555-2577`) — it
+never reads the `attempted` flag. A stage block whose attempt never happened therefore passes
+the stage checks **without proving anything about inference** — and the plan must not let
+that pass be read as inference evidence. This is exactly why the §5 contract requires the
+attempt flag to be explicit: the honest statement is "the `inference` stage was not
+attempted", never "there was no `inference` stage" — the key is always written
+(`benchmarks/adapters.py:2377-2409`). `MODAL_PROVENANCE_STAGES`
+(`evidence_integrity.py:1806`) cannot be used to constrain the stage set either: it is
+defined once and referenced nowhere in the repository, so no validator constrains the stage
+set.
 
 ### 8.2.2 R3b — the inference-plumbing smoke, as a separate authorised step
 
@@ -1014,11 +1136,27 @@ separate and explicitly authorised action with its own gates:
 
 | Aspect | R3 (CPU) | R3b (GPU) |
 |---|---|---|
-| Stages exercised | `evm_sandbox`, `independent_replay` | `inference` (plus the R3 stages) |
+| Stages exercised | `evm_sandbox` **only** | `inference` and `evm_sandbox`; `independent_replay` **only if** the model's verdict triggers it (`adapters.py:1882`), and `trajectory_persistence` only if that replay confirmed the breach (`:2104-2109`) |
+| Modal invocations | exactly **1** (`verify_exploit_remote`) | **1** GPU inference call + **1** CPU verify + **≤ 1** CPU replay + **≤ 1** CPU persistence — worst case **4** |
 | Cost | CPU containers only — its own, smaller ceiling | one GPU inference call — Modal credits — its own **hard maximum cost** (§8.2.5) |
 | Authorisation | its own approval **A-R3** (§8.2.5) | **separate, explicit authorisation** **A-R3b** |
-| Proves | the producer/validator plumbing, the envelopes, the evidence references, the EVM fact sourcing | that the inference `function_call_id` is worker-observed, and that the client resolves the provider-issued `app_id` / `container_id` for that call |
-| Does **not** prove | anything about inference | the 16-target behaviour |
+| Proves | the producer/validator plumbing, the envelopes, the evidence references, the EVM fact sourcing | that the inference `function_call_id` is worker-observed, and that the client resolves the provider-issued `app_id` / `container_id` for that call — and, **only if** the replay was actually dispatched, that the replay stage's identities resolve as well |
+| Does **not** prove | anything about inference; **anything about the replay** | the 16-target behaviour |
+
+**R3b's stage matrix is outcome-dependent, and that is recorded, not assumed.** Its
+candidate comes from the model, so whether the replay branch is entered is decided by the
+verdict and not by the plan:
+
+| Stage | Expected in R3b | Condition |
+|---|---|---|
+| `inference` | `attempted: true` | always — the GPU call is the point of R3b |
+| `evm_sandbox` | `attempted: true` | always — the candidate is verified |
+| `independent_replay` | `attempted:` **either** `true` or `false` | `true` only if the model's candidate breaches the invariant (`adapters.py:1882`); `false` otherwise. R3b **records** which of the two happened and claims the replay **only** when it is `true` |
+| `trajectory_persistence` | `attempted:` **either** `true` or `false` | `true` only if the replay confirmed the breach (`is_verified`, `adapters.py:2104-2109`) |
+
+A smoke report that says "the replay stage was exercised" is therefore only true if the
+artifact records `independent_replay.attempted = true`. A report that says it was **not**
+exercised is true in every other case, and is not a defect of the smoke.
 
 R3b must run **before** R4, and its result must be recorded, because R4 is a 16-target paid
 run: if the inference plumbing is broken, R4 would spend the whole budget to produce 16
@@ -1260,8 +1398,8 @@ container is dispatched.
 
 | Step | Compute | Hard cap | Timeout / stop condition |
 |---|---|---|---|
-| **R3** (CPU plumbing smoke) | 1 CPU container, 1 target (`AC-01`), **0** inference calls | **1** container, **1** target, `--hypotheses=1`, **≤ 2** attempts, a wall-clock budget of **20 minutes** per attempt, and a **monetary ceiling of its own** (Q5) | the per-call timeout stays at the published value (`timeout_sec = 120`, §10.1); the client aborts the attempt at the 20-minute budget, stops the app (`modal app stop`) and records the failure; a second failed attempt ends the step |
-| **R3b** (inference-plumbing smoke) | 1 GPU container (`modal_h100`), 1 target, **exactly 1** inference call | **1** GPU call, `--hypotheses=1`, **≤ 2** attempts, a wall-clock budget of **20 minutes** per attempt, and a **hard maximum cost** of its own (Q5) | the same abort rule; a failed R3b **ends the sequence** — R4 does not start (§8.3) |
+| **R3** (CPU plumbing smoke) | **exactly 1** Modal invocation — the CPU `verify_exploit_remote`; 1 CPU container, 1 target (`AC-01`), **0** inference calls, **0** replay calls, **0** persistence calls (§8.2.1 a, c) | **1** container, **1** target, `--hypotheses=1`, **≤ 2** attempts, a wall-clock budget of **20 minutes** per attempt, and a **monetary ceiling of its own** (Q5) | the per-call timeout stays at the published value (`timeout_sec = 120`, §10.1); the client aborts the attempt at the 20-minute budget, stops the app (`modal app stop`) and records the failure; a second failed attempt ends the step |
+| **R3b** (inference-plumbing smoke) | **worst case 4** Modal invocations — **1** GPU inference call + **1** CPU `verify_exploit_remote` + **≤ 1** CPU `verify_replay_remote` + **≤ 1** CPU `record_trajectory_remote` (§8.2.2); 1 GPU container (`modal_h100`), 1 target, **exactly 1** inference call | **1** GPU call, `--hypotheses=1`, **≤ 2** attempts, a wall-clock budget of **20 minutes** per attempt, and a **hard maximum cost** of its own (Q5) | the same abort rule; a failed R3b **ends the sequence** — R4 does not start (§8.3) |
 | **R4** (the 16-target run) | 16 targets × H100, the published configuration | the monetary ceiling of **Q5** (§10.3) — no per-call cost may exceed it | the per-call timeout stays at `timeout_sec = 120` per target; the operator stops the app when the accumulated spend reaches the ceiling; the partial result and its billing window are published, and the run is **not** retried silently |
 
 Two invariants apply to all three steps:
@@ -1294,13 +1432,16 @@ the step must pass a **pre-dispatch estimate gate** — three conditions, all of
    not invent one.
 2. **An estimate exists.** The estimate is the **worst case** the step can spend under its
    own caps: the provider's published rate for the declared resources, multiplied by the
-   step's hard wall-clock budget and its attempt count — for R3b: one H100 container ×
-   20 minutes × ≤ 2 attempts. The rate is an **input to the approval**, recorded with its
-   source and its date; it is never hardcoded in the repository, for the same reason the
-   producer does not hardcode cost estimates (`benchmarks/adapters.py:19` — "No hardcoded
-   cost estimates: unmeasured runs report cost_usd as None"; the published `summary.json`
-   carries `cost_status: "unmeasured"` and `cost_usd: null`,
-   `benchmarks/artifacts/run_1794209615_70f5d22/summary.json:167-168`).
+   step's hard wall-clock budget and its attempt count — and by the **number of Modal
+   invocations the step can actually make**. For R3 that is one CPU container × its budget
+   × ≤ 2 attempts; for R3b it is one H100 container × 20 minutes × ≤ 2 attempts **plus** the
+   CPU invocations of the same path (one `verify_exploit_remote`, at most one
+   `verify_replay_remote`, at most one `record_trajectory_remote` — §8.2.2). The rate is an
+   **input to the approval**, recorded with its source and its date; it is never hardcoded
+   in the repository, for the same reason the producer does not hardcode cost estimates
+   (`benchmarks/adapters.py:19` — "No hardcoded cost estimates: unmeasured runs report
+   cost_usd as None"; the published `summary.json` carries `cost_status: "unmeasured"` and
+   `cost_usd: null`, `benchmarks/artifacts/run_1794209615_70f5d22/summary.json:167-168`).
 3. **The estimate is at or below the ceiling.** If `estimate > ceiling`, the step is **not
    dispatched**: either the ceiling is raised by a new, explicit approval, or the compute cap
    (attempt count, wall-clock budget) is lowered until the worst case fits under it.
@@ -1806,19 +1947,25 @@ because the entrypoint *is* the producer. What the regeneration must preserve is
    worker image contains `forge`; confirm the client can reach the provider's container
    listing (`ModalProvider.containers_of_app`).
 2. **CPU plumbing smoke (small cost):** one target, executed through the producer's own path
-   with the inference stage not attempted — this is **R3** (§8.2.1, D17). There is **no**
-   `modal_cpu` provider choice in the code: the runner's `--provider` accepts `gemini` /
-   `openai` (`benchmarks/benchmark_runner.py:741`) and the Baseline-5 backend accepts
-   `modal_h100` / `modal_t4` / `gemini` / `openai` (`:743-745`), while the adapter branches
-   on exactly those two Modal providers (`benchmarks/adapters.py:1624-1626`). The CPU-only
-   mode of R3 is therefore part of R1's producer work, not a flag that exists today. The
-   repository's separate CPU-only app (`benchmarks/modal_cpu_smoke_app.py`, `gpu=None`,
+   with the inference stage not attempted — this is **R3** (§8.2.1, D17, D19). The mechanism
+   is the adapter's **existing** `candidate_generator` parameter (`benchmarks/adapters.py:1596`,
+   `:1603`, used at `:1783-1784`), so **no new CPU mode has to be invented**: with a
+   candidate generator the provider dispatch is short-circuited before the GPU call, the
+   refinement loop cannot fire (`:1838`), and the smoke makes exactly one Modal call — the
+   real CPU `verify_exploit_remote`. R1 adds only the **fixture and its loader** (§8.2.1 b).
+   There is still **no** `modal_cpu` provider choice in the code: the runner's `--provider`
+   accepts `gemini` / `openai` (`benchmarks/benchmark_runner.py:741`) and the Baseline-5
+   backend accepts `modal_h100` / `modal_t4` / `gemini` / `openai` (`:743-745`), while the
+   adapter branches on exactly those two Modal providers
+   (`benchmarks/adapters.py:1624-1626`) — which is why R3 is *not* expressed as a provider
+   flag. The repository's separate CPU-only app (`benchmarks/modal_cpu_smoke_app.py`, `gpu=None`,
    `cpu=0.5`, `memory=256`, `timeout=60`, `retries=0`) is **not** R3: it proves that a real
    worker reports its own runtime identity, but its record is a single-function identity
    record, not the §5 stage block of a target artifact — it belongs to the pre-flight
-   (step 1). Assert the §5 contract for the stages R3 actually ran, before any paid run. A
-   CPU container is still Modal compute and still costs money, so R3 has its own ceiling,
-   its own approval **A-R3** and its own pre-dispatch estimate gate (§8.2.5).
+   (step 1). Assert the §5 contract for the stages R3 actually ran — which is exactly one —
+   before any paid run. A CPU container is still Modal compute and still costs money, so R3
+   has its own ceiling, its own approval **A-R3** and its own pre-dispatch estimate gate
+   (§8.2.5).
 3. **Inference-plumbing smoke (minimal GPU cost):** one target with the published inference
    configuration, exercising the `inference` stage and resolving its provider-issued identities
    — this is **R3b** (§8.2.2), and it needs its **own explicit authorisation** **A-R3b** with
@@ -1891,8 +2038,9 @@ something this plan settles; anything that is still the maintainer's call is a q
 | **D14** | **Every compute step has its own hard cap, its own stop condition and its own explicit approval.** No approval implies another. | A CPU container on Modal is compute, too, and R3b spends GPU credits before the Q5 ceiling is set. A cap that is not fixed before the step starts is not a cap (§8.2.5). |
 | **D15** | **The run executes from a detached worktree pinned at the producer commit `P`.** The manifest's `git.commit_sha`, the run directory's suffix, the report's `code_sha` and the closure's capture binding are therefore the same value by construction. | The manifest reads its SHA from the checkout that executes the run, so the risk is not a lying manifest but running from the wrong checkout. A detached worktree is the only arrangement in which the four bindings cannot drift apart (§8.2.6, §9.3). |
 | **D16** | **No compute step is dispatched without a pre-dispatch cost estimate at or below its own approved ceiling. If the estimate is unavailable, the step does not start.** The three monetary ceilings — R3, R3b, R4 — remain **Q5** (§11.2) and are **not** set by this plan; until they are supplied and approved, all three steps are undispatchable. | A cap that is only checked after the spend is not a gate, and R3b spends GPU credits before the full-run ceiling exists, so it needs a ceiling, an approval and an estimate of its own. The repository deliberately has no cost estimator (`benchmarks/adapters.py:19`; `cost_status: "unmeasured"`), so the estimate has to come from the provider and be recorded with its source — it cannot be invented here (§8.2.5). |
-| **D17** | **R3 is the producer's own CPU-only execution path with the inference stage not attempted** — not a separate smoke app, and not a `modal_cpu` provider, which does not exist in the code. | Only the producer writes the §5 stage block (`benchmarks/adapters.py:2377-2411`); the dedicated CPU app (`benchmarks/modal_cpu_smoke_app.py`) produces a single-function identity record and stays a pre-flight check. The stage block is always complete — all four keys are written (`adapters.py:2377-2409`) — so the attempt flag inside it is what distinguishes "not attempted" from "attempted and failed" (`evidence_integrity.py:1829-1836`) (§8.2.1, §10.2). |
+| **D17** | **R3 runs the producer's own `execute_target()` and takes the adapter's candidate-generator branch, so the inference stage is not attempted.** The mechanism is the `candidate_generator` parameter the production adapter already has (`benchmarks/adapters.py:1596`, stored at `:1603`, used at `:1783-1784`) — not a separate smoke app, and not a `modal_cpu` provider, which does not exist in the code. R1 introduces the **fixture and its loader**, not a bypass mechanism. | Only the producer writes the §5 stage block (`benchmarks/adapters.py:2377-2411`); the dedicated CPU app (`benchmarks/modal_cpu_smoke_app.py`) produces a single-function identity record and stays a pre-flight check. The candidate generator short-circuits the provider dispatch **before** the GPU call (`:1783` vs `:1785-1792`), and the refinement loop cannot fire because it requires `candidate_generator is None` (`:1838`), so R3 makes exactly one Modal call, and it is a CPU one. The stage block is always complete — all four keys are written (`:2377-2409`) — so the attempt flag inside it is what distinguishes "not attempted" from "attempted and failed" (`evidence_integrity.py:1829-1836`, `:608-614`) (§8.2.1, §10.2). |
 | **D18** | **The producer surface is sealed at `P`, and the run is bound to the bytes of `P`.** Every execution step and every step that judges the run's bytes happens in the detached worktree at `P`; the executed producer bytes are verified by digest; and any commit after `P` that touches a producer path **invalidates the run** and requires a fresh capture. | The manifest's SHA binds a commit; a digest binds the bytes, and only the second one rules out "the code that ran is not the code that was named". A producer-changing commit between the capture and the closure is detected by P6.14's diff, and the consequence is fixed in advance — a new capture, not a re-labelled one (§8.2.6, §9.3). |
+| **D19** | **R3's candidate is a checked-in, non-breaching fixture — a negative control — and R3 claims only the EVM-sandbox stage.** The fixture is never presented as model output, is written outside `benchmarks/evidence/`, and its digest is recorded with the smoke. R3 records `independent_replay.attempted = false` and proves nothing about the replay stage. | A plumbing smoke needs a candidate that costs no GPU credits and cannot fabricate a finding. A model candidate would make R3 a paid inference test — that is R3b. A breaching candidate would make the replay branch fire (`adapters.py:1882`) and turn a plumbing smoke into an accidental benchmark run. The producer enters that branch only on `INVARIANT_BREACH_UNREPLAYED`, so a non-breaching fixture keeps the smoke deterministic and its stage matrix fixed (§8.2.1 b, c). |
 
 ### 11.2 Unresolved questions for the maintainer
 
@@ -1983,6 +2131,25 @@ The regeneration is acceptable only when **all** of the following hold:
     `git status --porcelain` is empty. If any commit after `P` had touched a producer path,
     the run was discarded and a fresh capture was made instead of publishing the invalidated
     one (D18, §8.2.6, §9.3).
+20. **The R3 smoke claims only what it exercised.** The smoke artifact records
+    `inference.attempted = false`, `evm_sandbox.attempted = true`,
+    `independent_replay.attempted = false`, `trajectory_persistence.attempted = false`
+    (§8.2.1 c); its candidate is the checked-in fixture of §8.2.1 (b), the digest of that
+    fixture is recorded with the smoke, and the artifact lives outside
+    `benchmarks/evidence/`. No report, commit message or PR description of the regeneration
+    states that R3 exercised the inference stage or the replay stage, and no published file
+    refers to the smoke (D17, D19).
+21. **The function names agree with the attempts.** A stage that was not attempted records
+    `function_name: null`, and `tool_metadata.modal_functions` names exactly the Modal
+    functions that were invoked for that target — both derived from the same flags as the
+    stage block (`adapters.py:2154-2163`, `:2246-2254` and `:2378-2384` are where this is
+    fixed); an artifact that records `inference.attempted = false` may neither list
+    `ProductionAuditAgent.generate_solidity_exploit` in `modal_functions` nor name it as the
+    stage's `function_name` (§8.2.1 e, item 7).
+22. **"Not attempted" and "attempted and failed" are not interchangeable.** Every stage's
+    `attempted` flag agrees with the absence kind its identity facts carry: a stage with
+    `attempted: false` carries `STAGE_NOT_ATTEMPTED` and nothing else, and a stage with
+    `attempted: true` carries none (C6, T12, §8.2.1 d).
 
 ---
 
