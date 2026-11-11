@@ -10,6 +10,7 @@ from typing import Optional, List, Dict, Any
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.config import config
+from core import r1_bounds as r1
 from core.hypothesis_manager import HypothesisManager
 from core.schemas import (
     TargetProgram,
@@ -67,6 +68,13 @@ gpu_image = (
     .add_local_python_source("core", "sandbox")
 )
 
+# The model-cache prefetch (R2p) is deliberately NOT declared here: it is a
+# separately authorised step, its download timeout is an approval input, and the
+# dispatch path refuses it until its bounds are approved. Its per-container egress
+# bound (pinned_bytes x (1 + R_download)) is declared in core/r1_bounds.py, so the
+# estimator can price R2p (D29).
+
+
 
 # =============================================================================
 # 1. PRODUCTION AUDIT AGENT (H100 - 30B Qtum Web3 Security Model)
@@ -75,7 +83,11 @@ gpu_image = (
     gpu=config.AUDIT_GPU_TYPE,
     image=gpu_image,
     volumes={"/vol/models": model_volume},
-    timeout=1200,
+    timeout=r1.declared_timeout(r1.GPU_PROFILE),
+    # D29: the GPU container of R3b/R4 is offline. The model is read from the
+    # volume's cache, which the prefetch step (R2p) populated and verified.
+    env=r1.OFFLINE_ENV,
+    **r1.GPU_PROFILE.modal_kwargs(),
 )
 class ProductionAuditAgent:
     """
@@ -84,33 +96,60 @@ class ProductionAuditAgent:
     1. Native security auditor: detects vulnerabilities and outputs JSON finding arrays.
     2. Exploit synthesizer: generates executable unprivileged ExploitModule.
     """
+    def _load_cache_manifest(self) -> dict:
+        """The manifest of the pinned revision, recorded by the prefetch step (R2p)."""
+        import json
+        try:
+            with open(r1.MODEL_CACHE_MANIFEST_PATH, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(
+                "[!] The model cache manifest is missing or unreadable "
+                f"({r1.MODEL_CACHE_MANIFEST_PATH}): {exc}. The prefetch step (R2p) has "
+                "to complete before any GPU step is dispatchable (D29)."
+            ) from exc
+
     @modal.enter()
     def load_model(self):
         import os
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
-        
+
         cache_dir = config.MODEL_CACHE_DIR
         os.makedirs(cache_dir, exist_ok=True)
-        
+
+        # D29: the GPU container downloads nothing. The cache is verified against the
+        # manifest recorded by R2p and the container fails CLOSED when the cache is
+        # incomplete - with local_files_only=True the hub client raises instead of
+        # downloading, so a wrong cache must fail the container rather than quietly
+        # fetch the model again (a per-container cost of up to 61 GB).
+        manifest = self._load_cache_manifest()
+        check = r1.verify_model_cache_manifest(cache_dir, manifest)
+        if check["status"] != "PASSED":
+            raise RuntimeError(
+                "[!] The model cache does not match the recorded manifest: "
+                f"{check['reason']}; missing={check['missing'][:5]} "
+                f"mismatched={check['mismatched'][:5]}"
+            )
+
         print(f"[*] Initializing Production 30B Model on Modal {config.AUDIT_GPU_TYPE}: {config.AUDIT_GPU_MODEL}")
         self.tokenizer = AutoTokenizer.from_pretrained(
             config.AUDIT_GPU_MODEL,
             cache_dir=cache_dir,
-            trust_remote_code=True
+            trust_remote_code=True,
+            local_files_only=True,
         )
         self.model = AutoModelForCausalLM.from_pretrained(
             config.AUDIT_GPU_MODEL,
             torch_dtype=torch.bfloat16,
             device_map="auto",
             cache_dir=cache_dir,
-            trust_remote_code=True
+            trust_remote_code=True,
+            local_files_only=True,
         )
-        try:
-            model_volume.commit()
-            print("[✓] Model weights committed to persistent Modal Volume.")
-        except Exception as e:
-            print(f"[!] Volume commit notice: {e}")
+        # The cache is committed by the prefetch step (R2p). An offline container has
+        # nothing new to write, so it does not commit the volume itself.
+        print("[✓] Model loaded from the local cache (offline).")
 
     @modal.method()
     def audit_target_contract(self, target_dict: dict) -> list:
@@ -538,8 +577,7 @@ def capture_modal_runtime_identity() -> dict:
 @app.function(
     image=sandbox_image,
     timeout=60,
-    cpu=config.SANDBOX_CPU_CORES,
-    memory=config.SANDBOX_MEMORY_MB,
+    **r1.SANDBOX_CPU_PROFILE.modal_kwargs(),
 )
 def run_slither_remote(target_dict: dict) -> list:
     """Executes Slither AST static analysis on Modal CPU worker."""
@@ -549,9 +587,11 @@ def run_slither_remote(target_dict: dict) -> list:
 
 @app.function(
     image=sandbox_image,
-    timeout=config.SANDBOX_TIMEOUT_SEC,
-    cpu=config.SANDBOX_CPU_CORES,
-    memory=config.SANDBOX_MEMORY_MB,
+    timeout=r1.declared_timeout(r1.SANDBOX_CPU_PROFILE),
+    # D26/D27/D29: the explicit request/limit pair and the lifecycle bounds of the
+    # sandbox class, the autoscaler policy of the deployment, and the
+    # provider-enforced network blocking declaration of this exact function.
+    **r1.modal_function_kwargs(r1.SANDBOX_CPU, "verify_exploit_remote"),
 )
 def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     """Compiles Solidity exploit and executes forge test --offline --json -vvvv in ephemeral EVM."""
@@ -581,9 +621,8 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
 
 @app.function(
     image=sandbox_image,
-    timeout=config.SANDBOX_TIMEOUT_SEC,
-    cpu=config.SANDBOX_CPU_CORES,
-    memory=config.SANDBOX_MEMORY_MB,
+    timeout=r1.declared_timeout(r1.SANDBOX_CPU_PROFILE),
+    **r1.modal_function_kwargs(r1.SANDBOX_CPU, "verify_replay_remote"),
 )
 def verify_replay_remote(target_dict: dict, payload_dict: dict) -> dict:
     """Runs the candidate independently in a fresh EVM worker and returns structured replay evidence."""
@@ -676,6 +715,7 @@ def verify_replay_remote(target_dict: dict, payload_dict: dict) -> dict:
 @app.function(
     image=sandbox_image,
     timeout=60,
+    **r1.SANDBOX_CPU_PROFILE.modal_kwargs(),
 )
 def verify_replay_fault_injection_remote(target_dict: dict, payload_dict: dict, fault_type: str = "timeout") -> bool:
     """
@@ -695,10 +735,17 @@ def verify_replay_fault_injection_remote(target_dict: dict, payload_dict: dict, 
 @app.function(
     image=sandbox_image,
     volumes={"/vol/models": model_volume},
-    timeout=60,
+    timeout=r1.declared_timeout(r1.PERSISTENCE_PROFILE),
+    **r1.modal_function_kwargs(r1.PERSISTENCE, "record_trajectory_remote"),
 )
 def record_trajectory_remote(trajectory_dict: dict) -> str:
     """Saves verified execution trajectory pair to persistent volume for GRPO training."""
+    # D28: the producer-enforced byte cap. The persistence function refuses a larger
+    # payload instead of writing it, so the container is never billed for an
+    # oversized write and the volume's increment stays bounded by construction.
+    payload_bytes = len(json.dumps(trajectory_dict, default=str).encode("utf-8"))
+    r1.assert_payload_within_cap(payload_bytes, "record_trajectory_remote")
+
     traj_dir = config.TRAJECTORY_DIR
     os.makedirs(traj_dir, exist_ok=True)
     traj_id = trajectory_dict.get("trajectory_id", "unknown")
@@ -1712,6 +1759,24 @@ def main(
     for hyp in hypothesis_manager.get_top_hypotheses(limit=5):
         print(f"  - {hyp.hypothesis_id}: {hyp.vulnerability_class} [{hyp.validation_status}] attempts={hyp.attempt_count}")
     print("=" * 78 + "\n")
+
+
+# =============================================================================
+# 12. THE DISPATCH GUARD (R1, D26-D29)
+# =============================================================================
+# Every provider callable of this app is wrapped: while a required bound of its
+# container class is required-but-unset, the call is refused and the deployment
+# cannot start a billable container. The declared dispatchable functions are the
+# ones with an egress declaration (core/r1_bounds.py); the others are refused as
+# well, because they are not part of the authorised trace.
+for _name, _obj in list(globals().items()):
+    if _name.startswith("_") or _name in ("app", "model_volume", "gpu_image", "sandbox_image"):
+        continue
+    if not isinstance(_obj, modal.Function):
+        continue
+    _guarded = r1.GuardedRemote(_obj, _name)
+    globals()[_name] = _guarded
+    r1.register_deployed_function(_name, _guarded)
 
 
 if __name__ == "__main__":

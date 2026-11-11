@@ -37,6 +37,26 @@ from contextlib import contextmanager
 _MODAL_APP_RUNNING = False
 
 
+def dispatch_via_r1_gate(container_class: str, function_name: str, fn, *args, **kwargs):
+    """Dispatch a Modal call through the R1 dispatch gate (plan D27).
+
+    The gate is the single path through which this workflow dispatches a Modal call.
+    It enforces the per-step invocation budget, the concurrency gate, the ceiling
+    assertion, the completeness of the declared bounds, the producer-enforced
+    payload cap and the autoscaler read-back. A dispatch that is not allowed is
+    refused and the refusal is recorded.
+    """
+    import sys
+    from pathlib import Path
+
+    root = str(Path(__file__).resolve().parent.parent)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from benchmarks.r1_dispatch import dispatch
+
+    return dispatch(container_class, function_name, fn, *args, **kwargs)
+
+
 class ModalAppContext:
     """
     Context manager that ensures an active Modal app context exists when invoking
@@ -1787,7 +1807,12 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     agent = ProductionAuditAgent()
                     t_payload = target_prog.model_dump()
                     t_payload["correlation_id"] = correlation_id
-                    p_dict = agent.generate_solidity_exploit.remote(t_payload)
+                    p_dict = dispatch_via_r1_gate(
+                        "gpu",
+                        "ProductionAuditAgent.generate_solidity_exploit",
+                        agent.generate_solidity_exploit,
+                        t_payload,
+                    )
                     inference_response = p_dict
                     payload = ExploitPayload(**p_dict)
                 elif self.provider == "modal_t4":
@@ -1795,7 +1820,14 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     agent = DevReasoningAgent()
                     t_payload = target_prog.model_dump()
                     t_payload["correlation_id"] = correlation_id
-                    p_dict = agent.generate_solidity_exploit.remote(t_payload)
+                    # The dev T4 agent is not part of the authorised trace: it has no
+                    # egress declaration, so the gate refuses it.
+                    p_dict = dispatch_via_r1_gate(
+                        "gpu",
+                        "DevReasoningAgent.generate_solidity_exploit",
+                        agent.generate_solidity_exploit,
+                        t_payload,
+                    )
                     inference_response = p_dict
                     payload = ExploitPayload(**p_dict)
                 else:
@@ -1823,7 +1855,13 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 target_dict = target_prog.model_dump()
                 payload_dict = payload.model_dump() if payload else {}
 
-                verdict_dict = verify_exploit_remote.remote(target_dict, payload_dict)
+                verdict_dict = dispatch_via_r1_gate(
+                    "sandbox_cpu",
+                    "verify_exploit_remote",
+                    verify_exploit_remote,
+                    target_dict,
+                    payload_dict,
+                )
                 verdict = VerificationVerdict(**verdict_dict)
                 elapsed = round(time.time() - start_time, 3)
 
@@ -1844,7 +1882,10 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                         if self.provider == "modal_h100":
                             from modal_app import ProductionAuditAgent
                             ref_agent = ProductionAuditAgent()
-                            rp_dict = ref_agent.refine_solidity_exploit.remote(
+                            rp_dict = dispatch_via_r1_gate(
+                                "gpu",
+                                "ProductionAuditAgent.refine_solidity_exploit",
+                                ref_agent.refine_solidity_exploit,
                                 target_dict,
                                 payload.test_code,
                                 err_trace,
@@ -1852,7 +1893,12 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                         else:
                             from modal_app import DevReasoningAgent
                             ref_agent = DevReasoningAgent()
-                            rp_dict = ref_agent.refine_solidity_exploit.remote(
+                            # The dev T4 agent is not part of the authorised trace:
+                            # it has no egress declaration, so the gate refuses it.
+                            rp_dict = dispatch_via_r1_gate(
+                                "gpu",
+                                "DevReasoningAgent.refine_solidity_exploit",
+                                ref_agent.refine_solidity_exploit,
                                 target_dict,
                                 payload.test_code,
                                 err_trace,
@@ -1863,7 +1909,13 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                             inference_response = rp_dict
                             payload = ref_payload
                             payload_dict = payload.model_dump()
-                            verdict_dict = verify_exploit_remote.remote(target_dict, payload_dict)
+                            verdict_dict = dispatch_via_r1_gate(
+                                "sandbox_cpu",
+                                "verify_exploit_remote",
+                                verify_exploit_remote,
+                                target_dict,
+                                payload_dict,
+                            )
                             verdict = VerificationVerdict(**verdict_dict)
                         else:
                             break
@@ -1882,7 +1934,13 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 if verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED:
                     replay_attempted = True
                     try:
-                        raw_replay = verify_replay_remote.remote(target_dict, payload_dict)
+                        raw_replay = dispatch_via_r1_gate(
+                            "sandbox_cpu",
+                            "verify_replay_remote",
+                            verify_replay_remote,
+                            target_dict,
+                            payload_dict,
+                        )
                         replay_provider_response = raw_replay
                         if isinstance(raw_replay, dict):
                             replay_details = dict(raw_replay)
@@ -2141,7 +2199,12 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                             is_synthetic=False,
                             trainable=False
                         )
-                        persisted_res = record_trajectory_remote.remote(traj.model_dump())
+                        persisted_res = dispatch_via_r1_gate(
+                            "persistence",
+                            "record_trajectory_remote",
+                            record_trajectory_remote,
+                            traj.model_dump(),
+                        )
                         if isinstance(persisted_res, str) and persisted_res:
                             persisted_path = persisted_res
                             persistence_status = "persisted"
