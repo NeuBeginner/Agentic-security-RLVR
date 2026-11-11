@@ -754,6 +754,8 @@ Each of these must fail **before** the fix and pass **after**:
 | **T7** | an upstream-shaped artifact with `stages.inference` lacking `app_id`/`function_call_id`/`container_id` → FAILED | F3 / §3.2(1) |
 | **T8** | the regenerated artifacts pass `validate_modal_invocation_provenance` **and** `validate_remote_evm_toolchain_provenance` | the whole point |
 | **T9** | the *published* artifacts, if not regenerated, still fail — the historical FAILED state is preserved | §9.4 |
+| **T10** | the effective `--run-dir` default of each of the historical validators (14–18) is still `benchmarks/artifacts/run_1794209615_70f5d22` — a repointed default fails the suite | §8.2.4 (e) |
+| **T11** | no code path selects the authoritative run by recency: a **newer** run directory in the tree is not selected, because the selection is a literal path | §8.2.4 (b) |
 
 ---
 
@@ -863,7 +865,7 @@ inherit the same divergence (D10).
 | 1 | 16 × `<TARGET>-01.json` **in the new run dir** | the new run's `reproducibility_manifest.json` → `artifact_files` ×1 each | **yes** | regenerate in the new run directory |
 | 2 | `reproducibility_manifest.json` **in the new run dir** | embedded byte-for-byte in the new `summary.json` / `latest_summary.json` | **yes** | regenerate; re-pin all 48 `artifact_files` digests over blob bytes (D10) |
 | 3 | `summary.json` **in the new run dir** | — | **yes** | regenerate |
-| 4 | `latest_summary.json` (tree root) | — | **yes** | regenerate — must stay byte-identical to the **new** run's `summary.json` |
+| 4 | `latest_summary.json` (tree root) | — | **yes** | regenerate — stays the byte-identical mirror of the **authoritative** run's `summary.json` (D12) |
 | 5 | 16 × `<TARGET>_stdout.txt` (new run dir) | new harness ×1 each **and** new manifest ×1 each | **yes** | regenerate with the run; pin over blob bytes (D10) |
 | 6 | 16 × `<TARGET>_stderr.txt` (new run dir) | new harness ×1 each **and** new manifest ×1 each | possibly | regenerate with the run |
 | 7 | 4 × `*_replay_stdout.txt` / `*_replay_stderr.txt` (new run dir) | new harness ×1 each, for AC-01 and REENT-01 only (**not** the manifest) | possibly | regenerate with the run |
@@ -887,7 +889,10 @@ holds for the authoritative run (D9) and is reported per run, not globally.
 
 The previous content of `latest_summary.json` is not lost by row 4: the old run's own
 `summary.json` is byte-identical to it and stays in the old run directory, and the old bytes
-remain in the commit history.
+remain in the commit history. The mirror is not a matter of taste but decision **D12**
+(§11.1): the root-level `latest_summary.json` stays a byte-identical copy of the
+**authoritative** run's `summary.json`, and the question "mirror or pointer" is therefore
+closed — the pointer option is not part of this plan.
 
 ---
 
@@ -900,8 +905,13 @@ remain in the commit history.
 3. `foundry`/`forge` on `PATH` in the worker image; the local machine does not need it.
 4. Modal credentials for the target workspace; the app name `aegis-rlvr-security` is the
    one recorded in the published artifacts.
-5. A cost ceiling agreed in advance — open question **Q5** (§11.2), still unanswered. The
-   16-target run (R4) must not start before the maintainer sets it.
+5. A cost ceiling for every compute step, and a separate approval for every compute step —
+   §8.2.5. The monetary ceiling of the paid steps is open question **Q5** (§11.2), still
+   unanswered; the CPU smoke has its own, smaller ceiling. **No** step starts without its own
+   ceiling and its own approval: an approval for R4 approves R4 and nothing else.
+6. A **detached worktree** pinned at the producer commit `P` for the execution steps R3, R3b
+   and R4 (§8.2.6), so that the manifest, the run directory, the report and the closure all
+   carry the same SHA.
 
 ### 8.2 The sequence
 
@@ -911,11 +921,11 @@ the last committed step (§8.4).
 | Step | Action | Produces | Gate before proceeding |
 |---|---|---|---|
 | **R0** | Branch `iter-24/evidence-regeneration` from the authorised base. | — | clean tree, base SHA recorded |
-| **R1** | Implement the §5 schema in the producer (`adapters.py`, `modal_app.py`, `benchmark_runner.py`) and the §6.5 validator changes. | code only | unit tests green; **no** published file touched |
+| **R1** | Implement the §5 schema in the producer (`adapters.py`, `modal_app.py`, `benchmark_runner.py`) and the §6.5 validator changes. | code only | unit tests green; **no** published file touched; the commit of R1 is the producer commit **`P`** — no commit after it may touch the producer paths (§8.2.6, §9.3) |
 | **R2** | Add the §6.6 negative tests T1–T9. | tests | each test fails on the pre-fix code and passes on the post-fix code (proven by running both revisions) |
-| **R3** | **CPU-only plumbing smoke** on one target (`AC-01`), limited to the stages that need no GPU: `evm_sandbox` and `independent_replay`. The `inference` stage is **not attempted** and is therefore **absent** from the smoke artifact. | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.1 gate: every stage **present** in the artifact satisfies the §5 contract; **nothing is claimed about the stages that are absent** |
-| **R3b** | **Inference-plumbing smoke** — one GPU-backed inference call for one target, to obtain a real worker-observed `function_call_id` and the client-resolved `app_id` / `container_id` for that call. | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.2 gate; **separately authorised**, because it spends GPU time and Modal credits |
-| **R4** | Authorised live run: 16 targets, the same provider configuration as the published run (`modal_h100`, `qtum/Qwen3-Coder-30B-A3B-Audit`, `--hypotheses=3`). | a **new** run directory `run_<epoch>_<sha7>/` | every stage's provenance is observed-or-explicitly-`NOT_AVAILABLE`; the run completes; the directory suffix equals the manifest's `git.commit_sha[:7]` (§8.2.3) |
+| **R3** | **CPU-only plumbing smoke** on one target (`AC-01`), limited to the stages that need no GPU: `evm_sandbox` and `independent_replay`. The `inference` stage is **not attempted** and is therefore **absent** from the smoke artifact. | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.1 gate: every stage **present** in the artifact satisfies the §5 contract; **nothing is claimed about the stages that are absent**; the caps and the approval **A-R3** of §8.2.5 hold before the first container starts |
+| **R3b** | **Inference-plumbing smoke** — one GPU-backed inference call for one target, to obtain a real worker-observed `function_call_id` and the client-resolved `app_id` / `container_id` for that call. | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.2 gate; **separately authorised** (**A-R3b**), because it spends GPU time and Modal credits; its caps of §8.2.5 are fixed **before** the first call |
+| **R4** | Authorised live run: 16 targets, the same provider configuration as the published run (`modal_h100`, `qtum/Qwen3-Coder-30B-A3B-Audit`, `--hypotheses=3`), executed from the detached worktree at `P` (§8.2.6). | a **new** run directory `run_<epoch>_<P[:7]>/` | every stage's provenance is observed-or-explicitly-`NOT_AVAILABLE`; the run completes; the directory suffix equals the manifest's `git.commit_sha[:7]` (§8.2.3); the manifest's SHA is `P` (§8.2.6); the approval **A-R4** and its ceiling hold |
 | **R5** | Verify the new run **before** it becomes published: run the §5 validators over the new run dir; assert `has_synthetic_modal_uri` is false for every file; assert no `SYNTHETIC_CONTAINER_ID_RE` match anywhere. | a verification transcript | all assertions hold |
 | **R6** | **Publish the new run tree additively** (D9): the new run's 16 target artifacts, its manifest, its `summary.json`, and the root-level `latest_summary.json` — which becomes the byte-identical mirror of the **new** run's `summary.json`. The published run `run_1794209615_70f5d22/` is **not** modified, moved or deleted. | new published bytes | `git diff --stat` shows only the expected files; `latest_summary.json` is byte-identical to the new run's `summary.json`; the old run directory is untouched in the diff |
 | **R7** | Regenerate `modal_control_harness_validation.json` (re-pin the 32 stdout/stderr digests and the 16 `input_sha256` values over blob bytes). | new digest | the file validates against the new run dir |
@@ -1021,6 +1031,326 @@ commit SHA, so its directory must carry the new 7-character prefix. The publishe
 additive layout is not a stylistic preference, it is what the manifest-integrity check
 requires.
 
+### 8.2.4 The authoritative run: how it is selected, end to end
+
+D9 says the authoritative run is selected *explicitly*; this section is the mechanism.
+Four things have to be true for the selection to be checkable: the validator that reads the
+new run must exist, the value that selects the run must be a literal, the run must be bound
+to the SHA it was produced from, and the historical validators must keep reading the
+historical run.
+
+#### (a) The validator of the replacement iteration
+
+The replacement iteration gets its **own module**. The Iteration 18 validator is **not**
+reused for the new run: it resolves its run directory from a module constant
+(`DEFAULT_RUN_DIR`) and writes to a fixed report path
+(`benchmarks/evidence/iteration18_validation_evidence.json`,
+`validate_iteration18_evidence.py:105`), so pointing it at the new run would overwrite the
+published Iteration 18 report — the very file D8 declares immutable.
+
+The new module is `benchmarks/validate_iteration24_evidence.py` (named after the iteration
+number, which remains the maintainer's choice, **Q6**; the *module* is not). It is a thin
+module, not a copy: the Iteration 18 check logic is reused unchanged through
+`validate_run_iteration18(*, run_dir, baseline_id, raw_export_path, join_table_path,
+code_sha)` (`validate_iteration18_evidence.py:241-256`), which is already parameterised by
+`run_dir`. The new module adds exactly two things:
+
+1. `AUTHORITATIVE_RUN_DIR` — the literal path of the new run ((b) below);
+2. the check `P0.2.manifest_git_integrity` ((c) below), which **no** iteration validator
+   performs today: `validate_manifest_git_integrity` is called from
+   `benchmarks/benchmark_runner.py:683` and from the tests only —
+   `validate_iteration14_evidence.py` does not mention the reproducibility manifest at all,
+   so nothing today ties a published run directory to the SHA in its own manifest.
+
+The CLI of the new module:
+
+```
+python -m benchmarks.validate_iteration24_evidence \
+  --run-dir benchmarks/artifacts/run_<epoch>_<sha7> \
+  --baseline-id baseline_5 \
+  --report benchmarks/evidence/iteration24_validation_evidence.json \
+  --code-sha <P>
+```
+
+#### (b) The exact value that selects the run
+
+Two literals, and only literals:
+
+| Where | Value |
+|---|---|
+| `AUTHORITATIVE_RUN_DIR` in `validate_iteration24_evidence.py` | `benchmarks/artifacts/run_<epoch>_<sha7>` |
+| the `--run-dir` argument of the closure validator's P6.13 command | the same string |
+
+Both are **literal paths**. The authoritative run is never selected by recency, by a glob
+over `benchmarks/artifacts/run_*`, by the newest modification time, by the highest epoch, or
+by the name of a summary file. A validator reads exactly the directory it was told to read,
+and the two literals above are the only two places where the new run is named. The negative
+test **T11** pins this: a *newer* run directory in the tree is not selected, because nothing
+ever enumerates the tree.
+
+#### (c) How the run is bound to the SHA it was produced from
+
+Two checks — one at production time, one at validation time.
+
+**Production time.** The producer derives the directory name and the manifest's SHA from the
+*same* value (`benchmarks/benchmark_runner.py`):
+
+```python
+commit_sha = self._get_git_commit_sha()                 # :355 -> git rev-parse HEAD
+run_id = f"run_{int(time.time())}_{commit_sha[:7]}"      # :357
+...
+verify_manifest_git_integrity(                          # :682-685
+    repro_manifest, run_artifacts_dir,
+    expected_commit_sha=commit_sha, require_clean=effective_require_clean)
+```
+
+`validate_manifest_git_integrity` (`benchmarks/protocol.py:353-371`) then asserts three
+things: the manifest's SHA is a full 40-character hex SHA; it equals `expected_commit_sha`;
+and the run-directory suffix is a **prefix** of that SHA and at least seven characters long —
+with the seven-character suffix the producer generates, that is exactly `commit_sha[:7]`. The
+published run satisfies this: its manifest records
+`git.commit_sha = 70f5d22668bb5ebf72aa9de230fe91790d0e57c8`, and its directory is
+`run_1794209615_70f5d22`.
+
+**Validation time.** The new module performs the same check over the bytes on disk, against
+the SHA the report is bound to:
+
+```python
+manifest = json.loads((run_dir / "reproducibility_manifest.json").read_text(encoding="utf-8"))
+ok, error = validate_manifest_git_integrity(
+    manifest, run_dir=run_dir, expected_commit_sha=code_sha)
+```
+
+`code_sha` is the `--code-sha` value — the commit the run was executed from (§8.2.6). One
+check therefore asserts all three bindings at once: the manifest names a full SHA, that SHA
+is the SHA the report is bound to, and the directory the artifacts were read from carries
+that SHA's first seven characters. A run directory whose suffix does not match its own
+manifest cannot pass — and because the literal path is the only way into the directory, a
+transcription error in the literal is caught here rather than trusted.
+
+#### (d) The exact P6.13 invocation for the new row
+
+Today P6.13 builds one command shape for every row
+(`validate_consolidated_closure_evidence.py:1386-1399`):
+
+```python
+command = [sys.executable, "-m", module, "--report", str(report_path)]
+if iteration in (16, 17, 18):
+    command += ["--rehearsal-dir", str(probe_dir / f"rehearsal{iteration}")]
+if expected == "PASSED":
+    command += ["--code-sha", bound]
+```
+
+The new row needs one argument the historical rows do not have: the run directory. The
+change is **additive**, and the historical table is not modified: `HISTORICAL_EVIDENCE`
+(`validate_consolidated_closure_evidence.py:196-207`) stays exactly as it is, and a separate
+table is added next to it,
+
+```python
+#: The replacement evidence: the iteration that supersedes the historical 14-18
+#: failure with a new authorised run, the verdict it must reach, the commit it
+#: is bound to and the run directory its validator must read. The path is a
+#: literal - the authoritative run is never selected by recency.
+REPLACEMENT_EVIDENCE: Tuple[Tuple[int, str, str, str], ...] = (
+    (24, "PASSED", "<P>", "benchmarks/artifacts/run_<epoch>_<sha7>"),
+)
+```
+
+and P6.13 iterates over the two tables with one normalised row shape
+`(iteration, expected, bound, run_dir)`, where `run_dir` is `None` for every historical row:
+
+```python
+rows = [(i, e, b, None) for (i, e, b) in HISTORICAL_EVIDENCE]
+rows += list(REPLACEMENT_EVIDENCE)
+for iteration, expected, bound, run_dir in rows:
+    command = [sys.executable, "-m", module, "--report", str(report_path)]
+    if iteration in (16, 17, 18):
+        command += ["--rehearsal-dir", str(probe_dir / f"rehearsal{iteration}")]
+    if expected == "PASSED":
+        command += ["--code-sha", bound]
+    if run_dir is not None:
+        command += ["--run-dir", run_dir]
+```
+
+The concrete invocation for the new row is therefore:
+
+```
+python -m benchmarks.validate_iteration24_evidence \
+  --report benchmarks/evidence/_closure_probe/iteration24.json \
+  --code-sha <P> \
+  --run-dir benchmarks/artifacts/run_<epoch>_<sha7>
+```
+
+`--baseline-id` keeps its default `baseline_5` — the directory the new run's target
+artifacts live in.
+
+**The expected verdict of the new row is `PASSED`, and it is written into
+`REPLACEMENT_EVIDENCE` before the run is made — not after its outcome is known.** If the
+expectation were written after the run, the check would be unfalsifiable (the closure would
+assert whatever the run produced), which is the same defect as the conditional rule D8
+forbids. Written in advance, the check has a real failure mode: **if the replacement run does
+not pass, the closure fails**, R12 opens a Draft PR that says so, and the historical FAILED
+rows stay exactly as they are. The plan does not promise that this row can be satisfied; it
+states what it requires.
+
+#### (e) Proof that the historical validators keep using the original run
+
+Four facts, all mechanical:
+
+1. **P6.13 passes no `--run-dir` to them.** The command of the historical rows is built at
+   `validate_consolidated_closure_evidence.py:1386-1394` and contains only `--report` (plus
+   `--rehearsal-dir` for 16/17/18 and `--code-sha` for the PASSED rows 19–23). The
+   `--run-dir` argument is added **only** when the row carries a run directory, and no
+   historical row does (`run_dir is None`).
+2. **Their default is the published run.** The historical validators resolve their run
+   directory from `DEFAULT_RUN_DIR`:
+   * `validate_iteration14_evidence.py:66` — `DEFAULT_RUN_DIR = "benchmarks/artifacts/run_1794209615_70f5d22"`
+   * `validate_iteration15_evidence.py:75` — the same literal
+   * `validate_iteration16_evidence.py:88` — the same literal
+   * `validate_iteration17_evidence.py:83` and `validate_iteration18_evidence.py:93` —
+     **import** it from the Iteration 16 validator, so they inherit the same literal.
+
+   It is the default of the `--run-dir` argument
+   (`validate_iteration14_evidence.py:320`, `…15:405`, `…16:688`, `…17:286`, `…18:328`).
+3. **The new path is a different string.**
+   `benchmarks/artifacts/run_<epoch>_<sha7>` cannot equal
+   `benchmarks/artifacts/run_1794209615_70f5d22` for any epoch and any SHA.
+4. **A test pins it.** **T10** asserts that the effective default run directory of each of
+   the five historical validators is still `benchmarks/artifacts/run_1794209615_70f5d22`, so
+   a future edit that repoints one of them fails the suite instead of silently moving a
+   historical validator onto the new run.
+
+The historical run's bytes and the historical verdicts are therefore unaffected: the same
+validator reads the same directory and produces the same output — which is what keeps the
+14–18 rows of `HISTORICAL_EVIDENCE` matching (§9.4).
+
+### 8.2.5 The compute caps, the stop conditions and the approval boundaries
+
+Three steps of §8.2 start Modal containers, and **all three cost money**. A CPU container on
+Modal is compute, not a free local test: it is billed per second, and the GPU step is
+billed per second of an H100. Every one of the three steps therefore gets its own hard cap,
+its own stop condition and its own explicit approval — fixed **before** the step runs.
+
+#### The caps
+
+| Step | Compute | Hard cap | Timeout / stop condition |
+|---|---|---|---|
+| **R3** (CPU plumbing smoke) | 1 CPU container, 1 target (`AC-01`), **0** inference calls | **1** container, **1** target, `--hypotheses=1`, **≤ 2** attempts, a wall-clock budget of **20 minutes** per attempt | the per-call timeout stays at the published value (`timeout_sec = 120`, §10.1); the client aborts the attempt at the 20-minute budget, stops the app (`modal app stop`) and records the failure; a second failed attempt ends the step |
+| **R3b** (inference-plumbing smoke) | 1 GPU container (`modal_h100`), 1 target, **exactly 1** inference call | **1** GPU call, `--hypotheses=1`, **≤ 2** attempts, a wall-clock budget of **20 minutes** per attempt | the same abort rule; a failed R3b **ends the sequence** — R4 does not start (§8.3) |
+| **R4** (the 16-target run) | 16 targets × H100, the published configuration | the monetary ceiling of **Q5** (§10.3) — no per-call cost may exceed it | the per-call timeout stays at `timeout_sec = 120` per target; the operator stops the app when the accumulated spend reaches the ceiling; the partial result and its billing window are published, and the run is **not** retried silently |
+
+Two invariants apply to all three steps:
+
+* **A cap is a stop condition, not a target.** The step stops when the cap is reached; it
+  never continues because the result is "almost" there.
+* **The attempt counter is part of the cap.** "≤ 2 attempts" means two invocations of the
+  step in total. A retry is a new invocation, it is counted, and it needs an approval of its
+  own (below).
+
+The monetary ceilings of R3, R3b and R4 are **three separate numbers**, each attached to the
+approval of the respective step. **Q5** (§11.2) is the ceiling of the paid steps (R3b and
+R4); the CPU step R3 has its own, smaller ceiling — because it is a separate authorisation,
+not a free preliminary.
+
+#### The approval boundaries
+
+| Approval | Covers | Does **not** cover |
+|---|---|---|
+| **A-R3** | R3 only: the CPU container, one target, one hypothesis, the CPU ceiling | R3b (GPU), R4 (16 targets, H100) |
+| **A-R3b** | R3b only: one GPU inference call for one target, the GPU ceiling | R3, R4 |
+| **A-R4** | R4 only: the 16-target H100 run, the Q5 ceiling | R3, R3b, and any retry of either |
+
+The rules:
+
+1. **Approval for R4 does not approve R3 or R3b, and approval for R3 does not approve R3b.**
+   Each step is authorised separately, in writing, with its own ceiling attached.
+2. **Approval for R3b does not approve R4.** R3b exists to prove the inference plumbing
+   *before* the expensive run; if it fails, the sequence stops at R3b (§8.3) and R4 needs a
+   **new** approval, not the old one.
+3. **The attempt counter is part of the approval.** The approval of a step covers at most the
+   number of attempts its cap states; a further attempt is a new invocation and needs a new
+   approval for that step.
+4. **The approval record is part of the PR.** The PR of the regeneration iteration records,
+   per step: the approver, the date, the approved ceiling and the actual spend. A step
+   without that record did not run.
+5. **This plan approves nothing.** It specifies the caps and the boundaries; no approval is
+   given here, no container was started, and no credits were spent while producing it.
+
+### 8.2.6 The commit the run executes: binding the capture SHA to the code
+
+The manifest's `git.commit_sha` is not a field an operator fills in. The producer reads it
+from the checkout that executes the run (`benchmarks/benchmark_runner.py:180-186`):
+
+```python
+def _get_git_commit_sha(self) -> str:
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], text=True, cwd=str(self.dataset_path.parent)
+    ).strip()
+```
+
+and the same value names the run directory
+(`run_id = f"run_{int(time.time())}_{commit_sha[:7]}"`, `:357`) and goes into the manifest's
+`git` block (`:188-202`, `GitManifest(commit_sha=…, is_dirty=…, branch=…)`). The manifest
+therefore **cannot** claim a SHA other than the code that actually executed — but only as
+long as the *intended* checkout is the one that runs. The risk is not a lying manifest; it is
+running from the wrong checkout.
+
+The chain R1 → R2 → R3/R3b → R4 advances HEAD: R2 adds the negative tests, R3 and R3b are
+run steps whose transcripts land on the branch, and R4's run directory is named after the SHA
+that happened to be checked out at that moment. If the run were executed from the branch head
+of that moment, the manifest would record the *tests* commit — a SHA that is not the commit
+the producer was written in, and not the commit the closure's producer-immutability check
+(P6.14) is about.
+
+**The contract: the run executes from a detached worktree pinned at the producer commit.**
+
+1. **R1 produces the producer commit `P`.** `P` is the last commit that touches
+   `modal_app.py`, `adapters.py`, `benchmark_runner.py` or the validators. No commit after
+   `P` may touch any of them — that is what makes P6.14's diff empty (§9.3).
+2. **R3, R3b and R4 are executed from a detached worktree at `P`:**
+
+   ```bash
+   git -c core.autocrlf=false worktree add --detach ../run-worktree <P>
+   cd ../run-worktree
+   ```
+
+   The branch may advance meanwhile (tests, documents, the published reports); the worktree
+   does not move. `git rev-parse HEAD` inside it returns `P` — which is exactly the SHA the
+   manifest records, because the producer resolves it with the cwd of the dataset directory
+   (`benchmarks/`, inside that worktree).
+3. **The worktree is clean.** `git status --porcelain` must be empty, so the manifest's
+   `git.is_dirty` is `false`. The producer enforces this for a real run anyway
+   (`effective_require_clean`, `benchmarks/benchmark_runner.py:676-681`), and the run must
+   not be started with `AEGIS_ALLOW_DIRTY=1`.
+4. **What the manifest records.** `git.commit_sha = P` (the full 40 characters),
+   `git.is_dirty = false`, `git.branch = "HEAD"` — the last one because
+   `git rev-parse --abbrev-ref HEAD` returns `HEAD` in a detached worktree. The published
+   run, by contrast, recorded `git.branch = "feat/empirical-benchmark-runner"`, because it
+   was made from a branch checkout. The new value is the visible trace of the detached
+   worktree — not a defect.
+5. **The run directory follows from the same SHA.** The directory is `run_<epoch>_<P[:7]>/`;
+   `P[:7]` is the manifest's `git.commit_sha[:7]`, and
+   `validate_manifest_git_integrity` re-checks the directory name against it
+   (`benchmarks/protocol.py:365-371`).
+6. **The report is bound to `P`.** The replacement report (R9) and the closure's probe report
+   (P6.13) are both produced with `--code-sha <P>`, so the report's `code_sha` is the SHA the
+   run was executed from.
+7. **The closure's producer-immutability check binds to the same source.** P6.14's
+   `capture_sha` for the replacement capture is `P`, and the diff it computes is
+   `git diff --name-only <P> <closure commit> -- <the producer paths>` — empty, because no
+   commit after `P` touches them (§9.3).
+
+**The manifest must never claim a SHA other than the code that actually executed.** That is
+why the plan does not "fix up" the SHA afterwards, and why the worktree is detached: a
+detached worktree at `P` is the only arrangement in which the manifest's SHA, the
+directory's suffix, the report's `code_sha` and the closure's capture binding are the same
+value *by construction* rather than by coincidence.
+
+If a later step (a test, a document, a published report) advances the branch, **nothing
+about the run changes**: the run stays bound to `P`, and the closure is bound to the closure
+commit. The two are related by ancestry — `P` is an ancestor of the closure commit — which is
+exactly what P6.14 asserts.
+
 ### 8.3 Ordering rationale
 
 The order is a strict dependency chain:
@@ -1050,6 +1380,15 @@ R3b sits **before** R4 on purpose: the inference plumbing is the one part of the
 contract that R3 cannot exercise, and R4 is the expensive step. Paying for 16 GPU targets
 before the inference path is known to work would spend the entire budget to produce
 unpublishable artifacts.
+
+**A failed smoke ends the sequence.** A smoke that fails its gate stops the regeneration
+there (§8.2.5): the sequence does not continue into R4 with a producer that is known to be
+broken, and R4 requires its own approval in any case.
+
+**All three execution steps run in the same detached worktree** at the producer commit `P`
+(§8.2.6), so the smoke and the run are produced from exactly the code the closure will
+later bind to. The worktree holds no published bytes — it is removed with
+`git worktree remove --force` once the run's bytes have been published (§8.4).
 
 R9 no longer regenerates the Iterations 14–18 reports: those are immutable (D8). It produces
 the **new** run's own iteration report instead, so the FAILED history and the replacement
@@ -1082,7 +1421,9 @@ revert commits stay in the branch and show up in the PR exactly what was undone 
 commits were never pushed — for example the throwaway smoke tree of R3 / R3b, or a scratch
 clone used to re-run a validator against an older revision. Such a worktree is discarded as
 a whole (`git worktree remove --force <path>`); nothing it contains was ever published, so
-nothing can be lost.
+nothing can be lost. The **detached run worktree** at `P` (§8.2.6) is exactly such a
+worktree: it holds the executed code and the not-yet-published run output, and it is
+discarded as a whole once the run's bytes have been published.
 
 If R4 produced a live run that must be discarded, the Modal-side cleanup (stopping the app,
 deleting the run's artefacts, re-exporting the billing window if a new one was opened) is a
@@ -1178,17 +1519,59 @@ capture commit `40c063093c8d773d20f828fb290c68b5790a7cc5` and the reported commi
 ```python
 capture_sha = "40c063093c8d773d20f828fb290c68b5790a7cc5"
 elif not _is_ancestor(capture_sha, code_sha): ...
-diff = ...  # producer source diff
+diff = _git("diff", "--name-only", capture_sha, code_sha, "--", "modal_app.py")
 if producer_changed:
     producer_errors.append("the producer source changed between the commit the capture was made from ...")
 ```
 
-**Consequence for the plan:** R1 changes the producer, and R4's capture is made from the
-**changed** producer. So the capture SHA of the new iteration 24 evidence is the R1 commit,
-not `40c06309…`. The closure validator's `capture_sha` must be updated to the new capture
-commit — and that constant is itself part of the validator, so it is a coordinated change
-(R1 + R10), not an oversight. This is also why R1 and R4 must not be separated by a
-producer change.
+**What the check actually covers today.** Two limits, both measured:
+
+* the diff is computed over **one** path — `modal_app.py` — while the producer of the §5
+  schema spans three files (`modal_app.py`, `adapters.py`, `benchmark_runner.py`);
+* it is anchored to **one** capture commit — the Iteration 21 capture.
+
+At the baseline commit both limits are harmless: `git diff --name-only 40c06309… <branch
+head> -- modal_app.py` and the same diff over the three producer paths are both empty, and
+`40c06309…` is an ancestor of the branch head. The check passes today because the producer
+has not changed since that capture.
+
+**Consequence for the plan.** R1 *does* change the producer — that is its purpose — so the
+capture of the replacement run is made from the **changed** producer. The capture SHA of the
+replacement evidence is therefore the R1 producer commit `P` (§8.2.6), not `40c06309…`.
+
+**How the check binds to the same executed source.** The single constant becomes a table of
+capture bindings, one per capture, and the historical entry stays exactly as it is:
+
+```python
+#: The commit each capture was made from, and the producer paths whose
+#: immutability that capture depends on.
+CAPTURE_BINDINGS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    # the capture of Iteration 21 - unchanged: same commit, same single path
+    ("40c063093c8d773d20f828fb290c68b5790a7cc5", ("modal_app.py",)),
+    # the capture of the replacement run: the producer commit P, and every
+    # producer path the run depends on
+    ("<P>", ("modal_app.py", "adapters.py", "benchmark_runner.py")),
+)
+```
+
+P6.14 then checks, for each binding, that the capture is an ancestor of the reported commit
+and that `git diff --name-only <capture> <reported commit> -- <the producer paths of that
+binding>` is empty.
+
+**The Iteration 21 binding must not be extended** to the two other producer paths: R1
+changes them, so extending the list would make the *historical* check fail over a change
+that does not affect the Iteration 21 capture at all. The historical check keeps its exact
+meaning — one commit, one path — and the replacement binding adds the two files the
+replacement run actually depends on.
+
+**`P` is not a value that may be chosen after the fact.** It is the commit the run was
+executed from (§8.2.6), and it is the same value that the manifest's `git.commit_sha`
+carries, that the run directory's suffix is derived from, and that the replacement report
+is bound to. The closure's check therefore compares the *executed* source against the
+*reported* source, not a hand-copied constant: had the run been executed from a different
+checkout, the manifest's SHA, the directory's suffix and the closure's capture binding
+would disagree — and the manifest-integrity check of §8.2.4 (c) would fail before P6.14 is
+reached at all.
 
 ### 9.4 The historical-evidence check (P6.13)
 
@@ -1219,14 +1602,28 @@ output, so the old rows keep matching.
 | 19 … 23 | `PASSED`, bound to their SHAs | unchanged, unless their own capture is redone |
 | closure | `21/21 PASSED` | `21/21 PASSED`, plus the replacement row |
 
-The coupling P6.13 creates is therefore *additive*: the new row's expected string and bound
-SHA must be the ones the replacement run actually produces, and they are written in the same
-commit as the replacement report — but they cannot silently alter the meaning of the rows
-above them. The earlier draft of this plan called this "the single most dangerous coupling in
+The coupling P6.13 creates is therefore *additive*: the new row adds a requirement, and it
+cannot alter the meaning of the rows above it. Its three values are fixed **before** the run,
+not fitted to its outcome:
+
+| Value of the new row | Fixed when | Value |
+|---|---|---|
+| the expected verdict | at R1, before any run | `PASSED` |
+| the bound `code_sha` | at R1, before any run | `P` — the producer commit the run executes from (§8.2.6) |
+| the run directory | the SHA part at R1 (`P[:7]`); the epoch part by the run itself (`benchmark_runner.py:357`) | `benchmarks/artifacts/run_<epoch>_<P[:7]>` — a literal, transcribed into the new module and into `REPLACEMENT_EVIDENCE` when the run directory exists, and **verified** against the manifest by the check of §8.2.4 (c), so a wrong transcription cannot pass |
+
+Writing the expectation *after* the run would make the check unfalsifiable — the closure
+would assert whatever the run produced, which is the same defect as the conditional rule D8
+forbids. Written in advance, the check has a real failure mode: **if the replacement run
+does not pass, the closure fails**, R12 opens a Draft PR that reports the failure, and the
+historical FAILED rows stay exactly as they are. The plan does not promise that the new row
+can be satisfied; it states what it requires.
+
+The earlier draft of this plan called this coupling "the single most dangerous coupling in
 the whole plan", because it assumed the 14–18 rows would have to be **edited** from `FAILED`
 to `PASSED`. Under D8 they are never edited; the risk that remains is the mechanical one —
 adding a row whose expected string does not match the validator's actual output — and P6.13
-catches precisely that.
+catches precisely that. The exact command of the new row is specified in §8.2.4 (d).
 
 ---
 
@@ -1255,13 +1652,17 @@ a provenance migration into a benchmark re-run.
 1. **Pre-flight (no cost):** confirm the app exists and the model is available; confirm the
    worker image contains `forge`; confirm the client can reach the provider's container
    listing (`ModalProvider.containers_of_app`).
-2. **CPU plumbing smoke (no inference cost):** one target, `--provider=modal_cpu`, exercising the
+2. **CPU plumbing smoke (no GPU cost):** one target, `--provider=modal_cpu`, exercising the
    `evm_sandbox` and `independent_replay` stages only — this is **R3** (§8.2.1). Assert the §5
-   contract for the stages it actually ran, before any paid run.
+   contract for the stages it actually ran, before any paid run. A CPU container is still
+   Modal compute and still costs money, so R3 has its own ceiling and its own approval
+   **A-R3** (§8.2.5).
 3. **Inference-plumbing smoke (minimal GPU cost):** one target with the published inference
    configuration, exercising the `inference` stage and resolving its provider-issued identities
-   — this is **R3b** (§8.2.2), and it needs its **own explicit authorisation**.
-4. **Full run (cost):** the 16 targets, `modal_h100`, `--hypotheses=3`.
+   — this is **R3b** (§8.2.2), and it needs its **own explicit authorisation** **A-R3b** with
+   its cap fixed before the first call (§8.2.5).
+4. **Full run (cost):** the 16 targets, `modal_h100`, `--hypotheses=3`, executed from the
+   detached worktree at `P` (§8.2.6) under the approval **A-R4** and the ceiling of Q5.
 5. **Client-side correlation:** for every stage, resolve the provider-issued
    `container_id` from the `function_call_id` the worker observed, using
    `call_graph_inputs` → `containers_of_app` → `task_app_id`, with the last one as an
@@ -1278,12 +1679,15 @@ a provenance migration into a benchmark re-run.
 
 | Control | Value |
 |---|---|
-| Pre-agreed ceiling | **not yet set** — open question **Q5** (§11.2); R4 must not start without it |
+| Per-step ceilings | **three separate numbers** — the CPU ceiling of R3, the GPU ceiling of R3b, and the ceiling of R4 (§8.2.5). The two paid ceilings (R3b and R4) are **not yet set** — open question **Q5** (§11.2) |
+| Per-step approvals | **A-R3**, **A-R3b**, **A-R4** — one per step, each with its own ceiling (§8.2.5). No approval implies another: the approval of R4 approves R4 and nothing else |
+| Per-step caps | 1 container / 1 target / ≤ 2 attempts for the smokes, 1 GPU call for R3b; the 16-target run is bounded by the Q5 ceiling (§8.2.5) |
 | Target cost attribution | `null` + `UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN` unless a proven join exists — the existing policy already prevents a target cost from being invented |
 | Aggregate allocation | `FORBIDDEN` (`attribution_policy.aggregate_bucket_allocation`) — no aggregate bucket may be spread over targets |
 | App-session granularity | the app-session total is the only cost that may be published |
-| Pre-flight | the smoke run in step 2 happens **before** the 16-target run and must be reviewed |
+| Pre-flight | the smoke run in step 2 happens **before** the 16-target run and must be reviewed; a failed smoke ends the sequence (§8.3) |
 | GPU | `H100` only where the original run used it; `CPU` for the EVM-sandbox and replay stages |
+| Executed code | the run is executed from the detached worktree at `P` (§8.2.6) — the manifest, the run directory, the report and the closure carry that one SHA |
 
 ### 10.4 The billing join fields
 
@@ -1317,22 +1721,27 @@ something this plan settles; anything that is still the maintainer's call is a q
 | **D9** | **The run tree is additive.** The new run lives in a **new** `run_<epoch>_<sha7>/` directory; the published run directory is not replaced, moved or deleted. The authoritative run is selected **explicitly**, never by "the newest directory in the tree". | The manifest-integrity check forces a new directory name (§8.2.3), and the additive layout keeps the old bytes — and the old verdicts — reachable and explicitly marked as historical (§7.4 row 17). |
 | **D10** | **One digest convention.** Every digest the regenerated evidence publishes is computed over the **git blob bytes** (LF); the manifest's 15 CRLF-based stdout digests are re-pinned so the manifest and the harness validation agree. | The two published files currently disagree on 15 of the 32 stdout digests (§7.3). Publishing a third convention would preserve the contradiction instead of ending it. |
 | **D11** | **Rollback is non-destructive.** A pushed branch is rolled back with `git revert` commits or a dedicated rollback branch; `git reset --hard` is confined to a local, unpublished, disposable worktree. | A force-push on the evidence branch would destroy the record of what was tried — the same failure mode as rewriting a verdict. §8.4. |
+| **D12** | **The root-level `latest_summary.json` stays a byte-identical mirror of the authoritative run's `summary.json`.** The pointer alternative is not part of this plan. | The mirror is checkable (a byte comparison), and the superseded content is not lost: it stays in the historical run's own `summary.json` (§7.4 row 4). This closes **Q4**, which is withdrawn from §11.2. |
+| **D13** | **The authoritative run is selected by a literal path, through the replacement iteration's own validator module.** The new module is `benchmarks/validate_iteration24_evidence.py`; it reuses the Iteration 18 check logic unchanged and adds the manifest-integrity check that no iteration validator performs today. The closure selects the run through an explicit `--run-dir` argument. | D9 states the principle — explicit selection, never by recency — and this is its concrete form: the value is a literal in exactly two places, and the run is bound to the SHA in its own manifest (§8.2.4). The Iteration 18 validator cannot be reused: it writes to a fixed report path and would overwrite the published Iteration 18 report (D8). |
+| **D14** | **Every compute step has its own hard cap, its own stop condition and its own explicit approval.** No approval implies another. | A CPU container on Modal is compute, too, and R3b spends GPU credits before the Q5 ceiling is set. A cap that is not fixed before the step starts is not a cap (§8.2.5). |
+| **D15** | **The run executes from a detached worktree pinned at the producer commit `P`.** The manifest's `git.commit_sha`, the run directory's suffix, the report's `code_sha` and the closure's capture binding are therefore the same value by construction. | The manifest reads its SHA from the checkout that executes the run, so the risk is not a lying manifest but running from the wrong checkout. A detached worktree is the only arrangement in which the four bindings cannot drift apart (§8.2.6, §9.3). |
 
 ### 11.2 Unresolved questions for the maintainer
 
-These are **not** decided by this plan. Two questions of the earlier draft — whether
-Iterations 14–18 may turn green, and whether the new run replaces or joins the published run
-tree — are no longer open: they are settled by **D8** and **D9** respectively. The numbering
-below is the current one; Q1 and Q5 keep their meaning and their IDs.
+These are **not** decided by this plan. Three questions of the earlier draft — whether
+Iterations 14–18 may turn green, whether the new run replaces or joins the published run
+tree, and whether `latest_summary.json` stays a mirror or becomes a pointer — are no longer
+open: they are settled by **D8**, **D9** and **D12** respectively. **Q4 is withdrawn**
+(absorbed into D12); the remaining questions keep their IDs, and an ID is never reused, so
+every reference to a question elsewhere in this document stays valid.
 
 | # | Question | Why it blocks | Options |
 |---|---|---|---|
 | **Q1** | What should the run-level identity field be called — `modal_app_id`, `app_session_id` or `app_id`? | It changes the published field name in the new artifacts + manifest + summaries. The semantics and the envelope are already fixed (§5.3, D3); only the spelling is open. | (a) `app_session_id` — upstream's spelling, slightly imprecise; (b) keep `modal_app_id`; (c) `app_id` — the accurate name, since the value is the app id and not a session |
 | **Q2** | Are upstream's *other* field removals (`stages.*.resource_interval`, `stages.*.billing_line_item`) in scope as well? | The upstream removed those fields; the iteration line's validator expects per-stage `app_id`/`function_call_id`/`container_id`, and the join table carries the billing detail | (a) keep the iteration-line field set; (b) adopt upstream's set and relax the validator |
 | **Q3** | Is `remote_os` allowed to keep its coincident legacy value? | `EVM_FACTS_WITH_COINCIDENT_LEGACY_VALUE` already permits it **when the source proves it**; the plan makes the source real. If the worker's real `/etc/os-release` says something else, the value changes and the pin changes | (a) accept whatever the worker observes; (b) require an exact value match as a gate |
-| **Q4** | Should `latest_summary.json` remain a byte-identical copy of the authoritative run's `summary.json`? | Today it is, and the plan keeps that invariant — but with an additive layout (§7.4 row 4) the mirror moves to the *new* run, so the file's content changes even though the invariant does not | (a) keep the invariant — it is checkable, and the old bytes stay reachable in the old run directory; (b) make `latest_summary.json` a pointer file |
-| **Q5** | What is the cost ceiling for the authorised run? | §10.3; R4 must not start without it, and R3b spends GPU credits before that | to be set by the maintainer |
-| **Q6** | Under which iteration number is the replacement run published, and does it need its own validator module? | The closure's `HISTORICAL_EVIDENCE` needs a row for it (§9.4), and the validator that produces its report has to exist | (a) Iteration 24 with a new `validate_iteration24_evidence.py`; (b) Iteration 24 reusing the Iteration 18 validator against the new run directory; (c) a different number |
+| **Q5** | What are the monetary ceilings of the paid steps — the GPU smoke R3b and the 16-target run R4? | §10.3, §8.2.5. R3b spends GPU credits *before* R4, so its own ceiling must exist before its approval **A-R3b** is granted; R4's ceiling must exist before **A-R4**. (The CPU smoke R3 has its own, smaller ceiling, set in its approval **A-R3**.) | to be set by the maintainer |
+| **Q6** | Under which iteration number is the replacement run published? | The closure's `REPLACEMENT_EVIDENCE` needs a row for it (§9.4), and the new validator module is named after the number (§8.2.4 a). The *module* is already decided — a new module, not a reuse of the Iteration 18 validator (D13) | (a) Iteration 24; (b) Iteration 25; (c) a different number |
 | **Q7** | How is the superseded run marked, so that "no `modal-app://` in the published evidence" stays checkable without touching the historical bytes? | The old run keeps its 66 pseudo-URIs (D8, D9); the answer decides whether the invariant is checked per run or globally | (a) mark it only *outside* the artifacts (change-impact matrix + closure report) and scope the invariant to the authoritative run — this is the plan's default; (b) add a `superseded_by` marker inside the old run's JSON — that changes historical bytes and therefore conflicts with D8 |
 
 ### 11.3 Acceptance criteria for the implementation (future iteration)
@@ -1374,6 +1783,25 @@ The regeneration is acceptable only when **all** of the following hold:
     files **agree** (D10).
 12. The rollback path is revert-based: the branch contains no force-push, and reverting R6
     and everything after it restores the published bytes exactly (D11).
+13. The authoritative run is selected by a **literal path** only. The effective `--run-dir`
+    default of each historical validator (14–18) is still
+    `benchmarks/artifacts/run_1794209615_70f5d22` (**T10**), and no code path selects a run
+    directory by recency, by a glob or by a summary filename (**T11**) — D13, §8.2.4 (b, e).
+14. The new run's `reproducibility_manifest.json` passes
+    `validate_manifest_git_integrity` against the run directory **and** against the SHA the
+    report is bound to; the directory's suffix equals the manifest's `git.commit_sha[:7]`
+    (§8.2.4 c).
+15. The manifest's `git.commit_sha` is the commit the run was executed from; the replacement
+    report's `code_sha` is that commit; the closure's capture binding for the replacement is
+    that commit; and
+    `git diff --name-only <that commit> <closure commit> -- modal_app.py adapters.py benchmark_runner.py`
+    is empty. The Iteration 21 binding of P6.14 is unchanged — same commit, same single path
+    (D15, §9.3).
+16. `latest_summary.json` is byte-identical to the authoritative run's `summary.json`, and the
+    historical run's own `summary.json` is byte-identical to what it was before (D12).
+17. Every compute step has a recorded approval, a recorded ceiling and a recorded actual
+    spend, no step exceeded its cap, and the approval of one step is not used for another
+    (D14, §8.2.5).
 
 ---
 
@@ -1385,6 +1813,11 @@ The regeneration is acceptable only when **all** of the following hold:
 * No validator, schema, test, manifest, billing table or historical report was changed.
 * No live Modal invocation, no deployment, no redeployment, no H100/T4 allocation, no
   Foundry remote run, no paid computation. No Modal credits were spent.
+* No compute step was authorised: the approvals **A-R3**, **A-R3b** and **A-R4** of §8.2.5 are
+  specified here, and none of them was granted. The caps and the ceilings of §8.2.5 are a
+  specification, not a budget that was spent.
+* No run was executed from the detached worktree at `P` (§8.2.6): the producer commit `P` does
+  not exist yet — it is created by R1 of a future, separately authorised iteration.
 * No published digest was re-computed into a record.
 * The historical FAILED (0/16) results of Iterations 14–18 were not rewritten, and the run
   directory they were computed from was not modified, moved or deleted (D8, D9).
