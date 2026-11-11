@@ -877,7 +877,7 @@ inherit the same divergence (D10).
 | 11 | `iteration14..18_validation_evidence.json` | — (published verdicts) | **no** | **immutable** (D8): the published `FAILED (0/16)` reports stay exactly as they are |
 | 12 | the new run's iteration report (a **new** file) | the new run's stage-evidence files | **yes** | new file — the *replacement* evidence (D8) |
 | 13 | `iteration19..23_validation_evidence.json` | rehearsal/capture stage files | **yes** (if the capture is redone) | regenerate |
-| 14 | `consolidated_closure_validation_evidence.json` | — | **yes** | regenerate; must stay 21/21 PASSED, with the 14–18 rows of `HISTORICAL_EVIDENCE` unchanged and a new row for the new iteration (D8) |
+| 14 | `consolidated_closure_validation_evidence.json` | — | **yes** | regenerate; must stay 21/21 PASSED, with the 14–18 rows of `HISTORICAL_EVIDENCE` unchanged and a new row added to `REPLACEMENT_EVIDENCE` whose expected verdict is `PASSED` (D8, §8.2.4 d, §9.4) |
 | 15 | `benchmarks/targets/solidity/*.sol` | new harness ×1 each (`input_sha256`) | no | keep |
 | 16 | `iteration16..18_producer_rehearsal/*` | iteration16..18 evidence | no | keep |
 | 17 | the published run `run_1794209615_70f5d22/` | its own manifest ×1, harness ×32, join table ×17 | **no** | keep in place, byte-for-byte, as the historical evidence (D9) |
@@ -914,7 +914,10 @@ closed — the pointer option is not part of this plan.
    approval and its own estimate: an approval for R4 approves R4 and nothing else. While Q5
    is unanswered, R3, R3b and R4 are **not dispatchable at all** — they are not "cheap enough
    to try", they are undefined.
-6. A **detached worktree** pinned at the producer commit `P` for the execution steps R3, R3b
+6. **One dispatch per step.** Every compute step is a **single attempt** (D20): it is
+   dispatched once, it is never retried automatically, and a retry is a new, separately named
+   step with its own ceiling, its own approval and its own pre-dispatch estimate.
+7. A **detached worktree** pinned at the producer commit `P` for the execution steps R3, R3b
    and R4 **and for the steps that judge their bytes (R5, R9)** (§8.2.6), so that the
    manifest, the run directory, the report and the closure all carry the same SHA.
 
@@ -927,16 +930,16 @@ the last committed step (§8.4).
 |---|---|---|---|
 | **R0** | Branch `iter-24/evidence-regeneration` from the authorised base. | — | clean tree, base SHA recorded |
 | **R1** | Implement the §5 schema in the producer (`adapters.py`, `modal_app.py`, `benchmark_runner.py`), the §6.5 validator changes (**C1–C6**), the `modal_functions` fix of §8.2.1 (e) — the function list must be derived from the attempts, not from the provider — and the R3 fixture **plus its loader** of §8.2.1 (b). | code only | unit tests green; **no** published file touched; R1 does **not** yet seal the producer commit `P` — R2 does |
-| **R2** | Add the §6.6 negative tests T1–T9. | tests | each test fails on the pre-fix code and passes on the post-fix code (proven by running both revisions); **R2 seals the producer commit `P`** — `P` is the commit that closes the producer surface, it is sealed *before* the first container is dispatched, and no commit after it may touch a producer path (§8.2.6, §9.3, D18) |
-| **R3** | **CPU-only plumbing smoke** on one target (`AC-01` / `AccessControlVault`), run through the producer's own `execute_target()` with the inference stage **not attempted** (D17): the adapter's candidate-generator branch supplies a **checked-in, non-breaching fixture** as the candidate (D19), so the **only** stage whose attempt actually happens is `evm_sandbox`. The `inference`, `independent_replay` and `trajectory_persistence` stage blocks are still present in the artifact — the producer always writes all four stage keys (`benchmarks/adapters.py:2377-2409`) — but they record `attempted: false` (§8.2.1). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.1 gate: the stage matrix is **exactly** §8.2.1 (c); every stage **whose attempt actually happened** satisfies the §5 contract; **nothing is claimed about the stages that were not attempted** — in particular **nothing about the replay**; the caps and the approval **A-R3** of §8.2.5 hold before the first container starts, and the pre-dispatch estimate gate of §8.2.5 is passed |
-| **R3b** | **Inference-plumbing smoke** — one GPU-backed inference call for one target, to obtain a real worker-observed `function_call_id` and the client-resolved `app_id` / `container_id` for that call. The candidate comes from the model, so the verdict — and with it the replay branch — is **not** predictable in advance (§8.2.2). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.2 gate; **separately authorised** (**A-R3b**), because it spends GPU time and Modal credits; its caps of §8.2.5 — including its **hard maximum cost** — are fixed **before** the first call, and a pre-dispatch estimate at or below that ceiling exists; while the numeric ceiling of **Q5** is unanswered the step is **not dispatchable** |
+| **R2** | Add the §6.6 negative tests T1–T12. | tests | each test fails on the pre-fix code and passes on the post-fix code (proven by running both revisions); **R2 seals the producer commit `P`** — `P` is the commit that closes the producer surface, it is sealed *before* the first container is dispatched, and no commit after it may touch a producer path (§8.2.6, §9.3, D18) |
+| **R3** | **CPU-only plumbing smoke** on one target (`AC-01` / `AccessControlVault`), run through the producer's own `execute_target()` with the inference stage **not attempted** (D17): the adapter's candidate-generator branch supplies a **checked-in, non-breaching fixture** as the candidate (D19), so the **only** stage whose attempt actually happens is `evm_sandbox`. The `inference`, `independent_replay` and `trajectory_persistence` stage blocks are still present in the artifact — the producer always writes all four stage keys (`benchmarks/adapters.py:2377-2409`) — but they record `attempted: false` (§8.2.1). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.1 gate: the stage matrix is **exactly** §8.2.1 (c); every stage **whose attempt actually happened** satisfies the §5 contract; **nothing is claimed about the stages that were not attempted** — in particular **nothing about the replay**; the caps and the approval **A-R3** of §8.2.5 hold before the first container starts, and the pre-dispatch estimate gate of §8.2.5 is passed; **R3 is a single attempt** — exactly one dispatch, no automatic retry (D20); any failure ends the step, and a retry is a new, separately named and separately approved step (§8.2.5) |
+| **R3b** | **Inference-plumbing smoke** — one GPU-backed inference call for one target, to obtain a real worker-observed `function_call_id` and the client-resolved `app_id` / `container_id` for that call. The candidate comes from the model, so the verdict — and with it the replay branch — is **not** predictable in advance (§8.2.2). | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.2 gate; **separately authorised** (**A-R3b**), because it spends GPU time and Modal credits; its caps of §8.2.5 — including its **hard maximum cost** — are fixed **before** the first call, and a pre-dispatch estimate at or below that ceiling exists; while the numeric ceiling of **Q5** is unanswered the step is **not dispatchable**; **R3b is a single attempt** — at most 4 Modal invocations in total, all of them inside that one attempt, and no automatic retry (D20); any failure ends the step, and a retry is a new, separately named and separately approved step (§8.2.5) |
 | **R4** | Authorised live run: 16 targets, the same provider configuration as the published run (`modal_h100`, `qtum/Qwen3-Coder-30B-A3B-Audit`, `--hypotheses=3` — the flag spelling is settled at `P`, §10.1), executed from the detached worktree at `P` (§8.2.6). | a **new** run directory `run_<epoch>_<P[:7]>/` | every stage **whose attempt actually happened** has an observed-or-explicitly-`NOT_AVAILABLE` provenance, and every stage that was not attempted is recorded `attempted: false` and is not claimed; the run completes; the directory suffix equals the manifest's `git.commit_sha[:7]` (§8.2.3); the manifest's SHA is `P` (§8.2.6); the approval **A-R4**, its ceiling and a pre-dispatch estimate at or below that ceiling hold — the ceiling itself is unresolved (**Q5**) until the maintainer supplies and approves it |
 | **R5** | Verify the new run **before** it becomes published: run the §5 validators over the new run dir; assert `has_synthetic_modal_uri` is false for every file; assert no `SYNTHETIC_CONTAINER_ID_RE` match anywhere. | a verification transcript | all assertions hold |
 | **R6** | **Publish the new run tree additively** (D9): the new run's 16 target artifacts, its manifest, its `summary.json`, and the root-level `latest_summary.json` — which becomes the byte-identical mirror of the **new** run's `summary.json`. The published run `run_1794209615_70f5d22/` is **not** modified, moved or deleted. | new published bytes | `git diff --stat` shows only the expected files; `latest_summary.json` is byte-identical to the new run's `summary.json`; the old run directory is untouched in the diff |
 | **R7** | Regenerate `modal_control_harness_validation.json` (re-pin the 32 stdout/stderr digests and the 16 `input_sha256` values over blob bytes). | new digest | the file validates against the new run dir |
 | **R8** | Regenerate `modal_billing_join_table.json` (schema 3.0.0 preserved; **only the 17 harness digests change** — `source_raw_export` keeps `1529b1b9…` unless the raw export was re-exported). | new digest | `python -m benchmarks.regenerate_billing_join_table --check` → PASSED; `validate_billing_attribution` → PASSED |
-| **R9** | **Do not regenerate** `iteration14..18_validation_evidence.json`: they are immutable (D8). Produce instead the **new run's own iteration report** from the new run directory. | a new report file | the old reports are byte-identical in the diff; the new report's verdict is the validator's output for the new run |
-| **R10** | Regenerate `iteration19..23_validation_evidence.json` and `consolidated_closure_validation_evidence.json`; extend the closure validator's `HISTORICAL_EVIDENCE` with a row for the new iteration, leaving the Iterations 14–18 rows untouched. | new verdicts | iterations 19–23 `PASSED`; closure `21/21 PASSED` with **both** the old FAILED rows and the new row present |
+| **R9** | **Do not regenerate** `iteration14..18_validation_evidence.json`: they are immutable (D8). Produce instead the **new run's own iteration report** from the new run directory. | a new report file | the old reports are byte-identical in the diff; the new report's verdict is the validator's output for the new run, recorded exactly as it is and **never relabelled**; the closure expects `PASSED` for the replacement row (§9.4) and fails if the actual verdict differs |
+| **R10** | Regenerate `iteration19..23_validation_evidence.json` and `consolidated_closure_validation_evidence.json`; add the closure validator's **separate** `REPLACEMENT_EVIDENCE` table with the row for the new iteration — expected verdict `PASSED`, fixed before the run — leaving the `HISTORICAL_EVIDENCE` rows of Iterations 14–18 untouched. | new verdicts | iterations 19–23 `PASSED`; closure `21/21 PASSED` with **both** the old FAILED rows and the new row present; if the replacement's actual verdict is not `PASSED`, the closure **fails** and the run is not accepted as replacement evidence (§8.2.4 d, §9.4) |
 | **R11** | Full test suite; then the complete validator sweep. | transcript | `pytest -q` green; every validator exits 0 with the expected verdict string |
 | **R12** | Open a Draft PR with the full before/after inventory and the verifier transcript. | reviewable diff | maintainer approval |
 
@@ -1013,6 +1016,14 @@ R3b's business, and there its trigger is the model's candidate, not a fixture.
 **The Modal invocations of R3 are exactly one:** `verify_exploit_remote` (CPU). No GPU call,
 no replay call, no persistence call. The pre-dispatch estimate of §8.2.5 is computed over
 that one invocation.
+
+**R3 is a single attempt.** The step is dispatched once; there is no automatic retry. If that
+one attempt fails — the container fails to start, the call times out, the worker returns no
+response — R3 **ends** there: the failure is recorded, the app is stopped, and the sequence
+does not continue into R3b. A retry is **not** a second attempt of R3: it is a **new,
+separately named step** (for example `R3r`) with its own approval, its own ceiling and its own
+pre-dispatch estimate (D20, §8.2.5). The count is therefore exact and has no second path:
+**the worst-case Modal invocation count of R3 is 1.**
 
 #### (d) "Not attempted" is not "attempted and failed"
 
@@ -1137,7 +1148,7 @@ separate and explicitly authorised action with its own gates:
 | Aspect | R3 (CPU) | R3b (GPU) |
 |---|---|---|
 | Stages exercised | `evm_sandbox` **only** | `inference` and `evm_sandbox`; `independent_replay` **only if** the model's verdict triggers it (`adapters.py:1882`), and `trajectory_persistence` only if that replay confirmed the breach (`:2104-2109`) |
-| Modal invocations | exactly **1** (`verify_exploit_remote`) | **1** GPU inference call + **1** CPU verify + **≤ 1** CPU replay + **≤ 1** CPU persistence — worst case **4** |
+| Modal invocations | exactly **1** (`verify_exploit_remote`) | **1** GPU inference call + **1** CPU verify + **≤ 1** CPU replay + **≤ 1** CPU persistence — worst case **4**, all of them inside the step's **single** attempt (§8.2.5, D20) |
 | Cost | CPU containers only — its own, smaller ceiling | one GPU inference call — Modal credits — its own **hard maximum cost** (§8.2.5) |
 | Authorisation | its own approval **A-R3** (§8.2.5) | **separate, explicit authorisation** **A-R3b** |
 | Proves | the producer/validator plumbing, the envelopes, the evidence references, the EVM fact sourcing | that the inference `function_call_id` is worker-observed, and that the client resolves the provider-issued `app_id` / `container_id` for that call — and, **only if** the replay was actually dispatched, that the replay stage's identities resolve as well |
@@ -1157,6 +1168,14 @@ verdict and not by the plan:
 A smoke report that says "the replay stage was exercised" is therefore only true if the
 artifact records `independent_replay.attempted = true`. A report that says it was **not**
 exercised is true in every other case, and is not a defect of the smoke.
+
+**R3b is a single attempt.** Like R3 (D20), R3b is dispatched once and is never retried
+automatically. Its worst case of 4 Modal invocations is the **content of that one attempt** —
+the GPU call plus the CPU stages the model's verdict may trigger — not a budget that may be
+spent twice. If the attempt fails, R3b ends there: the failure is recorded, the app is
+stopped, and the sequence does not continue into R4 (§8.3). A retry is **not** a second
+attempt of R3b: it is a **new, separately named step** (for example `R3br`) with its own
+approval (**A-R3br**), its own hard maximum cost and its own pre-dispatch estimate.
 
 R3b must run **before** R4, and its result must be recorded, because R4 is a 16-target paid
 run: if the inference plumbing is broken, R4 would spend the whole budget to produce 16
@@ -1354,6 +1373,12 @@ not pass, the closure fails**, R12 opens a Draft PR that says so, and the histor
 rows stay exactly as they are. The plan does not promise that this row can be satisfied; it
 states what it requires.
 
+**The actual verdict is reported honestly in every case.** A replacement run that does not
+reach `PASSED` is recorded as a failed replacement: its own report carries the validator's
+real output, the closure fails on that row, the run is **not** accepted as replacement
+evidence, and no report, commit message or PR description relabels it. The expectation
+`PASSED` is a requirement the run has to meet — not a description of what the run produced.
+
 #### (e) Proof that the historical validators keep using the original run
 
 Four facts, all mechanical:
@@ -1398,17 +1423,22 @@ container is dispatched.
 
 | Step | Compute | Hard cap | Timeout / stop condition |
 |---|---|---|---|
-| **R3** (CPU plumbing smoke) | **exactly 1** Modal invocation — the CPU `verify_exploit_remote`; 1 CPU container, 1 target (`AC-01`), **0** inference calls, **0** replay calls, **0** persistence calls (§8.2.1 a, c) | **1** container, **1** target, `--hypotheses=1`, **≤ 2** attempts, a wall-clock budget of **20 minutes** per attempt, and a **monetary ceiling of its own** (Q5) | the per-call timeout stays at the published value (`timeout_sec = 120`, §10.1); the client aborts the attempt at the 20-minute budget, stops the app (`modal app stop`) and records the failure; a second failed attempt ends the step |
-| **R3b** (inference-plumbing smoke) | **worst case 4** Modal invocations — **1** GPU inference call + **1** CPU `verify_exploit_remote` + **≤ 1** CPU `verify_replay_remote` + **≤ 1** CPU `record_trajectory_remote` (§8.2.2); 1 GPU container (`modal_h100`), 1 target, **exactly 1** inference call | **1** GPU call, `--hypotheses=1`, **≤ 2** attempts, a wall-clock budget of **20 minutes** per attempt, and a **hard maximum cost** of its own (Q5) | the same abort rule; a failed R3b **ends the sequence** — R4 does not start (§8.3) |
-| **R4** (the 16-target run) | 16 targets × H100, the published configuration | the monetary ceiling of **Q5** (§10.3) — no per-call cost may exceed it | the per-call timeout stays at `timeout_sec = 120` per target; the operator stops the app when the accumulated spend reaches the ceiling; the partial result and its billing window are published, and the run is **not** retried silently |
+| **R3** (CPU plumbing smoke) | **exactly 1** Modal invocation — the CPU `verify_exploit_remote`; 1 CPU container, 1 target (`AC-01`), **0** inference calls, **0** replay calls, **0** persistence calls (§8.2.1 a, c) | **1** container, **1** target, `--hypotheses=1`, **exactly 1 attempt** — no automatic retry (D20) — a wall-clock budget of **20 minutes** for that attempt, and a **monetary ceiling of its own** (Q5) | the per-call timeout stays at the published value (`timeout_sec = 120`, §10.1); the client aborts the attempt at the 20-minute budget, stops the app (`modal app stop`) and records the failure; **any failure ends the step** — there is no second attempt, and a retry is a new, separately named and separately approved step (D20) |
+| **R3b** (inference-plumbing smoke) | **worst case 4** Modal invocations — **1** GPU inference call + **1** CPU `verify_exploit_remote` + **≤ 1** CPU `verify_replay_remote` + **≤ 1** CPU `record_trajectory_remote` (§8.2.2); 1 GPU container (`modal_h100`), 1 target, **exactly 1** inference call — all of them inside the step's **single** attempt | **1** GPU call, `--hypotheses=1`, **exactly 1 attempt** — no automatic retry (D20) — whose worst case is the 4 invocations above, a wall-clock budget of **20 minutes**, and a **hard maximum cost** of its own (Q5) | the same abort rule; **any failure ends the step** — a failed R3b **ends the sequence**, R4 does not start (§8.3); there is no second attempt, and a retry is a new, separately named and separately approved step (D20) |
+| **R4** (the 16-target run) | 16 targets × H100, the published configuration — **one** authorised run: the 16 targets are dispatched once, and a target that fails inside the run is that target's recorded result, not a retried attempt (D20) | the monetary ceiling of **Q5** (§10.3) — no per-call cost may exceed it — and **exactly 1** run attempt (D20) | the per-call timeout stays at `timeout_sec = 120` per target; the operator stops the app when the accumulated spend reaches the ceiling; the partial result and its billing window are published, and the run is **not** retried silently |
 
 Two invariants apply to all three steps:
 
 * **A cap is a stop condition, not a target.** The step stops when the cap is reached; it
   never continues because the result is "almost" there.
-* **The attempt counter is part of the cap.** "≤ 2 attempts" means two invocations of the
-  step in total. A retry is a new invocation, it is counted, and it needs an approval of its
-  own (below).
+* **Every step is a single attempt (D20).** "Exactly 1 attempt" means **one** invocation of
+  the step in total — not one plus a hidden retry. There is no automatic retry: a step that
+  fails ends there, the app is stopped and the failure is recorded. A retry is **not** a
+  second attempt of the same step; it is a **new, separately named step** (for example `R3r`,
+  `R3br`, `R4r`) with its own approval, its own monetary ceiling, its own pre-dispatch
+  estimate and its own record in the approval table of the PR (below). The one-attempt rule
+  is what makes the invocation maxima exact rather than approximate: **exactly 1** Modal
+  invocation for R3 and **at most 4** for R3b, with no second path (D20, §8.2.1 c, §8.2.2).
 
 The monetary ceilings of R3, R3b and R4 are **three separate numbers**, each attached to the
 approval of the respective step. **Q5** (§11.2) holds all three of them — the GPU smoke
@@ -1432,11 +1462,13 @@ the step must pass a **pre-dispatch estimate gate** — three conditions, all of
    not invent one.
 2. **An estimate exists.** The estimate is the **worst case** the step can spend under its
    own caps: the provider's published rate for the declared resources, multiplied by the
-   step's hard wall-clock budget and its attempt count — and by the **number of Modal
-   invocations the step can actually make**. For R3 that is one CPU container × its budget
-   × ≤ 2 attempts; for R3b it is one H100 container × 20 minutes × ≤ 2 attempts **plus** the
-   CPU invocations of the same path (one `verify_exploit_remote`, at most one
-   `verify_replay_remote`, at most one `record_trajectory_remote` — §8.2.2). The rate is an
+   step's hard wall-clock budget — and by the **number of Modal invocations the step can
+   actually make**. Because every step is a single attempt (D20), there is **no attempt
+   multiplier**: the estimate covers the one attempt, and a retry — a separately named step —
+   needs its own estimate against its own ceiling. For R3 that is one CPU container × its
+   20-minute budget × 1 attempt; for R3b it is one H100 container × 20 minutes × 1 attempt
+   **plus** the CPU invocations of that same attempt (one `verify_exploit_remote`, at most
+   one `verify_replay_remote`, at most one `record_trajectory_remote` — §8.2.2). The rate is an
    **input to the approval**, recorded with its source and its date; it is never hardcoded
    in the repository, for the same reason the producer does not hardcode cost estimates
    (`benchmarks/adapters.py:19` — "No hardcoded cost estimates: unmeasured runs report
@@ -1444,7 +1476,9 @@ the step must pass a **pre-dispatch estimate gate** — three conditions, all of
    `cost_usd: null`, `benchmarks/artifacts/run_1794209615_70f5d22/summary.json:167-168`).
 3. **The estimate is at or below the ceiling.** If `estimate > ceiling`, the step is **not
    dispatched**: either the ceiling is raised by a new, explicit approval, or the compute cap
-   (attempt count, wall-clock budget) is lowered until the worst case fits under it.
+   (container count, wall-clock budget) is lowered until the worst case fits under it. A retry
+   step is not covered by this gate: it has its own ceiling, its own approval and its own
+   estimate at or below that ceiling.
 
 **If the estimate is unavailable, the step does not start.** "Unavailable" means: the
 provider publishes no rate for the requested resources, the workspace's billing data cannot
@@ -1470,7 +1504,7 @@ recorded as an overrun. The estimate is a *pre-dispatch* bound, the provider's r
 |---|---|---|
 | **A-R3** | R3 only: the CPU container, one target, one hypothesis, the CPU ceiling — and the pre-dispatch estimate at or below that ceiling | R3b (GPU), R4 (16 targets, H100) |
 | **A-R3b** | R3b only: one GPU inference call for one target, the GPU hard maximum cost — and the pre-dispatch estimate at or below that ceiling | R3, R4 |
-| **A-R4** | R4 only: the 16-target H100 run, the Q5 ceiling — and the pre-dispatch estimate at or below that ceiling | R3, R3b, and any retry of either |
+| **A-R4** | R4 only: the 16-target H100 run, the Q5 ceiling — and the pre-dispatch estimate at or below that ceiling | R3, R3b, and any retry step of either — a retry is a separate step with a separate approval (D20) |
 
 The rules:
 
@@ -1479,9 +1513,12 @@ The rules:
 2. **Approval for R3b does not approve R4.** R3b exists to prove the inference plumbing
    *before* the expensive run; if it fails, the sequence stops at R3b (§8.3) and R4 needs a
    **new** approval, not the old one.
-3. **The attempt counter is part of the approval.** The approval of a step covers at most the
-   number of attempts its cap states; a further attempt is a new invocation and needs a new
-   approval for that step.
+3. **One approval covers one attempt.** The approval of a step covers exactly the attempt its
+   cap states — and the cap states **one**, because no step is retried automatically (D20).
+   There is no approval of the form "the step and a second try if it fails": a retry is a
+   **new, separately named step** (for example `R3r`) with its own approval (for example
+   `A-R3r`), its own ceiling, its own pre-dispatch estimate and its own row in the approval
+   table of the PR.
 4. **The approval record is part of the PR.** The PR of the regeneration iteration records,
    per step: the approver, the date, the approved ceiling, the pre-dispatch estimate with
    the rate source it was computed from, and the actual spend read back from the provider. A
@@ -1525,7 +1562,7 @@ the producer was written in, and not the commit the closure's producer-immutabil
 1. **R1 and R2 together produce the producer commit `P`, and `P` is sealed after R2.**
    `P` is the commit that closes the producer surface: the last commit that touches
    `modal_app.py` (repository root), `benchmarks/adapters.py`,
-   `benchmarks/benchmark_runner.py` or the validators. R2 adds the negative tests T1–T9, so
+   `benchmarks/benchmark_runner.py` or the validators. R2 adds the negative tests T1–T12, so
    `P` is the **R2** commit — or any commit that contains both changes — and it is sealed
    *before* the first container is dispatched. No commit after `P` may touch a producer path
    — that is what makes P6.14's diff empty (§9.3) and what makes the invalidation rule of
@@ -1654,7 +1691,10 @@ unpublishable artifacts.
 
 **A failed smoke ends the sequence.** A smoke that fails its gate stops the regeneration
 there (§8.2.5): the sequence does not continue into R4 with a producer that is known to be
-broken, and R4 requires its own approval in any case.
+broken, and R4 requires its own approval in any case. There is **no automatic retry** of a
+failed smoke: every smoke is a single attempt (D20), so a retry is a **new, separately named
+step** with its own approval, its own ceiling and its own pre-dispatch estimate — it is
+recorded as its own step in the sequence and in the PR, never as a second try of R3 or R3b.
 
 **All three execution steps run in the same detached worktree** at the producer commit `P`
 (§8.2.6) — and so do the two steps that judge their bytes (R5, R9) — so the smoke, the run
@@ -1757,14 +1797,15 @@ published under its own identity:
 | | Historical evidence | Replacement evidence |
 |---|---|---|
 | Published files | `iteration14..18_validation_evidence.json` (5 files) | the new iteration's own report file(s) |
-| Verdicts | `FAILED (0/16)` — unchanged | whatever the validators output against the new run |
+| Verdicts | `FAILED (0/16)` — unchanged | the validator's output against the new run — **expected `PASSED`**, fixed before the run (§9.4); a different result fails the closure and is reported as it is |
 | Artifacts | `run_1794209615_70f5d22/` — unchanged, in place | the new `run_<epoch>_<sha7>/` (D9) |
-| Role in the closure | rows 14–18 of `HISTORICAL_EVIDENCE`, expected string `FAILED (0/16 targets)` | a **new row** in `HISTORICAL_EVIDENCE`, expected string = the new run's verdict |
+| Role in the closure | rows 14–18 of `HISTORICAL_EVIDENCE`, expected string `FAILED (0/16 targets)` | a **new row** in `REPLACEMENT_EVIDENCE`, expected string `PASSED` — fixed before the run (§8.2.4 d, §9.4) |
 
 The closure therefore refers to **both**: the 14–18 rows keep asserting that the historical
-verdicts are still exactly `FAILED (0/16 targets)`, and a new row asserts the verdict of the
-replacement run. The closure report states both in the same artefact, so a reader sees the
-failure and its replacement side by side — with the failure still there.
+verdicts are still exactly `FAILED (0/16 targets)`, and a new row asserts `PASSED` for the
+replacement run — the expectation fixed before the run (§8.2.4 d, §9.4). The closure report
+states both in the same artefact, so a reader sees the failure and its replacement side by
+side — with the failure still there.
 
 **The name matters.** The replacement is *not* "Iteration 14 regenerated", and it is not
 "Iterations 14–18 now passing". It is a **new iteration** — its number is a maintainer choice
@@ -1780,8 +1821,11 @@ history" enforceable rather than aspirational.
 
 **What is *not* claimed.** The replacement run does not retroactively make the old run valid.
 Iterations 14–18 continue to fail, and that failure continues to be the truthful statement
-about the artifacts they were computed from. If the replacement run also fails, the outcome is
-simply two failures — a legitimate result of an authorised experiment.
+about the artifacts they were computed from. If the replacement run does not reach `PASSED`,
+the outcome is reported as it is: the closure **fails** on the replacement row, the run is
+**not** accepted as replacement evidence, and R12 opens a Draft PR that says so. A failed
+replacement is a legitimate result of an authorised experiment — and it is never relabelled
+into a pass, and the historical FAILED rows are never edited to match it.
 
 ### 9.3 The producer-source immutability check (P6.14)
 
@@ -1873,11 +1917,12 @@ for iteration, expected, bound in HISTORICAL_EVIDENCE:
 at line 1379) therefore encodes, per iteration, the expected verdict string and the expected
 `code_sha` binding.
 
-Under D8 the table changes in exactly one way: a **row is added** for the replacement
-iteration. The rows for Iterations 14–18 are **not** touched — neither their expected verdict
-string (`FAILED (0/16 targets)`) nor their bound `code_sha`. And because the bytes of the old
-run directory are left alone as well (§7.4 row 17), those validators keep producing the same
-output, so the old rows keep matching.
+Under D8 the closure's requirements change in exactly one way: a **separate table**,
+`REPLACEMENT_EVIDENCE`, is added with a **row** for the replacement iteration (§8.2.4 d).
+`HISTORICAL_EVIDENCE` itself is **not** touched — neither the rows for Iterations 14–18 (their
+expected verdict string `FAILED (0/16 targets)` and their bound `code_sha`) nor the rows for
+19–23. And because the bytes of the old run directory are left alone as well (§7.4 row 17),
+those validators keep producing the same output, so the old rows keep matching.
 
 | Row in `HISTORICAL_EVIDENCE` | Before | After |
 |---|---|---|
@@ -1900,7 +1945,9 @@ would assert whatever the run produced, which is the same defect as the conditio
 forbids. Written in advance, the check has a real failure mode: **if the replacement run
 does not pass, the closure fails**, R12 opens a Draft PR that reports the failure, and the
 historical FAILED rows stay exactly as they are. The plan does not promise that the new row
-can be satisfied; it states what it requires.
+can be satisfied; it states what it requires. The actual result is still reported honestly —
+the replacement report carries the validator's real output, and it is never relabelled to
+match the expectation.
 
 The earlier draft of this plan called this coupling "the single most dangerous coupling in
 the whole plan", because it assumed the 14–18 rows would have to be **edited** from `FAILED`
@@ -1952,7 +1999,8 @@ because the entrypoint *is* the producer. What the regeneration must preserve is
    `:1603`, used at `:1783-1784`), so **no new CPU mode has to be invented**: with a
    candidate generator the provider dispatch is short-circuited before the GPU call, the
    refinement loop cannot fire (`:1838`), and the smoke makes exactly one Modal call — the
-   real CPU `verify_exploit_remote`. R1 adds only the **fixture and its loader** (§8.2.1 b).
+   real CPU `verify_exploit_remote` — and the step is a **single attempt**: it is dispatched
+   once, and a failure ends it (D20). R1 adds only the **fixture and its loader** (§8.2.1 b).
    There is still **no** `modal_cpu` provider choice in the code: the runner's `--provider`
    accepts `gemini` / `openai` (`benchmarks/benchmark_runner.py:741`) and the Baseline-5
    backend accepts `modal_h100` / `modal_t4` / `gemini` / `openai` (`:743-745`), while the
@@ -1969,7 +2017,8 @@ because the entrypoint *is* the producer. What the regeneration must preserve is
 3. **Inference-plumbing smoke (minimal GPU cost):** one target with the published inference
    configuration, exercising the `inference` stage and resolving its provider-issued identities
    — this is **R3b** (§8.2.2), and it needs its **own explicit authorisation** **A-R3b** with
-   its cap fixed before the first call (§8.2.5).
+   its cap fixed before the first call (§8.2.5). It is a **single attempt** (D20): dispatched
+   once, never retried automatically, and any failure ends it.
 4. **Full run (cost):** the 16 targets, `modal_h100`, `--hypotheses=3`, executed from the
    detached worktree at `P` (§8.2.6) under the approval **A-R4** and the ceiling of Q5.
 5. **Client-side correlation:** for every stage, resolve the provider-issued
@@ -1993,7 +2042,7 @@ because the entrypoint *is* the producer. What the regeneration must preserve is
 | Estimate source | the provider's published rate for the declared resources — an input to the approval record, never a constant in the repository (`benchmarks/adapters.py:19`; `cost_status: "unmeasured"` in the published `summary.json:167`) |
 | Actual spend | the provider's own billing report after the run (`benchmarks/run_iteration19_cpu_smoke.py:177-189`), compared with the ceiling; an overrun aborts the step (`modal app stop`) and is recorded as an overrun |
 | Per-step approvals | **A-R3**, **A-R3b**, **A-R4** — one per step, each with its own ceiling (§8.2.5). No approval implies another: the approval of R4 approves R4 and nothing else |
-| Per-step caps | 1 container / 1 target / ≤ 2 attempts for the smokes, 1 GPU call for R3b; the 16-target run is bounded by the Q5 ceiling (§8.2.5) |
+| Per-step caps | **exactly 1 attempt** per step, no automatic retry (D20): 1 container / 1 target for R3 (worst case **1** Modal invocation), 1 GPU call and at most **4** Modal invocations for R3b; the 16-target run is one authorised run bounded by the Q5 ceiling (§8.2.5) |
 | Target cost attribution | `null` + `UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN` unless a proven join exists — the existing policy already prevents a target cost from being invented |
 | Aggregate allocation | `FORBIDDEN` (`attribution_policy.aggregate_bucket_allocation`) — no aggregate bucket may be spread over targets |
 | App-session granularity | the app-session total is the only cost that may be published |
@@ -2035,12 +2084,13 @@ something this plan settles; anything that is still the maintainer's call is a q
 | **D11** | **Rollback is non-destructive.** A pushed branch is rolled back with `git revert` commits or a dedicated rollback branch; `git reset --hard` is confined to a local, unpublished, disposable worktree. | A force-push on the evidence branch would destroy the record of what was tried — the same failure mode as rewriting a verdict. §8.4. |
 | **D12** | **The root-level `latest_summary.json` stays a byte-identical mirror of the authoritative run's `summary.json`.** The pointer alternative is not part of this plan. | The mirror is checkable (a byte comparison), and the superseded content is not lost: it stays in the historical run's own `summary.json` (§7.4 row 4). This closes **Q4**, which is withdrawn from §11.2. |
 | **D13** | **The authoritative run is selected by a literal path, through the replacement iteration's own validator module.** The new module is `benchmarks/validate_iteration24_evidence.py`; it reuses the Iteration 18 check logic unchanged and adds the manifest-integrity check that no iteration validator performs today. The closure selects the run through an explicit `--run-dir` argument. | D9 states the principle — explicit selection, never by recency — and this is its concrete form: the value is a literal in exactly two places, and the run is bound to the SHA in its own manifest (§8.2.4). The Iteration 18 validator cannot be reused: it writes to a fixed report path and would overwrite the published Iteration 18 report (D8). |
-| **D14** | **Every compute step has its own hard cap, its own stop condition and its own explicit approval.** No approval implies another. | A CPU container on Modal is compute, too, and R3b spends GPU credits before the Q5 ceiling is set. A cap that is not fixed before the step starts is not a cap (§8.2.5). |
+| **D14** | **Every compute step has its own hard cap, its own stop condition and its own explicit approval.** No approval implies another, and no approval implies a retry (D20). | A CPU container on Modal is compute, too, and R3b spends GPU credits before the Q5 ceiling is set. A cap that is not fixed before the step starts is not a cap (§8.2.5). |
 | **D15** | **The run executes from a detached worktree pinned at the producer commit `P`.** The manifest's `git.commit_sha`, the run directory's suffix, the report's `code_sha` and the closure's capture binding are therefore the same value by construction. | The manifest reads its SHA from the checkout that executes the run, so the risk is not a lying manifest but running from the wrong checkout. A detached worktree is the only arrangement in which the four bindings cannot drift apart (§8.2.6, §9.3). |
-| **D16** | **No compute step is dispatched without a pre-dispatch cost estimate at or below its own approved ceiling. If the estimate is unavailable, the step does not start.** The three monetary ceilings — R3, R3b, R4 — remain **Q5** (§11.2) and are **not** set by this plan; until they are supplied and approved, all three steps are undispatchable. | A cap that is only checked after the spend is not a gate, and R3b spends GPU credits before the full-run ceiling exists, so it needs a ceiling, an approval and an estimate of its own. The repository deliberately has no cost estimator (`benchmarks/adapters.py:19`; `cost_status: "unmeasured"`), so the estimate has to come from the provider and be recorded with its source — it cannot be invented here (§8.2.5). |
+| **D16** | **No compute step is dispatched without a pre-dispatch cost estimate at or below its own approved ceiling. If the estimate is unavailable, the step does not start.** The estimate covers the step's **single** attempt (D20); a retry step needs its own estimate against its own ceiling. The three monetary ceilings — R3, R3b, R4 — remain **Q5** (§11.2) and are **not** set by this plan; until they are supplied and approved, all three steps are undispatchable. | A cap that is only checked after the spend is not a gate, and R3b spends GPU credits before the full-run ceiling exists, so it needs a ceiling, an approval and an estimate of its own. The repository deliberately has no cost estimator (`benchmarks/adapters.py:19`; `cost_status: "unmeasured"`), so the estimate has to come from the provider and be recorded with its source — it cannot be invented here (§8.2.5). |
 | **D17** | **R3 runs the producer's own `execute_target()` and takes the adapter's candidate-generator branch, so the inference stage is not attempted.** The mechanism is the `candidate_generator` parameter the production adapter already has (`benchmarks/adapters.py:1596`, stored at `:1603`, used at `:1783-1784`) — not a separate smoke app, and not a `modal_cpu` provider, which does not exist in the code. R1 introduces the **fixture and its loader**, not a bypass mechanism. | Only the producer writes the §5 stage block (`benchmarks/adapters.py:2377-2411`); the dedicated CPU app (`benchmarks/modal_cpu_smoke_app.py`) produces a single-function identity record and stays a pre-flight check. The candidate generator short-circuits the provider dispatch **before** the GPU call (`:1783` vs `:1785-1792`), and the refinement loop cannot fire because it requires `candidate_generator is None` (`:1838`), so R3 makes exactly one Modal call, and it is a CPU one. The stage block is always complete — all four keys are written (`:2377-2409`) — so the attempt flag inside it is what distinguishes "not attempted" from "attempted and failed" (`evidence_integrity.py:1829-1836`, `:608-614`) (§8.2.1, §10.2). |
 | **D18** | **The producer surface is sealed at `P`, and the run is bound to the bytes of `P`.** Every execution step and every step that judges the run's bytes happens in the detached worktree at `P`; the executed producer bytes are verified by digest; and any commit after `P` that touches a producer path **invalidates the run** and requires a fresh capture. | The manifest's SHA binds a commit; a digest binds the bytes, and only the second one rules out "the code that ran is not the code that was named". A producer-changing commit between the capture and the closure is detected by P6.14's diff, and the consequence is fixed in advance — a new capture, not a re-labelled one (§8.2.6, §9.3). |
 | **D19** | **R3's candidate is a checked-in, non-breaching fixture — a negative control — and R3 claims only the EVM-sandbox stage.** The fixture is never presented as model output, is written outside `benchmarks/evidence/`, and its digest is recorded with the smoke. R3 records `independent_replay.attempted = false` and proves nothing about the replay stage. | A plumbing smoke needs a candidate that costs no GPU credits and cannot fabricate a finding. A model candidate would make R3 a paid inference test — that is R3b. A breaching candidate would make the replay branch fire (`adapters.py:1882`) and turn a plumbing smoke into an accidental benchmark run. The producer enters that branch only on `INVARIANT_BREACH_UNREPLAYED`, so a non-breaching fixture keeps the smoke deterministic and its stage matrix fixed (§8.2.1 b, c). |
+| **D20** | **Every compute step is a single attempt.** R3 is dispatched exactly once — worst case **1** Modal invocation; R3b exactly once — worst case **4** Modal invocations, all of them inside that one attempt; R4 as one authorised run of its 16 targets. There is **no automatic retry**: a failure ends the step, and a retry is a **new, separately named step** (for example `R3r`, `R3br`, `R4r`) with its own approval, its own ceiling, its own pre-dispatch estimate and its own row in the approval record. | A "1 invocation" description next to a "≤ 2 attempts" cap is not an execution contract but two contradicting ones, and a cap that silently permits a second attempt is a cap with two budgets. Settling the semantics in one place — one attempt per step — keeps the invocation maxima exact (1 and 4, with no hidden second path), keeps the cost ceiling meaningful and keeps the pre-dispatch estimate equal to the worst case (§8.2.1 c, §8.2.2, §8.2.5, §10.3). |
 
 ### 11.2 Unresolved questions for the maintainer
 
@@ -2077,16 +2127,20 @@ The regeneration is acceptable only when **all** of the following hold:
    `evidence_ref`.
 5. No value in the new artifacts was copied from the old artifacts or from upstream's
    bytes. The run directory is new; its bytes come from a new run.
-6. The negative tests T1–T9 exist, and each was observed to fail against the pre-fix code.
+6. The negative tests T1–T12 exist, and each was observed to fail against the pre-fix code.
 7. `python -m benchmarks.regenerate_billing_join_table --check` → PASSED; the join table is
    still schema 3.0.0 with `aggregate_bucket_allocation: "FORBIDDEN"`; **all 17 harness
    digests match the regenerated harness validation file**; and `source_raw_export.sha256` is
    still `1529b1b9…` unless the raw export was re-exported (§4.4, §7.3).
 8. Every validator exits 0 and reports its expected verdict:
-   iterations 14–18 → **`FAILED (0/16)`, unchanged** (D8);
-   the replacement iteration → the verdict the new run actually produced (D8);
-   iterations 19–23 → `PASSED`; closure → `21/21 PASSED`, with the 14–18 rows of
-   `HISTORICAL_EVIDENCE` unchanged and the replacement row added.
+   - iterations 14–18 → **`FAILED (0/16)`, unchanged** (D8);
+   - the replacement iteration → **`PASSED`** — the expectation fixed in `REPLACEMENT_EVIDENCE`
+     before the run was made (§8.2.4 d, §9.4). If the actual validator result is **not**
+     `PASSED`, the closure **fails**, the run is **not** accepted as replacement evidence, and
+     the actual result is reported honestly — in the replacement report and in the Draft PR of
+     R12 — and is never relabelled (D7, D8);
+   - iterations 19–23 → `PASSED`; closure → `21/21 PASSED`, with the 14–18 rows of
+     `HISTORICAL_EVIDENCE` unchanged and the replacement row added.
 9. `pytest -q` is green, with no test weakened, relaxed or skipped. The seven live-provider
    skips (Foundry not on `PATH`, Slither not installed) remain skips and are run only by
    the `foundry-integration` CI job on the Linux runner.
@@ -2150,6 +2204,12 @@ The regeneration is acceptable only when **all** of the following hold:
     `attempted` flag agrees with the absence kind its identity facts carry: a stage with
     `attempted: false` carries `STAGE_NOT_ATTEMPTED` and nothing else, and a stage with
     `attempted: true` carries none (C6, T12, §8.2.1 d).
+23. **Every compute step was dispatched exactly once.** R3 made exactly **1** Modal
+    invocation; R3b at most **4**, all of them inside its single attempt; R4 was one
+    authorised run of its 16 targets. No step was retried automatically: a step that failed
+    ended there with the failure recorded, and any retry appears as a **separately named
+    step** with its own approval, its own ceiling, its own pre-dispatch estimate and its own
+    row in the approval record of the PR (D20, §8.2.5, §10.3).
 
 ---
 
@@ -2163,7 +2223,8 @@ The regeneration is acceptable only when **all** of the following hold:
   Foundry remote run, no paid computation. No Modal credits were spent.
 * No compute step was authorised: the approvals **A-R3**, **A-R3b** and **A-R4** of §8.2.5 are
   specified here, and none of them was granted. The caps and the ceilings of §8.2.5 are a
-  specification, not a budget that was spent.
+  specification, not a budget that was spent. No step was dispatched, no step was retried and
+  no retry step was created (D20).
 * No cost estimate was computed for any step and no provider rate was read: the
   pre-dispatch estimate gate (D16, §8.2.5) is specified, not exercised. The numeric
   ceilings of R3, R3b and R4 remain unresolved (**Q5**), so none of the three steps is
