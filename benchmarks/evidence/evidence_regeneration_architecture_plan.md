@@ -22,11 +22,11 @@ two premises of the task.
 
 | # | Finding | Consequence for the plan |
 |---|---|---|
-| **F1** | The pseudo-URI inventory is **165**, not 99. The 99 of the task counts only two of the four files that carry the URIs (§2). | The inventory in §2 enumerates all 165 occurrences, by file, JSON path and value. |
+| **F1** | The pseudo-URI inventory is **165**, not 99 — and not 132. The 99 of the task counts only two of the four files that carry the URIs; a script that scans a single run directory counts 132 and misses the root-level `latest_summary.json` (§2). | The inventory in §2 enumerates all 165 occurrences, by file, JSON path and value, over the **whole** tracked artifacts tree. |
 | **F2** | The current validator **already rejects** the published pseudo-URIs — but for a *different, earlier* reason than the URI. Iterations 14–18 fail on `missing 'function_call_id'` and `missing 'image_digest'`, i.e. the URI check is never reached (§4.2). | The regeneration cannot be "clean up the URI"; it must **replace the whole provenance schema** of the artifacts, because the schema the URI lives in is itself rejected. |
 | **F3** | The upstream bytes are **not** a drop-in replacement. Upstream's rewritten artifacts still fail the iteration-line validators, and they introduce a *new* defect: a synthetic `container_id` of the exact shape the validator forbids (§3.2). | The upstream bytes cannot be taken as-is. §5 specifies a third contract: iteration-line schema **+** upstream's `NOT_AVAILABLE` honesty **+** upstream's field rename, with the upstream defects fixed. |
 | **F4** | `has_synthetic_modal_uri` is **not enforced** on the authoritative paths. In Iterations 14–16 it is recorded as a diagnostic field (`synthetic_uri_present`) next to a billing check whose verdict it does not influence; Iterations 17–23 and the closure validator do not call it at all (§4.3). | §6 specifies the exact call-path changes needed to make the detector authoritative, plus the negative tests that prove it. |
-| **F5** | The SHA-256 pins do **not** bind the 16 target artifacts. The published evidence pins the *stdout/stderr* files and the harness validation, but not the 16 target JSONs themselves (§7.1). | The blast radius of a regeneration is narrower than the task assumes, but it is **not zero**: the harness validation file is pinned 17× by the join table, and the target artifacts are bound by *validator verdicts* rather than by digests. |
+| **F5** | The SHA-256 pins **do** bind the 16 target artifacts. `reproducibility_manifest.json → adapters.baseline_5.artifact_files` carries 48 `(relative_path, size_bytes, sha256)` records — 16 target JSONs + 32 stdout/stderr files — and all 16 JSON digests match the git blob bytes (§7.2). | The blast radius of a regeneration is **wider** than the task assumes: regenerating the target artifacts forces a re-pin of the manifest, and the manifest and the harness validation already disagree on 15 of the 32 stdout digests because they were computed over different line-ending conventions (§7.3). |
 
 The central architectural conclusion: **the regeneration is a schema migration, not a value
 cleanup.** The pseudo-URI is a symptom; the disease is that the published artifacts carry a
@@ -53,17 +53,40 @@ merge.
 
 ### 1.2 Which files are "published evidence"
 
-`benchmarks/artifacts/` is listed in `.gitignore` (line 14), but 37 files of the run
-directory `run_1794209615_70f5d22` are **tracked** and therefore published. The tracked set
-is the authoritative definition of "published" for this plan:
+`benchmarks/artifacts/` is listed in `.gitignore` (line 14), but **159** files of that tree
+are **tracked** and therefore published:
+
+```
+$ git ls-files benchmarks/artifacts | wc -l
+159
+```
+
+The tree is **not** one run. It holds four run directories and one root-level summary:
+
+| Tracked path | Files | Role |
+|---|---|---|
+| `benchmarks/artifacts/run_1794152785_e4e94fc/` | 4 | earlier, partial run (2 targets + manifest + summary) |
+| `benchmarks/artifacts/run_1794157194_864133b/` | 50 | earlier, complete run |
+| `benchmarks/artifacts/run_1794174995_39eb396/` | 50 | earlier, complete run |
+| `benchmarks/artifacts/run_1794209615_70f5d22/` | 54 | **the published run of this plan** |
+| `benchmarks/artifacts/latest_summary.json` | 1 | root-level mirror of the published run's `summary.json` |
+
+The published run is `run_1794209615_70f5d22` — the one the iteration-line validators read by
+default (`DEFAULT_RUN_DIR` in `benchmarks/validate_iteration14_evidence.py:66`) and the one
+whose `summary.json` is mirrored by the root-level `latest_summary.json`. It contains
+**54** tracked files:
 
 ```
 $ git ls-files benchmarks/artifacts/run_1794209615_70f5d22/ | wc -l
-37
+54
 ```
 
-They are: 16 × `<TARGET>-01.json`, the per-target stdout/stderr/replay files, plus
-`reproducibility_manifest.json`, `summary.json` and (at the tree root) `latest_summary.json`.
+— 18 JSON (16 target artifacts + `reproducibility_manifest.json` + `summary.json`) and 36 text
+files (16 × `_stdout.txt`, 16 × `_stderr.txt`, 4 × `_replay_stdout.txt` / `_replay_stderr.txt`).
+
+The three older run directories are earlier runs. They carry **no** `modal-app://` occurrence
+(§2.2), so they are outside the pseudo-URI scope — but they are published bytes, and the
+regeneration must not disturb them.
 
 ### 1.3 Line-ending caveat that affects every digest
 
@@ -84,18 +107,50 @@ cd <path> && python -m benchmarks.validate_consolidated_closure_evidence --check
 
 ### 2.1 Method
 
-A deterministic script walks every tracked JSON file, parses it, and records every string
-value that starts with `modal-app://`, together with its full JSON path. The script is
-reproducible and its output is quoted verbatim below. Nothing was modified; the script only
-reads.
+The inventory is produced by a **deterministic script over the tracked JSON artifacts tree**,
+not over a single run directory. Two properties matter:
+
+* **It enumerates the whole tracked tree** — `git ls-files benchmarks/artifacts` — so the
+  root-level `benchmarks/artifacts/latest_summary.json`, which sits *outside* every run
+  directory and carries 33 of the 165 occurrences, cannot be missed. A script that only
+  walks one run directory reports 132 and silently drops a fifth of the defect.
+* **It reads the git blob store** — `git show <rev>:<path>` — not the working tree. With
+  `core.autocrlf=true` the working tree holds CRLF while the published evidence is the blob
+  (§1.3); an inventory computed over the working tree is not reproducible.
+
+The script is read-only: nothing was modified, it only reads. It is not committed, because
+the task restricts this change to this one Markdown file — copy it verbatim to reproduce:
 
 ```python
-# inventory of the fabricated modal-app:// pseudo-URIs
-import json, subprocess
+#!/usr/bin/env python3
+"""Deterministic inventory of the fabricated ``modal-app://`` pseudo-URIs.
+
+Reads every tracked JSON file under ``benchmarks/artifacts`` straight from the
+git blob store (so the local ``core.autocrlf`` setting cannot change the
+result) and reports, per file, how many ``modal-app://`` values it carries.
+
+Usage:  python inventory_pseudo_uris.py <repo> [<rev>]
+"""
+import json
+import subprocess
+import sys
 from pathlib import Path
 
-ROOT = Path(r"<repo>")
-RUN = ROOT / "benchmarks" / "artifacts" / "run_1794209615_70f5d22"
+REPO = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
+REV = sys.argv[2] if len(sys.argv) > 2 else "HEAD"
+PUBLISHED_RUN = "benchmarks/artifacts/run_1794209615_70f5d22"
+ROOT_SUMMARY = "benchmarks/artifacts/latest_summary.json"
+
+
+def git(*args):
+    return subprocess.run(["git", "-C", str(REPO), *args], check=True,
+                          capture_output=True, text=True).stdout
+
+
+def blob(path):
+    return subprocess.run(["git", "-C", str(REPO), "show", f"{REV}:{path}"],
+                          check=True, capture_output=True).stdout
+
 
 def walk(node, path, out):
     if isinstance(node, dict):
@@ -105,36 +160,85 @@ def walk(node, path, out):
         for i, v in enumerate(node):
             walk(v, path + [f"[{i}]"], out)
     elif isinstance(node, str) and node.startswith("modal-app://"):
-        out.append(("/".join(path), node))
+        out.append("/".join(path))
 
-def scan(p):
-    out = []
-    walk(json.loads(p.read_text(encoding="utf-8")), [], out)
-    return out
 
-total = 0
-for p in sorted(RUN.rglob("*.json")):
-    hits = scan(p)
+tracked = [p for p in git("ls-files", "benchmarks/artifacts").splitlines()
+           if p.endswith(".json")]
+
+counts = {}
+for path in sorted(tracked):
+    hits = []
+    walk(json.loads(blob(path).decode("utf-8")), [], hits)
     if hits:
-        rel = p.relative_to(ROOT).as_posix()
-        print(f"### {rel}  ({len(hits)})")
-        for jp, val in hits:
-            print(f"    {jp}\t{val}")
-        print()
-        total += len(hits)
-print("RUN DIR TOTAL:", total)
+        counts[path] = len(hits)
+
+print(f"=== tracked JSON files under benchmarks/artifacts @ {REV} ===")
+print(f"scanned: {len(tracked)}")
+print()
+print("=== pseudo-URI occurrences (modal-app://) ===")
+run_total = root_total = other_total = 0
+for path, n in counts.items():
+    print(f"{path}\t{n}")
+    if path.startswith(PUBLISHED_RUN + "/"):
+        run_total += n
+    elif path == ROOT_SUMMARY:
+        root_total += n
+    else:
+        other_total += n
+print()
+print(f"RUN DIR SUBTOTAL ({PUBLISHED_RUN}): {run_total}")
+print(f"ROOT-LEVEL SUBTOTAL ({ROOT_SUMMARY}): {root_total}")
+print(f"TOTAL: {run_total + root_total}")
+print()
+print(f"OCCURRENCES OUTSIDE THE PUBLISHED TREE SCOPE: {other_total}")
 ```
 
-### 2.2 The count: 165, not 99
+The exact command — the revision is pinned, so the output below is reproducible and does not
+depend on the state of the working tree:
 
 ```
-=== per-category totals (run_1794209615_70f5d22) ===
-target artifacts (baseline_5): 66 occurrences in 16 files
-reproducibility_manifest.json: 33 occurrences in 1 file
-run summary.json: 33 occurrences in 1 file
-
-ARTIFACTS_TREE_TOTAL (incl. latest_summary.json): 165
+$ python inventory_pseudo_uris.py D:\Install\I\Dropbox\Coding\GitHub\Agentic-security-RLVR a8a88575aed08c852b65e0fd3972846b9cf791dc
 ```
+
+### 2.2 The count: 165, not 99 — and not 132
+
+Verbatim output of the script above (19 paths, with their counts):
+
+```
+=== tracked JSON files under benchmarks/artifacts @ a8a88575aed08c852b65e0fd3972846b9cf791dc ===
+scanned: 59
+
+=== pseudo-URI occurrences (modal-app://) ===
+benchmarks/artifacts/latest_summary.json	33
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/AC-01.json	6
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BIZ-01.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BRIDGE-01.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/DOS-01.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ERC4626-01.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/FLASH-01.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/LIQ-01.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ORACLE-01.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/PREC-01.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/REENT-01.json	6
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-01.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-02.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-03.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-04.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SIG-01.json	2
+benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/STATE-01.json	4
+benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json	33
+benchmarks/artifacts/run_1794209615_70f5d22/summary.json	33
+
+RUN DIR SUBTOTAL (benchmarks/artifacts/run_1794209615_70f5d22): 132
+ROOT-LEVEL SUBTOTAL (benchmarks/artifacts/latest_summary.json): 33
+TOTAL: 165
+
+OCCURRENCES OUTSIDE THE PUBLISHED TREE SCOPE: 0
+```
+
+The script scanned all **59** tracked JSON files of the artifacts tree. Exactly **19** of them
+carry a pseudo-URI, and the total is **165**.
 
 | File class | Files | Occurrences | Tracked? |
 |---|---|---|---|
@@ -144,13 +248,22 @@ ARTIFACTS_TREE_TOTAL (incl. latest_summary.json): 165
 | `latest_summary.json` (tree root) | 1 | **33** | yes (byte-identical to `summary.json`) |
 | **Total** | **19** | **165** | all tracked |
 
-The task's figure of 99 = 66 (targets) + 33 (manifest) counts two of the four files. It
-misses `summary.json` and `latest_summary.json`, which carry the same 33 occurrences. The
-miss is material for the plan: `summary.json` and `latest_summary.json` are the run-level
-views, and `latest_summary.json` is byte-identical to `summary.json`
+Two ways of under-counting, both of which the script above avoids:
+
+* The task's figure of **99** = 66 (targets) + 33 (manifest) counts two of the four files. It
+  misses `summary.json` and `latest_summary.json`, which carry the same 33 occurrences.
+* A script that walks **only the run directory** reports **132** — it misses the root-level
+  `latest_summary.json` (33), which is not inside any run directory and is therefore invisible
+  to a `run_*/` glob.
+
+Both misses are material for the plan. `summary.json` and `latest_summary.json` are the
+run-level views, and `latest_summary.json` is byte-identical to `summary.json`
 (`sha256 = 3ff3993e0d6f7b50a070daff1504756435541057de83febef6e86b5136d6ba47`), so they are
 one artifact with two copies — but both copies must be regenerated, or the tree contradicts
-itself.
+itself. The last line of the output is a deliberate guard: it proves that the older run
+directories (`run_1794152785_e4e94fc`, `run_1794157194_864133b`, `run_1794174995_39eb396`,
+§1.2) carry **zero** pseudo-URIs, so the scope of the defect is exactly the published run
+plus its root-level mirror.
 
 ### 2.3 Per-target breakdown (66)
 
@@ -183,18 +296,30 @@ same provenance block twice — once at the top level and once nested under
 
 ### 2.4 JSON paths (exhaustive shape)
 
-Three distinct path shapes carry all 165 occurrences:
+**Four** distinct path shapes carry all 165 occurrences:
 
 ```
-modal_invocation_provenance/stages/<stage>/durable_log_ref
-tool_metadata/modal_invocation_provenance/stages/<stage>/durable_log_ref
-reproducibility_manifest.adapters.baseline_5.per_target_provenance.<TARGET>\
-    .modal_invocation_provenance/stages/<stage>/durable_log_ref
+1. modal_invocation_provenance/stages/<stage>/durable_log_ref
+2. tool_metadata/modal_invocation_provenance/stages/<stage>/durable_log_ref
+3. adapters.baseline_5.per_target_provenance.<TARGET>\
+       .modal_invocation_provenance/stages/<stage>/durable_log_ref
+4. reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.<TARGET>\
+       .modal_invocation_provenance/stages/<stage>/durable_log_ref
 ```
 
-In the manifest and the summaries the same per-target block appears once per target under
-`adapters.baseline_5.per_target_provenance.<TARGET>`; in `summary.json` and
-`latest_summary.json` it is additionally nested under `reproducibility_manifest_summary`.
+Their distribution matches the counts of §2.2 exactly:
+
+| Shape | Where | Occurrences |
+|---|---|---|
+| 1 — top-level stage block | the 16 target artifacts | 33 |
+| 2 — the same block under `tool_metadata` | the 16 target artifacts | 33 |
+| 3 — the manifest's own per-target block | `reproducibility_manifest.json` | 33 |
+| 4 — the manifest block embedded one level deeper | `summary.json` (33) + `latest_summary.json` (33) | 66 |
+| | | **165** |
+
+Shape 4 is not a fifth copy of the data: it is shape 3 wrapped in the summary's
+`reproducibility_manifest_summary` envelope. That is why the two summaries are byte-identical
+to each other and why `latest_summary.json` must be regenerated whenever `summary.json` is.
 
 ### 2.5 Value shape
 
@@ -408,11 +533,23 @@ honest `NOT_AVAILABLE` contract exists.
 | Policy | `PROVIDER_JOIN_FIELDS = ("invocation_id", "function_call_id", "task_id")` (`evidence_integrity.py:2807`); `aggregate_bucket_allocation: "FORBIDDEN"`; target-level cost is `null` with `cost_status = "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN"` unless an exact unique provider join resolves to exactly one raw line item |
 
 The published join table already satisfies this contract: 16 target rows, each with
-`cost_usd: null` and a machine-readable reason, each citing
-`app_id_evidence_ref → modal_control_harness_validation.json`
-(`sha256 = 7a56eadb…`). The billing join therefore **does not need to be regenerated** for a
-provenance-schema migration — only its `app_id_evidence_ref` digest changes if the harness
-validation file changes (§7).
+`cost_usd: null` and a machine-readable reason. Its references split into exactly two
+groups, and they must not be conflated:
+
+| Group | Where | Count | What the digest pins |
+|---|---|---|---|
+| harness references | `canonical_run_app_session.evidence_ref` (1) + `target_level[*].app_id_evidence_ref` (16) | **17** | `benchmarks/evidence/modal_control_harness_validation.json` (`sha256 = 7a56eadb…`) |
+| raw-export reference | `source_raw_export.path` + `source_raw_export.sha256` | **1** | `benchmarks/evidence/modal_billing_report_raw.json` (`sha256 = 1529b1b9…`) |
+
+The 17 harness references all pin the **same** file, so they all change together when the
+harness validation file is regenerated (§7.3). The single raw-export reference pins the raw
+billing export, which is the *input* of the join table, not a product of the run: if
+`modal_billing_report_raw.json` is not re-exported, its digest does not change and
+`source_raw_export.sha256` must stay `1529b1b9…`.
+
+The billing join therefore **does not need to be regenerated** for a provenance-schema
+migration — only the 17 harness digests change, and only if the harness validation file
+changes (§7).
 
 ---
 
@@ -455,14 +592,22 @@ modal_invocation_provenance = {
 
 ### 5.3 On `modal_app_id` → `app_session_id`
 
-The rename upstream proposes is **semantically better** and this plan adopts it, with one
-caveat: `app_session_id` is *not* a session id. It is the **provider-issued application id**
-of the running app — a value that identifies the app, not the session. Upstream's own value
-is the same literal `ap-EDUitOwWeMrIdYbTh4kB63` in every row, which confirms it is the app id.
+**This plan does not decide the name.** The rename upstream proposes is *semantically
+better*, but choosing it is the maintainer's call, and it stays open as **Q1** (§11.2). What
+*is* settled here is everything except the spelling:
 
-Recommendation: name the field `app_session_id` **only if** the maintainer accepts that the
-name is slightly imprecise; otherwise `app_id` is the more accurate name and the rename
-becomes unnecessary. This is **decision D3** (§11).
+1. **The semantics.** Whatever the field is called, its value is the **provider-issued
+   application id** of the running app — a value that identifies the app, not the session.
+   Upstream's own value is the same literal `ap-EDUitOwWeMrIdYbTh4kB63` in every row, which
+   confirms it is the app id. `app_session_id` would therefore be a slightly imprecise name
+   for an application id; `app_id` is the accurate one.
+2. **The shape.** The field carries the §5.5 `observed()` / `not_available()` envelope like
+   every other identity fact. A bare string is not acceptable under D3 under any of the three
+   names in Q1.
+
+So the *contract* of the field is fixed by D3; only the *spelling* is open. The schema
+example in §5.2 uses `app_session_id` solely because that is the spelling upstream proposed —
+if Q1 is answered differently, the field is renamed and nothing else in §5 changes.
 
 ### 5.4 Remote-EVM block
 
@@ -634,14 +779,24 @@ why the merge could not take the upstream bytes.
 
 ```
 modal_billing_join_table.json ──x17──> modal_control_harness_validation.json
-                    │                            │
+                    │              (1 canonical_run_app_session.evidence_ref
+                    │               + 16 target_level[*].app_id_evidence_ref)
+                    │
                     └──x1──> modal_billing_report_raw.json
+                              (source_raw_export.path + .sha256 — the raw export,
+                               NOT the harness validation file)
                                  
-modal_control_harness_validation.json ──> 16× <TARGET>_stdout.txt
-                                   ──>    2× <TARGET>_replay_stdout.txt
-                                   ──>    1× SIG-01_stderr.txt
-                                   ──>    1× REENT-01_replay_stdout.txt
-                                   ──>    16× benchmarks/targets/solidity/*.sol
+modal_control_harness_validation.json ──> 16× <TARGET>_stdout.txt   (stdout_path + stdout_sha256)
+                                   ──> 16× <TARGET>_stderr.txt    (stderr_path + stderr_sha256)
+                                   ──> 16× <TARGET> .sol source   (input_sha256 — digest only,
+                                   │                              the path is NOT recorded)
+                                   ──>  2× replay stdout/stderr   (replay_evidence.*_sha256 for
+                                   │                              AC-01 and REENT-01 only; no path)
+
+reproducibility_manifest.json ──> 16× baseline_5/<TARGET>-01.json  (artifact_files[].sha256)
+       ──> 16× <TARGET>_stdout.txt          (artifact_files[].sha256)
+       ──> 16× <TARGET>_stderr.txt           (artifact_files[].sha256)
+                              (the 4 *_replay_*.txt files are NOT pinned by the manifest)
 
 iteration16/17/18_validation_evidence.json ──x1 each──> their 4 rehearsal stage-evidence files
 iteration19_validation_evidence.json ──x2──> CPU-SMOKE-01_stage_evidence_cpu_smoke.json
@@ -649,48 +804,90 @@ iteration20_validation_evidence.json ──x2──> ITER20-01_stage_evidence_ev
 iteration21/22/23_validation_evidence.json ──x2──> ITER21-01_stage_evidence_evm_sandbox.json
 ```
 
+Two facts in that graph are easy to get wrong; both were measured, not inferred:
+
+* The harness validation pins **16** Solidity sources, not 17. Each of the 16 targets carries
+  an `input_sha256` that equals the SHA-256 of its own `.sol` file — 16 of 16 matched against
+  the 32 tracked files of `benchmarks/targets/solidity/`. The *path* is not recorded, only the
+  digest. Its `replay_evidence.harness_sha256` is the digest of the forge *harness*, not of a
+  `.sol` file.
+* The 4 `*_replay_stdout.txt` / `*_replay_stderr.txt` files are pinned by the harness — for
+  AC-01 and REENT-01, as digests without paths — but **not** by the manifest.
+
 ### 7.3 The blast radius of a regeneration
 
-**Not pinned by digest, but bound by verdict — the 16 target artifacts.** No evidence file
-contains the SHA-256 of `<TARGET>-01.json`. Their binding is *semantic*: the Iteration 14–18
-validators read them from disk and produce a verdict that the published evidence records.
-Regenerating them changes those verdicts' inputs, and therefore the published
-`iteration14..18_validation_evidence.json` files must be regenerated to match.
+**Pinned by digest — the 16 target artifacts.** `reproducibility_manifest.json →
+adapters.baseline_5.artifact_files` holds 48 `(relative_path, size_bytes, sha256)` records:
+the 16 target JSONs and the 32 stdout/stderr files. All 16 JSON digests equal the SHA-256 of
+the corresponding git blob. Regenerating the target artifacts therefore does **not** leave the
+manifest untouched — the manifest must be re-pinned to the new bytes, and the manifest's own
+digest changes with it.
 
-**Directly pinned — `modal_control_harness_validation.json`.** It pins the 16 stdout files
-and the 16 Solidity sources. If the regeneration re-runs the benchmark, the stdout bytes
-change, so the harness validation file changes, so:
+**Pinned by digest — `modal_control_harness_validation.json`.** It pins the 32 stdout/stderr
+files (path + digest) and the 16 Solidity sources (digest only). If the regeneration re-runs
+the benchmark, the stdout bytes change, so the harness validation file changes, so:
 
 - its own sha changes from `7a56eadb…` to a new value;
-- the join table's 17 `app_id_evidence_ref` entries and its 1 `source_raw_export` entry
-  must be updated to the new digest;
+- the join table's **17 harness references** (`canonical_run_app_session.evidence_ref` + the
+  16 `target_level[*].app_id_evidence_ref`) must be updated to the new digest;
 - the join table's own sha changes from `8f62a23d…`;
 - the closure validator's P6.15 re-checks the *stage evidence* digest, and the Iteration
   19–23 validators re-check their own pins.
 
-**Unaffected.** `modal_billing_report_raw.json` is the raw billing export — it is the
-*input*, not the product of a run, so it does not change unless a new billing period is
-exported. The Solidity sources do not change. The Iteration 16–18 rehearsal artifacts are
-produced by a separate rehearsal path and stay valid.
+**Unchanged — the raw billing export.** `modal_billing_report_raw.json` is the raw billing
+export — it is the *input*, not the product of a run, so it does not change unless a new
+billing period is exported. Consequently the join table's single `source_raw_export` entry
+keeps `sha256 = 1529b1b9…`; it must **not** be "updated to the new digest", because there is
+no new digest for it. The Solidity sources do not change. The Iteration 16–18 rehearsal
+artifacts are produced by a separate rehearsal path and stay valid.
+
+**A pre-existing inconsistency the regeneration must not inherit.** The two published files
+that pin the same 32 stdout/stderr files currently **disagree on 15 of them**:
+
+| Producer | Convention | Result over the 32 pinned files |
+|---|---|---|
+| `modal_control_harness_validation.json` | SHA-256 over the **LF** blob bytes | 32 of 32 match the blob digest |
+| `reproducibility_manifest.json` | SHA-256 over **CRLF** bytes for the stdout files | 17 match (the 16 empty stderr files + the empty `SIG-01_stdout.txt`), **15 disagree** |
+
+The 15 disagreeing files are exactly the non-empty `<TARGET>_stdout.txt`; their recorded
+`size_bytes` in the manifest is the CRLF length, while the JSON files' `size_bytes` is the LF
+length. Nothing currently compares the two files against each other, so the contradiction is
+latent. A regeneration must pin every digest it publishes over the **same** bytes — the git
+blob bytes (§1.3) — and re-pin the manifest accordingly; otherwise the new evidence would
+inherit the same divergence (D10).
 
 ### 7.4 Impact matrix
 
 | # | File | Digest pinned by | Changes? | Action |
 |---|---|---|---|---|
-| 1 | 16 × `baseline_5/<TARGET>-01.json` | — (verdict-bound only) | **yes** | regenerate |
-| 2 | `reproducibility_manifest.json` | — (verdict-bound) | **yes** | regenerate |
-| 3 | `summary.json` | — (verdict-bound) | **yes** | regenerate |
-| 4 | `latest_summary.json` | — (verdict-bound) | **yes** | regenerate (must stay byte-identical to `summary.json`) |
-| 5 | 16 × `<TARGET>_stdout.txt` | `modal_control_harness_validation.json` ×1 each | **yes** | regenerate with the run |
-| 6 | `<TARGET>_stderr.txt`, `_replay_stdout.txt`, `_replay_stderr.txt` | harness ×1 (SIG-01_stderr, REENT-01_replay_stdout) | possibly | regenerate with the run |
-| 7 | `modal_control_harness_validation.json` | join table ×17 | **yes** | regenerate, then re-pin |
-| 8 | `modal_billing_join_table.json` | — (validated against the raw export) | **yes** (digests only) | regenerate the digests, keep schema 3.0.0 |
-| 9 | `modal_billing_report_raw.json` | join table ×1 | no | keep as-is unless the billing window changes |
-| 10 | `iteration14..18_validation_evidence.json` | — (published verdicts) | **yes** | regenerate; must stay `FAILED (0/16)` |
-| 11 | `iteration19..23_validation_evidence.json` | rehearsal/capture stage files | **yes** (if the capture is redone) | regenerate |
-| 12 | `consolidated_closure_validation_evidence.json` | — | **yes** | regenerate; must stay 21/21 PASSED |
-| 13 | `benchmarks/targets/solidity/*.sol` | harness ×1 each | no | keep |
-| 14 | `iteration16..18_producer_rehearsal/*` | iteration16..18 evidence | no | keep |
+| 1 | 16 × `<TARGET>-01.json` **in the new run dir** | the new run's `reproducibility_manifest.json` → `artifact_files` ×1 each | **yes** | regenerate in the new run directory |
+| 2 | `reproducibility_manifest.json` **in the new run dir** | embedded byte-for-byte in the new `summary.json` / `latest_summary.json` | **yes** | regenerate; re-pin all 48 `artifact_files` digests over blob bytes (D10) |
+| 3 | `summary.json` **in the new run dir** | — | **yes** | regenerate |
+| 4 | `latest_summary.json` (tree root) | — | **yes** | regenerate — must stay byte-identical to the **new** run's `summary.json` |
+| 5 | 16 × `<TARGET>_stdout.txt` (new run dir) | new harness ×1 each **and** new manifest ×1 each | **yes** | regenerate with the run; pin over blob bytes (D10) |
+| 6 | 16 × `<TARGET>_stderr.txt` (new run dir) | new harness ×1 each **and** new manifest ×1 each | possibly | regenerate with the run |
+| 7 | 4 × `*_replay_stdout.txt` / `*_replay_stderr.txt` (new run dir) | new harness ×1 each, for AC-01 and REENT-01 only (**not** the manifest) | possibly | regenerate with the run |
+| 8 | `modal_control_harness_validation.json` | join table ×17 | **yes** | regenerate, then re-pin |
+| 9 | `modal_billing_join_table.json` | — (validated against the raw export) | **yes** — the 17 harness digests only | update those 17 digests; keep schema 3.0.0 and `source_raw_export` untouched |
+| 10 | `modal_billing_report_raw.json` | join table ×1 (`source_raw_export.sha256`) | **no** | keep as-is; its digest stays `1529b1b9…` unless the billing window changes |
+| 11 | `iteration14..18_validation_evidence.json` | — (published verdicts) | **no** | **immutable** (D8): the published `FAILED (0/16)` reports stay exactly as they are |
+| 12 | the new run's iteration report (a **new** file) | the new run's stage-evidence files | **yes** | new file — the *replacement* evidence (D8) |
+| 13 | `iteration19..23_validation_evidence.json` | rehearsal/capture stage files | **yes** (if the capture is redone) | regenerate |
+| 14 | `consolidated_closure_validation_evidence.json` | — | **yes** | regenerate; must stay 21/21 PASSED, with the 14–18 rows of `HISTORICAL_EVIDENCE` unchanged and a new row for the new iteration (D8) |
+| 15 | `benchmarks/targets/solidity/*.sol` | new harness ×1 each (`input_sha256`) | no | keep |
+| 16 | `iteration16..18_producer_rehearsal/*` | iteration16..18 evidence | no | keep |
+| 17 | the published run `run_1794209615_70f5d22/` | its own manifest ×1, harness ×32, join table ×17 | **no** | keep in place, byte-for-byte, as the historical evidence (D9) |
+
+Rows 11 and 17 are the historical-evidence rows, and they are the ones a careless
+regeneration would violate. The old FAILED reports and the old run tree stay exactly as
+published: the old run's 16 target artifacts keep their 66 pseudo-URIs, because that is the
+historical record of the defect — editing or deleting them would be rewriting history (D8).
+The invariant "no `modal-app://` in the published evidence" therefore becomes **scoped**: it
+holds for the authoritative run (D9) and is reported per run, not globally.
+
+The previous content of `latest_summary.json` is not lost by row 4: the old run's own
+`summary.json` is byte-identical to it and stays in the old run directory, and the old bytes
+remain in the commit history.
 
 ---
 
@@ -703,7 +900,8 @@ produced by a separate rehearsal path and stay valid.
 3. `foundry`/`forge` on `PATH` in the worker image; the local machine does not need it.
 4. Modal credentials for the target workspace; the app name `aegis-rlvr-security` is the
    one recorded in the published artifacts.
-5. A cost ceiling agreed in advance (§10.3).
+5. A cost ceiling agreed in advance — open question **Q5** (§11.2), still unanswered. The
+   16-target run (R4) must not start before the maintainer sets it.
 
 ### 8.2 The sequence
 
@@ -715,53 +913,187 @@ the last committed step (§8.4).
 | **R0** | Branch `iter-24/evidence-regeneration` from the authorised base. | — | clean tree, base SHA recorded |
 | **R1** | Implement the §5 schema in the producer (`adapters.py`, `modal_app.py`, `benchmark_runner.py`) and the §6.5 validator changes. | code only | unit tests green; **no** published file touched |
 | **R2** | Add the §6.6 negative tests T1–T9. | tests | each test fails on the pre-fix code and passes on the post-fix code (proven by running both revisions) |
-| **R3** | Dry-run the capture on **one** target (`AC-01`), CPU only, no inference stage. | one throwaway artifact outside `benchmarks/evidence/` | the produced artifact passes `validate_modal_invocation_provenance` **and** `validate_remote_evm_toolchain_provenance`; every fact has a source; no `modal-app://`; no synthetic container id |
-| **R4** | Authorised live run: 16 targets, the same provider configuration as the published run (`modal_h100`, `qtum/Qwen3-Coder-30B-A3B-Audit`, `--hypotheses=3`). | a new run directory `run_<epoch>_<sha7>/` | every stage's provenance is observed-or-explicitly-`NOT_AVAILABLE`; the run completes |
+| **R3** | **CPU-only plumbing smoke** on one target (`AC-01`), limited to the stages that need no GPU: `evm_sandbox` and `independent_replay`. The `inference` stage is **not attempted** and is therefore **absent** from the smoke artifact. | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.1 gate: every stage **present** in the artifact satisfies the §5 contract; **nothing is claimed about the stages that are absent** |
+| **R3b** | **Inference-plumbing smoke** — one GPU-backed inference call for one target, to obtain a real worker-observed `function_call_id` and the client-resolved `app_id` / `container_id` for that call. | one throwaway artifact outside `benchmarks/evidence/` | the §8.2.2 gate; **separately authorised**, because it spends GPU time and Modal credits |
+| **R4** | Authorised live run: 16 targets, the same provider configuration as the published run (`modal_h100`, `qtum/Qwen3-Coder-30B-A3B-Audit`, `--hypotheses=3`). | a **new** run directory `run_<epoch>_<sha7>/` | every stage's provenance is observed-or-explicitly-`NOT_AVAILABLE`; the run completes; the directory suffix equals the manifest's `git.commit_sha[:7]` (§8.2.3) |
 | **R5** | Verify the new run **before** it becomes published: run the §5 validators over the new run dir; assert `has_synthetic_modal_uri` is false for every file; assert no `SYNTHETIC_CONTAINER_ID_RE` match anywhere. | a verification transcript | all assertions hold |
-| **R6** | Replace the published run tree: the 16 target artifacts, the manifest, `summary.json`, `latest_summary.json`. | new published bytes | `git diff --stat` shows only the expected files; `latest_summary.json` is byte-identical to `summary.json` |
-| **R7** | Regenerate `modal_control_harness_validation.json` (re-pin the stdout files and the Solidity sources). | new digest | the file validates against the new run dir |
-| **R8** | Regenerate `modal_billing_join_table.json` (schema 3.0.0 preserved; only the `app_id_evidence_ref` digests change). | new digest | `python -m benchmarks.regenerate_billing_join_table --check` → PASSED; `validate_billing_attribution` → PASSED |
-| **R9** | Regenerate `iteration14..18_validation_evidence.json`. | new verdicts | **must remain `FAILED (0/16 targets)`** (§9.4) |
-| **R10** | Regenerate `iteration19..23_validation_evidence.json` and `consolidated_closure_validation_evidence.json`. | new verdicts | iterations 19–23 `PASSED`; closure `21/21 PASSED` |
+| **R6** | **Publish the new run tree additively** (D9): the new run's 16 target artifacts, its manifest, its `summary.json`, and the root-level `latest_summary.json` — which becomes the byte-identical mirror of the **new** run's `summary.json`. The published run `run_1794209615_70f5d22/` is **not** modified, moved or deleted. | new published bytes | `git diff --stat` shows only the expected files; `latest_summary.json` is byte-identical to the new run's `summary.json`; the old run directory is untouched in the diff |
+| **R7** | Regenerate `modal_control_harness_validation.json` (re-pin the 32 stdout/stderr digests and the 16 `input_sha256` values over blob bytes). | new digest | the file validates against the new run dir |
+| **R8** | Regenerate `modal_billing_join_table.json` (schema 3.0.0 preserved; **only the 17 harness digests change** — `source_raw_export` keeps `1529b1b9…` unless the raw export was re-exported). | new digest | `python -m benchmarks.regenerate_billing_join_table --check` → PASSED; `validate_billing_attribution` → PASSED |
+| **R9** | **Do not regenerate** `iteration14..18_validation_evidence.json`: they are immutable (D8). Produce instead the **new run's own iteration report** from the new run directory. | a new report file | the old reports are byte-identical in the diff; the new report's verdict is the validator's output for the new run |
+| **R10** | Regenerate `iteration19..23_validation_evidence.json` and `consolidated_closure_validation_evidence.json`; extend the closure validator's `HISTORICAL_EVIDENCE` with a row for the new iteration, leaving the Iterations 14–18 rows untouched. | new verdicts | iterations 19–23 `PASSED`; closure `21/21 PASSED` with **both** the old FAILED rows and the new row present |
 | **R11** | Full test suite; then the complete validator sweep. | transcript | `pytest -q` green; every validator exits 0 with the expected verdict string |
 | **R12** | Open a Draft PR with the full before/after inventory and the verifier transcript. | reviewable diff | maintainer approval |
+
+### 8.2.1 The R3 gate, stated exactly
+
+R3 exists to prove the **plumbing** of the §5 contract — not the inference identity. The
+distinction is enforced by the artifact itself: the smoke artifact contains the stages
+`evm_sandbox` and `independent_replay` and **no `inference` stage**.
+
+**What R3 must show.**
+
+1. **The stage block of every stage that is present** carries `app_id`, `function_call_id` and
+   `container_id` as `observed()` / `not_available()` envelopes (§5.1, §5.5) — no bare
+   strings, no `modal-app://`, and no `durable_log_ref` / `provider_log_uri` / `log_uri` key
+   at all.
+2. **Every `not_available` envelope carries** a reason, an absence kind from `ABSENCE_KINDS`,
+   an `observed_by` side, and an `evidence_ref` whose digest verifies. The last requirement
+   means the validator must be called **with an evidence root**:
+   `validate_modal_invocation_provenance(artifact, evidence_root=<smoke run dir>/baseline_5)`.
+   Without `evidence_root` the referenced bytes cannot be resolved and the validator rejects
+   **every** `NOT_AVAILABLE` fact with "no evidence root was provided"
+   (`evidence_integrity.py:428-456`). The published Iteration 14 validator calls it *without*
+   that argument (`validate_iteration14_evidence.py:185`), while Iteration 15 passes
+   `evidence_root=run_dir / baseline_id` (`validate_iteration15_evidence.py:254`) — the smoke
+   must follow the latter form.
+3. **The remote-EVM block** of the smoke artifact passes
+   `validate_remote_evm_toolchain_provenance(artifact)` (`evidence_integrity.py:3557`): all
+   eight facts of `REMOTE_EVM_REQUIRED_FACTS` (`evidence_integrity.py:3510`) are sourced
+   `observed(...)` envelopes, or explicit `not_available(...)` with a reason and an evidence
+   reference.
+4. **The run-level block** validates: the identity field (§5.2, name open per Q1) is an
+   envelope, `target_id` and `correlation_id` are present, and the stage set is exactly the
+   one the smoke actually ran.
+5. **No synthetic identity**: no string in the artifact matches `SYNTHETIC_CONTAINER_ID_RE`
+   and none is in `FORBIDDEN_SYNTHETIC_CONTAINER_IDS`.
+
+**What R3 must NOT claim.**
+
+R3 does **not** verify the inference stage, and no artifact, report, commit message or PR
+description may say that it does. Specifically, R3 does not establish:
+
+* that the `inference` stage's `function_call_id` is worker-observed — no inference call is
+  made at all;
+* that the `inference` stage's `app_id` or `container_id` resolves against the provider's
+  call graph (`call_graph_inputs` → `containers_of_app` → `task_app_id`, §4.1);
+* that the smoke artifact is comparable with the published run's `inference` block;
+* any end-to-end statement about the inference path.
+
+The reason is structural, not a matter of extra effort: `validate_modal_invocation_provenance`
+iterates the stages the artifact *contains* (`for stage_name, stage in stages.items()`,
+`evidence_integrity.py:2551`) and requires the three identity fields on each of them. An
+artifact without an `inference` stage therefore passes the stage checks **without proving
+anything about inference** — and the plan must not let that pass be read as inference
+evidence. `MODAL_PROVENANCE_STAGES` (`evidence_integrity.py:1806`) cannot be used to justify
+the omission either: it is defined once and referenced nowhere in the repository, so no
+validator constrains the stage set.
+
+### 8.2.2 R3b — the inference-plumbing smoke, as a separate authorised step
+
+The `inference` stage cannot be exercised on CPU: it is the stage that calls the model
+(`ProductionAuditAgent.generate_solidity_exploit`, the `modal_h100` provider with
+`qtum/Qwen3-Coder-30B-A3B-Audit` in the published configuration, §10.1). Proving that the
+inference provenance is honest therefore requires an actual inference call.
+
+That call is **not** part of R3 and is **not** authorised by this plan. It is step **R3b**, a
+separate and explicitly authorised action with its own gates:
+
+| Aspect | R3 (CPU) | R3b (GPU) |
+|---|---|---|
+| Stages exercised | `evm_sandbox`, `independent_replay` | `inference` (plus the R3 stages) |
+| Cost | CPU containers only | one GPU inference call — Modal credits |
+| Authorisation | covered by the run's general authorisation | **separate, explicit authorisation** |
+| Proves | the producer/validator plumbing, the envelopes, the evidence references, the EVM fact sourcing | that the inference `function_call_id` is worker-observed, and that the client resolves the provider-issued `app_id` / `container_id` for that call |
+| Does **not** prove | anything about inference | the 16-target behaviour |
+
+R3b must run **before** R4, and its result must be recorded, because R4 is a 16-target paid
+run: if the inference plumbing is broken, R4 would spend the whole budget to produce 16
+artifacts that cannot be published. Making R3b a separately authorised step — rather than a
+hidden sub-step of R3 — is what keeps the authorisation boundary honest. This plan spends
+nothing and authorises nothing.
+
+### 8.2.3 The run directory of R4 — why it must be new
+
+R4 produces a **new** directory `run_<epoch>_<sha7>/`, and it cannot reuse the published
+directory's name. `validate_manifest_git_integrity` (`benchmarks/protocol.py:314`) requires
+the run-directory suffix to equal the manifest's `git.commit_sha[:7]`:
+
+```python
+if dir_sha_suffix != expected_prefix or len(dir_sha_suffix) < 7:
+    return False, f"Run directory suffix '{dir_sha_suffix}' does not match manifest commit prefix '{commit_sha_lower[:7]}'"
+```
+
+(`protocol.py:371`.) A regeneration is a **new commit**, so its manifest records a **new**
+commit SHA, so its directory must carry the new 7-character prefix. The published run
+`run_1794209615_70f5d22/` keeps its name and its bytes because it records the commit
+`70f5d22668bb…` it was actually produced from. This is the technical reason behind D9: the
+additive layout is not a stylistic preference, it is what the manifest-integrity check
+requires.
 
 ### 8.3 Ordering rationale
 
 The order is a strict dependency chain:
 
 ```
-R4 (run) ──> R5 (verify new bytes) ──> R6 (publish run tree)
-                                         │
-              ┌──────────────────────────┼──────────────────────────┐
-              v                          v                          v
-        R7 (harness)              R9 (iter 14-18)              R3/R4 artifacts
-              │                          │
-              v                          │
-        R8 (join table)                  │
-              │                          │
-              └──────────┬───────────────┘
-                         v
+R3 (CPU smoke) ──> R3b (GPU inference smoke, separately authorised) ──> R4 (run)
+                                                                            │
+                                                                            v
+                                              R5 (verify new bytes) ──> R6 (publish run tree additively)
+                                                                            │
+              ┌─────────────────────────────────────────────────────────────┤
+              v                             v                               v
+        R7 (harness)              R9 (new run report)                R6 artifacts
+              │                             │
+              v                             │
+        R8 (join table)                    │
+              │                             │
+              └─────────────┬───────────────┘
+                            v
               R10 (iter 19-23 + closure) ──> R11 (full suite) ──> R12 (PR)
 ```
 
 R5 sits **before** R6 on purpose: the new bytes are verified while they are still outside
 the published tree, so a bad run never becomes published evidence.
 
+R3b sits **before** R4 on purpose: the inference plumbing is the one part of the provenance
+contract that R3 cannot exercise, and R4 is the expensive step. Paying for 16 GPU targets
+before the inference path is known to work would spend the entire budget to produce
+unpublishable artifacts.
+
+R9 no longer regenerates the Iterations 14–18 reports: those are immutable (D8). It produces
+the **new** run's own iteration report instead, so the FAILED history and the replacement
+evidence are two separate files, not one rewritten file.
+
 ### 8.4 Rollback
+
+**A rollback must never rewrite published history.** `git reset --hard` on a pushed branch
+destroys commits the branch already advertises: it forces a force-push, it invalidates
+everyone who has fetched the branch, and it erases the record of what was actually tried.
+The published evidence in this repository is a *history of verdicts*, so its history must be
+additive too.
 
 Every step is a separate commit on the regeneration branch. Rollback is therefore:
 
 ```bash
-git reset --hard <last-good-step-sha>
+# 1. ordinary revert commits — the branch history is preserved
+git revert --no-commit <sha-of-the-step-to-undo>
+git commit -m "revert: undo step R<n> (<what it published>)"
+
+# 2. or, if several steps must go, a dedicated rollback branch
+git switch -c rollback/r<n>-<short-desc> <last-good-step-sha>
+git cherry-pick <the commits that must survive>
 ```
 
-plus, if R4 produced a live run that must be discarded, the deletion of the run directory
-and the re-export of the billing window if a new one was opened. Because the published
-tree is only touched from R6 onwards, a rollback to R5's commit restores the published
-evidence byte-for-byte. The published evidence before R6 is recoverable from the base
-commit `a8a8857` — every published file is tracked, so `git show a8a8857:<path>` always
-yields the original bytes.
+Both forms are **non-destructive**: no force-push, no history rewrite, no lost commit. The
+revert commits stay in the branch and show up in the PR exactly what was undone and why.
+
+`git reset --hard` is permitted in exactly one place: a **local, disposable worktree** whose
+commits were never pushed — for example the throwaway smoke tree of R3 / R3b, or a scratch
+clone used to re-run a validator against an older revision. Such a worktree is discarded as
+a whole (`git worktree remove --force <path>`); nothing it contains was ever published, so
+nothing can be lost.
+
+If R4 produced a live run that must be discarded, the Modal-side cleanup (stopping the app,
+deleting the run's artefacts, re-exporting the billing window if a new one was opened) is a
+separate operational action, listed in the PR description; it does not touch the published
+tree.
+
+Because the published tree is only touched from R6 onwards, reverting R6 and everything after
+it restores the published evidence byte-for-byte, while the commits that introduced the
+change stay visible in the history. The published evidence before R6 is additionally
+recoverable from the base commit `a8a8857` — every published file is tracked, so
+`git show a8a8857:<path>` always yields the original bytes.
 
 **Rollback triggers:** any validator verdict other than the expected one; any `modal-app://`
 or synthetic container id in the new bytes; a cost overrun; a stage whose facts are neither
@@ -793,29 +1125,50 @@ iteration23  PASSED (12/12)  bound to 749cba24…
 closure      PASSED (21/21)  bound to 690f39a1…
 ```
 
-### 9.2 The subtlety that decides the outcome
+### 9.2 The policy: one rule, no conditional branch
 
-A regeneration *does* produce a genuinely new authorised empirical run — so the condition's
-exception applies and Iterations 14–18 *may* turn green. **But that is not the point, and
-it must not be the outcome by accident.**
+**The published Iterations 14–18 `FAILED (0/16)` reports are immutable.** They are the
+historical record of the defect this plan exists to fix, and they stay byte-for-byte as they
+are published. A regeneration never edits them, never "refreshes" them, and never turns them
+green.
 
-The reason Iterations 14–18 fail today is that the published artifacts predate the fixes.
-After R4, the artifacts carry the new schema, so the same validators would now pass. That
-is the *correct* result of an authorised regeneration — but it must be a **consequence of the
-new evidence**, not a rewriting of the old verdict.
+This is decision **D8** (§11.1). It is a single rule without a conditional branch, and that is
+deliberate. The earlier draft of this plan offered a conditional — "keep FAILED until a new run
+passes, then regenerate the reports against the new run" — and a conditional is precisely how
+history gets rewritten: the condition is evaluated by the same person who wants the green
+result, and the old verdict is then replaced by a new file at the same path.
 
-The rule this plan proposes:
+**What happens instead.** A new authorised run produces **new-run / replacement evidence**,
+published under its own identity:
 
-> Iterations 14–18 keep their published `FAILED (0/16)` verdicts **until** a new run exists
-> that passes the validators. The regenerated `iteration14..18_validation_evidence.json`
-> files are produced by running the validators against the **new** run directory. If the new
-> run passes, the regenerated reports say `PASSED` and the diff shows the transition — with
-> the old failed reports preserved in the commit history and in the change-impact matrix.
-> If the new run does not pass, the regenerated reports say `FAILED` and nothing changes.
+| | Historical evidence | Replacement evidence |
+|---|---|---|
+| Published files | `iteration14..18_validation_evidence.json` (5 files) | the new iteration's own report file(s) |
+| Verdicts | `FAILED (0/16)` — unchanged | whatever the validators output against the new run |
+| Artifacts | `run_1794209615_70f5d22/` — unchanged, in place | the new `run_<epoch>_<sha7>/` (D9) |
+| Role in the closure | rows 14–18 of `HISTORICAL_EVIDENCE`, expected string `FAILED (0/16 targets)` | a **new row** in `HISTORICAL_EVIDENCE`, expected string = the new run's verdict |
 
-Either way, **no report is hand-edited**. Every published verdict is the output of the
-validator against bytes on disk. That is what makes "never rewrite history" enforceable
-rather than aspirational.
+The closure therefore refers to **both**: the 14–18 rows keep asserting that the historical
+verdicts are still exactly `FAILED (0/16 targets)`, and a new row asserts the verdict of the
+replacement run. The closure report states both in the same artefact, so a reader sees the
+failure and its replacement side by side — with the failure still there.
+
+**The name matters.** The replacement is *not* "Iteration 14 regenerated", and it is not
+"Iterations 14–18 now passing". It is a **new iteration** — its number is a maintainer choice
+(open question **Q6**, §11.2) — whose report records the new run's own verdicts. The numbers
+14–18 continue to denote the run that produced the FAILED verdicts, which is exactly what
+makes those verdicts meaningful.
+
+**No report is hand-edited, in either direction.** Every published verdict is the output of a
+validator run against bytes on disk: the historical one was produced by the validator against
+the old artifacts and is preserved as-is; the replacement one is produced by the validator
+against the new artifacts. Neither is typed by hand. That is what makes "never rewrite
+history" enforceable rather than aspirational.
+
+**What is *not* claimed.** The replacement run does not retroactively make the old run valid.
+Iterations 14–18 continue to fail, and that failure continues to be the truthful statement
+about the artifacts they were computed from. If the replacement run also fails, the outcome is
+simply two failures — a legitimate result of an authorised experiment.
 
 ### 9.3 The producer-source immutability check (P6.14)
 
@@ -850,17 +1203,30 @@ for iteration, expected, bound in HISTORICAL_EVIDENCE:
         )
 ```
 
-`HISTORICAL_EVIDENCE` therefore encodes, per iteration, the expected verdict string and the
-expected `code_sha` binding. After a regeneration this table must be updated **together
-with** the regenerated reports — otherwise P6.13 fails with "does not report 'FAILED
-(0/16 targets)'" or "does not report 'PASSED'". The same applies to the bound SHAs
-(`43436b02…` etc.), which change when the reports are regenerated.
+`HISTORICAL_EVIDENCE` (`benchmarks/validate_consolidated_closure_evidence.py:196`, consumed
+at line 1379) therefore encodes, per iteration, the expected verdict string and the expected
+`code_sha` binding.
 
-**This is the single most dangerous coupling in the whole plan:** P6.13 asserts the *verdict
-strings*, so a regeneration that turns Iterations 14–18 green must update `HISTORICAL_EVIDENCE`
-in the same commit as the regenerated reports. It is listed as decision **D2** (§11) because
-it is a semantic decision (does the maintainer accept the transition from FAILED to PASSED?)
-and not a mechanical one.
+Under D8 the table changes in exactly one way: a **row is added** for the replacement
+iteration. The rows for Iterations 14–18 are **not** touched — neither their expected verdict
+string (`FAILED (0/16 targets)`) nor their bound `code_sha`. And because the bytes of the old
+run directory are left alone as well (§7.4 row 17), those validators keep producing the same
+output, so the old rows keep matching.
+
+| Row in `HISTORICAL_EVIDENCE` | Before | After |
+|---|---|---|
+| 14 … 18 | `FAILED (0/16 targets)`, bound to `43436b02…` … `8813cebd…` | **unchanged** |
+| 19 … 23 | `PASSED`, bound to their SHAs | unchanged, unless their own capture is redone |
+| closure | `21/21 PASSED` | `21/21 PASSED`, plus the replacement row |
+
+The coupling P6.13 creates is therefore *additive*: the new row's expected string and bound
+SHA must be the ones the replacement run actually produces, and they are written in the same
+commit as the replacement report — but they cannot silently alter the meaning of the rows
+above them. The earlier draft of this plan called this "the single most dangerous coupling in
+the whole plan", because it assumed the 14–18 rows would have to be **edited** from `FAILED`
+to `PASSED`. Under D8 they are never edited; the risk that remains is the mechanical one —
+adding a row whose expected string does not match the validator's actual output — and P6.13
+catches precisely that.
 
 ---
 
@@ -889,26 +1255,30 @@ a provenance migration into a benchmark re-run.
 1. **Pre-flight (no cost):** confirm the app exists and the model is available; confirm the
    worker image contains `forge`; confirm the client can reach the provider's container
    listing (`ModalProvider.containers_of_app`).
-2. **Single-target smoke (minimal cost):** one target, `--provider=modal_cpu` if the
-   inference stage permits, to prove the provenance plumbing end-to-end (R3). Assert the
-   §5 contract before any 16-target run.
-3. **Full run (cost):** the 16 targets, `modal_h100`, `--hypotheses=3`.
-4. **Client-side correlation:** for every stage, resolve the provider-issued
+2. **CPU plumbing smoke (no inference cost):** one target, `--provider=modal_cpu`, exercising the
+   `evm_sandbox` and `independent_replay` stages only — this is **R3** (§8.2.1). Assert the §5
+   contract for the stages it actually ran, before any paid run.
+3. **Inference-plumbing smoke (minimal GPU cost):** one target with the published inference
+   configuration, exercising the `inference` stage and resolving its provider-issued identities
+   — this is **R3b** (§8.2.2), and it needs its **own explicit authorisation**.
+4. **Full run (cost):** the 16 targets, `modal_h100`, `--hypotheses=3`.
+5. **Client-side correlation:** for every stage, resolve the provider-issued
    `container_id` from the `function_call_id` the worker observed, using
    `call_graph_inputs` → `containers_of_app` → `task_app_id`, with the last one as an
    independent cross-check. If the provider does not answer, the field is recorded
    `NOT_AVAILABLE` with the provider's own reason — **never** a synthetic id (§6.6 T5).
-5. **Billing export:** export the raw billing line items for the run's window
+6. **Billing export:** export the raw billing line items for the run's window
    (`modal app billing` / the workspace's billing export) into
-   `modal_billing_report_raw.json`.
-6. **Join table:** regenerate schema 3.0.0 from the raw export; target-level costs stay
+   `modal_billing_report_raw.json`. **Only if a new billing window is opened** — otherwise the
+   raw export, and its digest in the join table, stay exactly as they are (§4.4, §7.3).
+7. **Join table:** regenerate schema 3.0.0 from the raw export; target-level costs stay
    `null` unless an exact, unique provider join exists.
 
 ### 10.3 Cost controls
 
 | Control | Value |
 |---|---|
-| Pre-agreed ceiling | to be set by the maintainer (decision **D4**) |
+| Pre-agreed ceiling | **not yet set** — open question **Q5** (§11.2); R4 must not start without it |
 | Target cost attribution | `null` + `UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN` unless a proven join exists — the existing policy already prevents a target cost from being invented |
 | Aggregate allocation | `FORBIDDEN` (`attribution_policy.aggregate_bucket_allocation`) — no aggregate bucket may be spread over targets |
 | App-session granularity | the app-session total is the only cost that may be published |
@@ -930,37 +1300,52 @@ does not, the join stays `null` — the honest state.
 
 ### 11.1 Decisions taken in this plan
 
+Every decision has its own ID, and an ID is used for exactly one decision. A decision is
+something this plan settles; anything that is still the maintainer's call is a question in
+§11.2 and is **not** listed here.
+
 | # | Decision | Rationale |
 |---|---|---|
 | **D1** | The regeneration is a **schema migration**, not a value cleanup. | The published schema is rejected as a whole (F2); a URI-only edit would leave `app_id`/`function_call_id`/`container_id` and the flat EVM facts still invalid. |
 | **D2** | The upstream bytes are **not** adopted; they are used as a field-level reference only, and their three defects (§3.2) are fixed. | Upstream's bytes fail the iteration-line validators and add a synthetic container id (F3). |
-| **D3** | The iteration-line `observed()` / `not_available()` envelope is the target contract; upstream's flat `"NOT_AVAILABLE"` strings are **not**. | The envelope carries a reason, an absence kind, an observation side and a digest-checked evidence reference — the Iteration 15/16/20 rules. Flat strings satisfy none of them. |
+| **D3** | The iteration-line `observed()` / `not_available()` envelope is the target contract; upstream's flat `"NOT_AVAILABLE"` strings are **not**. The *name* of the run-level identity field is **not** decided here (Q1) — only its envelope is. | The envelope carries a reason, an absence kind, an observation side and a digest-checked evidence reference — the Iteration 15/16/20 rules. Flat strings satisfy none of them. |
 | **D4** | The producer's `capture_modal_runtime_identity` is reused as-is for the worker side; the client side uses `ModalProvider` (already implemented, currently unwired). | Both are already in the tree and already honest. The plan wires them; it does not reinvent them. |
 | **D5** | `image_digest` is `NOT_AVAILABLE` with a reason unless the provider issues the image id client-side. | The container sandbox exposes no OCI manifest digest; a digest cannot be derived from a tag. |
 | **D6** | The `legacy_key` inline check stays; `has_synthetic_modal_uri` is additionally promoted to a **verdict** on the artifact, manifest, summary and join-table paths. | §6.5 C1–C3; the detector exists but is not enforced (F4). |
-| **D7** | The published verdicts are never hand-edited; every regenerated report is a validator run. | §9.2. |
+| **D7** | No published verdict is hand-edited; every published report is the output of a validator run against bytes on disk. | §9.2. |
+| **D8** | **The historical evidence is immutable.** The published Iterations 14–18 `FAILED (0/16)` reports, and the run directory they were computed from, stay byte-for-byte. A new authorised run is published as **new-run / replacement evidence** under a new iteration number, and the closure refers to both the old history and the new result. | "Never rewrite history" is enforceable only if the old verdict is never rewritten. A conditional rule ("keep FAILED *until* a new run passes") is how history gets rewritten, because the condition is evaluated by the party that wants the green result. §9.2, §9.4. |
+| **D9** | **The run tree is additive.** The new run lives in a **new** `run_<epoch>_<sha7>/` directory; the published run directory is not replaced, moved or deleted. The authoritative run is selected **explicitly**, never by "the newest directory in the tree". | The manifest-integrity check forces a new directory name (§8.2.3), and the additive layout keeps the old bytes — and the old verdicts — reachable and explicitly marked as historical (§7.4 row 17). |
+| **D10** | **One digest convention.** Every digest the regenerated evidence publishes is computed over the **git blob bytes** (LF); the manifest's 15 CRLF-based stdout digests are re-pinned so the manifest and the harness validation agree. | The two published files currently disagree on 15 of the 32 stdout digests (§7.3). Publishing a third convention would preserve the contradiction instead of ending it. |
+| **D11** | **Rollback is non-destructive.** A pushed branch is rolled back with `git revert` commits or a dedicated rollback branch; `git reset --hard` is confined to a local, unpublished, disposable worktree. | A force-push on the evidence branch would destroy the record of what was tried — the same failure mode as rewriting a verdict. §8.4. |
 
 ### 11.2 Unresolved questions for the maintainer
 
+These are **not** decided by this plan. Two questions of the earlier draft — whether
+Iterations 14–18 may turn green, and whether the new run replaces or joins the published run
+tree — are no longer open: they are settled by **D8** and **D9** respectively. The numbering
+below is the current one; Q1 and Q5 keep their meaning and their IDs.
+
 | # | Question | Why it blocks | Options |
 |---|---|---|---|
-| **Q1** | Is the `app_session_id` rename wanted? | Changes the published field name in 16 artifacts + manifest + summaries | (a) rename to `app_session_id`; (b) keep `modal_app_id`; (c) rename to `app_id` (more precise — the value is the app id, not a session) |
-| **Q2** | May Iterations 14–18 transition from `FAILED (0/16)` to `PASSED` after an authorised regeneration? | Determines whether `HISTORICAL_EVIDENCE` in the closure validator is updated, and it changes the meaning of the published history (§9.4) | (a) yes, if the new run passes — the transition is documented in the change-impact matrix; (b) no — keep the failed reports and add the new run as a separate iteration (24) |
-| **Q3** | Is `modal_app_id` → `app_session_id` + the upstream's *other* field removals (`stages.*.resource_interval`, `stages.*.billing_line_item`) in scope? | The upstream removed those fields; the iteration line's validator expects per-stage `app_id`/`function_call_id`/`container_id` and the join table carries the billing detail | (a) keep the iteration-line field set; (b) adopt upstream's set and relax the validator |
-| **Q4** | Is `remote_os` allowed to keep its coincident legacy value? | `EVM_FACTS_WITH_COINCIDENT_LEGACY_VALUE` already permits it **when the source proves it**; the plan makes the source real. If the worker's real `/etc/os-release` says something else, the value changes and the pin changes | (a) accept whatever the worker observes; (b) require an exact value match as a gate |
-| **Q5** | What is the cost ceiling for the authorised run? | §10.3 | to be set by the maintainer |
-| **Q6** | Should the regenerated run **replace** `run_1794209615_70f5d22` or live beside it as a new directory? | A new directory keeps the old bytes reachable (cleaner rollback, but the old pseudo-URIs stay in the tree) | (a) replace in place; (b) add `run_<new>` and keep the old — but then the old pseudo-URIs must be marked as superseded, and the validators must not read them |
-| **Q7** | Should `latest_summary.json` remain a byte-identical copy of `summary.json`? | Today it is; the plan keeps that invariant | (a) keep the invariant (recommended — it is checkable); (b) make `latest_summary.json` a pointer file |
+| **Q1** | What should the run-level identity field be called — `modal_app_id`, `app_session_id` or `app_id`? | It changes the published field name in the new artifacts + manifest + summaries. The semantics and the envelope are already fixed (§5.3, D3); only the spelling is open. | (a) `app_session_id` — upstream's spelling, slightly imprecise; (b) keep `modal_app_id`; (c) `app_id` — the accurate name, since the value is the app id and not a session |
+| **Q2** | Are upstream's *other* field removals (`stages.*.resource_interval`, `stages.*.billing_line_item`) in scope as well? | The upstream removed those fields; the iteration line's validator expects per-stage `app_id`/`function_call_id`/`container_id`, and the join table carries the billing detail | (a) keep the iteration-line field set; (b) adopt upstream's set and relax the validator |
+| **Q3** | Is `remote_os` allowed to keep its coincident legacy value? | `EVM_FACTS_WITH_COINCIDENT_LEGACY_VALUE` already permits it **when the source proves it**; the plan makes the source real. If the worker's real `/etc/os-release` says something else, the value changes and the pin changes | (a) accept whatever the worker observes; (b) require an exact value match as a gate |
+| **Q4** | Should `latest_summary.json` remain a byte-identical copy of the authoritative run's `summary.json`? | Today it is, and the plan keeps that invariant — but with an additive layout (§7.4 row 4) the mirror moves to the *new* run, so the file's content changes even though the invariant does not | (a) keep the invariant — it is checkable, and the old bytes stay reachable in the old run directory; (b) make `latest_summary.json` a pointer file |
+| **Q5** | What is the cost ceiling for the authorised run? | §10.3; R4 must not start without it, and R3b spends GPU credits before that | to be set by the maintainer |
+| **Q6** | Under which iteration number is the replacement run published, and does it need its own validator module? | The closure's `HISTORICAL_EVIDENCE` needs a row for it (§9.4), and the validator that produces its report has to exist | (a) Iteration 24 with a new `validate_iteration24_evidence.py`; (b) Iteration 24 reusing the Iteration 18 validator against the new run directory; (c) a different number |
+| **Q7** | How is the superseded run marked, so that "no `modal-app://` in the published evidence" stays checkable without touching the historical bytes? | The old run keeps its 66 pseudo-URIs (D8, D9); the answer decides whether the invariant is checked per run or globally | (a) mark it only *outside* the artifacts (change-impact matrix + closure report) and scope the invariant to the authoritative run — this is the plan's default; (b) add a `superseded_by` marker inside the old run's JSON — that changes historical bytes and therefore conflicts with D8 |
 
 ### 11.3 Acceptance criteria for the implementation (future iteration)
 
 The regeneration is acceptable only when **all** of the following hold:
 
-1. `has_synthetic_modal_uri` is `False` for every published JSON file — verified by the
-   §2 script, output committed with the diff.
-2. No string in any published artifact matches `SYNTHETIC_CONTAINER_ID_RE`.
-3. Every published artifact passes `validate_modal_invocation_provenance` **and**
-   `validate_remote_evm_toolchain_provenance`.
+1. `has_synthetic_modal_uri` is `False` for every JSON file of the **authoritative run** and
+   of the root-level `latest_summary.json` — verified by the §2 script, whose output is
+   committed with the diff. The historical run is reported separately and keeps its 66
+   occurrences (D8, D9).
+2. No string in any artifact of the authoritative run matches `SYNTHETIC_CONTAINER_ID_RE`.
+3. Every artifact of the authoritative run passes `validate_modal_invocation_provenance`
+   **and** `validate_remote_evm_toolchain_provenance`.
 4. Every remote-EVM fact is either an `observed` envelope with a source matching
    `EVM_FACT_REQUIRED_SOURCE_TOKENS`, or a `not_available` envelope with a reason, an
    absence kind and — where the provider should have answered — a digest-valid
@@ -968,16 +1353,27 @@ The regeneration is acceptable only when **all** of the following hold:
 5. No value in the new artifacts was copied from the old artifacts or from upstream's
    bytes. The run directory is new; its bytes come from a new run.
 6. The negative tests T1–T9 exist, and each was observed to fail against the pre-fix code.
-7. `python -m benchmarks.regenerate_billing_join_table --check` → PASSED, and the join
-   table is still schema 3.0.0 with `aggregate_bucket_allocation: "FORBIDDEN"`.
+7. `python -m benchmarks.regenerate_billing_join_table --check` → PASSED; the join table is
+   still schema 3.0.0 with `aggregate_bucket_allocation: "FORBIDDEN"`; **all 17 harness
+   digests match the regenerated harness validation file**; and `source_raw_export.sha256` is
+   still `1529b1b9…` unless the raw export was re-exported (§4.4, §7.3).
 8. Every validator exits 0 and reports its expected verdict:
-   iterations 14–18 → `FAILED (0/16)` or `PASSED` per **Q2**;
-   iterations 19–23 → `PASSED`; closure → `21/21 PASSED`.
+   iterations 14–18 → **`FAILED (0/16)`, unchanged** (D8);
+   the replacement iteration → the verdict the new run actually produced (D8);
+   iterations 19–23 → `PASSED`; closure → `21/21 PASSED`, with the 14–18 rows of
+   `HISTORICAL_EVIDENCE` unchanged and the replacement row added.
 9. `pytest -q` is green, with no test weakened, relaxed or skipped. The seven live-provider
    skips (Foundry not on `PATH`, Slither not installed) remain skips and are run only by
    the `foundry-integration` CI job on the Linux runner.
 10. `git diff --stat` shows only the files listed in §7.4, and the diff contains no
-    hand-edited verdict.
+    hand-edited verdict. The published run directory `run_1794209615_70f5d22/` and the five
+    `iteration14..18_validation_evidence.json` reports **do not appear in the diff at all**
+    (D8, D9).
+11. Every digest published by the regenerated evidence is computed over the git blob bytes,
+    and the manifest's and the harness validation's digests for the same 32 stdout/stderr
+    files **agree** (D10).
+12. The rollback path is revert-based: the branch contains no force-push, and reverting R6
+    and everything after it restores the published bytes exactly (D11).
 
 ---
 
@@ -990,7 +1386,10 @@ The regeneration is acceptable only when **all** of the following hold:
 * No live Modal invocation, no deployment, no redeployment, no H100/T4 allocation, no
   Foundry remote run, no paid computation. No Modal credits were spent.
 * No published digest was re-computed into a record.
-* The historical FAILED (0/16) results of Iterations 14–18 were not rewritten.
+* The historical FAILED (0/16) results of Iterations 14–18 were not rewritten, and the run
+  directory they were computed from was not modified, moved or deleted (D8, D9).
 * PR #12 and PR #13 were not merged, re-based, closed or modified; their base branches and
   `main` were not touched.
-* The only file added by this iteration is this document.
+* No branch was force-pushed and no published branch had its history rewritten (D11).
+* The only file changed by this iteration is this document — no code, no evidence, no
+  validator, no schema, no report.
