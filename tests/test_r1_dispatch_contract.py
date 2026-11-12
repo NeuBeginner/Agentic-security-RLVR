@@ -898,7 +898,7 @@ def test_a_mismatching_field_in_the_read_back_is_refused(field_name, signed_appr
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=signed_approval(policy),
+        approval=_signed_approval(signed_approval, policy, world),
         autoscaler_reader=lambda *_: payload,
         **world,
     )
@@ -917,7 +917,7 @@ def test_a_partial_read_back_is_never_accepted(signed_approval):
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=signed_approval(policy),
+        approval=_signed_approval(signed_approval, policy, world),
         autoscaler_reader=lambda *_: payload,
         **world,
     )
@@ -959,7 +959,7 @@ def test_an_unavailable_read_back_refuses_the_dispatch(signed_approval):
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=signed_approval(policy),
+        approval=_signed_approval(signed_approval, policy, world),
         autoscaler_reader=unavailable,
         **world,
     )
@@ -1042,7 +1042,7 @@ def test_the_invocation_allowance_is_consumed_atomically_under_concurrency(signe
     )
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=signed_approval(policy),
+        approval=_signed_approval(signed_approval, policy, world),
         autoscaler_reader=_reader(),
         **world,
     )
@@ -1087,7 +1087,7 @@ def test_a_refused_attempt_does_not_consume_the_invocation_allowance(signed_appr
     )
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=signed_approval(policy),
+        approval=_signed_approval(signed_approval, policy, world),
         autoscaler_reader=_reader(),
         **world,
     )
@@ -1141,7 +1141,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
         payload["max_containers"] = payload["max_containers"] + 1
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=signed_approval(policy),
+        approval=_signed_approval(signed_approval, policy, world),
         autoscaler_reader=lambda *_: payload,
         **world,
     )
@@ -1156,7 +1156,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
         call = lambda: gate_no_policy.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     elif reason == "bounds_not_approved":
         gate_unbounded = r1_dispatch.DispatchGate(
-            policy=policy, approval=signed_approval(policy), autoscaler_reader=lambda *_: payload
+            policy=policy, approval=_signed_approval(signed_approval, policy, world), autoscaler_reader=lambda *_: payload
         )
         call = lambda: gate_unbounded.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     elif reason == "deployed_ceiling_too_low":
