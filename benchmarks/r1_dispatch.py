@@ -549,8 +549,20 @@ class DispatchGate:
                 "environment_name": "main",
                 "app_id": None,
                 "app_id_status": "UNRESOLVED_Q1",
+                "remote_os_policy": "UNRESOLVED_Q3",
+            },
+            "volume_configuration": {
+                "volume_name": str(r1_bounds.config.MODEL_VOLUME_NAME),
+                "model_cache_dir": str(r1_bounds.config.MODEL_CACHE_DIR),
+                "trajectory_dir": str(r1_bounds.config.TRAJECTORY_DIR),
+                "storage_free_allowance_gib_per_month": self._approval_value(
+                    r1_bounds.STORAGE_FREE_ALLOWANCE_GIB_PER_MONTH
+                ),
+                "storage_free_allowance_source": str(r1_bounds.STORAGE_FREE_ALLOWANCE_SOURCE),
             },
             "container_classes": self._approval_value(r1_bounds.CONTAINER_CLASSES),
+            "class_container_classes": self._approval_value(r1_bounds.CLASS_CONTAINER_CLASSES),
+            "autoscaler_fields": self._approval_value(r1_bounds.AUTOSCALER_FIELDS),
             "function_class_map": self._approval_value(r1_bounds.FUNCTION_CLASS),
             "declared_profiles": declared_profiles,
             "container_profiles": profiles,
