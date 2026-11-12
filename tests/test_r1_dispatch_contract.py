@@ -585,7 +585,7 @@ def test_the_boundary_guard_dispatches_through_the_same_gate(monkeypatch, signed
 
     with r1_dispatch.authorised_step(
         policy,
-        approval=_signed_approval(signed_approval, policy),
+        approval=_signed_approval(signed_approval, policy, world),
         autoscaler_reader=_reader(),
         **world,
     ) as gate:
@@ -1156,7 +1156,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
         call = lambda: gate_no_policy.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     elif reason == "bounds_not_approved":
         gate_unbounded = r1_dispatch.DispatchGate(
-            policy=policy, approval=_signed_approval(signed_approval, policy, world), autoscaler_reader=lambda *_: payload
+            policy=policy, approval=_signed_approval(signed_approval, policy), autoscaler_reader=lambda *_: payload
         )
         call = lambda: gate_unbounded.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     elif reason == "deployed_ceiling_too_low":
