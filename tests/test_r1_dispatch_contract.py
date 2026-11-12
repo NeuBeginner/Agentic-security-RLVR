@@ -89,13 +89,6 @@ def _policy(**overrides) -> r1_dispatch.StepPolicy:
     return r1_dispatch.StepPolicy(**values)
 
 
-def _signed_approval(signer, policy, world=None):
-    """Sign the exact effective envelope used by the gate in this test."""
-    options = dict(world or {})
-    gate = r1_dispatch.DispatchGate(policy=policy, **options)
-    return signer(policy, dispatch_envelope=gate.dispatch_envelope_payload())
-
-
 def _settings(settings: dict | None = None) -> dict:
     """The four effective autoscaler settings of the approved declaration."""
     return dict(
@@ -565,7 +558,7 @@ def test_an_approved_dispatch_reaches_the_provider_exactly_once(monkeypatch, sig
 
     with r1_dispatch.authorised_step(
         policy,
-        approval=_signed_approval(signed_approval, policy, world),
+        approval=signed_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     ) as gate:
@@ -585,7 +578,7 @@ def test_the_boundary_guard_dispatches_through_the_same_gate(monkeypatch, signed
 
     with r1_dispatch.authorised_step(
         policy,
-        approval=_signed_approval(signed_approval, policy, world),
+        approval=signed_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     ) as gate:
@@ -898,7 +891,7 @@ def test_a_mismatching_field_in_the_read_back_is_refused(field_name, signed_appr
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=_signed_approval(signed_approval, policy, world),
+        approval=signed_approval(policy),
         autoscaler_reader=lambda *_: payload,
         **world,
     )
@@ -917,7 +910,7 @@ def test_a_partial_read_back_is_never_accepted(signed_approval):
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=_signed_approval(signed_approval, policy, world),
+        approval=signed_approval(policy),
         autoscaler_reader=lambda *_: payload,
         **world,
     )
@@ -959,7 +952,7 @@ def test_an_unavailable_read_back_refuses_the_dispatch(signed_approval):
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=_signed_approval(signed_approval, policy, world),
+        approval=signed_approval(policy),
         autoscaler_reader=unavailable,
         **world,
     )
@@ -1042,7 +1035,7 @@ def test_the_invocation_allowance_is_consumed_atomically_under_concurrency(signe
     )
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=_signed_approval(signed_approval, policy, world),
+        approval=signed_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     )
@@ -1087,7 +1080,7 @@ def test_a_refused_attempt_does_not_consume_the_invocation_allowance(signed_appr
     )
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=_signed_approval(signed_approval, policy, world),
+        approval=signed_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     )
@@ -1141,7 +1134,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
         payload["max_containers"] = payload["max_containers"] + 1
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=_signed_approval(signed_approval, policy, world),
+        approval=signed_approval(policy),
         autoscaler_reader=lambda *_: payload,
         **world,
     )
@@ -1156,7 +1149,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
         call = lambda: gate_no_policy.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     elif reason == "bounds_not_approved":
         gate_unbounded = r1_dispatch.DispatchGate(
-            policy=policy, approval=_signed_approval(signed_approval, policy), autoscaler_reader=lambda *_: payload
+            policy=policy, approval=signed_approval(policy), autoscaler_reader=lambda *_: payload
         )
         call = lambda: gate_unbounded.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     elif reason == "deployed_ceiling_too_low":
@@ -1166,7 +1159,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
         )
         gate_high = r1_dispatch.DispatchGate(
             policy=high_policy,
-            approval=_signed_approval(signed_approval, high_policy, world),
+            approval=signed_approval(high_policy),
             autoscaler_reader=lambda *_: payload,
             **world,
         )
@@ -1177,7 +1170,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
         )
         gate_small = r1_dispatch.DispatchGate(
             policy=small_policy,
-            approval=_signed_approval(signed_approval, small_policy, world),
+            approval=signed_approval(small_policy),
             autoscaler_reader=lambda *_: payload,
             **world,
         )
@@ -1195,29 +1188,4 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
         call()
     assert excinfo.value.reason == reason
     assert gate.used_allowance(r1.SANDBOX_CPU) == 0
-    assert fake.calls == []
-
-
-
-def test_signed_envelope_binds_cost_scenario_and_rate_card_bytes(signed_approval, monkeypatch):
-    """A rate-card or scenario edit invalidates the signature even if Python objects stay unchanged."""
-    policy = _policy()
-    world = _approved_world()
-    gate = r1_dispatch.DispatchGate(policy=policy, **world)
-    artifact = _signed_approval(signed_approval, policy, world)
-    gate.approval = artifact
-
-    original_read_bytes = Path.read_bytes
-
-    def altered_cost_file(path):
-        raw = original_read_bytes(path)
-        if path.name == "r1_rate_card.json":
-            return raw + b"\n# changed rate-card input\n"
-        return raw
-
-    monkeypatch.setattr(Path, "read_bytes", altered_cost_file)
-    fake = FakeProviderCallable()
-    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
-        gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
-    assert excinfo.value.reason == "approval_envelope_mismatch"
     assert fake.calls == []

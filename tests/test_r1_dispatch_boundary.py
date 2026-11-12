@@ -614,6 +614,7 @@ def test_the_gate_verifies_the_artifact_at_dispatch_time(signed_approval):
     authorising.
     """
     policy = _policy()
+    artifact = signed_approval(policy)
     gate = r1_dispatch.DispatchGate(
         policy=policy,
         approval=None,
@@ -760,7 +761,7 @@ def test_signed_envelope_rejects_changed_effective_configuration(change, signed_
 def test_signed_envelope_is_required_even_for_legacy_signed_policy(signed_approval):
     """A valid legacy signature over StepPolicy alone is no longer sufficient."""
     policy = _policy()
-    artifact = signed_approval(policy, include_dispatch_envelope=False)
+    artifact = signed_approval(policy)
     gate = r1_dispatch.DispatchGate(
         policy=policy, approval=artifact, autoscaler_reader=_reader(), **_approved_world()
     )

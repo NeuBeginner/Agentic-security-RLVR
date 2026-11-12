@@ -114,6 +114,7 @@ from core.r1_bounds import _perform_provider_call, _unwrap_guard
 # construction conveys authority may exist. R1 pins no key, so no provider
 # dispatch is authorised - see ``core/r1_approval.py``.
 from core import r1_approval
+from core import r1_bounds as r1_bounds
 from core.r1_approval import (
     ApprovalArtifact,
     ApprovalNotVerified,
@@ -503,19 +504,34 @@ class DispatchGate:
             raw = (root / relative).read_bytes()
             cost_files[relative] = hashlib.sha256(raw).hexdigest()
 
+        effective_classes = sorted(
+            set(r1_bounds.CONTAINER_CLASSES) | set(r1_bounds.FUNCTION_CLASS.values())
+        )
         profiles = {
             name: self._approval_value(self._profile(name))
-            for name in sorted(CONTAINER_CLASSES)
+            for name in effective_classes
         }
-        egress = {}
-        for name in sorted(FUNCTION_CLASS):
-            item = self._egress(name)
-            egress[name] = self._approval_value(item)
+        declared_profiles = {
+            name: self._approval_value(profile)
+            for name, profile in sorted(r1_bounds.PROFILES.items())
+        }
+        egress = {
+            name: self._approval_value(item)
+            for name, item in sorted(r1_bounds.EGRESS_POLICIES.items())
+        }
+        effective_egress = {
+            name: self._approval_value(self._egress(name))
+            for name in sorted(r1_bounds.FUNCTION_CLASS)
+        }
         ingress = {
             name: self._approval_value(item)
-            for name, item in sorted(INGRESS_POLICIES.items())
+            for name, item in sorted(r1_bounds.INGRESS_POLICIES.items())
         }
-        manifest_path = Path(MODEL_CACHE_MANIFEST_PATH)
+        network_policies = {
+            name: self._approval_value(r1_bounds.class_network_policy(name))
+            for name in effective_classes
+        }
+        manifest_path = Path(r1_bounds.MODEL_CACHE_MANIFEST_PATH)
         manifest_state = "ABSENT"
         manifest_digest = None
         if manifest_path.is_file():
@@ -525,17 +541,23 @@ class DispatchGate:
         return {
             "schema": "r1-dispatch-envelope/1",
             "step_policy": self._approval_value(self.policy.to_payload()),
+            "container_classes": self._approval_value(r1_bounds.CONTAINER_CLASSES),
+            "function_class_map": self._approval_value(r1_bounds.FUNCTION_CLASS),
+            "declared_profiles": declared_profiles,
             "container_profiles": profiles,
             "egress_policies": egress,
+            "effective_egress_policies": effective_egress,
             "ingress_policies": ingress,
-            "payload_cap": self._approval_value(MAX_TRAJECTORY_PAYLOAD_BYTES),
-            "model": self._approval_value(PINNED_MODEL),
+            "class_network_policies": network_policies,
+            "volume_writing_functions": self._approval_value(VOLUME_WRITING_FUNCTIONS),
+            "payload_cap": self._approval_value(r1_bounds.MAX_TRAJECTORY_PAYLOAD_BYTES),
+            "model": self._approval_value(r1_bounds.PINNED_MODEL),
             "model_cache": {
-                "manifest_path": str(MODEL_CACHE_MANIFEST_PATH),
+                "manifest_path": str(r1_bounds.MODEL_CACHE_MANIFEST_PATH),
                 "manifest_state": manifest_state,
                 "manifest_sha256": manifest_digest,
-                "offline_environment": self._approval_value(OFFLINE_ENV),
-                "download_retry_allowance": self._approval_value(DOWNLOAD_RETRY_ALLOWANCE),
+                "offline_environment": self._approval_value(r1_bounds.OFFLINE_ENV),
+                "download_retry_allowance": self._approval_value(r1_bounds.DOWNLOAD_RETRY_ALLOWANCE),
             },
             "cost_inputs_sha256": cost_files,
         }
