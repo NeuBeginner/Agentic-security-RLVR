@@ -8,24 +8,33 @@ call. It enforces, per step:
    repository (the T4 dev agent, the Slither worker, the fault injection worker,
    the diagnostics, the GRPO training, the volume audit) is refused with the
    reason of the refusal registry of ``core/r1_bounds.py``;
-2. an **invocation budget** per container class - at most ``invocations(c)``
-   dispatches of class ``c``; the next one is refused and the refusal is recorded;
-3. a **concurrency gate** per container class - at most ``cap(c)`` dispatches of
-   class ``c`` in flight at the same time;
-4. a **ceiling assertion** - ``cap(c) <= max_containers_deployed(c)``; if the step's
+2. the **approved step policy** - a provider dispatch needs one, and the policy
+   has to be complete (every budget, every cap and the ceiling are declared);
+3. a **verified approval** of the step - an artifact that is signed by the
+   approval authority and verified against the public key the repository pins
+   (``core/r1_approval.py``). The gate is a mechanism, not an authorisation: a
+   step policy that a caller constructs in-process authorises nothing, so a
+   provider dispatch without a verified approval is refused before anything
+   else is asked of the provider. R1 pins no key, therefore **no provider
+   dispatch is possible in R1**;
+4. the **completeness of the declared bounds** - while a required bound of the class is
+   required-but-unset, no dispatch of that class happens (fail closed);
+5. the **egress declaration** of the dispatched function (D29);
+6. a **ceiling assertion** - ``cap(c) <= max_containers_deployed(c)``; if the step's
    approved cap exceeds the deployed ceiling the step is refused as
    "deployed ceiling too low";
-5. the **completeness of the declared bounds** - while a required bound of the class is
-   required-but-unset, no dispatch of that class happens (fail closed);
-6. the **producer-enforced payload cap** of the volume-writing functions (D28);
-7. the **egress declaration** of the dispatched function (D29);
+7. the **producer-enforced payload cap** of the volume-writing functions (D28);
 8. the **autoscaler read-back** before the first container of the step - a
    **read-only** read of the four effective settings (``min_containers``,
    ``max_containers``, ``buffer_containers``, ``scaledown_window``). The mutating
    ``update_autoscaler()`` is never used as a read: in Modal SDK 1.5.5 it is an
    UPDATE RPC (``FunctionUpdateSchedulingParams``), so using it to verify the
    autoscaler would change the deployment while verifying it. A missing, None,
-   malformed or mismatching field is a refusal, never a partial read.
+   malformed or mismatching field is a refusal, never a partial read;
+9. an **invocation budget** per container class - at most ``invocations(c)``
+   dispatches of class ``c``; the next one is refused and the refusal is recorded;
+10. a **concurrency gate** per container class - at most ``cap(c)`` dispatches of
+    class ``c`` in flight at the same time.
 
 A dispatch of a *real provider callable* additionally requires an approved step
 policy. A local double (a test double) is passed through, because it starts no
@@ -33,23 +42,24 @@ container and costs nothing.
 
 **The provider call itself.** The gate holds the provider object, not the guard that
 would route the call back into the gate: a guard is unwrapped before the gates run
-(``core.r1_bounds._unwrap_guard``), so a guarded call is dispatched exactly once. An
-installed call site - one whose provider object carries the guard on its own
-``remote`` - is called through the entry point that was captured before the guard was
-installed; every other object is called through its own ``remote``.
+(``core.r1_bounds._unwrap_guard``), so a guarded call is dispatched exactly once. The
+provider's own entry point is **not captured**: it is resolved from the provider
+object's own class at the moment of the call (``core.r1_bounds._call_provider_entry_point``),
+so the repository holds no provider callable at all - not in a closure, not in a
+registry and not in an attribute of a guard.
 
-The captured entry point is **not** reachable from the repository: it lives in the
-closure of the dispatch primitive of its call site, the primitive performs the call
-instead of returning the callable, and it refuses to run outside this dispatch
-method. The check is against the **code object** of ``DispatchGate.dispatch`` - a code
-object cannot be forged, so it is a runtime fact and not a naming convention.
+The resolver that performs the call is private, it returns the *result* of the call
+and never the callable, and it refuses to run outside this dispatch method. The
+check is against the **code object** of ``DispatchGate.dispatch`` - a code object
+cannot be forged, so it is a runtime fact and not a naming convention.
 
 **The invocation allowance is consumed only by a dispatch that actually starts a
-provider call.** Every refusal - the authorisation, the policy, the bounds, the
-egress, the ceiling, the payload cap, the concurrency gate, the read-back and the
-budget itself - consumes nothing: a refused attempt starts no container, so it may
-not cost an invocation. The check and the increment happen under **one** lock, so
-two concurrent dispatches can never both pass the same remaining allowance.
+provider call.** Every refusal - the authorisation, the policy, the approval, the
+bounds, the egress, the ceiling, the payload cap, the concurrency gate, the
+read-back and the budget itself - consumes nothing: a refused attempt starts no
+container, so it may not cost an invocation. The check and the increment happen under
+**one** lock, so two concurrent dispatches can never both pass the same remaining
+allowance.
 """
 
 from __future__ import annotations
@@ -79,10 +89,15 @@ from core.r1_bounds import (
 
 # The two internals of the guard that only the gate may call. They are private
 # in ``core.r1_bounds`` and they refuse a call that does not come from the
-# dispatch method below: the captured provider entry point, the provider object
-# behind a guard and the innermost provider call are reachable from here and
-# from nowhere else.
+# dispatch method below: the provider entry point, the provider object behind a
+# guard and the innermost provider call are reachable from here and from
+# nowhere else.
 from core.r1_bounds import _perform_provider_call, _unwrap_guard
+
+# The approval of a step: the artifact is signed by the approval authority and
+# verified against the public key the repository pins. R1 pins no key, so no
+# provider dispatch is authorised - see ``core/r1_approval.py``.
+from core.r1_approval import VerifiedApproval, policy_digest
 
 #: The functions that write to the persistent volume and are therefore capped (D28).
 VOLUME_WRITING_FUNCTIONS = frozenset({"record_trajectory_remote"})
@@ -92,6 +107,9 @@ VOLUME_WRITING_FUNCTIONS = frozenset({"record_trajectory_remote"})
 REFUSAL_REASONS = (
     "unauthorised_call_site",
     "no_approved_step_policy",
+    "approval_not_verified",
+    "approval_policy_mismatch",
+    "call_site_not_approved",
     "policy_incomplete",
     "estimate_above_ceiling",
     "bounds_not_approved",
@@ -130,6 +148,13 @@ class StepPolicy:
 
     The cap table is part of the approval record, not a runtime parameter: raising a
     per-step cap is a change to the approval record and needs a new approval.
+
+    **The policy is not an authorisation.** ``approved_by`` and ``approved_at``
+    are *labels* of a record: a caller constructs a policy with any label it
+    likes, so the labels authorise nothing. The authorisation is the **verified
+    approval** of the step - an artifact that is signed by the approval
+    authority and verified against the public key the repository pins
+    (``core/r1_approval.py``). The gate refuses a provider dispatch without one.
     """
 
     step_id: str
@@ -141,6 +166,34 @@ class StepPolicy:
     estimate_usd: Optional[float]
     approved_by: str
     approved_at: str
+
+    def to_payload(self) -> Dict[str, Any]:
+        """The payload of this policy - the bytes an approval signs.
+
+        A bound that is required-but-unset is represented by its reason, so the
+        payload says *what* is missing and not only that something is.
+        """
+
+        def value(bound: Any) -> Any:
+            if is_unset(bound):
+                return {"unset": bound.reason}
+            return bound
+
+        return {
+            "step_id": self.step_id,
+            "invocation_budgets": dict(self.invocation_budgets),
+            "concurrency_caps": dict(self.concurrency_caps),
+            "wall_clock_budget_sec": value(self.wall_clock_budget_sec),
+            "post_execution_deadline_sec": value(self.post_execution_deadline_sec),
+            "monetary_ceiling_usd": value(self.monetary_ceiling_usd),
+            "estimate_usd": self.estimate_usd,
+            "approved_by": self.approved_by,
+            "approved_at": self.approved_at,
+        }
+
+    def policy_digest(self) -> str:
+        """The digest of this policy - what the approval of the step binds."""
+        return policy_digest(self.to_payload())
 
     def missing_fields(self) -> List[str]:
         """The fields of the policy that are required-but-unset (D28, Q5)."""
@@ -362,11 +415,13 @@ class DispatchGate:
     def __init__(
         self,
         policy: Optional[StepPolicy] = None,
+        approval: Optional[VerifiedApproval] = None,
         profiles: Optional[Dict[str, Any]] = None,
         egress_policies: Optional[Dict[str, Any]] = None,
         autoscaler_reader: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
     ) -> None:
         self.policy = policy
+        self.approval = approval
         self.profiles = profiles or {}
         self.egress_policies = egress_policies or {}
         self.autoscaler_reader = autoscaler_reader
@@ -435,6 +490,7 @@ class DispatchGate:
         if provider_callable:
             self._check_authorisation(container_class, function_name)
             self._check_policy(container_class, function_name)
+            self._check_approval(container_class, function_name)
             self._check_bounds(container_class, function_name)
             self._check_egress(function_name)
             self._check_ceiling(container_class, function_name)
@@ -533,6 +589,54 @@ class DispatchGate:
                 "a provider dispatch requires an approved step policy",
             )
         self.policy.validate()
+
+    def _check_approval(self, container_class: str, function_name: str) -> None:
+        """A provider dispatch needs a **verified** approval of this step.
+
+        The gate is a mechanism, not an authorisation: the policy it enforces
+        can be constructed by any caller. The authorisation is the approval
+        artifact, which is signed by the approval authority and verified
+        against the public key the repository pins
+        (``core/r1_approval.py``).
+
+        R1 pins no key, so this check refuses every provider dispatch: the live
+        provider dispatch of R1 is impossible, and it is impossible
+        *structurally* - not only because the bounds of the container classes
+        are required-but-unset.
+        """
+        approval = self.approval
+        if approval is None:
+            self._refuse(
+                container_class,
+                function_name,
+                "approval_not_verified",
+                "no verified approval covers this dispatch: a step policy that a "
+                "caller constructs in-process does not authorise a provider call",
+            )
+        if self.policy is None or approval.step_id != self.policy.step_id:
+            self._refuse(
+                container_class,
+                function_name,
+                "approval_not_verified",
+                f"the approval names step '{approval.step_id}', not the step of "
+                "the policy",
+            )
+        if approval.policy_digest != self.policy.policy_digest():
+            self._refuse(
+                container_class,
+                function_name,
+                "approval_policy_mismatch",
+                "the approved policy is not the policy of this step: the caps, "
+                "the budgets or the ceiling were changed after the approval",
+            )
+        if not approval.covers(function_name):
+            self._refuse(
+                container_class,
+                function_name,
+                "call_site_not_approved",
+                f"the approval of step '{approval.step_id}' does not cover the "
+                f"call site '{function_name}'",
+            )
 
     def _check_bounds(self, container_class: str, function_name: str) -> None:
         profile = self._profile(container_class)
@@ -686,13 +790,21 @@ def current_gate() -> DispatchGate:
 @contextmanager
 def authorised_step(
     policy: StepPolicy,
+    approval: Optional[VerifiedApproval] = None,
     profiles: Optional[Dict[str, Any]] = None,
     egress_policies: Optional[Dict[str, Any]] = None,
     autoscaler_reader: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
 ) -> Iterator[DispatchGate]:
-    """Install the approved policy of one step as the active dispatch contract."""
+    """Install the approved policy of one step as the active dispatch contract.
+
+    ``approval`` is the **verified approval** of the step - the artifact that
+    is signed by the approval authority and verified against the pinned public
+    key. Without it the gate refuses every provider dispatch: a policy that a
+    caller constructs in-process does not authorise a spend.
+    """
     gate = DispatchGate(
         policy=policy,
+        approval=approval,
         profiles=profiles,
         egress_policies=egress_policies,
         autoscaler_reader=autoscaler_reader,

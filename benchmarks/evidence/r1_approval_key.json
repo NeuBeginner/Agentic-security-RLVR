@@ -1,0 +1,11 @@
+{
+  "algorithm": "RSASSA-PKCS1-v1_5-SHA256",
+  "public_key": null,
+  "note": "R1 pins no approval key. The key belongs to the maintainer: its private half never enters this repository and never enters the process, and no step of the evidence-regeneration workflow has been approved yet. A null key means that no approval artifact can be verified and therefore that no provider dispatch can be authorised - the intended state of R1 (every stage is PROVISIONAL_ONLY / NOT_DISPATCHABLE). The key is added here when the maintainer approves a step; the artifact itself is handed to the run out of band.",
+  "format": {
+    "public_key": {
+      "n": "<base64 of the big-endian modulus bytes>",
+      "e": 65537
+    }
+  }
+}

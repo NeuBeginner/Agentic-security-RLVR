@@ -248,8 +248,9 @@ def test_a_provider_dispatch_without_an_approved_policy_is_refused():
     assert fake.calls == []
 
 
-def test_unapproved_bounds_block_the_dispatch_even_with_an_approved_policy():
-    gate = r1_dispatch.DispatchGate(policy=_policy())
+def test_unapproved_bounds_block_the_dispatch_even_with_an_approved_policy(verified_approval):
+    policy = _policy()
+    gate = r1_dispatch.DispatchGate(policy=policy, approval=verified_approval(policy))
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
         gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
@@ -257,10 +258,13 @@ def test_unapproved_bounds_block_the_dispatch_even_with_an_approved_policy():
     assert fake.calls == []
 
 
-def test_an_unapproved_egress_bound_blocks_the_dispatch():
+def test_an_unapproved_egress_bound_blocks_the_dispatch(verified_approval):
     world = _approved_world()
     world["egress_policies"]["verify_exploit_remote"] = r1.EGRESS_POLICIES["verify_exploit_remote"]
-    gate = r1_dispatch.DispatchGate(policy=_policy(), **world)
+    policy = _policy()
+    gate = r1_dispatch.DispatchGate(
+        policy=policy, approval=verified_approval(policy), **world
+    )
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
         gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
@@ -268,12 +272,15 @@ def test_an_unapproved_egress_bound_blocks_the_dispatch():
     assert fake.calls == []
 
 
-def test_a_function_without_an_egress_declaration_is_refused(monkeypatch):
+def test_a_function_without_an_egress_declaration_is_refused(monkeypatch, verified_approval):
     # Defence in depth: an authorised call site whose egress declaration is gone
     # is refused instead of dispatched with an unbounded egress.
     monkeypatch.delitem(r1.EGRESS_POLICIES, "verify_replay_remote")
     world = _approved_world()
-    gate = r1_dispatch.DispatchGate(policy=_policy(), **world)
+    policy = _policy()
+    gate = r1_dispatch.DispatchGate(
+        policy=policy, approval=verified_approval(policy), **world
+    )
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
         gate.dispatch(r1.SANDBOX_CPU, "verify_replay_remote", fake, {})
@@ -318,10 +325,14 @@ def test_the_producer_enforced_payload_cap_refuses_an_unapproved_cap():
 # --------------------------------------------------------------------------------------
 
 
-def test_a_configured_dispatch_is_performed_and_the_autoscaler_is_read_back():
+def test_a_configured_dispatch_is_performed_and_the_autoscaler_is_read_back(verified_approval):
     world = _approved_world()
+    policy = _policy()
     gate = r1_dispatch.DispatchGate(
-        policy=_policy(), autoscaler_reader=_reader(), **world
+        policy=policy,
+        approval=verified_approval(policy),
+        autoscaler_reader=_reader(),
+        **world,
     )
     fake = FakeProviderCallable()
     result = gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {"a": 1})
@@ -332,10 +343,12 @@ def test_a_configured_dispatch_is_performed_and_the_autoscaler_is_read_back():
     assert gate.dispatched() and not gate.refused()
 
 
-def test_the_invocation_budget_is_enforced():
+def test_the_invocation_budget_is_enforced(verified_approval):
     world = _approved_world()
+    policy = _policy(invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1})
     gate = r1_dispatch.DispatchGate(
-        policy=_policy(invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1}),
+        policy=policy,
+        approval=verified_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     )
@@ -349,10 +362,12 @@ def test_the_invocation_budget_is_enforced():
     assert len(gate.refused()) == 1
 
 
-def test_a_cap_above_the_deployed_ceiling_is_refused():
+def test_a_cap_above_the_deployed_ceiling_is_refused(verified_approval):
     world = _approved_world()
     policy = _policy(concurrency_caps={r1.SANDBOX_CPU: 49, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1})
-    gate = r1_dispatch.DispatchGate(policy=policy, **world)
+    gate = r1_dispatch.DispatchGate(
+        policy=policy, approval=verified_approval(policy), **world
+    )
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
         gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
@@ -360,10 +375,12 @@ def test_a_cap_above_the_deployed_ceiling_is_refused():
     assert fake.calls == []
 
 
-def test_the_autoscaler_readback_must_match_the_declaration():
+def test_the_autoscaler_readback_must_match_the_declaration(verified_approval):
     world = _approved_world()
+    policy = _policy()
     gate = r1_dispatch.DispatchGate(
-        policy=_policy(),
+        policy=policy,
+        approval=verified_approval(policy),
         autoscaler_reader=_reader(
             {
                 "min_containers": 0,
@@ -381,14 +398,18 @@ def test_the_autoscaler_readback_must_match_the_declaration():
     assert fake.calls == []
 
 
-def test_a_class_without_a_readback_is_not_dispatchable():
+def test_a_class_without_a_readback_is_not_dispatchable(verified_approval):
     world = _approved_world()
 
     def unavailable(target, function_name=""):
         raise r1_dispatch.AutoscalerReadbackUnavailable("no read-only read available")
 
+    policy = _policy()
     gate = r1_dispatch.DispatchGate(
-        policy=_policy(), autoscaler_reader=unavailable, **world
+        policy=policy,
+        approval=verified_approval(policy),
+        autoscaler_reader=unavailable,
+        **world,
     )
 
     class NoReadback:
@@ -402,9 +423,12 @@ def test_a_class_without_a_readback_is_not_dispatchable():
     assert excinfo.value.reason == "autoscaler_readback_unavailable"
 
 
-def test_the_payload_byte_cap_is_enforced_on_the_volume_writing_function():
+def test_the_payload_byte_cap_is_enforced_on_the_volume_writing_function(verified_approval):
     world = _approved_world()
-    gate = r1_dispatch.DispatchGate(policy=_policy(), **world)
+    policy = _policy()
+    gate = r1_dispatch.DispatchGate(
+        policy=policy, approval=verified_approval(policy), **world
+    )
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
         gate.dispatch(r1.PERSISTENCE, "record_trajectory_remote", fake, {"payload": "x" * 10})

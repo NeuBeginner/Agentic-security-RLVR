@@ -28,22 +28,37 @@ opaque token and the call-site name - so no attribute of a guard yields a raw pr
 callable. The guard is installed on the provider object's *own* ``remote``
 (:func:`install_provider_guard`), so every reference to that object is gated too.
 
-**The captured provider entry point.** The installation replaces the object's own
-``remote``, so the entry point that the provider actually answers on has to be captured
-before the replacement. That captured callable is the most dangerous object of the
-module: a caller that can reach it can start a billable container without the gate,
-without the invocation budget and without the declared bounds. It is therefore never
-handed out. It lives in the closure of the **dispatch primitive** of its call site, and
-the primitive
-
-* performs the call instead of returning the callable,
-* refuses to run outside the R1 dispatch gate - the check is against the **code
-  object** of the gate's dispatch method, and a code object cannot be forged, so the
-  check is a runtime fact and not a naming convention.
+**No provider entry point is captured.** The installation replaces the object's own
+``remote``, so the entry point the provider answers on is *not* kept: it is resolved
+from the object's own class at the moment of the call, exactly the way the provider SDK
+declares it. The repository therefore holds **no provider callable at all** - not in a
+closure, not in a registry, not in an attribute of a guard. The resolver that performs
+the call is private, it returns the *result* of the call and never the callable, and it
+refuses to run outside the R1 dispatch gate - the check is against the **code object**
+of the gate's dispatch method, and a code object cannot be forged, so the check is a
+runtime fact and not a naming convention.
 
 The same holds for the two other internals the gate needs: the unwrap helper (which
 yields the provider object behind a guard) and the innermost provider call. Both are
 private, and both refuse a call that does not come from the gate.
+
+**The class-method boundary.** The provider SDK produces a **fresh** provider method on
+every attribute access of a class instance (``modal/cls.py:442``), so a guard that
+covers only the method it handed out leaves the next access unguarded. The guard is
+therefore installed where the method is *produced*: the instance is moved to a subclass
+that guards every provider method it resolves, so the method of the **raw** instance -
+the one a caller reaches through the private registry - is guarded as well.
+
+**The threat model.** The guard protects against a caller *inside this process* that
+reaches the workflow through its own API, its registries, its guards and the provider
+objects it holds. It is not a sandbox against arbitrary code in the same process: an
+adversary who can execute code here can patch the guard, the registries or the gate
+itself, and can reach the provider SDK through the SDK's own internals (the async
+original of a function, the application's function registry, the class descriptor
+protocol). That is a property of the language and of the process, not of this guard.
+What the guard *does* guarantee - and what the evidence needs - is the auditable
+property: **every provider entry point this repository hands out is gated, and no
+provider callable is held anywhere in the repository.**
 """
 
 from __future__ import annotations
@@ -872,6 +887,11 @@ def is_provider_callable(obj: Any) -> bool:
 # provider object - and an attribute that starts with an underscore is refused
 # outright instead of being delegated to the raw object.
 #
+# The registries hold **objects**, never callables. A callable in a registry would
+# be an invocable provider entry point for whoever reads it, so the entry point is
+# never stored: it is resolved from the provider object's own class at the moment
+# of the call (see :func:`_call_provider_entry_point`).
+#
 # The registries are the trust boundary of the guard. Python has no private
 # memory, so a caller that deliberately imports this module and reads its
 # underscore-prefixed registries can still reach a provider object; that is a
@@ -888,12 +908,12 @@ _GUARDED_OBJECTS: Dict[str, Any] = {}
 #: The provider objects that are installed under their call-site name.
 _INSTALLED_OBJECTS: Dict[str, Any] = {}
 
-#: The captured provider entry point of each installed call site. The value is a
-#: **dispatch primitive**: a callable that performs the provider call and never
-#: returns the provider callable itself. The raw provider callable lives in the
-#: closure of the primitive - it is in no registry, in no attribute and in no
-#: module-level name - and the primitive refuses to run outside the R1 gate.
-_CAPTURED_ENTRYPOINTS: Dict[str, Callable[..., Any]] = {}
+#: The guarded class instances, by identity: the token of the raw instance and
+#: the name of its class. The raw instance itself stays in ``_GUARDED_OBJECTS``.
+_GUARDED_CLASS_INSTANCES: Dict[int, Dict[str, Any]] = {}
+
+#: The subclasses that carry the guard of a provider class, by their class.
+_GUARDED_SUBCLASSES: Dict[type, type] = {}
 
 
 def _gate_dispatch_code() -> Optional[Any]:
@@ -913,18 +933,22 @@ def _gate_dispatch_code() -> Optional[Any]:
     return DispatchGate.dispatch.__code__
 
 
-def _assert_called_by_the_gate(function_name: str, what: str) -> None:
+def _assert_called_by_the_gate(function_name: str, what: str, depth: int = 2) -> None:
     """Refuse an internal call that does not come from the R1 dispatch gate.
 
     The caller is checked against the **code object** of the gate's dispatch
-    method. The captured provider entry point, the provider object behind a
-    guard and the innermost provider call are reachable from the gate only -
-    not through the public API of this module, not through a guard and not
-    through a registry.
+    method. The provider entry point, the provider object behind a guard and
+    the innermost provider call are reachable from the gate only - not through
+    the public API of this module, not through a guard and not through a
+    registry.
+
+    ``depth`` is the number of frames between this check and the dispatch
+    method: 2 for a helper the gate calls directly, 3 for a helper the gate
+    calls through another helper of this module.
     """
     reason = f"{what} may only be called from the R1 dispatch gate"
     try:
-        caller = sys._getframe(2)
+        caller = sys._getframe(depth)
     except Exception:  # pragma: no cover - CPython always has _getframe
         raise UnauthorisedCallSite(function_name, reason)
     expected = _gate_dispatch_code()
@@ -932,31 +956,45 @@ def _assert_called_by_the_gate(function_name: str, what: str) -> None:
         raise UnauthorisedCallSite(function_name, reason)
 
 
-def _make_captured_entrypoint(
-    function_name: str, raw: Callable[..., Any]
-) -> Callable[..., Any]:
-    """Build the dispatch primitive of an installed call site.
+def _declares_entry_point(obj: Any) -> bool:
+    """True when the object's own class declares a ``remote`` entry point.
 
-    The raw provider callable lives in the closure of the returned callable
-    and nowhere else. The primitive performs the provider call - it never
-    returns the callable - and it performs it only from the innermost
-    provider call of the R1 gate.
+    The check is the installation's fail-closed condition: an object without
+    an entry point cannot be guarded, and the deployment must not start with an
+    unguarded provider object.
     """
+    return any("remote" in klass.__dict__ for klass in type(obj).__mro__)
 
-    def captured(*args: Any, **kwargs: Any) -> Any:
-        try:
-            caller = sys._getframe(1)
-        except Exception:  # pragma: no cover - CPython always has _getframe
-            caller = None
-        if caller is None or caller.f_code is not _perform_provider_call.__code__:
-            raise UnauthorisedCallSite(
-                function_name,
-                "the captured provider entry point may only be called from the "
-                "R1 dispatch gate",
-            )
-        return raw(*args, **kwargs)
 
-    return captured
+def _call_provider_entry_point(obj: Any, *args: Any, **kwargs: Any) -> Any:
+    """Call the provider's own entry point of ``obj``.
+
+    The entry point is **resolved at the moment of the call** from the object's
+    own class - the way the provider SDK declares it - and it is never
+    captured: it is in no closure, in no registry and in no attribute of this
+    module. The function returns the **result** of the call and never the
+    callable, and only the R1 gate may call it: the caller is checked against
+    the code object of the gate's dispatch method.
+
+    A **substituted double** is the one exception: it is a local function that
+    was put on a guard instead of the provider entry point. It starts no
+    container and costs nothing, so it is called directly.
+    """
+    _assert_called_by_the_gate("<unknown>", "the provider entry point", depth=3)
+    if isinstance(obj, _SubstitutedRemote):
+        return obj.__dict__["remote"](*args, **kwargs)
+    for klass in type(obj).__mro__:
+        descriptor = klass.__dict__.get("remote")
+        if descriptor is None:
+            continue
+        getter = getattr(descriptor, "__get__", None)
+        if getter is None:
+            continue
+        return getter(obj, type(obj))(*args, **kwargs)
+    raise UnauthorisedCallSite(
+        "<unknown>",
+        "the provider object declares no 'remote' entry point",
+    )
 
 
 def _register_guarded_object(obj: Any) -> str:
@@ -993,38 +1031,16 @@ def _perform_provider_call(function_name: str, fn: Any, *args: Any, **kwargs: An
     """The provider call itself - the innermost step of an authorised dispatch.
 
     The R1 gate calls this, and nothing else may: the call is checked against
-    the **code object** of the gate's dispatch method, so the captured
-    provider entry point, the provider object behind a guard and the raw
-    provider method of a class stay unreachable from the rest of the
-    repository.
+    the **code object** of the gate's dispatch method, so the provider entry
+    point, the provider object behind a guard and the raw provider method of a
+    class stay unreachable from the rest of the repository.
 
-    An installed call site is called through the entry point that was captured
-    before the guard was installed on the object's own ``remote``: calling the
-    guarded ``remote`` here would route the call back into the gate. Every
-    other provider callable is called through its own ``remote``.
-
-    The captured entry point is never handed out - the primitive that holds it
-    performs the call and returns its result.
+    The entry point of the provider is resolved here, at the moment of the
+    call, from the provider object's own class. It is never captured: the
+    repository holds no provider callable at all.
     """
     _assert_called_by_the_gate(function_name, "the provider call")
-    if is_installed_call_site(function_name, fn):
-        primitive = _CAPTURED_ENTRYPOINTS.get(function_name)
-        if primitive is None:
-            raise UnauthorisedCallSite(
-                function_name,
-                "the provider entry point of this call site was not captured",
-            )
-        return primitive(*args, **kwargs)
-    remote = getattr(fn, "remote", None)
-    if not callable(remote):
-        raise UnauthorisedCallSite(
-            function_name,
-            "the provider callable of this call site has no callable 'remote'",
-        )
-    # The call is written through the attribute on purpose: the call-site
-    # inventory of the repository is scanned for exactly this shape, so the
-    # innermost provider call of the workflow stays visible in it.
-    return fn.remote(*args, **kwargs)
+    return _call_provider_entry_point(fn, *args, **kwargs)
 
 
 class _SubstitutedRemote:
@@ -1067,7 +1083,7 @@ def _unwrap_guard(fn: Any) -> Any:
         if substituted is not None:
             return _SubstitutedRemote(substituted)
         instance = _guarded_object(fn.__dict__["_instance_token"])
-        return getattr(instance, fn.__dict__["_method_name"])
+        return _raw_class_method(instance, fn.__dict__["_method_name"])
     return fn
 
 
@@ -1326,7 +1342,9 @@ class GuardedClassMethod:
         container_class = FUNCTION_CLASS[function_name]
         instance = _guarded_object(self.__dict__["_instance_token"])
         # The method object is resolved here and nowhere else: it is a local
-        # variable of this call, so it cannot be reached afterwards.
+        # variable of this call, so it cannot be reached afterwards. The
+        # resolution goes through the guarded subclass of the instance, so the
+        # method it returns carries the guard of its own.
         method = getattr(instance, self.__dict__["_method_name"])
         return _dispatch_through_gate(
             container_class, function_name, method, *args, **kwargs
@@ -1350,6 +1368,70 @@ class GuardedClassMethod:
         )
 
 
+def _guarded_class_getattr(self: Any, name: str) -> Any:
+    """The ``__getattr__`` of a guarded class instance.
+
+    The provider SDK produces a **fresh** provider method on every attribute
+    access of a class instance (``modal/cls.py:442``), so a guard that covers
+    only the method it handed out leaves the next access unguarded - the
+    bypass the R1 re-review named. The guard is therefore installed where the
+    method is *produced*: a guarded instance hands out the **guard** and never
+    the provider method, whoever asks for the method and from wherever.
+
+    The SDK's own resolver stays where the SDK put it: the guard reaches it
+    through ``super()`` and never keeps a copy of it.
+    """
+    attribute = super(type(self), self).__getattr__(name)
+    entry = _GUARDED_CLASS_INSTANCES.get(id(self))
+    if entry is None:
+        return attribute
+    remote = getattr(attribute, "remote", None)
+    if not callable(remote):
+        return attribute
+    return GuardedClassMethod(
+        entry["token"],
+        name,
+        f"{entry['class_name']}.{name}",
+        entry["class_name"],
+    )
+
+
+def _raw_class_method(instance: Any, name: str) -> Any:
+    """The provider method of a guarded instance - the SDK's own resolution.
+
+    This is the gate's path to the provider method of a class: it bypasses the
+    guard of the instance deliberately, because the call has to reach the
+    provider - but only from inside the gate, which checks the call site, the
+    policy, the approval and the bounds first.
+
+    The method is a transient local of the call: it is not stored and not
+    handed out.
+    """
+    method = super(type(instance), instance).__getattr__(name)
+    try:
+        setattr(method, PROVIDER_CALLABLE_MARKER, True)
+    except Exception:  # pragma: no cover - the SDK's function takes attributes
+        pass
+    return method
+
+
+def _guarded_subclass(cls: type) -> type:
+    """The subclass that carries the guard of a provider class.
+
+    The subclass exists so that the guard is installed on the attribute
+    resolution of the instance while the SDK's own resolver stays in the SDK's
+    class: the guard never has to hold a copy of it, so there is no registry
+    and no closure through which the unguarded resolution could be reached.
+    """
+    patched = _GUARDED_SUBCLASSES.get(cls)
+    if patched is None:
+        patched = type(
+            f"_R1Guarded{cls.__name__}", (cls,), {"__getattr__": _guarded_class_getattr}
+        )
+        _GUARDED_SUBCLASSES[cls] = patched
+    return patched
+
+
 class GuardedClassInstance:
     """The guarded instance of a Modal class: every method of it is guarded.
 
@@ -1359,11 +1441,28 @@ class GuardedClassInstance:
     nothing else. Every other attribute of the raw instance (the raw class it
     belongs to, its internal function map) is refused, so no raw provider
     callable can be reached through the instance.
+
+    The instance is also moved to a **guarded subclass** of its class
+    (:func:`_guarded_subclass`): the provider SDK produces a fresh provider
+    method on every attribute access, so the guard has to be installed where
+    the method is *produced* - otherwise the method of the raw instance would
+    be unguarded.
     """
 
     def __init__(self, obj: Any, class_name: str) -> None:
         self.__dict__["_class_name"] = class_name
-        self.__dict__["_object_token"] = _register_guarded_object(obj)
+        token = _register_guarded_object(obj)
+        self.__dict__["_object_token"] = token
+        _GUARDED_CLASS_INSTANCES[id(obj)] = {"token": token, "class_name": class_name}
+        try:
+            obj.__class__ = _guarded_subclass(type(obj))
+        except Exception as exc:
+            # Fail closed: without the guarded subclass the provider methods of
+            # this instance would not be guarded at their boundary.
+            raise RuntimeError(
+                f"the guard could not be installed on the instance of "
+                f"'{class_name}': {type(exc).__name__}: {exc}"
+            ) from exc
 
     @property
     def class_name(self) -> str:
@@ -1377,6 +1476,8 @@ class GuardedClassInstance:
             )
         obj = _guarded_object(self.__dict__["_object_token"])
         attribute = getattr(obj, item)
+        if isinstance(attribute, GuardedClassMethod):
+            return attribute
         remote = getattr(attribute, "remote", None)
         if callable(remote):
             return GuardedClassMethod(
@@ -1442,26 +1543,21 @@ def install_provider_guard(function_name: str, fn: Any) -> GuardedRemote:
 
     The guard is installed **on the provider object itself**: the object's own
     ``remote`` is replaced by the guard, so every reference to that object is
-    gated. The original entry point is captured before the replacement, and it
-    is the one the gate calls - otherwise the guarded ``remote`` would route the
-    call back into the gate and recurse.
+    gated. The entry point the provider answers on is **not** captured: it
+    stays in the provider's own class and is resolved from there at the moment
+    of the call, so the repository holds no provider callable at all.
 
-    The captured entry point is **not** stored as a callable of this module:
-    it becomes the closure of the dispatch primitive of this call site, and
-    that primitive performs the call only from the R1 gate.
-
-    The installation fails **closed**: if the object's ``remote`` cannot be
-    replaced, the deployment is not guarded and the error stops the import
-    instead of leaving an unguarded provider callable behind.
+    The installation fails **closed**: if the object declares no entry point,
+    or if its ``remote`` cannot be replaced, the deployment is not guarded and
+    the error stops the import instead of leaving an unguarded provider
+    callable behind.
     """
-    original = getattr(fn, "remote", None)
-    if not callable(original):
+    if not _declares_entry_point(fn):
         raise RuntimeError(
-            f"the provider object of '{function_name}' has no callable 'remote'; "
-            "the guard cannot be installed on it"
+            f"the provider object of '{function_name}' declares no 'remote' entry "
+            "point; the guard cannot be installed on it"
         )
     _INSTALLED_OBJECTS[function_name] = fn
-    _CAPTURED_ENTRYPOINTS[function_name] = _make_captured_entrypoint(function_name, original)
     guard = GuardedProviderRemote(function_name)
     try:
         setattr(fn, "remote", guard)

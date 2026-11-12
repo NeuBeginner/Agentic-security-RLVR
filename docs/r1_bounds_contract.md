@@ -23,6 +23,7 @@ production value and never hardcodes a price.
 | file | role |
 |---|---|
 | `core/r1_bounds.py` | the declarations: the three container-class profiles, the egress policies, the payload cap, the pinned model, the manifest check, the fail-closed helpers, the refusal registry and the guard (functions **and** classes) |
+| `core/r1_approval.py` | the **approval** of a step: the signed artifact, its RSA verification against the pinned public key and the `VerifiedApproval` the gate demands |
 | `benchmarks/r1_dispatch.py` | the dispatch gate: the single path through which this workflow dispatches a Modal call, including the read-only autoscaler read-back |
 | `benchmarks/r1_estimator.py` | the cumulative cost / egress / storage estimator and its CLI — the one accounting model |
 | `benchmarks/adapters.py` | the producer, now dispatching only through the gate |
@@ -30,8 +31,11 @@ production value and never hardcodes a price.
 | `benchmarks/evidence/r1_rate_card.json` | the provider's rates **and** the free storage allowance — an approval input with its source and its reading date |
 | `benchmarks/evidence/r1_cost_scenario.json` | the **candidate** bounds and per-stage quantities of the cost proposal |
 | `benchmarks/evidence/r1_call_site_inventory.json` | the **repo-wide inventory** of the provider call sites, with the disposition of each one |
+| `benchmarks/evidence/r1_approval_key.json` | the **pinned public key** of the approval authority — `null` in R1, so no approval can be verified and no provider dispatch can be authorised |
 | `tests/test_r1_bounds_contract.py` | the proofs of the declarations and of the estimator's arithmetic |
 | `tests/test_r1_dispatch_contract.py` | the proofs of the inventory, of the guards, of the read-back, of the network policy and of the invocation budget |
+| `tests/test_r1_dispatch_boundary.py` | the boundary proofs: no provider callable in the repository, the class-method boundary, and the gate that is not self-authorising |
+| `tests/conftest.py` | the shared fixtures, including the **out-of-band act of the approval authority** (the test key that signs an approval artifact) |
 | `tests/test_r1_cost_model.py` | the proofs of the cost model and of the one authoritative command |
 
 ## D26 — explicit request/limit pairs and an explicit lifecycle
@@ -265,31 +269,54 @@ The gate enforces, per step:
    (`no_approved_step_policy`), and the policy itself must declare the wall-clock
    budget, the post-execution deadline, the monetary ceiling and an estimate at or
    below that ceiling;
-3. the **completeness of the declared bounds** of the class (`bounds_not_approved`);
-4. the **egress declaration** of the function (`no_egress_declaration`,
+3. a **verified approval** of the step (`approval_not_verified`,
+   `approval_policy_mismatch`, `call_site_not_approved`) — see *The approval is
+   external* below;
+4. the **completeness of the declared bounds** of the class (`bounds_not_approved`);
+5. the **egress declaration** of the function (`no_egress_declaration`,
    `egress_bound_not_approved`);
-5. the **ceiling assertion** `cap(c) ≤ max_containers_deployed(c)`
+6. the **ceiling assertion** `cap(c) ≤ max_containers_deployed(c)`
    (`deployed_ceiling_too_low`);
-6. the **producer-enforced payload cap** of the volume-writing functions
+7. the **producer-enforced payload cap** of the volume-writing functions
    (`payload_byte_cap`);
-7. the **autoscaler read-back** before the first container of the class
+8. the **autoscaler read-back** before the first container of the class
    (`autoscaler_readback_unavailable`, `autoscaler_readback_missing_field`,
    `autoscaler_readback_malformed`, `autoscaler_readback_mismatch`);
-8. the **concurrency gate** per class (a client-side semaphore;
+9. the **concurrency gate** per class (a client-side semaphore;
    `concurrency_gate_timeout`);
-9. the **invocation budget** per class (`invocation_budget_exhausted`).
+10. the **invocation budget** per class (`invocation_budget_exhausted`).
 
 Every refusal is recorded with its machine-readable reason.
 
-**The invocation allowance is consumed only by a dispatch that really starts a
+**The approval is external.** The gate is a mechanism, not an authorisation: a step
+policy that a caller constructs in-process — with an `approved_by` of its own choosing
+— authorises nothing. The authorisation is the **approval artifact** of the step: a
+JSON document that names the step, the approver, the moment of the approval, the call
+sites it covers and the exact policy it approves, and that carries an **RSA
+signature** (RSASSA-PKCS1-v1_5 over SHA-256) over its canonical form. The signature
+is verified against the **public** key that the repository pins in
+`benchmarks/evidence/r1_approval_key.json` (`core/r1_approval.py`); the private half
+of that key never enters this repository and never enters the process, so a caller
+that can only run code here cannot mint an approval.
+
+**R1 pins no key** — the pinned file carries `null`, because no step of the
+evidence-regeneration workflow has been approved by the maintainer yet. The
+consequence is the intended one: **no provider dispatch is possible in R1**, and it
+is impossible *structurally* — not only because the bounds of the container classes
+are required-but-unset. The approval binds the exact policy it approves: a caller
+that swaps a cap, a budget or a ceiling after the approval was issued does not hold
+the approval any more (`approval_policy_mismatch`), and an approval of another step
+does not cover this one (`call_site_not_approved`).
+
+The invocation allowance is consumed only by a dispatch that really starts a
 container.** The check and the increment happen under **one** lock, so two concurrent
 dispatches can never both pass the same remaining allowance; and the allowance is
 consumed **after** every other gate, immediately before the call. A refused attempt —
-the authorisation, the policy, the bounds, the egress, the ceiling, the payload cap,
-the **concurrency gate**, the read-back or the budget itself — starts no container, so
-it consumes nothing. The policy of the concurrency-refused attempt is therefore
-explicit: **it costs no invocation**, and the allowance stays intact for the next
-attempt (a test pins it).
+the authorisation, the policy, the approval, the bounds, the egress, the ceiling, the
+payload cap, the **concurrency gate**, the read-back or the budget itself — starts no
+container, so it consumes nothing. The policy of the concurrency-refused attempt is
+therefore explicit: **it costs no invocation**, and the allowance stays intact for the
+next attempt (a test pins it).
 
 **The guard at the function boundary.** Every provider callable of `modal_app.py` is
 guarded: the module-level functions in `r1.GuardedRemote`, the Modal **classes** in
@@ -310,25 +337,57 @@ reached the provider without the gate. Now:
 **The guard holds no provider object.** The R1 re-review named a second bypass: the
 wrappers kept the raw Modal objects in their own instance dictionaries (`_fn`, `_obj`,
 `_cls`), so a caller could reach the raw provider callable and call it without the
-gate. That is closed on two levels:
+gate. That is closed on three levels:
 
 1. **no attribute yields a raw provider callable.** The raw objects live in the
    module-private registry of `core/r1_bounds.py`; the guard objects hold only an
    opaque token and the call-site name, and every underscore-prefixed attribute is
-   refused outright instead of being delegated to the raw object. The class method is
-   resolved from the live instance *inside* the call, so it is a local variable of that
-   call and cannot be reached afterwards;
+   refused outright instead of being delegated to the raw object;
 2. **the guard is installed on the provider object itself** (`r1.GuardedProviderRemote`
    replaces the object's own `remote`). Every reference to that object — the
    module-level name, an import of it, the object in the registry — reaches the gate,
-   not the provider. The original entry point is captured before the replacement and
-   is the one the gate calls; the installation fails closed if it cannot be made.
+   not the provider. The installation fails closed if it cannot be made;
+3. **no provider entry point is captured or stored.** The entry point the provider
+   answers on is *not* kept: it stays in the provider object's own class and is
+   resolved from there at the moment of the call
+   (`core.r1_bounds._call_provider_entry_point`). The repository therefore holds **no
+   provider callable at all** — not in a closure, not in a registry, not in an
+   attribute of a guard. The resolver is private, it returns the *result* of the call
+   and never the callable, and it refuses to run outside the gate's dispatch method
+   (the check is against the **code object** of that method).
 
-The trust boundary is explicit: Python has no private memory, so a caller that
+**The class methods are guarded at their production boundary.** The provider SDK
+produces a **fresh** provider method on every attribute access of a class instance
+(`modal/cls.py:442`), so a guard that covers only the method it handed out leaves the
+next access unguarded — the bypass the re-review named: the raw class instance was
+reachable through the module's private registry, and the provider method resolved
+from it had an **unguarded** `remote`. The guard is therefore installed where the
+method is *produced*: the instance is moved to a subclass of its class whose
+attribute resolution hands out the guard (`core.r1_bounds._guarded_class_getattr`),
+so `getattr(raw_instance, "generate_solidity_exploit")` yields a
+`GuardedClassMethod` — for every method of the class, and for every access. The
+SDK's own resolver stays in the SDK's class: the guard reaches it through `super()`
+and never keeps a copy of it, so there is no registry and no closure through which
+the unguarded resolution could be reached.
+
+**The threat model is explicit.** Python has no private memory, so a caller that
 deliberately reads the module's underscore-prefixed registries can still reach a
-provider object. What the guard guarantees is the property the evidence needs — every
-provider entry point the repository hands out is gated, and the raw route the review
-named is closed on the object itself.
+*provider object* — and an adversary who can execute arbitrary code in the same
+process can patch the guard, the registries, the verifier or the gate itself, and
+can reach the provider SDK through the SDK's own internals (the async original of a
+function, the application's function registry, the class-descriptor protocol). That
+is a property of the language and of the process, not of this guard. What the guard
+*does* guarantee is the property the evidence needs, and it is auditable:
+
+* **every provider entry point this repository hands out is gated** — the module-level
+  names, the imports, the objects in the registries, the guards and the guarded
+  class instances;
+* **no provider callable is held anywhere in the repository** — not in a closure, not
+  in a registry, not in an attribute (a test invokes every callable the module holds,
+  including the contents of their closures, against a fake provider and requires zero
+  recorded calls);
+* **no provider dispatch is possible without a verified approval** — and R1 pins no
+  approval key, so no live provider dispatch is possible at all.
 
 **What the guard does not cover.** A manual `modal run` of the app's local entrypoint
 drives the GPU class methods directly, and Modal offers no way to revoke a deployed
@@ -350,6 +409,7 @@ authorisation of the operator, not by code.
 | the **capacity proof** of the storage | **unavailable** | the baseline of the remote Volume is not measured by this evidence (no Volume operation); it needs a read-only baseline measurement or a defensible conservative bound |
 | the **per-stage ceilings** | not approved | they are proposed in `docs/r1_cost_proposal.md` and await the maintainer's review |
 | every compute step | **not dispatchable** | the estimate is unavailable while the bounds above are unset, and an unavailable estimate means no dispatch |
+| every **provider dispatch** of R1 | **refused** | no step of the workflow is approved: the repository pins no approval key, so no approval artifact can be verified and the gate refuses with `approval_not_verified` — the refusal is structural, not a side effect of the unset bounds |
 
-Nothing in R1 spends a cent: the declared state is fail-closed, and the guard refuses
-every provider call while it holds.
+Nothing in R1 spends a cent: the declared state is fail-closed, the approval of every
+step is absent, and the guard refuses every provider call while it holds.

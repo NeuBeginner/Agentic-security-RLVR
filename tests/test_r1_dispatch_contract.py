@@ -128,6 +128,15 @@ def _provider_call_sites(path: Path) -> List[Tuple[str, str, str]]:
     """Every call chain of the file that reaches a provider's ``remote``.
 
     The result is a list of ``(enclosing function, callee, source)`` triples.
+
+    Two shapes reach the provider:
+
+    * an attribute call of ``remote`` - the shape of the call sites of the
+      repository; and
+    * a call of ``_call_provider_entry_point`` - the boundary of the workflow.
+      The entry point of the provider is no longer reached through a ``remote``
+      attribute: it is resolved from the provider object's own class, so the
+      resolver is the call site and the scanner has to know it.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     parents: Dict[int, ast.AST] = {}
@@ -135,9 +144,21 @@ def _provider_call_sites(path: Path) -> List[Tuple[str, str, str]]:
         for child in ast.iter_child_nodes(node):
             parents[id(child)] = node
 
+    def enclosing(node: ast.AST) -> str:
+        scope: Any = node
+        while scope is not None and not isinstance(
+            scope, (ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
+            scope = parents.get(id(scope))
+        return getattr(scope, "name", "<module>")
+
     sites: List[Tuple[str, str, str]] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name) and node.func.id == "_call_provider_entry_point":
+            callee = ast.unparse(node.args[0]) if node.args else "<unknown>"
+            sites.append((enclosing(node), callee, ast.unparse(node)[:120]))
             continue
         current: Any = node.func
         remote_attribute = None
@@ -147,12 +168,7 @@ def _provider_call_sites(path: Path) -> List[Tuple[str, str, str]]:
             current = current.value
         if remote_attribute is None:
             continue
-        scope: Any = node
-        while scope is not None and not isinstance(
-            scope, (ast.FunctionDef, ast.AsyncFunctionDef)
-        ):
-            scope = parents.get(id(scope))
-        function_name = getattr(scope, "name", "<module>")
+        function_name = enclosing(node)
         callee = ast.unparse(remote_attribute.value)
         sites.append((function_name, callee, ast.unparse(node)[:120]))
     return sites
@@ -362,7 +378,12 @@ def test_the_producer_dispatches_only_through_the_r1_gate():
 
 
 class FakeProviderObject:
-    """A double of a provider *object* - its 'remote' is the provider entry point."""
+    """A double of a provider *object* - its 'remote' is the provider entry point.
+
+    The entry point is a **class** attribute, exactly as in the provider SDK:
+    the guard resolves the entry point from the object's own class, so a double
+    has to declare it there.
+    """
 
     def __init__(self) -> None:
         self.calls = []
@@ -481,10 +502,13 @@ def test_the_guard_of_a_provider_object_is_installed_on_the_object_itself():
 
     assert fake.remote is not original
     assert isinstance(fake.remote, r1.GuardedProviderRemote)
-    # The original entry point is the one the gate calls - and it is not handed
-    # out: the module keeps no callable of it, only the primitive that performs
-    # the call from the gate.
-    assert original not in r1._CAPTURED_ENTRYPOINTS.values()
+    # The entry point is not held by the module: it stays in the object's own
+    # class and is resolved from there at the moment of the call. The module
+    # keeps no callable of it - not in a registry, not in a closure.
+    assert original not in vars(r1).values()
+    for registry in vars(r1).values():
+        if isinstance(registry, dict):
+            assert original not in registry.values()
 
 
 def test_a_local_double_substituted_on_a_guard_is_called_instead_of_the_provider():
@@ -520,7 +544,7 @@ def _install_fake_provider(monkeypatch, name: str) -> FakeProviderObject:
     return fake
 
 
-def test_an_approved_dispatch_reaches_the_provider_exactly_once(monkeypatch):
+def test_an_approved_dispatch_reaches_the_provider_exactly_once(monkeypatch, verified_approval):
     """The whole path - guard, gate, provider - runs once and is billed once.
 
     This is the end-to-end proof of the reworked guard: the guarded call is
@@ -530,9 +554,11 @@ def test_an_approved_dispatch_reaches_the_provider_exactly_once(monkeypatch):
     world = _approved_world()
     fake = _install_fake_provider(monkeypatch, "verify_exploit_remote")
     wrapper = r1.GuardedRemote(fake, "verify_exploit_remote")
+    policy = _policy(invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1})
 
     with r1_dispatch.authorised_step(
-        _policy(invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1}),
+        policy,
+        approval=verified_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     ) as gate:
@@ -544,13 +570,15 @@ def test_an_approved_dispatch_reaches_the_provider_exactly_once(monkeypatch):
     assert len(gate.dispatched()) == 1
 
 
-def test_the_boundary_guard_dispatches_through_the_same_gate(monkeypatch):
+def test_the_boundary_guard_dispatches_through_the_same_gate(monkeypatch, verified_approval):
     """The guard on the provider object's own 'remote' uses the single gate."""
     world = _approved_world()
     fake = _install_fake_provider(monkeypatch, "verify_exploit_remote")
+    policy = _policy(invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1})
 
     with r1_dispatch.authorised_step(
-        _policy(invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1}),
+        policy,
+        approval=verified_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     ) as gate:
@@ -562,7 +590,7 @@ def test_the_boundary_guard_dispatches_through_the_same_gate(monkeypatch):
 
 
 # --------------------------------------------------------------------------------------
-# F2 - the captured provider entry point is not reachable
+# F2 - the provider entry point is not reachable
 # --------------------------------------------------------------------------------------
 #
 # The R1 re-review named the public accessor 'original_entrypoint' as a direct
@@ -571,9 +599,11 @@ def test_the_boundary_guard_dispatches_through_the_same_gate(monkeypatch):
 # container without the gate, without the invocation budget and without the
 # declared bounds.
 #
-# The rule these tests state: **no route of the repository reaches the captured
-# provider entry point**. The captured callable is called by the R1 gate and by
-# nothing else, and the call is refused while the bounds are unset.
+# The correction goes further than removing the accessor: the repository holds
+# **no** provider entry point at all. The entry point stays in the provider
+# object's own class, and it is resolved from there at the moment of the call -
+# by the R1 gate and by nothing else. The rule these tests state: **no route of
+# the repository reaches an invocable provider entry point**.
 
 
 def _install_bare_fake_provider(name: str) -> Tuple[FakeProviderObject, Any]:
@@ -625,6 +655,12 @@ def test_the_module_has_no_accessor_for_the_captured_entry_point():
     assert not hasattr(r1, "_ORIGINAL_ENTRYPOINTS")
 
 
+def test_the_module_holds_no_dispatch_primitive():
+    """The primitive of the old design is gone: there is nothing to capture."""
+    assert not hasattr(r1, "_CAPTURED_ENTRYPOINTS")
+    assert not hasattr(r1, "_make_captured_entrypoint")
+
+
 def test_no_public_function_of_the_guard_module_returns_a_provider_object():
     """No public function of the module may hand a provider object to a caller.
 
@@ -646,7 +682,8 @@ def test_no_public_function_of_the_guard_module_returns_a_provider_object():
         "_guarded_object",
         "_unwrap_guard",
         "_perform_provider_call",
-        "_make_captured_entrypoint",
+        "_call_provider_entry_point",
+        "_raw_class_method",
     }
     offenders = []
     for node in tree.body:
@@ -672,17 +709,6 @@ def test_no_public_function_of_the_guard_module_returns_a_provider_object():
     assert offenders == [], f"public functions hand out provider objects: {offenders}"
 
 
-def test_the_captured_primitive_refuses_a_call_outside_the_gate():
-    """The captured entry point is called by the gate and by nothing else."""
-    name = "r1_test_raw_entrypoint_primitive"
-    fake, _original = _install_bare_fake_provider(name)
-
-    primitive = r1._CAPTURED_ENTRYPOINTS[name]
-    with pytest.raises(r1.UnauthorisedCallSite):
-        primitive({"x": 1})
-    assert fake.calls == []
-
-
 def test_the_provider_call_primitive_refuses_a_call_outside_the_gate():
     """The innermost provider call is the gate's - not the repository's."""
     name = "r1_test_raw_entrypoint_perform"
@@ -690,6 +716,16 @@ def test_the_provider_call_primitive_refuses_a_call_outside_the_gate():
 
     with pytest.raises(r1.UnauthorisedCallSite):
         r1._perform_provider_call(name, fake, {"x": 1})
+    assert fake.calls == []
+
+
+def test_the_entry_point_resolver_refuses_a_call_outside_the_gate():
+    """The resolver of the provider entry point is the gate's - not the repository's."""
+    name = "r1_test_raw_entrypoint_resolver"
+    fake, _original = _install_bare_fake_provider(name)
+
+    with pytest.raises(r1.UnauthorisedCallSite):
+        r1._call_provider_entry_point(fake, {"x": 1})
     assert fake.calls == []
 
 
@@ -848,12 +884,16 @@ def test_a_malformed_field_in_the_read_back_is_refused(field_name):
 
 
 @pytest.mark.parametrize("field_name", r1.AUTOSCALER_FIELDS)
-def test_a_mismatching_field_in_the_read_back_is_refused(field_name):
+def test_a_mismatching_field_in_the_read_back_is_refused(field_name, verified_approval):
     world = _approved_world()
     payload = _settings()
     payload[field_name] = payload[field_name] + 1 if field_name != "scaledown_window" else 61
+    policy = _policy()
     gate = r1_dispatch.DispatchGate(
-        policy=_policy(), autoscaler_reader=lambda *_: payload, **world
+        policy=policy,
+        approval=verified_approval(policy),
+        autoscaler_reader=lambda *_: payload,
+        **world,
     )
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
@@ -863,12 +903,16 @@ def test_a_mismatching_field_in_the_read_back_is_refused(field_name):
     assert fake.calls == []
 
 
-def test_a_partial_read_back_is_never_accepted():
+def test_a_partial_read_back_is_never_accepted(verified_approval):
     """A read-back that carries only some of the fields is refused."""
     world = _approved_world()
     payload = {"min_containers": 0, "max_containers": 48}
+    policy = _policy()
     gate = r1_dispatch.DispatchGate(
-        policy=_policy(), autoscaler_reader=lambda *_: payload, **world
+        policy=policy,
+        approval=verified_approval(policy),
+        autoscaler_reader=lambda *_: payload,
+        **world,
     )
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
@@ -899,13 +943,19 @@ def test_the_provider_read_back_is_opt_in():
         r1_dispatch.provider_autoscaler_reader(None, "verify_exploit_remote")
 
 
-def test_an_unavailable_read_back_refuses_the_dispatch():
+def test_an_unavailable_read_back_refuses_the_dispatch(verified_approval):
     world = _approved_world()
 
     def unavailable(target, function_name=""):
         raise r1_dispatch.AutoscalerReadbackUnavailable("no read-only read available")
 
-    gate = r1_dispatch.DispatchGate(policy=_policy(), autoscaler_reader=unavailable, **world)
+    policy = _policy()
+    gate = r1_dispatch.DispatchGate(
+        policy=policy,
+        approval=verified_approval(policy),
+        autoscaler_reader=unavailable,
+        **world,
+    )
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
         gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
@@ -976,14 +1026,16 @@ def test_a_gpu_payload_cap_of_zero_is_only_possible_with_the_provider_blocking()
 # --------------------------------------------------------------------------------------
 
 
-def test_the_invocation_allowance_is_consumed_atomically_under_concurrency():
+def test_the_invocation_allowance_is_consumed_atomically_under_concurrency(verified_approval):
     """Two concurrent dispatches may never both pass the same remaining allowance."""
     world = _approved_world()
+    policy = _policy(
+        invocation_budgets={r1.SANDBOX_CPU: 3, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1},
+        concurrency_caps={r1.SANDBOX_CPU: 8, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1},
+    )
     gate = r1_dispatch.DispatchGate(
-        policy=_policy(
-            invocation_budgets={r1.SANDBOX_CPU: 3, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1},
-            concurrency_caps={r1.SANDBOX_CPU: 8, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1},
-        ),
+        policy=policy,
+        approval=verified_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     )
@@ -1014,19 +1066,21 @@ def test_the_invocation_allowance_is_consumed_atomically_under_concurrency():
     assert gate.used_allowance(r1.SANDBOX_CPU) == 3
 
 
-def test_a_refused_attempt_does_not_consume_the_invocation_allowance():
+def test_a_refused_attempt_does_not_consume_the_invocation_allowance(verified_approval):
     """The policy of the concurrency-refused attempt: it costs no invocation.
 
     A dispatch that the concurrency gate refuses starts no container, so it may
     not cost an invocation: the allowance stays intact for the next attempt.
     """
     world = _approved_world()
+    policy = _policy(
+        invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1},
+        concurrency_caps={r1.SANDBOX_CPU: 1, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1},
+        wall_clock_budget_sec=1.0,
+    )
     gate = r1_dispatch.DispatchGate(
-        policy=_policy(
-            invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1},
-            concurrency_caps={r1.SANDBOX_CPU: 1, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1},
-            wall_clock_budget_sec=1.0,
-        ),
+        policy=policy,
+        approval=verified_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     )
@@ -1069,7 +1123,7 @@ def test_a_refused_attempt_does_not_consume_the_invocation_allowance():
         "autoscaler_readback_mismatch",
     ],
 )
-def test_every_refusal_leaves_the_invocation_allowance_untouched(reason):
+def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, verified_approval):
     """No refusal consumes an invocation: only a real dispatch does."""
     world = _approved_world()
     policy = _policy(
@@ -1079,7 +1133,10 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason):
     if reason == "autoscaler_readback_mismatch":
         payload["max_containers"] = payload["max_containers"] + 1
     gate = r1_dispatch.DispatchGate(
-        policy=policy, autoscaler_reader=lambda *_: payload, **world
+        policy=policy,
+        approval=verified_approval(policy),
+        autoscaler_reader=lambda *_: payload,
+        **world,
     )
     fake = FakeProviderCallable()
 
@@ -1092,24 +1149,28 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason):
         call = lambda: gate_no_policy.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     elif reason == "bounds_not_approved":
         gate_unbounded = r1_dispatch.DispatchGate(
-            policy=policy, autoscaler_reader=lambda *_: payload
+            policy=policy, approval=verified_approval(policy), autoscaler_reader=lambda *_: payload
         )
         call = lambda: gate_unbounded.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     elif reason == "deployed_ceiling_too_low":
+        high_policy = _policy(
+            invocation_budgets={r1.SANDBOX_CPU: 5, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1},
+            concurrency_caps={r1.SANDBOX_CPU: 49, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1},
+        )
         gate_high = r1_dispatch.DispatchGate(
-            policy=_policy(
-                invocation_budgets={r1.SANDBOX_CPU: 5, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1},
-                concurrency_caps={r1.SANDBOX_CPU: 49, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1},
-            ),
+            policy=high_policy,
+            approval=verified_approval(high_policy),
             autoscaler_reader=lambda *_: payload,
             **world,
         )
         call = lambda: gate_high.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     elif reason == "invocation_budget_exhausted":
+        small_policy = _policy(
+            invocation_budgets={r1.SANDBOX_CPU: 1, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1}
+        )
         gate_small = r1_dispatch.DispatchGate(
-            policy=_policy(
-                invocation_budgets={r1.SANDBOX_CPU: 1, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1}
-            ),
+            policy=small_policy,
+            approval=verified_approval(small_policy),
             autoscaler_reader=lambda *_: payload,
             **world,
         )
