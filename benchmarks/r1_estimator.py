@@ -9,12 +9,37 @@ reviews forced:
   concurrency cap may never clamp a cumulative quantity (D27, D29);
 * the **storage interval is a sum**: the execution, the bounded post-execution
   interval before the publication, and the retention - not the two-term sum of the
-  earlier draft (D28).
+  earlier draft (D28);
+* the **storage is priced once, on the cycle's footprint** (D28, the maintainer's
+  rule of the free tier): the provider's published allowance of **1 TiB/month** of
+  volume storage is an account-level monthly allowance, so it is applied **once**
+  to the cycle's time-weighted footprint - never per stage. Inside the allowance
+  the storage of a run costs **USD 0**; the footprint itself is still computed
+  (peak and time-weighted) and an excess is flagged.
+
+**One accounting model, one command.** The numbers of the cost proposal are
+produced by exactly one command::
+
+    python -m benchmarks.r1_estimator --scenario benchmarks/evidence/r1_cost_scenario.json --provisional
+
+The model has three parts and no fourth:
+
+1. the **direct terms** of a stage - CPU, memory, GPU and egress - are additive over
+   the cycle (they do not overlap in time);
+2. the **storage** is priced once on the cycle's footprint and is then *allocated*
+   back to the stages in proportion to their footprint x duration share, so the sum
+   of the per-stage totals is exactly the cycle total - the standing baseline is
+   never priced twice;
+3. the **worst case** of a stage is the sum of its direct terms and its storage
+   share; the cycle total is the sum of the stage totals, and the headroom is the
+   difference to the cycle cap.
 
 The estimator is fail-closed: if a bound or a rate is missing, the estimate is
 *unavailable* with its reasons, and an unavailable estimate means the step is not
 dispatchable. No rate is hardcoded in the repository - the rate card is an approval
-input with its source and its reading date.
+input with its source and its reading date. Every result is
+``PROVISIONAL_ONLY / NOT_DISPATCHABLE`` until the maintainer approves it, and a
+cycle that does not fit the cap is reported as exactly ``BUDGET_INFEASIBLE``.
 """
 
 from __future__ import annotations
@@ -32,11 +57,14 @@ from core.r1_bounds import (
     GPU_CLASS,
     PERSISTENCE,
     SANDBOX_CPU,
+    STORAGE_FREE_ALLOWANCE_GIB_PER_MONTH,
+    STORAGE_FREE_ALLOWANCE_SOURCE,
     Unset,
     egress_policy,
     is_unset,
     profile_for,
 )
+
 #: The shortest calendar month - the conservative calendar treatment of the plan.
 DAYS_PER_MONTH_BOUND = 28.0
 SECONDS_PER_DAY = 86400.0
@@ -44,6 +72,15 @@ SECONDS_PER_DAY = 86400.0
 DEFAULT_RETENTION_SEC = 30 * SECONDS_PER_DAY
 
 GIB = 1024.0 ** 3
+
+#: The status of every estimate of this repository until the maintainer approves
+#: the bounds, the rate card and the stages.
+PROVISIONAL_STATUS = "PROVISIONAL_ONLY / NOT_DISPATCHABLE"
+
+#: The verdict of a cycle that fits the cap, and of one that does not.
+VERDICT_WITHIN_BUDGET = "WITHIN_BUDGET"
+VERDICT_INFEASIBLE = "BUDGET_INFEASIBLE"
+VERDICT_UNAVAILABLE = "UNAVAILABLE"
 
 
 @dataclass(frozen=True)
@@ -58,6 +95,8 @@ class RateCard:
     source: str
     read_at: str
     approved_by: Optional[str] = None
+    #: The provider's published free allowance of volume storage, in GiB/month.
+    storage_free_allowance_gib_per_month: float = STORAGE_FREE_ALLOWANCE_GIB_PER_MONTH
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RateCard":
@@ -74,6 +113,7 @@ class RateCard:
         ]
         if missing:
             raise ValueError(f"the rate card is missing: {', '.join(missing)}")
+        allowance = data.get("storage_free_allowance_gib_per_month")
         return cls(
             cpu_per_core_sec=float(data["cpu_per_core_sec"]),
             memory_per_gib_sec=float(data["memory_per_gib_sec"]),
@@ -83,6 +123,11 @@ class RateCard:
             source=str(data.get("source", "<no source>")),
             read_at=str(data.get("read_at", "<no date>")),
             approved_by=data.get("approved_by"),
+            storage_free_allowance_gib_per_month=(
+                STORAGE_FREE_ALLOWANCE_GIB_PER_MONTH
+                if allowance is None
+                else float(allowance)
+            ),
         )
 
     @classmethod
@@ -111,6 +156,9 @@ class StepInputs:
     #: at a time, so the step's egress is bounded by invocations x the largest
     #: per-invocation cap.
     egress_functions: Dict[str, List[str]] = field(default_factory=dict)
+    #: The monetary ceiling proposed for this stage - the number the stage's worst
+    #: case is reconciled against. It is a candidate, never an approval.
+    ceiling_usd: Optional[float] = None
 
 
 @dataclass
@@ -123,6 +171,7 @@ class StepEstimate:
     terms_usd: Dict[str, float] = field(default_factory=dict)
     quantities: Dict[str, Any] = field(default_factory=dict)
     unavailable_reasons: List[str] = field(default_factory=list)
+    ceiling_usd: Optional[float] = None
 
     def to_record(self) -> Dict[str, Any]:
         return {
@@ -132,6 +181,7 @@ class StepEstimate:
             "terms_usd": self.terms_usd,
             "quantities": self.quantities,
             "unavailable_reasons": self.unavailable_reasons,
+            "ceiling_usd": self.ceiling_usd,
         }
 
 
@@ -161,7 +211,13 @@ def estimate_step(
     egress_policies: Optional[Dict[str, Any]] = None,
     allow_unapproved_rate_card: bool = False,
 ) -> StepEstimate:
-    """Estimate one step, or explain why the estimate is unavailable."""
+    """Estimate the **direct** terms of one step, or explain why it is unavailable.
+
+    The direct terms are the CPU, the memory, the GPU and the egress. The storage
+    is **not** priced here: it is priced once on the cycle's footprint by
+    :func:`aggregate_cycle` and allocated back to the stages, so the standing
+    baseline is never priced twice.
+    """
     reasons: List[str] = []
     terms: Dict[str, float] = {}
     quantities: Dict[str, Any] = {}
@@ -247,7 +303,8 @@ def estimate_step(
         if rate_card is not None and egress_complete:
             terms[f"egress_{container_class}"] = (egress_bytes / GIB) * rate_card.egress_per_gib
 
-    # D28: the volume quantity and the storage interval.
+    # D28: the volume footprint of the stage. The footprint is always reported -
+    # the cost of it depends on the cycle's allowance.
     if is_unset(step.baseline_gib):
         reasons.append("the volume baseline is not measured")
     if is_unset(step.incremental_gib):
@@ -258,23 +315,17 @@ def estimate_step(
         reasons.append("the post-execution deadline before the publication is not declared")
 
     if not reasons and rate_card is not None:
-        t_store = float(step.t_exec_sec) + float(step.t_post_exec_to_publication_sec) + float(step.t_retention_sec)  # type: ignore[arg-type]
-        months = _months(t_store)
+        t_store = float(step.t_exec_sec) + float(step.t_post_exec_to_publication_sec)  # type: ignore[arg-type]
         volume_gib = float(step.baseline_gib) + float(step.incremental_gib)  # type: ignore[arg-type]
-        volume_gib_months = volume_gib * months
         quantities["volume"] = {
-            "baseline_gib": volume_gib - float(step.incremental_gib),  # type: ignore[arg-type]
+            "baseline_gib": float(step.baseline_gib),  # type: ignore[arg-type]
             "incremental_gib": float(step.incremental_gib),  # type: ignore[arg-type]
             "volume_gib": volume_gib,
             "t_exec_sec": float(step.t_exec_sec),  # type: ignore[arg-type]
             "t_post_exec_to_publication_sec": float(step.t_post_exec_to_publication_sec),  # type: ignore[arg-type]
-            "t_retention_sec": float(step.t_retention_sec),
             "t_store_sec": t_store,
             "t_store_days": t_store / SECONDS_PER_DAY,
-            "months": months,
-            "volume_gib_months": volume_gib_months,
         }
-        terms["volume_storage"] = volume_gib_months * rate_card.volume_per_gib_month
 
     if reasons or rate_card is None:
         return StepEstimate(
@@ -284,6 +335,7 @@ def estimate_step(
             terms_usd=terms,
             quantities=quantities,
             unavailable_reasons=reasons,
+            ceiling_usd=step.ceiling_usd,
         )
 
     total = sum(terms.values())
@@ -294,6 +346,7 @@ def estimate_step(
         terms_usd=terms,
         quantities=quantities,
         unavailable_reasons=[],
+        ceiling_usd=step.ceiling_usd,
     )
 
 
@@ -310,58 +363,181 @@ def _policies_for_class(
     }
 
 
+# --------------------------------------------------------------------------------------
+# The storage footprint (D28) - one model, priced once
+# --------------------------------------------------------------------------------------
+
+
+def storage_timeline(
+    estimates: Sequence[StepEstimate], t_retention_sec: float = DEFAULT_RETENTION_SEC
+) -> List[Dict[str, Any]]:
+    """The footprint of the volume over the cycle, segment by segment.
+
+    The worst case is assumed: a stage's increment is present for the **whole** of
+    the stage's window, and the standing baseline of the next stage is the
+    footprint the previous stage left behind. The last segment is the retention
+    interval, at the final footprint.
+    """
+    segments: List[Dict[str, Any]] = []
+    for estimate in estimates:
+        volume = estimate.quantities.get("volume")
+        if not volume:
+            continue
+        duration = float(volume["t_exec_sec"]) + float(volume["t_post_exec_to_publication_sec"])
+        segments.append(
+            {
+                "step_id": estimate.step_id,
+                "kind": "stage",
+                "duration_sec": duration,
+                "footprint_gib": float(volume["volume_gib"]),
+            }
+        )
+    if segments:
+        # The retention interval belongs to the last stage: it is that stage's
+        # storage that is retained, so its cost is allocated to it and not lost.
+        segments.append(
+            {
+                "step_id": segments[-1]["step_id"],
+                "kind": "retention",
+                "duration_sec": float(t_retention_sec),
+                "footprint_gib": segments[-1]["footprint_gib"],
+            }
+        )
+    return segments
+
+
+def storage_account(
+    segments: Sequence[Dict[str, Any]],
+    rate_card: Optional[RateCard],
+    t_retention_sec: float = DEFAULT_RETENTION_SEC,
+) -> Dict[str, Any]:
+    """Price the storage of the cycle **once**, on its footprint.
+
+    The provider's allowance is an account-level monthly allowance, so it is applied
+    once to the cycle: inside the allowance the storage costs USD 0, and only the
+    excess above the allowance is billed.
+    """
+    total_seconds = sum(float(segment["duration_sec"]) for segment in segments)
+    weighted_gib_seconds = sum(
+        float(segment["duration_sec"]) * float(segment["footprint_gib"])
+        for segment in segments
+    )
+    months = _months(total_seconds) if total_seconds else 1
+    # The month unit of the quantity: 28 days. The calendar month count above is
+    # the conservative treatment of the *window*; the allowance has to be
+    # expressed in the same unit as the quantity it offsets, otherwise a short
+    # window would be credited with more free storage than it can hold.
+    month_units = total_seconds / (DAYS_PER_MONTH_BOUND * SECONDS_PER_DAY)
+    gib_months = weighted_gib_seconds / (DAYS_PER_MONTH_BOUND * SECONDS_PER_DAY)
+    allowance_per_month = (
+        rate_card.storage_free_allowance_gib_per_month if rate_card else STORAGE_FREE_ALLOWANCE_GIB_PER_MONTH
+    )
+    allowance_gib_months = allowance_per_month * month_units
+    billable_gib_months = max(0.0, gib_months - allowance_gib_months)
+    storage_usd = (
+        billable_gib_months * rate_card.volume_per_gib_month if rate_card else 0.0
+    )
+    peak_gib = max((float(segment["footprint_gib"]) for segment in segments), default=0.0)
+    time_weighted_gib = weighted_gib_seconds / total_seconds if total_seconds else 0.0
+    return {
+        "segments": list(segments),
+        "total_window_sec": total_seconds,
+        "total_window_days": total_seconds / SECONDS_PER_DAY,
+        "months": months,
+        "month_units": month_units,
+        "peak_footprint_gib": peak_gib,
+        "time_weighted_footprint_gib": time_weighted_gib,
+        "footprint_gib_months": gib_months,
+        "free_allowance_gib_per_month": allowance_per_month,
+        "free_allowance_gib_months": allowance_gib_months,
+        "billable_gib_months": billable_gib_months,
+        "storage_usd": storage_usd,
+        "within_free_allowance": billable_gib_months == 0.0,
+        "allowance_source": STORAGE_FREE_ALLOWANCE_SOURCE,
+    }
+
+
 def aggregate_cycle(
     estimates: Sequence[StepEstimate],
     rate_card: Optional[RateCard],
-    baseline_gib: float = 0.0,
-    total_incremental_gib: float = 0.0,
-    total_t_exec_sec: float = 0.0,
-    max_t_post_exec_sec: float = 0.0,
     t_retention_sec: float = DEFAULT_RETENTION_SEC,
     cycle_cap_usd: float = 20.0,
 ) -> Dict[str, Any]:
-    """The worst-case aggregate of the whole cycle.
+    """The worst case of the whole cycle, in one accounting model.
 
-    The compute and the egress terms are summed per step - they do not overlap. The
-    **storage** term is not: the volume's bytes exist from the first write until the
-    deletion is verified, so the cycle prices them **once** over the cycle's window
-    instead of pricing the same standing baseline in every step's window.
+    The direct terms of the stages are additive. The storage is priced **once** on
+    the cycle's footprint and is then allocated back to the stages in proportion to
+    their footprint x duration share, so that the sum of the per-stage totals is
+    exactly the cycle total.
     """
-    compute_and_egress = 0.0
-    per_step_storage = 0.0
     unavailable: List[str] = []
+    direct_total = 0.0
     for estimate in estimates:
         if not estimate.available:
-            unavailable.extend(f"{estimate.step_id}: {reason}" for reason in estimate.unavailable_reasons)
+            unavailable.extend(
+                f"{estimate.step_id}: {reason}" for reason in estimate.unavailable_reasons
+            )
             continue
-        for name, value in estimate.terms_usd.items():
-            if name == "volume_storage":
-                per_step_storage += value
-            else:
-                compute_and_egress += value
+        direct_total += float(estimate.total_usd or 0.0)
 
-    t_store = total_t_exec_sec + max_t_post_exec_sec + t_retention_sec
-    months = _months(t_store)
-    volume_gib = baseline_gib + total_incremental_gib
-    cycle_storage_usd = volume_gib * months * (rate_card.volume_per_gib_month if rate_card else 0.0)
-    total = compute_and_egress + cycle_storage_usd
+    segments = storage_timeline(estimates, t_retention_sec=t_retention_sec)
+    storage = storage_account(segments, rate_card, t_retention_sec=t_retention_sec)
+    storage_usd = float(storage["storage_usd"])
+
+    weighted_total = sum(
+        float(segment["duration_sec"]) * float(segment["footprint_gib"])
+        for segment in segments
+    )
+    allocation: Dict[str, float] = {}
+    for segment in segments:
+        share = 0.0
+        if weighted_total:
+            share = (
+                float(segment["duration_sec"]) * float(segment["footprint_gib"]) / weighted_total
+            )
+        allocation[segment["step_id"]] = allocation.get(segment["step_id"], 0.0) + share
+
+    steps: List[Dict[str, Any]] = []
+    total = 0.0
+    for estimate in estimates:
+        record = estimate.to_record()
+        share = allocation.get(estimate.step_id, 0.0)
+        storage_share_usd = storage_usd * share
+        record["terms_usd"] = dict(record["terms_usd"])
+        record["terms_usd"]["volume_storage"] = storage_share_usd
+        stage_total = float(estimate.total_usd or 0.0) + storage_share_usd
+        record["total_usd"] = stage_total if estimate.available else None
+        record["storage_share"] = share
+        ceiling = estimate.ceiling_usd
+        record["headroom_usd"] = (
+            None if ceiling is None or not estimate.available else float(ceiling) - stage_total
+        )
+        record["within_ceiling"] = (
+            None if ceiling is None or not estimate.available else stage_total <= float(ceiling)
+        )
+        steps.append(record)
+        if estimate.available:
+            total += stage_total
+
+    headroom = cycle_cap_usd - total
+    if unavailable:
+        verdict = VERDICT_UNAVAILABLE
+    elif total > cycle_cap_usd:
+        verdict = VERDICT_INFEASIBLE
+    else:
+        verdict = VERDICT_WITHIN_BUDGET
+
     return {
-        "compute_and_egress_usd": compute_and_egress,
-        "cycle_storage_usd": cycle_storage_usd,
-        "naive_sum_of_per_step_storage_usd": per_step_storage,
+        "status": PROVISIONAL_STATUS,
+        "verdict": verdict,
+        "direct_terms_usd": direct_total,
+        "storage": storage,
+        "cycle_storage_usd": storage_usd,
+        "steps": steps,
         "total_usd": total,
         "cycle_cap_usd": cycle_cap_usd,
-        "headroom_usd": cycle_cap_usd - total,
+        "headroom_usd": headroom,
         "within_cap": total <= cycle_cap_usd,
-        "storage_window": {
-            "t_exec_sec": total_t_exec_sec,
-            "t_post_exec_to_publication_sec": max_t_post_exec_sec,
-            "t_retention_sec": t_retention_sec,
-            "t_store_sec": t_store,
-            "t_store_days": t_store / SECONDS_PER_DAY,
-            "months": months,
-            "volume_gib": volume_gib,
-        },
         "unavailable_reasons": unavailable,
     }
 
@@ -385,10 +561,6 @@ def run_scenario(
     estimates: List[StepEstimate] = []
     profiles: Dict[str, Any] = {}
     egress_policies: Dict[str, Any] = {}
-    baseline = float(scenario.get("baseline_gib", 0.0))
-    total_incremental = 0.0
-    total_t_exec = 0.0
-    max_t_post = 0.0
 
     for step_data in scenario.get("steps", []):
         overrides_by_class = step_data.get("candidate_bounds", {})
@@ -404,11 +576,12 @@ def run_scenario(
                 continue
             egress_policies[function_name] = dataclasses.replace(policy, **overrides)
 
+        ceiling = step_data.get("proposed_ceiling_usd")
         step = StepInputs(
             step_id=step_data["step_id"],
             invocations={k: int(v) for k, v in step_data.get("invocations", {}).items()},
             concurrency_caps={k: int(v) for k, v in step_data.get("concurrency_caps", {}).items()},
-            baseline_gib=step_data.get("baseline_gib", baseline),
+            baseline_gib=step_data.get("baseline_gib", scenario.get("baseline_gib", 0.0)),
             incremental_gib=step_data.get("incremental_gib", 0.0),
             t_exec_sec=step_data.get("t_exec_sec"),
             t_post_exec_to_publication_sec=step_data.get("t_post_exec_to_publication_sec"),
@@ -417,6 +590,7 @@ def run_scenario(
                 container_class: list(names)
                 for container_class, names in step_data.get("egress_functions", {}).items()
             },
+            ceiling_usd=None if ceiling is None else float(ceiling),
         )
         estimates.append(
             estimate_step(
@@ -427,21 +601,17 @@ def run_scenario(
                 allow_unapproved_rate_card=allow_unapproved_rate_card,
             )
         )
-        total_incremental += float(step_data.get("incremental_gib", 0.0) or 0.0)
-        total_t_exec += float(step_data.get("t_exec_sec", 0.0) or 0.0)
-        max_t_post = max(max_t_post, float(step_data.get("t_post_exec_to_publication_sec", 0.0) or 0.0))
 
     aggregate = aggregate_cycle(
         estimates,
         rate_card,
-        baseline_gib=baseline,
-        total_incremental_gib=total_incremental,
-        total_t_exec_sec=total_t_exec,
-        max_t_post_exec_sec=max_t_post,
+        t_retention_sec=float(scenario.get("t_retention_sec", DEFAULT_RETENTION_SEC)),
         cycle_cap_usd=float(scenario.get("cycle_cap_usd", 20.0)),
     )
     return {
-        "steps": [estimate.to_record() for estimate in estimates],
+        "status": PROVISIONAL_STATUS,
+        "verdict": aggregate["verdict"],
+        "steps": aggregate["steps"],
         "aggregate": aggregate,
     }
 
@@ -465,19 +635,44 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+
+    print(f"status: {result['status']}")
     for step in result["steps"]:
-        state = "AVAILABLE" if step["available"] else "UNAVAILABLE"
-        total = "n/a" if step["total_usd"] is None else f"${step['total_usd']:.4f}"
-        print(f"{step['step_id']:<6} {state:<12} total={total}")
+        if not step["available"]:
+            print(f"{step['step_id']:<6} UNAVAILABLE")
+            for reason in step["unavailable_reasons"]:
+                print(f"    ! {reason}")
+            continue
+        total = float(step["total_usd"])
+        ceiling = step.get("ceiling_usd")
+        if ceiling is None:
+            print(f"{step['step_id']:<6} worst_case=${total:.4f}")
+        else:
+            headroom = step.get("headroom_usd")
+            within = step.get("within_ceiling")
+            print(
+                f"{step['step_id']:<6} worst_case=${total:.4f} ceiling=${float(ceiling):.2f} "
+                f"headroom=${float(headroom):.4f} within_ceiling={within}"
+            )
         for name, value in sorted(step["terms_usd"].items()):
             print(f"    {name:<28} ${value:.6f}")
-        for reason in step["unavailable_reasons"]:
-            print(f"    ! {reason}")
     aggregate = result["aggregate"]
+    storage = aggregate["storage"]
     print(
-        f"cycle  total=${aggregate['total_usd']:.4f} cap=${aggregate['cycle_cap_usd']:.2f} "
+        f"storage: peak={storage['peak_footprint_gib']:.3f} GiB "
+        f"time_weighted={storage['time_weighted_footprint_gib']:.3f} GiB "
+        f"footprint={storage['footprint_gib_months']:.2f} GiB-month "
+        f"allowance={storage['free_allowance_gib_months']:.2f} GiB-month "
+        f"billable={storage['billable_gib_months']:.2f} GiB-month "
+        f"cost=${storage['storage_usd']:.6f}"
+    )
+    print(
+        f"cycle  worst_case=${aggregate['total_usd']:.4f} cap=${aggregate['cycle_cap_usd']:.2f} "
         f"headroom=${aggregate['headroom_usd']:.4f} within_cap={aggregate['within_cap']}"
     )
+    print(f"verdict: {aggregate['verdict']} ({result['status']})")
+    for reason in aggregate["unavailable_reasons"]:
+        print(f"    ! {reason}")
     return 0
 
 
@@ -487,12 +682,18 @@ if __name__ == "__main__":  # pragma: no cover
 
 __all__ = [
     "DEFAULT_RETENTION_SEC",
+    "PROVISIONAL_STATUS",
     "RateCard",
     "StepEstimate",
     "StepInputs",
+    "VERDICT_INFEASIBLE",
+    "VERDICT_UNAVAILABLE",
+    "VERDICT_WITHIN_BUDGET",
     "aggregate_cycle",
     "apply_candidate_bounds",
     "estimate_step",
     "main",
     "run_scenario",
+    "storage_account",
+    "storage_timeline",
 ]

@@ -9,7 +9,9 @@
     "The candidate bounds are the input of the cost proposal (docs/r1_cost_proposal.md). The numbers of that document are produced by: python -m benchmarks.r1_estimator --scenario benchmarks/evidence/r1_cost_scenario.json",
     "pinned_bytes = 61077997602 (the pinned revision 655425b794ae4a19f2ea16fa480c6b39102721ee of qtum/Qwen3-Coder-30B-A3B-Audit, measured 2026-11-11) = 56.888 GiB.",
     "The prefetch's payload cap is pinned_bytes x (1 + R_download) with R_download = 1: 122155995204 bytes.",
-    "The protocol allowance is 1 MiB per container: the workspace's own published billing export shows 0.00013117 USD of network egress (3.35 MB) for a whole app session on 2026-11-09, i.e. the measured order of magnitude of the control-plane and volume data-path traffic."
+    "The protocol allowance is 1 MiB per container: the workspace's own published billing export shows 0.00013117 USD of network egress (3.35 MB) for a whole app session on 2026-11-09, i.e. the measured order of magnitude of the control-plane and volume data-path traffic.",
+    "The storage is NOT priced per stage: the provider's published 1 TiB/month allowance (1024 GiB/month) is applied once to the cycle's time-weighted footprint, so the storage of this cycle costs USD 0.00 while the footprint (peak 56.908 GiB, time-weighted 56.906 GiB, 69.58 GiB-month) stays inside it. The footprint is computed and reported in every run.",
+    "The GPU payload cap is 0 because the GPU class declares the provider-enforced block_network; the alternative (a conservative non-zero cap) is priced in docs/r1_cost_proposal.md and is BUDGET_INFEASIBLE."
   ],
   "steps": [
     {

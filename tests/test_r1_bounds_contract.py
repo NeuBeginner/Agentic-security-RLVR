@@ -93,7 +93,6 @@ class FakeProviderCallable:
 
     def __init__(self, settings: dict | None = None):
         self.calls = []
-        self.readback_calls = []
         self._settings = settings or {
             "min_containers": 0,
             "max_containers": 48,
@@ -102,13 +101,24 @@ class FakeProviderCallable:
         }
         setattr(self, r1.PROVIDER_CALLABLE_MARKER, True)
 
-    def update_autoscaler(self, **kwargs):
-        self.readback_calls.append(kwargs)
-        return SimpleNamespace(**self._settings)
-
     def remote(self, *args, **kwargs):
         self.calls.append((args, kwargs))
         return {"ok": True}
+
+
+def _reader(settings: dict | None = None):
+    """A read-only autoscaler reader double - no provider call, no mutation."""
+    values = settings or {
+        "min_containers": 0,
+        "max_containers": 48,
+        "buffer_containers": 0,
+        "scaledown_window": 60,
+    }
+
+    def reader(target, function_name=""):
+        return dict(values)
+
+    return reader
 
 
 class LocalDouble:
@@ -188,19 +198,29 @@ def test_the_gpu_container_is_offline_and_verifies_its_cache():
 
 
 def test_the_repository_contains_no_mutating_autoscaler_call():
-    pattern = re.compile(r"update_autoscaler\s*\([^)]", re.DOTALL)
+    """No call of the mutating autoscaler accessor anywhere in the repository.
+
+    The check is syntactic: it looks for a *call* of an attribute named
+    ``update_autoscaler``. The read-back of the effective settings is read-only,
+    so the mutating accessor must not be called at all.
+    """
+    import ast
+
     offenders = []
     for path in REPO_ROOT.rglob("*.py"):
         if any(part in {".git", "__pycache__", ".pytest_cache"} for part in path.parts):
             continue
-        if path.resolve() == Path(__file__).resolve():
-            # This file carries the patterns themselves.
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:  # pragma: no cover - the repository parses
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if "autoscaler.update(" in text:
-            offenders.append(f"{path}: autoscaler.update(")
-        for match in pattern.finditer(text):
-            offenders.append(f"{path}: {match.group(0)}")
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "update_autoscaler"
+            ):
+                offenders.append(f"{path}:{node.lineno}")
     assert offenders == []
 
 
@@ -248,12 +268,15 @@ def test_an_unapproved_egress_bound_blocks_the_dispatch():
     assert fake.calls == []
 
 
-def test_a_function_without_an_egress_declaration_is_refused():
+def test_a_function_without_an_egress_declaration_is_refused(monkeypatch):
+    # Defence in depth: an authorised call site whose egress declaration is gone
+    # is refused instead of dispatched with an unbounded egress.
+    monkeypatch.delitem(r1.EGRESS_POLICIES, "verify_replay_remote")
     world = _approved_world()
     gate = r1_dispatch.DispatchGate(policy=_policy(), **world)
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
-        gate.dispatch(r1.GPU_CLASS, "DevReasoningAgent.generate_solidity_exploit", fake, {})
+        gate.dispatch(r1.SANDBOX_CPU, "verify_replay_remote", fake, {})
     assert excinfo.value.reason == "no_egress_declaration"
     assert fake.calls == []
 
@@ -297,19 +320,25 @@ def test_the_producer_enforced_payload_cap_refuses_an_unapproved_cap():
 
 def test_a_configured_dispatch_is_performed_and_the_autoscaler_is_read_back():
     world = _approved_world()
-    gate = r1_dispatch.DispatchGate(policy=_policy(), **world)
+    gate = r1_dispatch.DispatchGate(
+        policy=_policy(), autoscaler_reader=_reader(), **world
+    )
     fake = FakeProviderCallable()
     result = gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {"a": 1})
     assert result == {"ok": True}
     assert len(fake.calls) == 1
-    # The read-back is the NO-argument call: it never mutates the settings.
-    assert fake.readback_calls == [{}]
+    # The read-back is read-only: it is a separate reader, not a call of the
+    # mutating update_autoscaler().
     assert gate.dispatched() and not gate.refused()
 
 
 def test_the_invocation_budget_is_enforced():
     world = _approved_world()
-    gate = r1_dispatch.DispatchGate(policy=_policy(invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1}), **world)
+    gate = r1_dispatch.DispatchGate(
+        policy=_policy(invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1}),
+        autoscaler_reader=_reader(),
+        **world,
+    )
     fake = FakeProviderCallable()
     gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
@@ -333,8 +362,19 @@ def test_a_cap_above_the_deployed_ceiling_is_refused():
 
 def test_the_autoscaler_readback_must_match_the_declaration():
     world = _approved_world()
-    gate = r1_dispatch.DispatchGate(policy=_policy(), **world)
-    fake = FakeProviderCallable(settings={"min_containers": 0, "max_containers": 999, "buffer_containers": 0, "scaledown_window": 60})
+    gate = r1_dispatch.DispatchGate(
+        policy=_policy(),
+        autoscaler_reader=_reader(
+            {
+                "min_containers": 0,
+                "max_containers": 999,
+                "buffer_containers": 0,
+                "scaledown_window": 60,
+            }
+        ),
+        **world,
+    )
+    fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
         gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     assert excinfo.value.reason == "autoscaler_readback_mismatch"
@@ -343,7 +383,13 @@ def test_the_autoscaler_readback_must_match_the_declaration():
 
 def test_a_class_without_a_readback_is_not_dispatchable():
     world = _approved_world()
-    gate = r1_dispatch.DispatchGate(policy=_policy(), **world)
+
+    def unavailable(target, function_name=""):
+        raise r1_dispatch.AutoscalerReadbackUnavailable("no read-only read available")
+
+    gate = r1_dispatch.DispatchGate(
+        policy=_policy(), autoscaler_reader=unavailable, **world
+    )
 
     class NoReadback:
         def remote(self, *args, **kwargs):  # pragma: no cover - never reached
@@ -460,7 +506,7 @@ def test_a_cap_above_the_deployed_ceiling_makes_the_estimate_unavailable():
 # --------------------------------------------------------------------------------------
 
 
-def test_the_storage_interval_is_execution_plus_post_execution_plus_retention():
+def test_the_storage_footprint_of_a_stage_is_reported_even_when_it_is_free():
     world = _approved_world()
     day = 86400.0
     step = _step(
@@ -475,31 +521,89 @@ def test_the_storage_interval_is_execution_plus_post_execution_plus_retention():
     estimate = r1_estimator.estimate_step(step, _rate_card(), world["profiles"], world["egress_policies"])
     assert estimate.available, estimate.unavailable_reasons
     volume = estimate.quantities["volume"]
-    assert volume["t_store_sec"] == 6 * 3600.0 + 4 * 3600.0 + 30 * day
-    assert volume["t_store_days"] == pytest.approx(30 + 10 / 24)
-    # 1 + ceil(30.4166 / 28) = 3 calendar months
-    assert volume["months"] == 3
-    assert volume["volume_gib_months"] == 11.0 * 3
+    assert volume["t_store_sec"] == 6 * 3600.0 + 4 * 3600.0
+    assert volume["t_store_days"] == pytest.approx(10 / 24)
+    assert volume["volume_gib"] == 11.0
+    # The footprint is reported; the *cost* of the storage is priced once, on the
+    # cycle, and it is zero inside the provider's 1 TiB/month allowance.
+    assert "volume_storage" not in estimate.terms_usd
 
 
-def test_the_boundary_case_of_the_omitted_interval_is_covered():
+def test_the_cycle_window_covers_the_execution_the_publication_and_the_retention():
     world = _approved_world()
     day = 86400.0
-    step = _step(
-        invocations={r1.SANDBOX_CPU: 1},
-        concurrency_caps={r1.SANDBOX_CPU: 1},
-        baseline_gib=10.0,
-        incremental_gib=1.0,
-        t_exec_sec=26 * day,
-        t_post_exec_to_publication_sec=2 * day,
-        t_retention_sec=30 * day,
+    steps = [
+        r1_estimator.StepInputs(
+            step_id="R3",
+            invocations={r1.SANDBOX_CPU: 1},
+            concurrency_caps={r1.SANDBOX_CPU: 1},
+            baseline_gib=10.0,
+            incremental_gib=1.0,
+            t_exec_sec=26 * day,
+            t_post_exec_to_publication_sec=2 * day,
+        )
+    ]
+    estimates = [
+        r1_estimator.estimate_step(step, _rate_card(), world["profiles"], world["egress_policies"])
+        for step in steps
+    ]
+    aggregate = r1_estimator.aggregate_cycle(
+        estimates, _rate_card(), t_retention_sec=30 * day, cycle_cap_usd=20.0
     )
-    estimate = r1_estimator.estimate_step(step, _rate_card(), world["profiles"], world["egress_policies"])
-    volume = estimate.quantities["volume"]
-    assert volume["t_store_days"] == pytest.approx(58.0)
-    # Without the post-execution interval the total would be 56 days - exactly on the
-    # 28-day boundary - and the formula would return 3 months instead of 4.
-    assert volume["months"] == 4
+    storage = aggregate["storage"]
+    # 26 + 2 + 30 days = 58 days: without the post-execution interval the total
+    # would be 56 days - exactly on the 28-day boundary - and the calendar
+    # treatment would return 3 months instead of 4.
+    assert storage["total_window_days"] == pytest.approx(58.0)
+    assert storage["months"] == 4
+    assert storage["peak_footprint_gib"] == pytest.approx(11.0)
+    assert storage["storage_usd"] == 0.0
+    assert storage["within_free_allowance"] is True
+
+
+def test_the_storage_inside_the_free_allowance_costs_nothing_and_the_footprint_is_reported():
+    world = _approved_world()
+    steps = [
+        r1_estimator.StepInputs(
+            step_id="R3",
+            invocations={r1.SANDBOX_CPU: 1},
+            concurrency_caps={r1.SANDBOX_CPU: 1},
+            baseline_gib=56.9,
+            incremental_gib=0.0,
+            t_exec_sec=600.0,
+            t_post_exec_to_publication_sec=600.0,
+        ),
+        r1_estimator.StepInputs(
+            step_id="R4",
+            invocations={r1.SANDBOX_CPU: 48},
+            concurrency_caps={r1.SANDBOX_CPU: 48},
+            baseline_gib=56.9,
+            incremental_gib=0.0,
+            t_exec_sec=3600.0,
+            t_post_exec_to_publication_sec=3600.0,
+        ),
+    ]
+    estimates = [
+        r1_estimator.estimate_step(step, _rate_card(), world["profiles"], world["egress_policies"])
+        for step in steps
+    ]
+    assert all(estimate.available for estimate in estimates)
+    aggregate = r1_estimator.aggregate_cycle(
+        estimates, _rate_card(), cycle_cap_usd=20.0
+    )
+    storage = aggregate["storage"]
+    # The free allowance is an account-level monthly allowance: it is applied ONCE
+    # to the cycle's footprint, so the standing baseline is never priced twice and
+    # the run's storage costs USD 0.
+    assert storage["footprint_gib_months"] > 0
+    assert storage["free_allowance_gib_months"] == 1024.0 * storage["month_units"]
+    assert storage["billable_gib_months"] == 0.0
+    assert aggregate["cycle_storage_usd"] == 0.0
+    # The per-stage totals add up to the cycle total - the storage is allocated,
+    # never counted twice.
+    assert sum(float(step["total_usd"]) for step in aggregate["steps"]) == pytest.approx(
+        aggregate["total_usd"]
+    )
 
 
 def test_an_unbounded_storage_duration_makes_the_estimate_unavailable():
@@ -562,14 +666,12 @@ def test_the_cycle_aggregate_prices_the_shared_storage_once():
     aggregate = r1_estimator.aggregate_cycle(
         estimates,
         _rate_card(),
-        baseline_gib=56.9,
-        total_incremental_gib=0.0,
-        total_t_exec_sec=4200.0,
-        max_t_post_exec_sec=3600.0,
         cycle_cap_usd=20.0,
     )
-    assert aggregate["storage_window"]["months"] == 3
-    assert aggregate["cycle_storage_usd"] == pytest.approx(56.9 * 3 * 0.09)
-    # The naive sum of the per-step storage terms prices the same standing bytes
-    # once per step; the aggregate prices them once over the cycle's window.
-    assert aggregate["naive_sum_of_per_step_storage_usd"] > aggregate["cycle_storage_usd"]
+    assert aggregate["storage"]["months"] == 3
+    # The naive sum of the per-step storage terms would price the same standing
+    # bytes once per step; the model prices the cycle's footprint once.
+    assert aggregate["cycle_storage_usd"] == 0.0
+    assert aggregate["storage"]["footprint_gib_months"] < aggregate["storage"][
+        "free_allowance_gib_months"
+    ]

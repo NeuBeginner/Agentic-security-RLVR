@@ -65,6 +65,24 @@ class BoundsNotApproved(RuntimeError):
         super().__init__(f"bounds not approved{where}: {detail}")
 
 
+class UnauthorisedCallSite(BoundsNotApproved):
+    """Raised when a provider call site is not part of the authorised trace.
+
+    The repository contains provider callables that the evidence-regeneration
+    workflow does **not** own: the T4 dev agent, the Slither worker, the fault
+    injection worker, the diagnostics and the GRPO training path, the volume
+    audit, and the audit-role method of the GPU class. They have no approved
+    step, no declared bounds and no egress declaration, so dispatching them would
+    start a billable container outside the approved budget. They are refused at
+    the call boundary with the reason recorded here.
+    """
+
+    def __init__(self, function_name: str, reason: str) -> None:
+        self.function_name = function_name
+        self.reason = reason
+        super().__init__([f"{function_name}: {reason}"], function_name)
+
+
 def is_unset(value: Any) -> bool:
     """True when the value is a required-but-unset bound."""
     return isinstance(value, Unset)
@@ -395,19 +413,34 @@ EGRESS_POLICIES: Dict[str, EgressPolicy] = {
         container_class=GPU_CLASS,
         payload_cap_bytes=0,
         protocol_allowance_bytes=_PROTOCOL_UNSET,
-        block_network=False,
+        block_network=True,
         offline=True,
-        basis="local_files_only=True plus the verified cache manifest: the GPU "
-        "container of R3b/R4 makes no model request at all (D29)",
+        basis="provider-enforced block_network on the whole GPU class (the parameter "
+        "exists for app.cls in modal/app.py:1102 and reaches the provider as "
+        "api_pb2.Function.block_network, modal/_functions.py:1044); the offline "
+        "environment and the verified cache manifest are the second, independent "
+        "layer (D29)",
     ),
     "ProductionAuditAgent.refine_solidity_exploit": EgressPolicy(
         function_name="ProductionAuditAgent.refine_solidity_exploit",
         container_class=GPU_CLASS,
         payload_cap_bytes=0,
         protocol_allowance_bytes=_PROTOCOL_UNSET,
-        block_network=False,
+        block_network=True,
         offline=True,
-        basis="local_files_only=True plus the verified cache manifest (D29)",
+        basis="the same provider-enforced block_network declaration of the GPU class "
+        "(D29)",
+    ),
+    "ProductionAuditAgent.audit_target_contract": EgressPolicy(
+        function_name="ProductionAuditAgent.audit_target_contract",
+        container_class=GPU_CLASS,
+        payload_cap_bytes=0,
+        protocol_allowance_bytes=_PROTOCOL_UNSET,
+        block_network=True,
+        offline=True,
+        basis="the method shares the GPU class, whose block_network declaration "
+        "covers every method of it; the call site itself is not part of the "
+        "authorised trace and is refused (D29)",
     ),
     "prefetch_model_cache_remote": EgressPolicy(
         function_name="prefetch_model_cache_remote",
@@ -427,6 +460,87 @@ EGRESS_POLICIES: Dict[str, EgressPolicy] = {
 
 def egress_policy(function_name: str) -> Optional[EgressPolicy]:
     return EGRESS_POLICIES.get(function_name)
+
+
+#: The container classes that are deployed as a Modal **class**. A class declares
+#: one network policy for all of its methods; the classes that are deployed as a
+#: set of separate functions declare their policy per function.
+CLASS_CONTAINER_CLASSES: Tuple[str, ...] = (GPU_CLASS,)
+
+
+def class_network_policy(container_class: str) -> Optional[bool]:
+    """The provider-level network blocking declared for a container class.
+
+    A Modal **class** declares one network policy for all of its methods, so the
+    declaration of the class is the common policy of its methods. A disagreement
+    between two methods of the same class is a declaration error and is refused.
+
+    A container class that is deployed as a set of separate functions has no class
+    policy: every one of its functions declares its own. ``None`` means "not a
+    class deployment".
+    """
+    if container_class not in CLASS_CONTAINER_CLASSES:
+        return None
+    policies = [
+        policy.block_network
+        for policy in EGRESS_POLICIES.values()
+        if policy.container_class == container_class
+    ]
+    if not policies:
+        raise BoundsNotApproved(
+            [f"the {container_class} class declares no egress policy"], container_class
+        )
+    if len(set(policies)) != 1:
+        raise BoundsNotApproved(
+            [f"the {container_class} methods declare conflicting network policies"],
+            container_class,
+        )
+    return bool(policies[0])
+
+
+# --------------------------------------------------------------------------------------
+# The storage allowance (D28) - the maintainer's rule of the free tier
+# --------------------------------------------------------------------------------------
+
+#: The provider's published free allowance of volume storage, in GiB **per month**
+#: (1 TiB). Inside the allowance the storage of a run costs USD 0; above it the
+#: published list price applies. The allowance is an **account-level** monthly
+#: allowance: it is applied **once** to the cycle's footprint, never per stage.
+STORAGE_FREE_ALLOWANCE_GIB_PER_MONTH = 1024.0
+
+STORAGE_FREE_ALLOWANCE_SOURCE = (
+    "modal.com/pricing: 'Volumes $0.09 / GiB / mo *includes 1 TiB / mo free' "
+    "(read 2026-11-11)"
+)
+
+
+# --------------------------------------------------------------------------------------
+# The autoscaler declaration (D27) - the four fields the read-back must cover
+# --------------------------------------------------------------------------------------
+
+#: The four autoscaler fields the read-back has to cover. All four are mandatory:
+#: a missing, None or malformed field is a refusal, never a partial read.
+AUTOSCALER_FIELDS: Tuple[str, ...] = (
+    "min_containers",
+    "max_containers",
+    "buffer_containers",
+    "scaledown_window",
+)
+
+
+def declared_autoscaler_settings(profile: ResourceProfile) -> Dict[str, Optional[int]]:
+    """The autoscaler settings a class declares, field by field.
+
+    A field that is not approved is ``None``: the read-back cannot compare what is
+    not declared, and a partial comparison would let an unapproved field pass.
+    """
+    scaledown = profile.scaledown_window_sec
+    return {
+        "min_containers": int(profile.min_containers),
+        "max_containers": int(profile.max_containers),
+        "buffer_containers": int(profile.buffer_containers),
+        "scaledown_window": None if is_unset(scaledown) else int(scaledown),  # type: ignore[arg-type]
+    }
 
 
 # --------------------------------------------------------------------------------------
@@ -564,6 +678,66 @@ FUNCTION_CLASS: Dict[str, str] = {
     "ProductionAuditAgent.refine_solidity_exploit": GPU_CLASS,
 }
 
+#: The provider call sites of this repository that are **not** part of the
+#: authorised evidence-regeneration trace. Every one of them is refused at the call
+#: boundary: none of them has an approved step, a declared bound set or an egress
+#: declaration, and dispatching one would start a billable container outside the
+#: approved budget. The registry is the inventory of the refused surface - it is
+#: the reason a refusal can name what it refuses.
+UNAUTHORISED_CALL_SITES: Dict[str, str] = {
+    "run_slither_remote": (
+        "the Slither worker is not one of the plan's stages; it has no declared "
+        "bounds and no egress declaration"
+    ),
+    "verify_replay_fault_injection_remote": (
+        "the fault-injection worker is a test fixture of the replay path, not an "
+        "authorised step; it may not start a billable container"
+    ),
+    "audit_volume_trajectories_remote": (
+        "the read-only volume audit is a diagnostic of the stored trajectories, not "
+        "an authorised step"
+    ),
+    "diagnostic_grpo_forward_remote": (
+        "the GRPO diagnostic forward pass is a diagnostic, not an authorised step; "
+        "it runs the dev model on the GPU"
+    ),
+    "train_grpo_remote": (
+        "the GRPO training path is blocked by the supervisor and is not an "
+        "authorised step"
+    ),
+    "DevReasoningAgent.generate_solidity_exploit": (
+        "the T4 dev agent is not part of the authorised trace: it has no declared "
+        "bounds, and it downloads its model from the hub"
+    ),
+    "DevReasoningAgent.refine_solidity_exploit": (
+        "the T4 dev agent is not part of the authorised trace: it has no declared "
+        "bounds, and it downloads its model from the hub"
+    ),
+    "ProductionAuditAgent.audit_target_contract": (
+        "the audit-role method of the GPU class is not one of the authorised stages; "
+        "only the exploit generation and the refinement are"
+    ),
+}
+
+
+def assert_authorised_call_site(function_name: str) -> str:
+    """Return the container class of an authorised call site, or refuse.
+
+    This is the first gate of every provider call: a call site that is not part of
+    the authorised trace is refused with the reason of the registry, before any
+    budget, bound or egress question is asked.
+    """
+    container_class = FUNCTION_CLASS.get(function_name)
+    if container_class is not None:
+        return container_class
+    reason = UNAUTHORISED_CALL_SITES.get(function_name)
+    if reason is None:
+        reason = (
+            "it is not a declared dispatchable function of the evidence-regeneration "
+            "workflow"
+        )
+    raise UnauthorisedCallSite(function_name, reason)
+
 #: The objects the deployment actually exposes, registered at import time.
 DEPLOYED_FUNCTIONS: Dict[str, Any] = {}
 
@@ -618,6 +792,26 @@ def modal_function_kwargs(container_class: str, function_name: str) -> Dict[str,
     return kwargs
 
 
+def _dispatch_through_gate(
+    container_class: str, function_name: str, fn: Any, *args: Any, **kwargs: Any
+) -> Any:
+    """Route a guarded provider call through the single R1 dispatch gate.
+
+    The import is lazy on purpose: the gate lives in the producer's package, and
+    the container image of the deployment carries only ``core`` and ``sandbox``.
+    The gate is needed on the client side, where the whole repository is
+    importable; if it is not, the call is refused instead of dispatched.
+    """
+    try:
+        from benchmarks.r1_dispatch import dispatch_through_gate
+    except Exception as exc:  # pragma: no cover - defensive
+        raise UnauthorisedCallSite(
+            function_name,
+            f"the R1 dispatch gate is not importable: {type(exc).__name__}: {exc}",
+        ) from exc
+    return dispatch_through_gate(container_class, function_name, fn, *args, **kwargs)
+
+
 class GuardedRemote:
     """A provider callable that fails closed while its bounds are unapproved.
 
@@ -625,6 +819,12 @@ class GuardedRemote:
     While a required bound of the function's container class is required-but-unset,
     the call is refused: an unapproved deployment must not be able to start a
     billable container.
+
+    The wrapper is also the **single dispatch path**: a guarded call is routed
+    through the R1 gate, so the invocation budget, the concurrency gate, the
+    ceiling assertion, the payload cap and the autoscaler read-back apply to it
+    exactly as they apply to every other dispatch. A call that bypasses the gate
+    is a bypass of the budget.
     """
 
     def __init__(self, fn: Any, function_name: str) -> None:
@@ -649,11 +849,121 @@ class GuardedRemote:
         return getattr(candidate, "__func__", None) is type(self).remote
 
     def remote(self, *args: Any, **kwargs: Any) -> Any:
-        assert_dispatch_allowed(self.__dict__["_function_name"])
-        return self.__dict__["_fn"].remote(*args, **kwargs)
+        function_name = self.__dict__["_function_name"]
+        assert_dispatch_allowed(function_name)
+        container_class = FUNCTION_CLASS[function_name]
+        return _dispatch_through_gate(
+            container_class, function_name, self.__dict__["_fn"], *args, **kwargs
+        )
 
     def __getattr__(self, item: str) -> Any:
+        if item == "update_autoscaler":
+            raise UnauthorisedCallSite(
+                self.__dict__["_function_name"],
+                "the autoscaler of a guarded function may not be updated from this "
+                "repository: the read-back is read-only (D27)",
+            )
         return getattr(self.__dict__["_fn"], item)
+
+
+class GuardedClassMethod:
+    """The guard of one method of a Modal class.
+
+    A class method is a provider callable too: the instance's method is a
+    ``modal`` function that starts a container. The module-level guard did not
+    cover it, so the class-method path was a bypass of the dispatch gate - the
+    exact bypass the R1 review named. The guard closes it: the call site is
+    checked against the authorised trace, the declared bounds are checked, and the
+    call is routed through the same gate as every other dispatch.
+    """
+
+    def __init__(self, fn: Any, function_name: str, class_name: str) -> None:
+        self.__dict__["_fn"] = fn
+        self.__dict__["_function_name"] = function_name
+        self.__dict__["_class_name"] = class_name
+        self.__dict__[PROVIDER_CALLABLE_MARKER] = True
+
+    @property
+    def function_name(self) -> str:
+        return self.__dict__["_function_name"]
+
+    @property
+    def class_name(self) -> str:
+        return self.__dict__["_class_name"]
+
+    def r1_reaches_provider(self) -> bool:
+        candidate = self.__dict__.get("remote")
+        if candidate is None:
+            return True
+        return getattr(candidate, "__func__", None) is type(self).remote
+
+    def remote(self, *args: Any, **kwargs: Any) -> Any:
+        function_name = self.__dict__["_function_name"]
+        assert_dispatch_allowed(function_name)
+        container_class = FUNCTION_CLASS[function_name]
+        return _dispatch_through_gate(
+            container_class, function_name, self.__dict__["_fn"], *args, **kwargs
+        )
+
+    def __getattr__(self, item: str) -> Any:
+        if item == "update_autoscaler":
+            raise UnauthorisedCallSite(
+                self.__dict__["_function_name"],
+                "the autoscaler of a guarded class method may not be updated from "
+                "this repository: the read-back is read-only (D27)",
+            )
+        return getattr(self.__dict__["_fn"], item)
+
+
+class GuardedClassInstance:
+    """The guarded instance of a Modal class: every method of it is guarded."""
+
+    def __init__(self, obj: Any, class_name: str) -> None:
+        self.__dict__["_obj"] = obj
+        self.__dict__["_class_name"] = class_name
+
+    def __getattr__(self, item: str) -> Any:
+        attribute = getattr(self.__dict__["_obj"], item)
+        remote = getattr(attribute, "remote", None)
+        if callable(remote):
+            return GuardedClassMethod(
+                attribute,
+                f"{self.__dict__['_class_name']}.{item}",
+                self.__dict__["_class_name"],
+            )
+        return attribute
+
+
+class GuardedClass:
+    """The guard of a Modal class.
+
+    The wrapper is installed on the module-level name of every deployed class.
+    Instantiating it returns a :class:`GuardedClassInstance`, whose methods are
+    :class:`GuardedClassMethod` objects: every provider call of a class method
+    goes through the R1 gate.
+    """
+
+    def __init__(self, cls: Any, class_name: str) -> None:
+        self.__dict__["_cls"] = cls
+        self.__dict__["_class_name"] = class_name
+        self.__dict__[PROVIDER_CALLABLE_MARKER] = True
+
+    @property
+    def class_name(self) -> str:
+        return self.__dict__["_class_name"]
+
+    def __call__(self, *args: Any, **kwargs: Any) -> GuardedClassInstance:
+        instance = self.__dict__["_cls"](*args, **kwargs)
+        return GuardedClassInstance(instance, self.__dict__["_class_name"])
+
+    def __getattr__(self, item: str) -> Any:
+        if item == "update_autoscaler":
+            raise UnauthorisedCallSite(
+                self.__dict__["_class_name"],
+                "the autoscaler of a guarded class may not be updated from this "
+                "repository: the read-back is read-only (D27)",
+            )
+        return getattr(self.__dict__["_cls"], item)
 
 
 def assert_dispatch_allowed(function_name: str) -> None:
@@ -661,11 +971,10 @@ def assert_dispatch_allowed(function_name: str) -> None:
 
     This is the fail-closed guard at the function boundary: while a required bound of
     the function's container class is not approved, the deployment cannot be used to
-    start a billable container.
+    start a billable container. A call site that is not part of the authorised trace
+    is refused first, with the reason of the refusal registry.
     """
-    container_class = FUNCTION_CLASS.get(function_name)
-    if container_class is None:
-        raise BoundsNotApproved([f"{function_name} is not a declared dispatchable function"], function_name)
+    container_class = assert_authorised_call_site(function_name)
     profile = PROFILES[container_class]
     missing = profile.missing_bounds()
     if missing:
@@ -683,6 +992,13 @@ def declaration_record() -> Dict[str, Any]:
     """The full declaration record of R1 (approval-record material)."""
     return {
         "profiles": {name: profile.to_record() for name, profile in PROFILES.items()},
+        "autoscaler": {
+            "fields": list(AUTOSCALER_FIELDS),
+            "declared": {
+                name: declared_autoscaler_settings(profile)
+                for name, profile in PROFILES.items()
+            },
+        },
         "egress": {
             name: {
                 "container_class": policy.container_class,
@@ -695,6 +1011,16 @@ def declaration_record() -> Dict[str, Any]:
                 "basis": policy.basis,
             }
             for name, policy in EGRESS_POLICIES.items()
+        },
+        "class_network_policy": {
+            container_class: class_network_policy(container_class)
+            for container_class in CLASS_CONTAINER_CLASSES
+        },
+        "authorised_call_sites": dict(FUNCTION_CLASS),
+        "unauthorised_call_sites": dict(UNAUTHORISED_CALL_SITES),
+        "storage_free_allowance": {
+            "gib_per_month": STORAGE_FREE_ALLOWANCE_GIB_PER_MONTH,
+            "source": STORAGE_FREE_ALLOWANCE_SOURCE,
         },
         "max_trajectory_payload_bytes": (
             None if is_unset(MAX_TRAJECTORY_PAYLOAD_BYTES) else MAX_TRAJECTORY_PAYLOAD_BYTES
@@ -715,11 +1041,16 @@ def declaration_record_json() -> str:
 
 
 __all__ = [
+    "AUTOSCALER_FIELDS",
     "BoundsNotApproved",
+    "CLASS_CONTAINER_CLASSES",
     "EGRESS_POLICIES",
     "EgressPolicy",
     "FUNCTION_CLASS",
     "GPU_CLASS",
+    "GuardedClass",
+    "GuardedClassInstance",
+    "GuardedClassMethod",
     "GuardedRemote",
     "MAX_TRAJECTORY_PAYLOAD_BYTES",
     "OFFLINE_ENV",
@@ -728,11 +1059,18 @@ __all__ = [
     "PROFILES",
     "ResourceProfile",
     "SANDBOX_CPU",
+    "STORAGE_FREE_ALLOWANCE_GIB_PER_MONTH",
+    "STORAGE_FREE_ALLOWANCE_SOURCE",
+    "UNAUTHORISED_CALL_SITES",
+    "UnauthorisedCallSite",
     "Unset",
+    "assert_authorised_call_site",
     "assert_dispatch_allowed",
     "assert_payload_within_cap",
+    "class_network_policy",
     "declaration_record",
     "declaration_record_json",
+    "declared_autoscaler_settings",
     "declared_timeout",
     "deployed_max_containers",
     "egress_policy",

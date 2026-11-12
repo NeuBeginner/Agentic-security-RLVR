@@ -22,14 +22,17 @@ production value and never hardcodes a price.
 
 | file | role |
 |---|---|
-| `core/r1_bounds.py` | the declarations: the three container-class profiles, the egress policies, the payload cap, the pinned model, the manifest check, the fail-closed helpers and the guard |
-| `benchmarks/r1_dispatch.py` | the dispatch gate: the single path through which this workflow dispatches a Modal call |
-| `benchmarks/r1_estimator.py` | the cumulative cost / egress / storage estimator and its CLI |
+| `core/r1_bounds.py` | the declarations: the three container-class profiles, the egress policies, the payload cap, the pinned model, the manifest check, the fail-closed helpers, the refusal registry and the guard (functions **and** classes) |
+| `benchmarks/r1_dispatch.py` | the dispatch gate: the single path through which this workflow dispatches a Modal call, including the read-only autoscaler read-back |
+| `benchmarks/r1_estimator.py` | the cumulative cost / egress / storage estimator and its CLI — the one accounting model |
 | `benchmarks/adapters.py` | the producer, now dispatching only through the gate |
 | `modal_app.py` | the deployment: the explicit declarations, the offline GPU class, the producer-enforced payload cap, the dispatch guard |
-| `benchmarks/evidence/r1_rate_card.json` | the provider's rates — an approval input with its source and its reading date |
-| `benchmarks/evidence/r1_cost_scenario.json` | the **candidate** bounds and per-step quantities of the cost proposal |
-| `tests/test_r1_bounds_contract.py` | the proofs (missing bounds block the dispatch, configured bounds are enforced, the cold-container accounting is correct, the storage interval is complete) |
+| `benchmarks/evidence/r1_rate_card.json` | the provider's rates **and** the free storage allowance — an approval input with its source and its reading date |
+| `benchmarks/evidence/r1_cost_scenario.json` | the **candidate** bounds and per-stage quantities of the cost proposal |
+| `benchmarks/evidence/r1_call_site_inventory.json` | the **repo-wide inventory** of the provider call sites, with the disposition of each one |
+| `tests/test_r1_bounds_contract.py` | the proofs of the declarations and of the estimator's arithmetic |
+| `tests/test_r1_dispatch_contract.py` | the proofs of the inventory, of the guards, of the read-back, of the network policy and of the invocation budget |
+| `tests/test_r1_cost_model.py` | the proofs of the cost model and of the one authoritative command |
 
 ## D26 — explicit request/limit pairs and an explicit lifecycle
 
@@ -65,15 +68,35 @@ number of containers a class starts over a step is bounded by the **invocation
 count** (one cold start per invocation is the worst case), not by
 `min(invocations, max_containers)`.
 
-**The read-back.** The pinned SDK (1.5.5) has no `Function.autoscaler` namespace, so
-the read-back is the **no-argument** call `update_autoscaler()`. Its own docstring
-states that "Unspecified parameters will retain their current value, i.e. either the
-static value from the function decorator, or an override value from a previous call
-to this method" — a call with no argument changes nothing and returns the current
-settings. The gate compares the effective `min_containers` / `max_containers` /
-`buffer_containers` / `scaledown_window` with the declaration and refuses a
-mismatch. **There is no mutating autoscaler call anywhere in the repository** — a
-test scans every `.py` file for one.
+**The read-back.** The read-back has to answer one question: *are the effective
+autoscaler settings of the deployed function the declared ones?* It answers it with
+**all four fields** — `min_containers`, `max_containers`, `buffer_containers`,
+`scaledown_window` — and it is **fail-closed**: a missing field, a `None` field, a
+malformed value and a mismatch are four different refusals, and a partial read is
+never accepted.
+
+The pinned SDK (1.5.5) offers **no** non-mutating autoscaler read: the only public
+accessor, `Function.update_autoscaler()`, is an *update* RPC
+(`FunctionUpdateSchedulingParams`, `modal/_functions.py:1204-1221`). Using it to
+verify the autoscaler would change the deployment while verifying it, so **it is not
+used** — neither by the gate nor anywhere else in the repository (a test scans every
+`.py` file for a *call* of that accessor).
+
+The read-back therefore uses the provider's **read-only** `FunctionGet` RPC — the same
+one the SDK itself uses to load a function (`modal/_functions.py:1315-1322`) — and
+reads `FunctionData.autoscaler_settings` from its response. The SDK drops that field
+when it builds its own `FunctionInfo`, which is why the read happens in
+`benchmarks/r1_dispatch.py:provider_autoscaler_reader`. The reader is additionally
+**opt-in**: it needs `R1_ENABLE_PROVIDER_READBACK=1` in the environment, so that no
+test and no accidental code path can reach the provider. Without the opt-in the read
+is *unavailable* and the step is refused (`autoscaler_readback_unavailable`).
+
+The comparison is against the **declaration** of the class
+(`core.r1_bounds.declared_autoscaler_settings`). A field that is required-but-unset in
+the declaration cannot be compared, so the dispatch is refused
+(`autoscaler_readback_malformed`). In the state of this repository that is the case
+for `scaledown_window` — which is exactly the intended fail-closed behaviour while
+the bound is unapproved.
 
 ## D28 — the producer-enforced payload cap and the storage interval
 
@@ -85,6 +108,32 @@ test scans every `.py` file for one.
   T_retention`, and the calendar treatment is `months = 1 + ceil(T_store / 28 days)`.
   The estimator refuses while `T_exec` or the post-execution deadline is undeclared.
 
+### The storage is priced once, on the cycle's footprint
+
+The provider's published allowance of volume storage is **1 TiB per month**
+(`modal.com/pricing`: *Volumes $0.09 / GiB / mo **includes 1 TiB / mo free***,
+read 2026-11-11). It is an **account-level monthly allowance**, so it is applied
+**once** to the cycle — never per stage.
+
+The model has three parts and no fourth:
+
+1. the **direct terms** of a stage — CPU, memory, GPU, egress — are additive over the
+   cycle (they do not overlap in time);
+2. the **storage** is priced once on the cycle's **time-weighted footprint**
+   (`Σ footprint × Δt / 28 days`), the **free allowance** offsets it
+   (`1 024 GiB/month × the same month unit`), and the result is **USD 0 while the
+   footprint stays inside the allowance**. The footprint itself is reported in every
+   run — the **peak** and the **time-weighted average** — and the part above the
+   allowance is billed and flagged (`within_free_allowance: false`);
+3. the storage cost is then **allocated back** to the stages in proportion to their
+   footprint × duration share (the retention interval belongs to the last stage), so
+   the sum of the per-stage totals is **exactly** the cycle total: the standing
+   baseline is never priced twice.
+
+The current cycle: peak **56.908 GiB**, time-weighted **56.906 GiB**,
+**69.58 GiB-month** of footprint against an allowance of **1 252 GiB-month** ⇒ the
+storage of the whole cycle costs **USD 0**.00.
+
 ## D29 — the egress
 
 | function | class | payload cap | protocol allowance | how the zero/cap is established |
@@ -92,14 +141,40 @@ test scans every `.py` file for one.
 | `verify_exploit_remote` | sandbox CPU | **0** | **unset** | the provider-enforced `block_network` declaration on the exact function (the sandbox functions mount no volume) |
 | `verify_replay_remote` | sandbox CPU | **0** | **unset** | the same declaration |
 | `record_trajectory_remote` | persistence | **0** | **unset** | 0 external by construction: the function opens a file and commits the volume |
-| `ProductionAuditAgent.generate_solidity_exploit` / `.refine_solidity_exploit` | GPU | **0** | **unset** | `local_files_only=True` + the offline environment + the verified cache manifest |
+| `ProductionAuditAgent.generate_solidity_exploit` / `.refine_solidity_exploit` | GPU | **0** | **unset** | the **provider-enforced `block_network` of the whole GPU class** (see below) + the offline environment + the verified cache manifest |
+| `ProductionAuditAgent.audit_target_contract` | GPU | **0** | **unset** | the same class-level declaration; the call site itself is refused (it is not one of the authorised stages) |
 | `prefetch_model_cache_remote` (R2p) | sandbox CPU | **unset** (`pinned_bytes × (1 + R_download)`) | **unset** | the only container that downloads the model |
 
-The GPU class is now **offline**: `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` in
-the class environment, `local_files_only=True` on both the tokenizer and the model,
-and `@modal.enter()` verifies the volume's cache against the manifest recorded by the
-prefetch step — it **fails closed** when the cache does not match, instead of quietly
-downloading the model again (a per-container cost of up to 61 GB).
+### The GPU class: provider-level blocking
+
+The GPU class declares `block_network=r1.class_network_policy(r1.GPU_CLASS)`, which is
+**True**. The semantics are proven by the SDK itself: the parameter exists for
+`app.cls` (`modal/app.py:1102`), it is transmitted to the provider as
+`api_pb2.Function.block_network` (`modal/_functions.py:1044`) and it is the provider's
+documented outbound-traffic switch. The declaration is **not** a workload-level
+convention: the offline environment and the verified cache manifest are the second,
+independent layer.
+
+The class-level policy covers **all** the methods of the class — the blocking is a
+property of the class — so a method that is not part of the authorised trace inherits
+it as well; it is refused at the call boundary instead.
+
+**The one open item.** Modal's documentation does not state whether a *volume mount*
+survives `block_network=True`. The SDK does not validate the combination either
+(`modal/_functions.py`, `modal/app.py` and the mount helpers were checked: no
+client-side rule). The failure mode is **fail-closed** — a container that cannot read
+the model cache raises and the dispatch fails; it can never leak egress. But the
+compatibility has to be confirmed before R3b/R4 are dispatched. If the mount turns out
+to be incompatible, the alternative branch of the plan applies: a conservative,
+evidence-backed **non-zero** payload cap for the GPU class — and that cap is priced in
+the estimate (see `docs/r1_cost_proposal.md`, "the sensitivity of the egress bound").
+
+The GPU class is offline in three independent ways: `block_network=True` on the class,
+`HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1` in the class environment,
+`local_files_only=True` on both the tokenizer and the model, and `@modal.enter()`
+verifies the volume's cache against the manifest recorded by the prefetch step — it
+**fails closed** when the cache does not match, instead of quietly downloading the
+model again (a per-container cost of up to 61 GB).
 
 The protocol allowance is added on top of the payload cap for every container of
 every class — a payload zero is not a total zero by implication — and it is an
@@ -117,37 +192,81 @@ file listing.
 Modal call; `benchmarks/adapters.py` routes all eight of its dispatch sites through
 it (a test asserts that no `.remote(` call survives in the producer).
 
+**The inventory.** `benchmarks/evidence/r1_call_site_inventory.json` lists **every**
+provider call site of the repository — 21 of them — with the disposition of each one.
+`tests/test_r1_dispatch_contract.py` parses every `.py` file of the repository, finds
+every call chain that reaches a provider's `remote` and compares the result with the
+inventory: a new call site that is not classified fails the test, so the inventory
+cannot silently go stale. The dispositions are
+
+| disposition | meaning |
+|---|---|
+| `gated` | an authorised function; the object is a `GuardedRemote` and the guard routes the call through the single gate |
+| `refused` | not part of the authorised trace; the guard refuses the call site with the reason of the refusal registry |
+| `guarded_class_method` | a class method; the class guard resolves the call site at runtime — authorised for the GPU class, refused for the T4 dev agent |
+| `gate` | the gate itself: the only place in the repository that calls a provider's `remote` |
+| `declared_out_of_scope` | a separate, explicitly declared CPU-only deployment (the Iteration 19 runtime smoke app), not one of the stages R1 prices |
+
 The gate enforces, per step:
 
-1. an **approved step policy** — a provider dispatch without one is refused
+1. the **authorisation of the call site** (`unauthorised_call_site`) — the refusal
+   registry of `core/r1_bounds.py` names every provider call site that is *not* part
+   of the authorised trace: the T4 dev agent, the Slither worker, the fault-injection
+   worker, the volume audit, the GRPO diagnostic and the GRPO training, and the
+   audit-role method of the GPU class. The check is the **first** one, so a refusal
+   names the call site instead of a downstream symptom;
+2. an **approved step policy** — a provider dispatch without one is refused
    (`no_approved_step_policy`), and the policy itself must declare the wall-clock
    budget, the post-execution deadline, the monetary ceiling and an estimate at or
    below that ceiling;
-2. the **completeness of the declared bounds** of the class (`bounds_not_approved`);
-3. the **egress declaration** of the function (`no_egress_declaration`,
+3. the **completeness of the declared bounds** of the class (`bounds_not_approved`);
+4. the **egress declaration** of the function (`no_egress_declaration`,
    `egress_bound_not_approved`);
-4. the **ceiling assertion** `cap(c) ≤ max_containers_deployed(c)`
+5. the **ceiling assertion** `cap(c) ≤ max_containers_deployed(c)`
    (`deployed_ceiling_too_low`);
-5. the **invocation budget** per class (`invocation_budget_exhausted`);
-6. the **concurrency gate** per class (a client-side semaphore);
-7. the **producer-enforced payload cap** of the volume-writing functions
+6. the **producer-enforced payload cap** of the volume-writing functions
    (`payload_byte_cap`);
-8. the **autoscaler read-back** before the first container of the class
-   (`autoscaler_readback_mismatch`, `autoscaler_readback_unavailable`).
+7. the **autoscaler read-back** before the first container of the class
+   (`autoscaler_readback_unavailable`, `autoscaler_readback_missing_field`,
+   `autoscaler_readback_malformed`, `autoscaler_readback_mismatch`);
+8. the **concurrency gate** per class (a client-side semaphore;
+   `concurrency_gate_timeout`);
+9. the **invocation budget** per class (`invocation_budget_exhausted`).
 
 Every refusal is recorded with its machine-readable reason.
 
-**The guard at the function boundary.** Every provider callable of `modal_app.py` is
-wrapped in `r1.GuardedRemote`: while a required bound of its container class is
-unset, `.remote()` raises `BoundsNotApproved`. A provider callable that is not one
-of the declared dispatchable functions is refused as well — the dev T4 agent, the
-slither worker and the GRPO trainers are not part of the authorised trace.
+**The invocation allowance is consumed only by a dispatch that really starts a
+container.** The check and the increment happen under **one** lock, so two concurrent
+dispatches can never both pass the same remaining allowance; and the allowance is
+consumed **after** every other gate, immediately before the call. A refused attempt —
+the authorisation, the policy, the bounds, the egress, the ceiling, the payload cap,
+the **concurrency gate**, the read-back or the budget itself — starts no container, so
+it consumes nothing. The policy of the concurrency-refused attempt is therefore
+explicit: **it costs no invocation**, and the allowance stays intact for the next
+attempt (a test pins it).
 
-**What the guard does not cover.** A manual `modal run` of the app's local
-entrypoint drives the GPU class methods directly, and Modal offers no way to revoke
-a deployed function's reachability from inside the repository. That path is outside
-the repository's control; it is closed by the authorisation of the operator, not by
-code.
+**The guard at the function boundary.** Every provider callable of `modal_app.py` is
+wrapped: the module-level functions in `r1.GuardedRemote`, the Modal **classes** in
+`r1.GuardedClass` (whose instances return `r1.GuardedClassMethod` objects). The class
+methods were the bypass the review named: before, the module-level guard covered only
+`modal.Function` objects, so `ProductionAuditAgent().generate_solidity_exploit.remote(...)`
+reached the provider without the gate. Now:
+
+* a call site that is not part of the authorised trace is refused with the reason of
+  the refusal registry (`UnauthorisedCallSite`);
+* while a required bound of the class is unset, `.remote()` raises
+  `BoundsNotApproved`;
+* an authorised call is routed through the **same** gate as every other dispatch, so
+  the budget, the concurrency gate, the ceiling, the payload cap and the read-back
+  apply to it;
+* the mutating `update_autoscaler` accessor is **unreachable** through the guard.
+
+**What the guard does not cover.** A manual `modal run` of the app's local entrypoint
+drives the GPU class methods directly, and Modal offers no way to revoke a deployed
+function's reachability from inside the repository. Inside the repository the path is
+now closed (the class guard refuses it); what remains outside the repository's control
+is an operator invoking an **already deployed** app, and that is closed by the
+authorisation of the operator, not by code.
 
 ## What is blocked, and why
 

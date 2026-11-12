@@ -84,8 +84,12 @@ gpu_image = (
     image=gpu_image,
     volumes={"/vol/models": model_volume},
     timeout=r1.declared_timeout(r1.GPU_PROFILE),
-    # D29: the GPU container of R3b/R4 is offline. The model is read from the
-    # volume's cache, which the prefetch step (R2p) populated and verified.
+    # D29: the GPU container of R3b/R4 is offline. Two independent layers:
+    # the provider-enforced network blocking of the class (the parameter exists
+    # for app.cls in modal/app.py:1102 and reaches the provider as
+    # api_pb2.Function.block_network, modal/_functions.py:1044) and the offline
+    # environment plus the verified cache manifest of the model cache.
+    block_network=r1.class_network_policy(r1.GPU_CLASS),
     env=r1.OFFLINE_ENV,
     **r1.GPU_PROFILE.modal_kwargs(),
 )
@@ -1769,14 +1773,24 @@ def main(
 # cannot start a billable container. The declared dispatchable functions are the
 # ones with an egress declaration (core/r1_bounds.py); the others are refused as
 # well, because they are not part of the authorised trace.
+#
+# The guard covers the module-level functions AND the Modal classes: a class
+# method is a provider callable too (the instance's method is a modal function),
+# and before R1 the class-method path bypassed the guard entirely. Every wrapped
+# call is routed through the single R1 dispatch gate, so the invocation budget,
+# the concurrency gate, the ceiling assertion, the payload cap and the autoscaler
+# read-back apply to it as well.
 for _name, _obj in list(globals().items()):
     if _name.startswith("_") or _name in ("app", "model_volume", "gpu_image", "sandbox_image"):
         continue
-    if not isinstance(_obj, modal.Function):
-        continue
-    _guarded = r1.GuardedRemote(_obj, _name)
-    globals()[_name] = _guarded
-    r1.register_deployed_function(_name, _guarded)
+    if isinstance(_obj, modal.Function):
+        _guarded = r1.GuardedRemote(_obj, _name)
+        globals()[_name] = _guarded
+        r1.register_deployed_function(_name, _guarded)
+    elif isinstance(_obj, modal.Cls):
+        _guarded = r1.GuardedClass(_obj, _name)
+        globals()[_name] = _guarded
+        r1.register_deployed_function(_name, _guarded)
 
 
 if __name__ == "__main__":

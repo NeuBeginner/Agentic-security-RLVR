@@ -8,7 +8,7 @@
   "notes": [
     "The rates are an approval input, never a repository constant (plan section 8.2.5, inputs 1-9).",
     "The rate card has to be re-read at dispatch time; the estimate is computed from the rates of the dispatch, not from this file's history.",
-    "The provider's published free allowance (1 TiB/month of volume storage) is a fact of the plan, deliberately NOT netted out of the estimate; the allowance belongs to the workspace's plan, not to the run.",
+    "The provider's published free allowance of volume storage (1 TiB/month = 1024 GiB/month) is applied ONCE to the cycle's time-weighted footprint: inside the allowance the storage of the run costs USD 0. The footprint itself (peak and time-weighted) is computed and reported in every run, and the part above the allowance is billed and flagged.",
     "CPU is billed per physical core (2 vCPU equivalent) and memory per GiB; the provider's published minimum request is 0.125 cores and 128 MiB per container.",
     "Sandboxes are priced at the rate of non-preemptible Functions (a 3x multiplier on the CPU and memory list price). This workflow uses Modal Functions, so the list price below applies."
   ],
@@ -17,5 +17,7 @@
   "gpu_per_sec": 0.001097,
   "volume_per_gib_month": 0.09,
   "egress_per_gib": 0.04,
+  "storage_free_allowance_gib_per_month": 1024,
+  "storage_free_allowance_source": "modal.com/pricing: 'Volumes $0.09 / GiB / mo *includes 1 TiB / mo free' (read 2026-11-11)",
   "gpu_type": "H100"
 }
