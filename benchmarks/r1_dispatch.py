@@ -67,10 +67,13 @@ allowance.
 
 from __future__ import annotations
 
+import dataclasses
+import hashlib
 import json
 import os
 import threading
 import time
+from pathlib import Path
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -79,7 +82,15 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 from core.r1_bounds import (
     AUTOSCALER_FIELDS,
     Bound,
+    CONTAINER_CLASSES,
+    EGRESS_POLICIES,
+    INGRESS_POLICIES,
     FUNCTION_CLASS,
+    MAX_TRAJECTORY_PAYLOAD_BYTES,
+    MODEL_CACHE_MANIFEST_PATH,
+    PINNED_MODEL,
+    DOWNLOAD_RETRY_ALLOWANCE,
+    OFFLINE_ENV,
     UnauthorisedCallSite,
     assert_authorised_call_site,
     assert_payload_within_cap,
@@ -120,6 +131,8 @@ REFUSAL_REASONS = (
     "no_approved_step_policy",
     "approval_not_verified",
     "approval_policy_mismatch",
+    "approval_envelope_unavailable",
+    "approval_envelope_mismatch",
     "call_site_not_approved",
     "policy_incomplete",
     "estimate_above_ceiling",
@@ -454,6 +467,79 @@ class DispatchGate:
 
         return self.egress_policies.get(function_name) or _declared_egress_policy(function_name)
 
+    @staticmethod
+    def _approval_value(value: Any) -> Any:
+        """Convert declared configuration to strict canonical JSON data."""
+        if hasattr(value, "reason") and type(value).__name__ == "Unset":
+            return {"unset": str(value.reason)}
+        if dataclasses.is_dataclass(value):
+            return {
+                field.name: DispatchGate._approval_value(getattr(value, field.name))
+                for field in dataclasses.fields(value)
+            }
+        if isinstance(value, dict):
+            return {str(key): DispatchGate._approval_value(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
+        if isinstance(value, (list, tuple)):
+            return [DispatchGate._approval_value(item) for item in value]
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        raise TypeError(f"unsupported approval-envelope value: {type(value).__name__}")
+
+    def dispatch_envelope_payload(self) -> Dict[str, Any]:
+        """Return every effective input that changes the safety/resource/cost envelope.
+
+        This is rebuilt at dispatch time. Constructor-injected profiles and policy
+        maps are included as effective values, not trusted as authorisation. Any
+        change therefore invalidates the maintainer signature.
+        """
+        if self.policy is None:
+            raise ValueError("no step policy")
+        root = Path(__file__).resolve().parents[1]
+        cost_files = {}
+        for relative in (
+            "benchmarks/evidence/r1_cost_scenario.json",
+            "benchmarks/evidence/r1_rate_card.json",
+        ):
+            raw = (root / relative).read_bytes()
+            cost_files[relative] = hashlib.sha256(raw).hexdigest()
+
+        profiles = {
+            name: self._approval_value(self._profile(name))
+            for name in sorted(CONTAINER_CLASSES)
+        }
+        egress = {}
+        for name in sorted(FUNCTION_CLASS):
+            item = self._egress(name)
+            egress[name] = self._approval_value(item)
+        ingress = {
+            name: self._approval_value(item)
+            for name, item in sorted(INGRESS_POLICIES.items())
+        }
+        manifest_path = Path(MODEL_CACHE_MANIFEST_PATH)
+        manifest_state = "ABSENT"
+        manifest_digest = None
+        if manifest_path.is_file():
+            manifest_state = "PRESENT"
+            manifest_digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+
+        return {
+            "schema": "r1-dispatch-envelope/1",
+            "step_policy": self._approval_value(self.policy.to_payload()),
+            "container_profiles": profiles,
+            "egress_policies": egress,
+            "ingress_policies": ingress,
+            "payload_cap": self._approval_value(MAX_TRAJECTORY_PAYLOAD_BYTES),
+            "model": self._approval_value(PINNED_MODEL),
+            "model_cache": {
+                "manifest_path": str(MODEL_CACHE_MANIFEST_PATH),
+                "manifest_state": manifest_state,
+                "manifest_sha256": manifest_digest,
+                "offline_environment": self._approval_value(OFFLINE_ENV),
+                "download_retry_allowance": self._approval_value(DOWNLOAD_RETRY_ALLOWANCE),
+            },
+            "cost_inputs_sha256": cost_files,
+        }
+
     def _semaphore(self, container_class: str) -> threading.BoundedSemaphore:
         if container_class not in self._semaphores:
             cap = 1
@@ -681,7 +767,25 @@ class DispatchGate:
                 f"the approval of step '{claims.step_id}' does not cover the "
                 f"call site '{function_name}'",
             )
-
+        try:
+            envelope = self.dispatch_envelope_payload()
+            envelope_digest = r1_approval.payload_digest(envelope)
+        except Exception as exc:
+            self._refuse(
+                container_class,
+                function_name,
+                "approval_envelope_unavailable",
+                f"{type(exc).__name__}: {exc}",
+            )
+        if claims.dispatch_envelope_digest != envelope_digest:
+            self._refuse(
+                container_class,
+                function_name,
+                "approval_envelope_mismatch",
+                "the signed approval does not bind the effective D26-D29 "
+                "dispatch envelope (resources, autoscaler, network, storage, "
+                "model/cache or cost inputs changed)",
+            )
     def _check_bounds(self, container_class: str, function_name: str) -> None:
         profile = self._profile(container_class)
         missing = profile.missing_bounds()

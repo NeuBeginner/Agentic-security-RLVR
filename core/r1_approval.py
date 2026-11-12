@@ -134,6 +134,7 @@ class VerifiedApproval:
     approved_at: str
     call_sites: Tuple[str, ...]
     policy_digest: str
+    dispatch_envelope_digest: str
     artifact_digest: str
 
     def covers(self, function_name: str) -> bool:
@@ -306,6 +307,7 @@ def verify_approval(payload: Mapping[str, Any], signature: bytes) -> VerifiedApp
     approved_at = payload.get("approved_at")
     call_sites = payload.get("call_sites")
     policy = payload.get("policy")
+    dispatch_envelope = payload.get("dispatch_envelope")
     if not isinstance(step_id, str) or not step_id:
         raise ApprovalNotVerified("the approval names no step")
     if not isinstance(approved_by, str) or not approved_by:
@@ -318,6 +320,10 @@ def verify_approval(payload: Mapping[str, Any], signature: bytes) -> VerifiedApp
         raise ApprovalNotVerified("the approval names an invalid call site")
     if not isinstance(policy, Mapping):
         raise ApprovalNotVerified("the approval approves no policy")
+    if not isinstance(dispatch_envelope, Mapping):
+        raise ApprovalNotVerified("the approval does not bind a complete dispatch envelope")
+    if dispatch_envelope.get("schema") != "r1-dispatch-envelope/1":
+        raise ApprovalNotVerified("the dispatch envelope schema is missing or unsupported")
 
     return VerifiedApproval(
         step_id=step_id,
@@ -325,6 +331,7 @@ def verify_approval(payload: Mapping[str, Any], signature: bytes) -> VerifiedApp
         approved_at=approved_at,
         call_sites=tuple(call_sites),
         policy_digest=policy_digest(policy),
+        dispatch_envelope_digest=payload_digest(dispatch_envelope),
         artifact_digest=payload_digest(payload),
     )
 
@@ -351,6 +358,7 @@ def load_approval_artifact(path: Any) -> ApprovalArtifact:
             "approved_at": "2026-11-12",
             "call_sites": ["verify_exploit_remote"],
             "policy": { "...": "the approved step policy" },
+            "dispatch_envelope": { "...": "the complete D26-D29 effective configuration" },
             "signature": "<base64 of the RSA signature>"
         }
 

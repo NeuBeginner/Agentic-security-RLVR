@@ -97,6 +97,7 @@ def approval_authority(monkeypatch) -> Callable[..., Any]:
         approved_policy: Optional[Any] = None,
         pin_key: bool = True,
         corrupt_signature: bool = False,
+        dispatch_envelope: Optional[Mapping[str, Any]] = None,
     ) -> Any:
         from core import r1_approval
 
@@ -112,6 +113,11 @@ def approval_authority(monkeypatch) -> Callable[..., Any]:
                 dict(policy_payload)
                 if policy_payload is not None
                 else source.to_payload()
+            ),
+            "dispatch_envelope": (
+                dict(dispatch_envelope)
+                if dispatch_envelope is not None
+                else {"schema": "r1-dispatch-envelope/1"}
             ),
         }
         signature = sign_payload(r1_approval.canonical_bytes(payload))

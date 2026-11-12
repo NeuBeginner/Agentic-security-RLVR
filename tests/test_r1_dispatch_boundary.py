@@ -617,10 +617,12 @@ def test_the_gate_verifies_the_artifact_at_dispatch_time(signed_approval):
     artifact = signed_approval(policy)
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=artifact,
+        approval=None,
         autoscaler_reader=_reader(),
         **_approved_world(),
     )
+    artifact = signed_approval(policy, dispatch_envelope=gate.dispatch_envelope_payload())
+    gate.approval = artifact
     fake = FakeProviderCallable()
 
     assert gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {}) == {
@@ -712,3 +714,58 @@ def test_a_pinned_key_with_a_matching_mirror_is_used(monkeypatch, tmp_path):
     assert base64.b64decode(r1_approval.public_key_record(key)["n"]) == modulus.to_bytes(
         key_size, "big"
     )
+
+
+# --------------------------------------------------------------------------------------
+# P0.5 - the signature binds the complete effective D26-D29 envelope
+# --------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("change", ["cpu_limit", "autoscaler", "egress", "ingress", "payload_cap"])
+def test_signed_envelope_rejects_changed_effective_configuration(change, signed_approval, monkeypatch):
+    """Any post-signature change to a safety/resource/network bound refuses before provider."""
+    policy = _policy()
+    world = _approved_world()
+    gate = r1_dispatch.DispatchGate(policy=policy, autoscaler_reader=_reader(), **world)
+    artifact = signed_approval(policy, dispatch_envelope=gate.dispatch_envelope_payload())
+    gate.approval = artifact
+
+    if change == "cpu_limit":
+        gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
+            gate.profiles[r1.SANDBOX_CPU], cpu_limit_cores=8.0
+        )
+    elif change == "autoscaler":
+        gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
+            gate.profiles[r1.SANDBOX_CPU], max_containers=47
+        )
+    elif change == "egress":
+        gate.egress_policies["verify_exploit_remote"] = dataclasses.replace(
+            gate.egress_policies["verify_exploit_remote"], protocol_allowance_bytes=2048
+        )
+    elif change == "ingress":
+        from core.r1_bounds import INGRESS_POLICIES
+        name = next(iter(INGRESS_POLICIES))
+        monkeypatch.setitem(
+            INGRESS_POLICIES, name,
+            dataclasses.replace(INGRESS_POLICIES[name], ingress_cap_bytes=1),
+        )
+    elif change == "payload_cap":
+        monkeypatch.setattr(r1, "MAX_TRAJECTORY_PAYLOAD_BYTES", 1)
+
+    fake = FakeProviderCallable()
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
+    assert excinfo.value.reason == "approval_envelope_mismatch"
+    assert fake.calls == []
+
+
+def test_signed_envelope_is_required_even_for_legacy_signed_policy(signed_approval):
+    """A valid legacy signature over StepPolicy alone is no longer sufficient."""
+    policy = _policy()
+    artifact = signed_approval(policy)
+    gate = r1_dispatch.DispatchGate(
+        policy=policy, approval=artifact, autoscaler_reader=_reader(), **_approved_world()
+    )
+    fake = FakeProviderCallable()
+    with pytest.raises(r1_dispatch.DispatchRefusal):
+        gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
+    assert fake.calls == []
