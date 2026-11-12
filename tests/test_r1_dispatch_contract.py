@@ -544,7 +544,7 @@ def _install_fake_provider(monkeypatch, name: str) -> FakeProviderObject:
     return fake
 
 
-def test_an_approved_dispatch_reaches_the_provider_exactly_once(monkeypatch, verified_approval):
+def test_an_approved_dispatch_reaches_the_provider_exactly_once(monkeypatch, signed_approval):
     """The whole path - guard, gate, provider - runs once and is billed once.
 
     This is the end-to-end proof of the reworked guard: the guarded call is
@@ -558,7 +558,7 @@ def test_an_approved_dispatch_reaches_the_provider_exactly_once(monkeypatch, ver
 
     with r1_dispatch.authorised_step(
         policy,
-        approval=verified_approval(policy),
+        approval=signed_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     ) as gate:
@@ -570,7 +570,7 @@ def test_an_approved_dispatch_reaches_the_provider_exactly_once(monkeypatch, ver
     assert len(gate.dispatched()) == 1
 
 
-def test_the_boundary_guard_dispatches_through_the_same_gate(monkeypatch, verified_approval):
+def test_the_boundary_guard_dispatches_through_the_same_gate(monkeypatch, signed_approval):
     """The guard on the provider object's own 'remote' uses the single gate."""
     world = _approved_world()
     fake = _install_fake_provider(monkeypatch, "verify_exploit_remote")
@@ -578,7 +578,7 @@ def test_the_boundary_guard_dispatches_through_the_same_gate(monkeypatch, verifi
 
     with r1_dispatch.authorised_step(
         policy,
-        approval=verified_approval(policy),
+        approval=signed_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     ) as gate:
@@ -884,14 +884,14 @@ def test_a_malformed_field_in_the_read_back_is_refused(field_name):
 
 
 @pytest.mark.parametrize("field_name", r1.AUTOSCALER_FIELDS)
-def test_a_mismatching_field_in_the_read_back_is_refused(field_name, verified_approval):
+def test_a_mismatching_field_in_the_read_back_is_refused(field_name, signed_approval):
     world = _approved_world()
     payload = _settings()
     payload[field_name] = payload[field_name] + 1 if field_name != "scaledown_window" else 61
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=verified_approval(policy),
+        approval=signed_approval(policy),
         autoscaler_reader=lambda *_: payload,
         **world,
     )
@@ -903,14 +903,14 @@ def test_a_mismatching_field_in_the_read_back_is_refused(field_name, verified_ap
     assert fake.calls == []
 
 
-def test_a_partial_read_back_is_never_accepted(verified_approval):
+def test_a_partial_read_back_is_never_accepted(signed_approval):
     """A read-back that carries only some of the fields is refused."""
     world = _approved_world()
     payload = {"min_containers": 0, "max_containers": 48}
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=verified_approval(policy),
+        approval=signed_approval(policy),
         autoscaler_reader=lambda *_: payload,
         **world,
     )
@@ -943,7 +943,7 @@ def test_the_provider_read_back_is_opt_in():
         r1_dispatch.provider_autoscaler_reader(None, "verify_exploit_remote")
 
 
-def test_an_unavailable_read_back_refuses_the_dispatch(verified_approval):
+def test_an_unavailable_read_back_refuses_the_dispatch(signed_approval):
     world = _approved_world()
 
     def unavailable(target, function_name=""):
@@ -952,7 +952,7 @@ def test_an_unavailable_read_back_refuses_the_dispatch(verified_approval):
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=verified_approval(policy),
+        approval=signed_approval(policy),
         autoscaler_reader=unavailable,
         **world,
     )
@@ -1026,7 +1026,7 @@ def test_a_gpu_payload_cap_of_zero_is_only_possible_with_the_provider_blocking()
 # --------------------------------------------------------------------------------------
 
 
-def test_the_invocation_allowance_is_consumed_atomically_under_concurrency(verified_approval):
+def test_the_invocation_allowance_is_consumed_atomically_under_concurrency(signed_approval):
     """Two concurrent dispatches may never both pass the same remaining allowance."""
     world = _approved_world()
     policy = _policy(
@@ -1035,7 +1035,7 @@ def test_the_invocation_allowance_is_consumed_atomically_under_concurrency(verif
     )
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=verified_approval(policy),
+        approval=signed_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     )
@@ -1066,7 +1066,7 @@ def test_the_invocation_allowance_is_consumed_atomically_under_concurrency(verif
     assert gate.used_allowance(r1.SANDBOX_CPU) == 3
 
 
-def test_a_refused_attempt_does_not_consume_the_invocation_allowance(verified_approval):
+def test_a_refused_attempt_does_not_consume_the_invocation_allowance(signed_approval):
     """The policy of the concurrency-refused attempt: it costs no invocation.
 
     A dispatch that the concurrency gate refuses starts no container, so it may
@@ -1080,7 +1080,7 @@ def test_a_refused_attempt_does_not_consume_the_invocation_allowance(verified_ap
     )
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=verified_approval(policy),
+        approval=signed_approval(policy),
         autoscaler_reader=_reader(),
         **world,
     )
@@ -1123,7 +1123,7 @@ def test_a_refused_attempt_does_not_consume_the_invocation_allowance(verified_ap
         "autoscaler_readback_mismatch",
     ],
 )
-def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, verified_approval):
+def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_approval):
     """No refusal consumes an invocation: only a real dispatch does."""
     world = _approved_world()
     policy = _policy(
@@ -1134,7 +1134,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, verifie
         payload["max_containers"] = payload["max_containers"] + 1
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=verified_approval(policy),
+        approval=signed_approval(policy),
         autoscaler_reader=lambda *_: payload,
         **world,
     )
@@ -1149,7 +1149,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, verifie
         call = lambda: gate_no_policy.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     elif reason == "bounds_not_approved":
         gate_unbounded = r1_dispatch.DispatchGate(
-            policy=policy, approval=verified_approval(policy), autoscaler_reader=lambda *_: payload
+            policy=policy, approval=signed_approval(policy), autoscaler_reader=lambda *_: payload
         )
         call = lambda: gate_unbounded.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     elif reason == "deployed_ceiling_too_low":
@@ -1159,7 +1159,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, verifie
         )
         gate_high = r1_dispatch.DispatchGate(
             policy=high_policy,
-            approval=verified_approval(high_policy),
+            approval=signed_approval(high_policy),
             autoscaler_reader=lambda *_: payload,
             **world,
         )
@@ -1170,7 +1170,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, verifie
         )
         gate_small = r1_dispatch.DispatchGate(
             policy=small_policy,
-            approval=verified_approval(small_policy),
+            approval=signed_approval(small_policy),
             autoscaler_reader=lambda *_: payload,
             **world,
         )

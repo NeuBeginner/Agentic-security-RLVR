@@ -449,3 +449,266 @@ def test_the_refusal_reasons_name_the_approval_refusals():
     assert "approval_not_verified" in r1_dispatch.REFUSAL_REASONS
     assert "approval_policy_mismatch" in r1_dispatch.REFUSAL_REASONS
     assert "call_site_not_approved" in r1_dispatch.REFUSAL_REASONS
+
+
+# --------------------------------------------------------------------------------------
+# P0.4 - the approval boundary cannot be minted by an ordinary caller
+# --------------------------------------------------------------------------------------
+
+
+def _forged_approval(policy) -> Any:
+    """Forge an approval the way the re-review did: with the module's own token.
+
+    The re-review named the route exactly: read the module attribute that marks
+    an approval as *verified*, hand it to the constructor and the constructor
+    accepts the instance. The helper does that whenever the attribute exists -
+    after the correction it simply builds the same instance without a token,
+    because there is no token any more.
+    """
+    from core import r1_approval
+
+    sentinel = getattr(r1_approval, "_ISSUANCE", None)
+    fields: Dict[str, Any] = {
+        "step_id": policy.step_id,
+        "approved_by": "maintainer",
+        "approved_at": policy.approved_at,
+        "call_sites": tuple(r1.FUNCTION_CLASS),
+        "policy_digest": policy.policy_digest(),
+        "artifact_digest": "forged",
+    }
+    if sentinel is not None:
+        fields["_issued_by"] = sentinel
+    return r1_approval.VerifiedApproval(**fields)
+
+
+def test_a_forged_approval_cannot_authorise_a_dispatch():
+    """P0.4: a forged approval object authorises nothing.
+
+    Every other gate of the dispatch is **permissive** here: the policy is
+    complete, the profiles and the egress declarations are approved and the
+    read-back matches the declaration. The approval is the only thing that can
+    refuse the dispatch - so the test isolates the approval boundary instead of
+    passing because some unrelated bound happens to be unset.
+
+    The fake provider must record **zero** calls.
+    """
+    policy = _policy()
+    world = _approved_world()
+    gate = r1_dispatch.DispatchGate(
+        policy=policy,
+        approval=_forged_approval(policy),
+        autoscaler_reader=_reader(),
+        **world,
+    )
+    fake = FakeProviderCallable()
+
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
+    assert excinfo.value.reason == "approval_not_verified"
+    assert fake.calls == [], "the forged approval reached the provider"
+
+
+def test_the_approval_module_holds_no_issuance_token():
+    """P0.4: there is no module attribute that marks an approval as verified.
+
+    A sentinel that a caller can read is not an access-control boundary: the
+    re-review forged an approval with it. The boundary is the signature, so no
+    such token may exist any more.
+    """
+    from core import r1_approval
+
+    assert not hasattr(r1_approval, "_ISSUANCE"), (
+        "the approval module still holds an issuance token: a caller can read it "
+        "and mint a verified approval with it"
+    )
+
+
+# --------------------------------------------------------------------------------------
+# P0.4 - the negative cases of the approval boundary
+#
+# Every case below isolates the approval boundary: the policy is complete, the
+# profiles and the egress declarations are approved and the read-back matches
+# the declaration, so the *approval* is the only thing that can refuse the
+# dispatch. Each of them must leave the fake provider with **zero** calls.
+# --------------------------------------------------------------------------------------
+
+
+def _dispatch_with(approval: Any) -> Tuple[Any, List[Tuple[Any, Any]]]:
+    """Dispatch one provider call with the given approval - permissive world."""
+    policy = _policy()
+    gate = r1_dispatch.DispatchGate(
+        policy=policy,
+        approval=approval,
+        autoscaler_reader=_reader(),
+        **_approved_world(),
+    )
+    fake = FakeProviderCallable()
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
+    return excinfo.value, fake.calls
+
+
+def test_an_approval_without_a_pinned_key_authorises_nothing(signed_approval):
+    """P0.4: no key - no approval. The repository pins none, so nothing verifies."""
+    artifact = signed_approval(_policy(), pin_key=False)
+
+    refusal, calls = _dispatch_with(artifact)
+    assert refusal.reason == "approval_not_verified"
+    assert calls == []
+
+
+def test_an_approval_with_an_invalid_signature_authorises_nothing(signed_approval):
+    """P0.4: a signature that does not verify is no signature."""
+    artifact = signed_approval(_policy(), corrupt_signature=True)
+
+    refusal, calls = _dispatch_with(artifact)
+    assert refusal.reason == "approval_not_verified"
+    assert calls == []
+
+
+def test_an_approval_of_another_step_authorises_nothing(signed_approval):
+    """P0.4: an approval covers the step it names and no other."""
+    artifact = signed_approval(_policy(), step_id="R2p")
+
+    refusal, calls = _dispatch_with(artifact)
+    assert refusal.reason == "approval_not_verified"
+    assert calls == []
+
+
+def test_an_approval_of_another_policy_authorises_nothing(signed_approval):
+    """P0.4: the approval binds the exact policy it approves."""
+    other = _policy(monetary_ceiling_usd=99.0)
+    artifact = signed_approval(_policy(), policy_payload=other.to_payload())
+
+    refusal, calls = _dispatch_with(artifact)
+    assert refusal.reason == "approval_policy_mismatch"
+    assert calls == []
+
+
+def test_an_approval_that_covers_no_call_site_authorises_nothing(signed_approval):
+    """P0.4: an approval that does not name the call site authorises nothing."""
+    artifact = signed_approval(_policy(), call_sites=["some_other_call_site"])
+
+    refusal, calls = _dispatch_with(artifact)
+    assert refusal.reason == "call_site_not_approved"
+    assert calls == []
+
+
+def test_a_mutated_artifact_authorises_nothing(signed_approval):
+    """P0.4: the signature binds the payload - a payload edited afterwards is dead."""
+    artifact = signed_approval(_policy())
+    payload = dict(artifact.payload)
+    payload["approved_by"] = "somebody-else"
+    mutated = type(artifact)(payload=payload, signature=artifact.signature)
+
+    refusal, calls = _dispatch_with(mutated)
+    assert refusal.reason == "approval_not_verified"
+    assert calls == []
+
+
+def test_the_gate_verifies_the_artifact_at_dispatch_time(signed_approval):
+    """P0.4: the verification happens in the gate, not at the construction.
+
+    The same artifact is verified twice - once per dispatch - and the gate
+    never caches a verdict: an artifact that stops verifying stops
+    authorising.
+    """
+    policy = _policy()
+    artifact = signed_approval(policy)
+    gate = r1_dispatch.DispatchGate(
+        policy=policy,
+        approval=artifact,
+        autoscaler_reader=_reader(),
+        **_approved_world(),
+    )
+    fake = FakeProviderCallable()
+
+    assert gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {}) == {
+        "ok": True
+    }
+    assert len(fake.calls) == 1
+
+    # The signature of the artifact is broken after the first dispatch: the
+    # next dispatch must be refused.
+    broken = type(artifact)(
+        payload=artifact.payload,
+        signature=bytes([artifact.signature[0] ^ 0xFF]) + artifact.signature[1:],
+    )
+    gate.approval = broken
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
+    assert excinfo.value.reason == "approval_not_verified"
+    assert len(fake.calls) == 1
+
+
+# --------------------------------------------------------------------------------------
+# P0.4 - the pin of the approval authority
+# --------------------------------------------------------------------------------------
+
+
+def test_the_repository_pins_no_approval_key():
+    """P0.4: the repository pins no key, so no approval can be verified.
+
+    The pin is a constant of the source - not a file that is read at runtime -
+    and the evidence mirror carries ``null`` as well.
+    """
+    from core import r1_approval
+
+    assert r1_approval.PINNED_PUBLIC_KEY is None
+    assert r1_approval.pinned_public_key() is None
+
+
+def test_the_evidence_mirror_agrees_with_the_source_pin():
+    """P0.4: the mirror of the pin and the pin itself are one fact."""
+    import json
+
+    from core import r1_approval
+
+    mirror = json.loads(r1_approval.PINNED_KEY_PATH.read_text(encoding="utf-8"))
+    assert mirror.get("public_key") is None, (
+        "the evidence mirror carries a key while the source pins none"
+    )
+    assert r1_approval.PINNED_PUBLIC_KEY is None
+
+
+def test_a_mirror_that_disagrees_with_the_pin_is_refused(monkeypatch):
+    """P0.4: a tampered mirror is a tamper of the pin - and the pin is refused.
+
+    The mirror is a second copy of the pin. When the two disagree, the pin is
+    not used: the gate refuses every approval (fail closed).
+    """
+    from core import r1_approval
+
+    monkeypatch.setattr(r1_approval, "PINNED_PUBLIC_KEY", (int("f" * 256, 16), 65537))
+    assert r1_approval.pinned_public_key() is None, (
+        "a mirror that does not carry the pinned key must not authorise anything"
+    )
+
+
+def test_a_pinned_key_with_a_matching_mirror_is_used(monkeypatch, tmp_path):
+    """P0.4: the pin mechanism itself works - with the *test* key.
+
+    The test pins the test key in the source and writes the matching mirror
+    into a temporary directory; the repository's own pin stays ``null``.
+    """
+    import base64
+    import json
+
+    from core import r1_approval
+
+    modulus = int("f" * 256, 16)
+    exponent = 65537
+    key = (modulus, exponent)
+    mirror = tmp_path / "r1_approval_key.json"
+    mirror.write_text(
+        json.dumps({"public_key": r1_approval.public_key_record(key)}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(r1_approval, "PINNED_PUBLIC_KEY", key)
+    monkeypatch.setattr(r1_approval, "PINNED_KEY_PATH", mirror)
+
+    assert r1_approval.pinned_public_key() == key
+    key_size = (modulus.bit_length() + 7) // 8
+    assert base64.b64decode(r1_approval.public_key_record(key)["n"]) == modulus.to_bytes(
+        key_size, "big"
+    )

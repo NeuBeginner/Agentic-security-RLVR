@@ -8,24 +8,37 @@ Before this module existed, the gate accepted a :class:`~benchmarks.r1_dispatch.
 that any caller could construct in-process - including its ``approved_by``
 field - so the gate authorised itself. The R1 re-review named that as a P0.
 
-**The approval is external.** An approval is a JSON artifact that
+**The approval is a signed artifact.** An approval is a JSON artifact that
 
 * names the step, the approver, the moment of the approval, the call sites it
   covers and the exact policy it approves, and
 * carries an **RSA signature** (RSASSA-PKCS1-v1_5 over SHA-256) over the
   canonical form of that payload.
 
-The signature is verified against the **public** key of the approval authority,
-which the repository pins in ``benchmarks/evidence/r1_approval_key.json``. The
-private half of that key never enters this repository and never enters the
-process: a caller that can only run code here cannot mint an approval.
+**The artifact carries no authority.** :class:`ApprovalArtifact` is data: the
+payload and the signature. The authority is the *signature*, and the only
+thing that turns a signature into an authorisation is the verification against
+the **public** key of the approval authority, which the repository pins in
+:data:`PINNED_PUBLIC_KEY` (mirrored for the audit trail in
+``benchmarks/evidence/r1_approval_key.json``). The private half of that key
+never enters this repository and never enters the process: a caller that can
+only run code here cannot mint an approval.
 
-**R1 pins no key.** The pinned file carries ``null``, because no step of the
+**The gate verifies the artifact itself.** The dispatch gate does not accept a
+"verified approval" object: it accepts the **signed artifact** and verifies the
+signature itself, at dispatch time, against the pinned key
+(``benchmarks.r1_dispatch.DispatchGate._check_approval``). There is therefore
+no value whose *construction* conveys authority - the previous design had one
+(a module-global issuance token that any caller could read and hand to the
+constructor; the R1 re-review forged an approval with it, and the token is
+gone).
+
+**R1 pins no key.** The pinned key is ``None``, because no step of the
 evidence-regeneration workflow has been approved by the maintainer yet. The
 consequence is the intended one: **no provider dispatch is possible in R1**,
 and it is impossible *structurally* - not only because the bounds of the
-container classes are required-but-unset. A caller that constructs a policy in
--process, supplies permissive profile and read-back doubles and reaches a
+container classes are required-but-unset. A caller that constructs a policy
+in-process, supplies permissive profile and read-back doubles and reaches a
 provider double is refused with ``approval_not_verified``.
 
 **The threat model.** This module protects against a caller *inside this
@@ -33,9 +46,9 @@ process* that reaches the workflow through its own API, its registries and its
 guards. It does not protect against an adversary who can execute arbitrary code
 in the same process: such an adversary can patch the verifier, the pinned key or
 the gate itself. That is a property of the language, not of this module; the
-guarantee it makes is the auditable one - *the repository contains no approval
-and no signing key, so the repository cannot authorise a provider dispatch on
-its own*.
+guarantee it makes is the auditable one - *the repository contains no signing
+key, so the repository cannot authorise a provider dispatch on its own*, and
+*no approval can be minted without the signature of the approval authority*.
 """
 
 from __future__ import annotations
@@ -45,18 +58,31 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 #: The signature algorithm of an approval artifact.
 ALGORITHM = "RSASSA-PKCS1-v1_5-SHA256"
 
-#: The file that pins the public key of the approval authority.
+#: The file that mirrors the pinned public key of the approval authority.
 PINNED_KEY_PATH = (
     Path(__file__).resolve().parent.parent
     / "benchmarks"
     / "evidence"
     / "r1_approval_key.json"
 )
+
+#: The **pinned public key** of the approval authority - ``(modulus, exponent)``.
+#:
+#: The pin lives in the **source** and not in a file that is read at runtime: a
+#: caller that can write a file into the working tree must not be able to
+#: install a key of its own. The evidence file mirrors the pin for the audit
+#: trail, and a mirror that does not match this constant is refused (fail
+#: closed) - see :func:`pinned_public_key`.
+#:
+#: ``None`` means: the repository pins no key. That is the state of R1 - no
+#: step of the workflow is approved, so no approval can be verified and no
+#: provider dispatch can be authorised.
+PINNED_PUBLIC_KEY: Optional[Tuple[int, int]] = None
 
 #: The DER prefix of a SHA-256 ``DigestInfo`` (RFC 8017, section 9.2).
 _SHA256_DIGEST_INFO_PREFIX = bytes.fromhex("3031300d060960864801650304020105000420")
@@ -66,19 +92,41 @@ class ApprovalNotVerified(RuntimeError):
     """Raised when an approval artifact is absent, malformed or not signed."""
 
 
-#: The token that marks an approval as *verified*. Only :func:`verify_approval`
-#: hands it out, so a verified approval cannot be conjured by a caller that
-#: merely knows the class.
-_ISSUANCE = object()
+@dataclass(frozen=True)
+class ApprovalArtifact:
+    """The signed approval artifact: the payload and its signature.
+
+    The artifact is **data and carries no authority**. It can be constructed by
+    anyone - a forged artifact is refused by the verification, not by the
+    constructor. The authority is the signature, and only the verification
+    against the pinned public key of the approval authority produces it.
+    """
+
+    payload: Mapping[str, Any]
+    signature: bytes
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.payload, Mapping):
+            raise ApprovalNotVerified("the approval payload is not a mapping")
+        if not isinstance(self.signature, (bytes, bytearray)):
+            raise ApprovalNotVerified("the approval signature is not a byte string")
+        object.__setattr__(self, "signature", bytes(self.signature))
+
+    @property
+    def digest(self) -> str:
+        """The digest of the payload of this artifact."""
+        return payload_digest(self.payload)
 
 
 @dataclass(frozen=True)
 class VerifiedApproval:
-    """An approval that has been verified against the pinned public key.
+    """The **verified claims** of an approval artifact.
 
-    The instance is produced by :func:`verify_approval` only: the constructor
-    refuses an approval that does not carry the issuance token, so a caller
-    cannot build one by hand.
+    The instance is the *result* of a successful verification
+    (:func:`verify_approval`): the claims of the payload that the signature
+    covers. It is **not an authorisation** - the dispatch gate never accepts
+    one, it verifies the signed artifact itself. A caller that constructs this
+    class by hand authorises nothing.
     """
 
     step_id: str
@@ -87,13 +135,6 @@ class VerifiedApproval:
     call_sites: Tuple[str, ...]
     policy_digest: str
     artifact_digest: str
-    _issued_by: Any = None
-
-    def __post_init__(self) -> None:
-        if self._issued_by is not _ISSUANCE:
-            raise ApprovalNotVerified(
-                "a verified approval is produced by verify_approval() only"
-            )
 
     def covers(self, function_name: str) -> bool:
         """True when the approval names this call site."""
@@ -144,28 +185,59 @@ def _decode_modulus(value: str) -> int:
     return int.from_bytes(base64.b64decode(value), "big")
 
 
+def public_key_record(key: Tuple[int, int]) -> Dict[str, Any]:
+    """The record of a public key in the format of the evidence mirror."""
+    modulus, exponent = key
+    key_size = (modulus.bit_length() + 7) // 8
+    return {
+        "n": base64.b64encode(modulus.to_bytes(key_size, "big")).decode("ascii"),
+        "e": int(exponent),
+    }
+
+
+def _mirror_matches(key: Tuple[int, int]) -> bool:
+    """True when the evidence mirror carries exactly this key.
+
+    The mirror is a second, human-readable copy of the pin. A mirror that is
+    missing, unreadable, malformed or different from the source pin is a
+    tamper of the pin - and a tampered pin is refused (fail closed).
+    """
+    try:
+        raw = json.loads(PINNED_KEY_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(raw, Mapping):
+        return False
+    recorded = raw.get("public_key")
+    if not isinstance(recorded, Mapping):
+        return False
+    try:
+        if int(recorded["e"]) != int(key[1]):
+            return False
+        if _decode_modulus(str(recorded["n"])) != int(key[0]):
+            return False
+    except (KeyError, TypeError, ValueError):
+        return False
+    return True
+
+
 def pinned_public_key() -> Optional[Tuple[int, int]]:
     """The pinned public key of the approval authority - or ``None``.
+
+    The pin is :data:`PINNED_PUBLIC_KEY` - a constant of this module, not a
+    file that is read at runtime. The evidence file mirrors it; when the two
+    disagree the pin is refused.
 
     ``None`` means that the repository pins no key: no approval can be
     verified, and therefore no provider dispatch can be authorised. That is the
     state of R1.
     """
-    try:
-        raw = json.loads(PINNED_KEY_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    key = PINNED_PUBLIC_KEY
+    if key is None:
         return None
-    key = raw.get("public_key")
-    if not isinstance(key, dict):
+    if not _mirror_matches(key):
         return None
-    try:
-        modulus = _decode_modulus(str(key["n"]))
-        exponent = int(key["e"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    if modulus <= 0 or exponent <= 1:
-        return None
-    return modulus, exponent
+    return key
 
 
 # --------------------------------------------------------------------------------------
@@ -202,11 +274,16 @@ def verify_signature(payload: bytes, signature: bytes, public_key: Tuple[int, in
 
 
 def verify_approval(payload: Mapping[str, Any], signature: bytes) -> VerifiedApproval:
-    """Verify an approval artifact and return the verified approval.
+    """Verify an approval artifact and return its verified claims.
 
     The artifact is refused - never partially accepted - when the repository
     pins no key, when the signature does not match the payload, or when the
     payload does not name a step, an approver and the call sites it covers.
+
+    **The result is claims, not an authorisation.** The dispatch gate verifies
+    the signed artifact itself, at dispatch time; a caller that constructs a
+    :class:`VerifiedApproval` by hand authorises nothing, because the gate
+    never accepts one.
     """
     key = pinned_public_key()
     if key is None:
@@ -249,12 +326,20 @@ def verify_approval(payload: Mapping[str, Any], signature: bytes) -> VerifiedApp
         call_sites=tuple(call_sites),
         policy_digest=policy_digest(policy),
         artifact_digest=payload_digest(payload),
-        _issued_by=_ISSUANCE,
     )
 
 
-def load_approval(path: Any) -> VerifiedApproval:
-    """Verify the approval artifact of a file and return the verified approval.
+def verify_artifact(artifact: ApprovalArtifact) -> VerifiedApproval:
+    """Verify a signed artifact and return its verified claims."""
+    if not isinstance(artifact, ApprovalArtifact):
+        raise ApprovalNotVerified(
+            f"the approval is a {type(artifact).__name__}, not a signed artifact"
+        )
+    return verify_approval(artifact.payload, artifact.signature)
+
+
+def load_approval_artifact(path: Any) -> ApprovalArtifact:
+    """Read the signed approval artifact of a file - the artifact, unverified.
 
     The artifact is the payload of the approval plus its signature:
 
@@ -268,6 +353,9 @@ def load_approval(path: Any) -> VerifiedApproval:
             "policy": { "...": "the approved step policy" },
             "signature": "<base64 of the RSA signature>"
         }
+
+    The artifact is **not** verified here: the gate verifies it, at dispatch
+    time, against the pinned key.
     """
     try:
         artifact = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -286,20 +374,24 @@ def load_approval(path: Any) -> VerifiedApproval:
         raise ApprovalNotVerified(
             f"the approval signature is not valid base64: {exc}"
         ) from exc
-    return verify_approval(artifact, raw_signature)
+    return ApprovalArtifact(payload=artifact, signature=raw_signature)
 
 
 __all__ = [
     "ALGORITHM",
+    "ApprovalArtifact",
     "ApprovalNotVerified",
     "PINNED_KEY_PATH",
+    "PINNED_PUBLIC_KEY",
     "VerifiedApproval",
     "canonical_bytes",
-    "load_approval",
+    "load_approval_artifact",
     "payload_digest",
     "pinned_public_key",
     "policy_digest",
+    "public_key_record",
     "sha256_hex",
     "verify_approval",
+    "verify_artifact",
     "verify_signature",
 ]

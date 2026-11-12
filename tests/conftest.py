@@ -3,9 +3,15 @@
 The approval fixture is the **out-of-band act of the approval authority**: the
 artifact is signed with a test key and the test pins its public key for the
 duration of the test. The key pair below is a *fixture* - the repository pins
-no approval key (``benchmarks/evidence/r1_approval_key.json`` carries
-``null``), so the test key cannot authorise anything outside this test suite
-and the live provider dispatch stays impossible in R1.
+no approval key (``core/r1_approval.PINNED_PUBLIC_KEY`` is ``None`` and
+``benchmarks/evidence/r1_approval_key.json`` carries ``null``), so the test key
+cannot authorise anything outside this test suite and the live provider
+dispatch stays impossible in R1.
+
+The fixture hands out the **signed artifact** - the payload and the signature -
+and not a "verified approval" object: the dispatch gate verifies the artifact
+itself, at dispatch time, so there is no value whose construction conveys
+authority (the R1 re-review forged one through the module's issuance token).
 
 Everything here is local: no test performs a provider call, a deployment, a
 volume operation or a model download.
@@ -14,7 +20,7 @@ volume operation or a model download.
 from __future__ import annotations
 
 import base64
-from typing import Any, Callable, Dict, Iterable, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional
 
 import pytest
 
@@ -66,13 +72,20 @@ def sign_payload(payload: bytes) -> bytes:
 
 
 @pytest.fixture
-def verified_approval(monkeypatch) -> Callable[..., Any]:
-    """A factory of **verified** approvals.
+def approval_authority(monkeypatch) -> Callable[..., Any]:
+    """The **out-of-band act of the approval authority**.
 
-    The factory signs the approval of a step policy with the test key and pins
-    the test public key for the duration of the test. It is the out-of-band
-    act of the approval authority: without it the gate refuses every provider
-    dispatch.
+    The factory signs an approval artifact of a step policy with the test key
+    and pins the test public key for the duration of the test. Without it the
+    gate refuses every provider dispatch.
+
+    The knobs are the refusals the gate has to distinguish:
+
+    * ``step_id`` - an approval of another step;
+    * ``call_sites`` - an approval that covers other call sites;
+    * ``policy_payload`` - an approval of another policy;
+    * ``corrupt_signature`` - a signature that does not verify;
+    * ``pin_key=False`` - no key at all: the repository pins none.
     """
 
     def factory(
@@ -80,20 +93,42 @@ def verified_approval(monkeypatch) -> Callable[..., Any]:
         call_sites: Optional[Iterable[str]] = None,
         step_id: Optional[str] = None,
         approved_by: str = "test-approver",
+        policy_payload: Optional[Mapping[str, Any]] = None,
+        approved_policy: Optional[Any] = None,
+        pin_key: bool = True,
+        corrupt_signature: bool = False,
     ) -> Any:
         from core import r1_approval
 
+        source = approved_policy if approved_policy is not None else policy
         payload = {
-            "step_id": step_id or policy.step_id,
+            "step_id": step_id or source.step_id,
             "approved_by": approved_by,
-            "approved_at": policy.approved_at,
+            "approved_at": source.approved_at,
             "call_sites": sorted(
                 call_sites if call_sites is not None else list(r1.FUNCTION_CLASS)
             ),
-            "policy": policy.to_payload(),
+            "policy": (
+                dict(policy_payload)
+                if policy_payload is not None
+                else source.to_payload()
+            ),
         }
         signature = sign_payload(r1_approval.canonical_bytes(payload))
-        monkeypatch.setattr(r1_approval, "pinned_public_key", _public_key)
-        return r1_approval.verify_approval(payload, signature)
+        if corrupt_signature:
+            signature = bytes([signature[0] ^ 0xFF]) + signature[1:]
+        if pin_key:
+            monkeypatch.setattr(r1_approval, "pinned_public_key", _public_key)
+        return r1_approval.ApprovalArtifact(payload=payload, signature=signature)
 
     return factory
+
+
+@pytest.fixture
+def signed_approval(approval_authority) -> Callable[..., Any]:
+    """The **signed approval artifact** of a step policy.
+
+    The artifact is data: the gate verifies the signature itself, at dispatch
+    time, against the pinned public key.
+    """
+    return approval_authority

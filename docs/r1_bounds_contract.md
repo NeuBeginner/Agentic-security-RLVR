@@ -23,7 +23,7 @@ production value and never hardcodes a price.
 | file | role |
 |---|---|
 | `core/r1_bounds.py` | the declarations: the three container-class profiles, the egress policies, the payload cap, the pinned model, the manifest check, the fail-closed helpers, the refusal registry and the guard (functions **and** classes) |
-| `core/r1_approval.py` | the **approval** of a step: the signed artifact, its RSA verification against the pinned public key and the `VerifiedApproval` the gate demands |
+| `core/r1_approval.py` | the **approval** of a step: the signed artifact, the RSA verification against the pinned public key and the pin of the approval authority — the gate verifies the artifact itself and accepts no "verified approval" object |
 | `benchmarks/r1_dispatch.py` | the dispatch gate: the single path through which this workflow dispatches a Modal call, including the read-only autoscaler read-back |
 | `benchmarks/r1_estimator.py` | the cumulative cost / egress / storage estimator and its CLI — the one accounting model |
 | `benchmarks/adapters.py` | the producer, now dispatching only through the gate |
@@ -269,9 +269,9 @@ The gate enforces, per step:
    (`no_approved_step_policy`), and the policy itself must declare the wall-clock
    budget, the post-execution deadline, the monetary ceiling and an estimate at or
    below that ceiling;
-3. a **verified approval** of the step (`approval_not_verified`,
-   `approval_policy_mismatch`, `call_site_not_approved`) — see *The approval is
-   external* below;
+3. a **signed approval** of the step (`approval_not_verified`,
+   `approval_policy_mismatch`, `call_site_not_approved`) — the gate verifies the
+   artifact itself, at dispatch time; see *The approval is external* below;
 4. the **completeness of the declared bounds** of the class (`bounds_not_approved`);
 5. the **egress declaration** of the function (`no_egress_declaration`,
    `egress_bound_not_approved`);
@@ -294,19 +294,35 @@ policy that a caller constructs in-process — with an `approved_by` of its own 
 JSON document that names the step, the approver, the moment of the approval, the call
 sites it covers and the exact policy it approves, and that carries an **RSA
 signature** (RSASSA-PKCS1-v1_5 over SHA-256) over its canonical form. The signature
-is verified against the **public** key that the repository pins in
-`benchmarks/evidence/r1_approval_key.json` (`core/r1_approval.py`); the private half
-of that key never enters this repository and never enters the process, so a caller
-that can only run code here cannot mint an approval.
+is verified against the **public** key of the approval authority, which the repository
+pins in the source (`core/r1_approval.py::PINNED_PUBLIC_KEY`) and mirrors for the
+audit trail in `benchmarks/evidence/r1_approval_key.json`; the private half of that
+key never enters this repository and never enters the process, so a caller that can
+only run code here cannot mint an approval.
 
-**R1 pins no key** — the pinned file carries `null`, because no step of the
-evidence-regeneration workflow has been approved by the maintainer yet. The
-consequence is the intended one: **no provider dispatch is possible in R1**, and it
-is impossible *structurally* — not only because the bounds of the container classes
-are required-but-unset. The approval binds the exact policy it approves: a caller
-that swaps a cap, a budget or a ceiling after the approval was issued does not hold
-the approval any more (`approval_policy_mismatch`), and an approval of another step
-does not cover this one (`call_site_not_approved`).
+**The gate verifies the artifact itself.** The dispatch gate takes the **signed
+artifact** — the payload and its signature — and verifies the signature itself, at
+dispatch time, against the pinned key. It accepts **no** "verified approval" object:
+there is no value whose *construction* conveys authority, so there is nothing for a
+caller to forge. The R1 re-review named the previous design as a P0: the approval
+class carried a module-global issuance token that any caller could read and hand to
+the constructor, and a forged approval reached the provider. The token is gone, and
+the boundary is the signature.
+
+**The pin lives in the source, not in a file that is read at runtime.** A caller that
+can write a file into the working tree must not be able to install a key of its own.
+The evidence mirror is a second copy of the pin: a mirror that is missing, malformed
+or different from the source pin is refused, and with it every approval (fail
+closed).
+
+**R1 pins no key** — the source pin is `null` and the mirror says `null` too,
+because no step of the evidence-regeneration workflow has been approved by the
+maintainer yet. The consequence is the intended one: **no provider dispatch is
+possible in R1**, and it is impossible *structurally* — not only because the bounds
+of the container classes are required-but-unset. The approval binds the exact policy
+it approves: a caller that swaps a cap, a budget or a ceiling after the approval was
+issued does not hold the approval any more (`approval_policy_mismatch`), and an
+approval of another step does not cover this one (`call_site_not_approved`).
 
 The invocation allowance is consumed only by a dispatch that really starts a
 container.** The check and the increment happen under **one** lock, so two concurrent
@@ -386,8 +402,13 @@ is a property of the language and of the process, not of this guard. What the gu
   in a registry, not in an attribute (a test invokes every callable the module holds,
   including the contents of their closures, against a fake provider and requires zero
   recorded calls);
-* **no provider dispatch is possible without a verified approval** — and R1 pins no
-  approval key, so no live provider dispatch is possible at all.
+* **no provider dispatch is possible without a signed approval** — the gate verifies
+  the artifact itself against the pinned key, and R1 pins no approval key, so no live
+  provider dispatch is possible at all;
+* **no value whose construction conveys authority exists** — there is no issuance
+  token, no unforgeable-in-practice marker and no "verified approval" object the
+  gate accepts; the only way through the boundary is a signature of the approval
+  authority.
 
 **What the guard does not cover.** A manual `modal run` of the app's local entrypoint
 drives the GPU class methods directly, and Modal offers no way to revoke a deployed

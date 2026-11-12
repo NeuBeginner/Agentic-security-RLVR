@@ -10,13 +10,16 @@ call. It enforces, per step:
    reason of the refusal registry of ``core/r1_bounds.py``;
 2. the **approved step policy** - a provider dispatch needs one, and the policy
    has to be complete (every budget, every cap and the ceiling are declared);
-3. a **verified approval** of the step - an artifact that is signed by the
+3. a **signed approval** of the step - an artifact that is signed by the
    approval authority and verified against the public key the repository pins
    (``core/r1_approval.py``). The gate is a mechanism, not an authorisation: a
    step policy that a caller constructs in-process authorises nothing, so a
-   provider dispatch without a verified approval is refused before anything
-   else is asked of the provider. R1 pins no key, therefore **no provider
-   dispatch is possible in R1**;
+   provider dispatch without a verifiable approval artifact is refused before
+   anything else is asked of the provider. The gate verifies the artifact
+   itself, at dispatch time, and accepts **no** "verified approval" object:
+   no value whose construction conveys authority exists, so there is nothing
+   to forge. R1 pins no key, therefore **no provider dispatch is possible in
+   R1**;
 4. the **completeness of the declared bounds** - while a required bound of the class is
    required-but-unset, no dispatch of that class happens (fail closed);
 5. the **egress declaration** of the dispatched function (D29);
@@ -94,10 +97,18 @@ from core.r1_bounds import (
 # nowhere else.
 from core.r1_bounds import _perform_provider_call, _unwrap_guard
 
-# The approval of a step: the artifact is signed by the approval authority and
-# verified against the public key the repository pins. R1 pins no key, so no
-# provider dispatch is authorised - see ``core/r1_approval.py``.
-from core.r1_approval import VerifiedApproval, policy_digest
+# The approval of a step: the gate takes the **signed artifact** and verifies
+# the signature itself, at dispatch time, against the public key the repository
+# pins. The gate never accepts a "verified approval" object: no value whose
+# construction conveys authority may exist. R1 pins no key, so no provider
+# dispatch is authorised - see ``core/r1_approval.py``.
+from core import r1_approval
+from core.r1_approval import (
+    ApprovalArtifact,
+    ApprovalNotVerified,
+    VerifiedApproval,
+    policy_digest,
+)
 
 #: The functions that write to the persistent volume and are therefore capped (D28).
 VOLUME_WRITING_FUNCTIONS = frozenset({"record_trajectory_remote"})
@@ -151,10 +162,11 @@ class StepPolicy:
 
     **The policy is not an authorisation.** ``approved_by`` and ``approved_at``
     are *labels* of a record: a caller constructs a policy with any label it
-    likes, so the labels authorise nothing. The authorisation is the **verified
-    approval** of the step - an artifact that is signed by the approval
-    authority and verified against the public key the repository pins
-    (``core/r1_approval.py``). The gate refuses a provider dispatch without one.
+    likes, so the labels authorise nothing. The authorisation is the **signed
+    approval artifact** of the step - an artifact that is signed by the
+    approval authority and verified against the public key the repository pins
+    (``core/r1_approval.py``). The gate refuses a provider dispatch without
+    one.
     """
 
     step_id: str
@@ -415,7 +427,7 @@ class DispatchGate:
     def __init__(
         self,
         policy: Optional[StepPolicy] = None,
-        approval: Optional[VerifiedApproval] = None,
+        approval: Optional[ApprovalArtifact] = None,
         profiles: Optional[Dict[str, Any]] = None,
         egress_policies: Optional[Dict[str, Any]] = None,
         autoscaler_reader: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
@@ -591,7 +603,7 @@ class DispatchGate:
         self.policy.validate()
 
     def _check_approval(self, container_class: str, function_name: str) -> None:
-        """A provider dispatch needs a **verified** approval of this step.
+        """A provider dispatch needs a **signed approval** of this step.
 
         The gate is a mechanism, not an authorisation: the policy it enforces
         can be constructed by any caller. The authorisation is the approval
@@ -599,29 +611,61 @@ class DispatchGate:
         against the public key the repository pins
         (``core/r1_approval.py``).
 
+        **The gate verifies the artifact itself, here, at dispatch time.** It
+        accepts the signed artifact - not a "verified approval" object: there
+        is no value whose construction conveys authority, so there is nothing
+        for a caller to forge. A caller that hands in an object instead of an
+        artifact is refused, whatever the object says.
+
         R1 pins no key, so this check refuses every provider dispatch: the live
         provider dispatch of R1 is impossible, and it is impossible
         *structurally* - not only because the bounds of the container classes
         are required-but-unset.
         """
-        approval = self.approval
-        if approval is None:
+        artifact = self.approval
+        if artifact is None:
             self._refuse(
                 container_class,
                 function_name,
                 "approval_not_verified",
-                "no verified approval covers this dispatch: a step policy that a "
+                "no signed approval covers this dispatch: a step policy that a "
                 "caller constructs in-process does not authorise a provider call",
             )
-        if self.policy is None or approval.step_id != self.policy.step_id:
+        if isinstance(artifact, VerifiedApproval):
             self._refuse(
                 container_class,
                 function_name,
                 "approval_not_verified",
-                f"the approval names step '{approval.step_id}', not the step of "
+                "a verified-approval object is not an authorisation: the gate "
+                "verifies the signed artifact itself, so the artifact is "
+                "required here",
+            )
+        if not isinstance(artifact, ApprovalArtifact):
+            self._refuse(
+                container_class,
+                function_name,
+                "approval_not_verified",
+                f"the approval is a {type(artifact).__name__}, not a signed "
+                "approval artifact",
+            )
+        try:
+            claims = r1_approval.verify_artifact(artifact)
+        except ApprovalNotVerified as exc:
+            self._refuse(
+                container_class,
+                function_name,
+                "approval_not_verified",
+                str(exc),
+            )
+        if self.policy is None or claims.step_id != self.policy.step_id:
+            self._refuse(
+                container_class,
+                function_name,
+                "approval_not_verified",
+                f"the approval names step '{claims.step_id}', not the step of "
                 "the policy",
             )
-        if approval.policy_digest != self.policy.policy_digest():
+        if claims.policy_digest != self.policy.policy_digest():
             self._refuse(
                 container_class,
                 function_name,
@@ -629,12 +673,12 @@ class DispatchGate:
                 "the approved policy is not the policy of this step: the caps, "
                 "the budgets or the ceiling were changed after the approval",
             )
-        if not approval.covers(function_name):
+        if not claims.covers(function_name):
             self._refuse(
                 container_class,
                 function_name,
                 "call_site_not_approved",
-                f"the approval of step '{approval.step_id}' does not cover the "
+                f"the approval of step '{claims.step_id}' does not cover the "
                 f"call site '{function_name}'",
             )
 
@@ -790,17 +834,18 @@ def current_gate() -> DispatchGate:
 @contextmanager
 def authorised_step(
     policy: StepPolicy,
-    approval: Optional[VerifiedApproval] = None,
+    approval: Optional[ApprovalArtifact] = None,
     profiles: Optional[Dict[str, Any]] = None,
     egress_policies: Optional[Dict[str, Any]] = None,
     autoscaler_reader: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
 ) -> Iterator[DispatchGate]:
     """Install the approved policy of one step as the active dispatch contract.
 
-    ``approval`` is the **verified approval** of the step - the artifact that
-    is signed by the approval authority and verified against the pinned public
-    key. Without it the gate refuses every provider dispatch: a policy that a
-    caller constructs in-process does not authorise a spend.
+    ``approval`` is the **signed approval artifact** of the step - the payload
+    and the signature of the approval authority. The gate verifies it itself,
+    at dispatch time, against the pinned public key. Without a verifiable
+    artifact the gate refuses every provider dispatch: a policy that a caller
+    constructs in-process does not authorise a spend.
     """
     gate = DispatchGate(
         policy=policy,
