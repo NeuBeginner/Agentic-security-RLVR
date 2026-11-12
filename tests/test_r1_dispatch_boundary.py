@@ -614,7 +614,6 @@ def test_the_gate_verifies_the_artifact_at_dispatch_time(signed_approval):
     authorising.
     """
     policy = _policy()
-    artifact = signed_approval(policy)
     gate = r1_dispatch.DispatchGate(
         policy=policy,
         approval=None,

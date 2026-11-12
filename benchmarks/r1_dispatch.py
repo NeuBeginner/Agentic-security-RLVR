@@ -70,6 +70,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 import os
 import threading
 import time
@@ -471,12 +472,21 @@ class DispatchGate:
                 for field in dataclasses.fields(value)
             }
         if isinstance(value, dict):
-            return {str(key): DispatchGate._approval_value(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
+            if not all(isinstance(key, str) for key in value):
+                raise TypeError("approval-envelope mapping keys must all be strings")
+            return {
+                key: DispatchGate._approval_value(item)
+                for key, item in sorted(value.items())
+            }
         if isinstance(value, (set, frozenset)):
             return sorted(DispatchGate._approval_value(item) for item in value)
         if isinstance(value, (list, tuple)):
             return [DispatchGate._approval_value(item) for item in value]
-        if isinstance(value, (str, int, float, bool)) or value is None:
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                raise TypeError("non-finite numbers are not valid approval-envelope values")
+            return value
+        if isinstance(value, (str, int, bool)) or value is None:
             return value
         raise TypeError(f"unsupported approval-envelope value: {type(value).__name__}")
 

@@ -157,7 +157,7 @@ def canonical_bytes(payload: Mapping[str, Any]) -> bytes:
     fixed, so the same payload always produces the same bytes and therefore
     the same digest.
     """
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
 def sha256_hex(data: bytes) -> str:
