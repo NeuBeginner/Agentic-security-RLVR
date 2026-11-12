@@ -471,6 +471,8 @@ class DispatchGate:
             }
         if isinstance(value, dict):
             return {str(key): DispatchGate._approval_value(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
+        if isinstance(value, (set, frozenset)):
+            return sorted(DispatchGate._approval_value(item) for item in value)
         if isinstance(value, (list, tuple)):
             return [DispatchGate._approval_value(item) for item in value]
         if isinstance(value, (str, int, float, bool)) or value is None:
