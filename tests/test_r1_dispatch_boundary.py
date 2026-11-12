@@ -615,7 +615,6 @@ def test_the_gate_verifies_the_artifact_at_dispatch_time(signed_approval):
     authorising.
     """
     policy = _policy()
-    artifact = signed_approval(policy)
     gate = r1_dispatch.DispatchGate(
         policy=policy,
         approval=None,
@@ -778,7 +777,7 @@ def test_signed_envelope_binds_model_identity_and_cache_manifest(signed_approval
     assert excinfo.value.reason == "approval_envelope_mismatch"
     assert fake.calls == []
 
-    monkeypatch.undo()
+    monkeypatch.setattr(r1_dispatch, "PINNED_MODEL", r1.PINNED_MODEL)
     manifest = tmp_path / "model_cache_manifest.json"
     manifest.write_text('{"revision":"unexpected"}', encoding="utf-8")
     monkeypatch.setattr(r1_dispatch, "MODEL_CACHE_MANIFEST_PATH", str(manifest))
