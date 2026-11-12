@@ -508,7 +508,7 @@ class DispatchGate:
             cost_files[relative] = hashlib.sha256(raw).hexdigest()
 
         effective_classes = sorted(
-            set(r1_bounds.CONTAINER_CLASSES) | set(r1_bounds.r1_bounds.FUNCTION_CLASS.values())
+            set(r1_bounds.CONTAINER_CLASSES) | set(r1_bounds.FUNCTION_CLASS.values())
         )
         profiles = {
             name: self._approval_value(self._profile(name))
