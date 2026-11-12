@@ -1199,7 +1199,8 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
 
 
 
-def test_signed_envelope_binds_cost_scenario_and_rate_card_bytes(signed_approval, monkeypatch):
+@pytest.mark.parametrize("filename", ["r1_rate_card.json", "r1_cost_scenario.json"])
+def test_signed_envelope_binds_cost_scenario_and_rate_card_bytes(filename, signed_approval, monkeypatch):
     """A rate-card or scenario edit invalidates the signature even if Python objects stay unchanged."""
     policy = _policy()
     world = _approved_world()
@@ -1211,7 +1212,7 @@ def test_signed_envelope_binds_cost_scenario_and_rate_card_bytes(signed_approval
 
     def altered_cost_file(path):
         raw = original_read_bytes(path)
-        if path.name == "r1_rate_card.json":
+        if path.name == filename:
             return raw + b"\n# changed rate-card input\n"
         return raw
 
