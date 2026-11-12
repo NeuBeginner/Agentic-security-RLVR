@@ -481,10 +481,10 @@ def test_the_guard_of_a_provider_object_is_installed_on_the_object_itself():
 
     assert fake.remote is not original
     assert isinstance(fake.remote, r1.GuardedProviderRemote)
-    # The original entry point is the one the gate calls.
-    entrypoint = r1.original_entrypoint("r1_test_fake_provider_object_2")
-    assert entrypoint == original
-    assert entrypoint.__self__ is fake
+    # The original entry point is the one the gate calls - and it is not handed
+    # out: the module keeps no callable of it, only the primitive that performs
+    # the call from the gate.
+    assert original not in r1._CAPTURED_ENTRYPOINTS.values()
 
 
 def test_a_local_double_substituted_on_a_guard_is_called_instead_of_the_provider():
@@ -516,7 +516,6 @@ def _install_fake_provider(monkeypatch, name: str) -> FakeProviderObject:
     """Install a fake provider object under a call-site name, reversibly."""
     fake = FakeProviderObject()
     monkeypatch.setitem(r1._INSTALLED_OBJECTS, name, fake)
-    monkeypatch.setitem(r1._ORIGINAL_ENTRYPOINTS, name, fake.remote)
     r1.install_provider_guard(name, fake)
     return fake
 
@@ -560,6 +559,149 @@ def test_the_boundary_guard_dispatches_through_the_same_gate(monkeypatch):
     assert result == {"ok": True}
     assert len(fake.calls) == 1
     assert gate.used_allowance(r1.SANDBOX_CPU) == 1
+
+
+# --------------------------------------------------------------------------------------
+# F2 - the captured provider entry point is not reachable
+# --------------------------------------------------------------------------------------
+#
+# The R1 re-review named the public accessor 'original_entrypoint' as a direct
+# bypass: it returned the provider entry point that had been captured before
+# the guard was installed, so a caller could invoke it and start a billable
+# container without the gate, without the invocation budget and without the
+# declared bounds.
+#
+# The rule these tests state: **no route of the repository reaches the captured
+# provider entry point**. The captured callable is called by the R1 gate and by
+# nothing else, and the call is refused while the bounds are unset.
+
+
+def _install_bare_fake_provider(name: str) -> Tuple[FakeProviderObject, Any]:
+    """Install a fake provider object and return it with its original entry point."""
+    fake = FakeProviderObject()
+    original = fake.remote
+    r1.install_provider_guard(name, fake)
+    return fake, original
+
+
+def test_no_public_route_reaches_the_captured_provider_entry_point():
+    """The bypass of the re-review: retrieve the raw entry point and invoke it.
+
+    Every route the repository offers is tried - the accessor that was named,
+    the guard installed on the provider object, the module-level guard and the
+    gate - and the fake provider must record **zero** calls.
+    """
+    name = "r1_test_raw_entrypoint_route"
+    fake, _original = _install_bare_fake_provider(name)
+
+    routes = []
+    accessor = getattr(r1, "original_entrypoint", None)
+    if accessor is not None:
+        routes.append(("original_entrypoint", lambda: accessor(name)))
+    routes.append(("the installed provider object", lambda: fake.remote({"x": 1})))
+    routes.append(
+        ("the module-level guard", lambda: r1.DEEPLOYED_FUNCTIONS[name].remote({"x": 1}))
+    )
+
+    for label, route in routes:
+        try:
+            entry = route()
+        except Exception:
+            # A refusal is the expected outcome of a gated route.
+            assert fake.calls == [], f"the route '{label}' reached the provider"
+            continue
+        if callable(entry):
+            try:
+                entry({"x": 1})
+            except Exception:
+                pass
+        assert fake.calls == [], f"the route '{label}' reached the provider"
+
+
+def test_the_module_has_no_accessor_for_the_captured_entry_point():
+    """The accessor itself must not exist any more - not renamed, not hidden."""
+    assert not hasattr(r1, "original_entrypoint")
+    assert "original_entrypoint" not in r1.__all__
+    assert not hasattr(r1, "_ORIGINAL_ENTRYPOINTS")
+
+
+def test_no_public_function_of_the_guard_module_returns_a_provider_object():
+    """No public function of the module may hand a provider object to a caller.
+
+    The check is static: a public function that *returns* an entry of a
+    provider registry - or the result of a helper that resolves one - is an
+    accessor for the raw provider object. The registries are the trust
+    boundary of the guard, so only the gate may read them, and the gate lives
+    in another module.
+    """
+    source = (REPO_ROOT / "core" / "r1_bounds.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    registries = {
+        "_GUARDED_OBJECTS",
+        "_INSTALLED_OBJECTS",
+        "_ORIGINAL_ENTRYPOINTS",
+        "_CAPTURED_ENTRYPOINTS",
+    }
+    resolvers = {
+        "_guarded_object",
+        "_unwrap_guard",
+        "_perform_provider_call",
+        "_make_captured_entrypoint",
+    }
+    offenders = []
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name.startswith("_"):
+            continue
+        for child in ast.walk(node):
+            if not isinstance(child, ast.Return) or child.value is None:
+                continue
+            value = child.value
+            if isinstance(value, ast.Subscript) and isinstance(value.value, ast.Name):
+                if value.value.id in registries:
+                    offenders.append((node.name, value.value.id, child.lineno))
+            elif isinstance(value, ast.Call):
+                if isinstance(value.func, ast.Attribute) and isinstance(
+                    value.func.value, ast.Name
+                ):
+                    if value.func.value.id in registries:
+                        offenders.append((node.name, value.func.value.id, child.lineno))
+                elif isinstance(value.func, ast.Name) and value.func.id in resolvers:
+                    offenders.append((node.name, value.func.id, child.lineno))
+    assert offenders == [], f"public functions hand out provider objects: {offenders}"
+
+
+def test_the_captured_primitive_refuses_a_call_outside_the_gate():
+    """The captured entry point is called by the gate and by nothing else."""
+    name = "r1_test_raw_entrypoint_primitive"
+    fake, _original = _install_bare_fake_provider(name)
+
+    primitive = r1._CAPTURED_ENTRYPOINTS[name]
+    with pytest.raises(r1.UnauthorisedCallSite):
+        primitive({"x": 1})
+    assert fake.calls == []
+
+
+def test_the_provider_call_primitive_refuses_a_call_outside_the_gate():
+    """The innermost provider call is the gate's - not the repository's."""
+    name = "r1_test_raw_entrypoint_perform"
+    fake, _original = _install_bare_fake_provider(name)
+
+    with pytest.raises(r1.UnauthorisedCallSite):
+        r1._perform_provider_call(name, fake, {"x": 1})
+    assert fake.calls == []
+
+
+def test_the_unwrap_helper_is_not_a_public_accessor():
+    """The unwrap helper handed out the raw provider method of a class.
+
+    It was a public function of the module: a caller could unwrap a guarded
+    class method and call the raw provider method it returned. It is private
+    now, and only the gate may call it.
+    """
+    assert "unwrap_guard" not in r1.__all__
+    assert not hasattr(r1, "unwrap_guard")
 
 
 # --------------------------------------------------------------------------------------

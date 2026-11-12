@@ -118,10 +118,10 @@
         "DevReasoningAgent.refine_solidity_exploit"
       ]
     },
-    "benchmarks/r1_dispatch.py::dispatch::fn": {
+    "core/r1_bounds.py::_perform_provider_call::fn": {
       "count": 1,
       "disposition": "gate",
-      "reason": "The single dispatch path itself: the only place in the repository that calls a provider's 'remote' on behalf of this workflow. Every guarded call and every producer dispatch ends up here.",
+      "reason": "The innermost provider call of the single dispatch path: the only place in the repository that calls a provider's 'remote' on behalf of this workflow. Every guarded call and every producer dispatch ends up here, through benchmarks/r1_dispatch.py::DispatchGate.dispatch. The helper is private and it refuses a call that does not come from that dispatch method - the check is against the code object of the dispatch, so the captured provider entry point cannot be reached and invoked from anywhere else.",
       "call_sites": []
     },
     "benchmarks/run_iteration19_cpu_smoke.py::_invoke::cpu_smoke": {
@@ -136,6 +136,6 @@
     }
   },
   "guard_implementation": {
-    "core/r1_bounds.py": "The guard itself: GuardedRemote (module-level functions), GuardedClass / GuardedClassInstance / GuardedClassMethod (the class methods, the bypass the review named) and GuardedProviderRemote (the guard installed on the provider object's own 'remote'). The guard holds no provider object: the raw objects live in the module-private registry of core/r1_bounds and the guard objects hold only an opaque token and the call-site name, so no attribute of a guard yields a raw provider callable. The guard holds no direct provider call - it delegates to the gate - so the repository has exactly one place that calls a provider's 'remote'."
+    "core/r1_bounds.py": "The guard itself: GuardedRemote (module-level functions), GuardedClass / GuardedClassInstance / GuardedClassMethod (the class methods, the bypass the review named) and GuardedProviderRemote (the guard installed on the provider object's own 'remote'). The guard holds no provider object: the raw objects live in the module-private registry of core/r1_bounds and the guard objects hold only an opaque token and the call-site name, so no attribute of a guard yields a raw provider callable. The guard holds no direct provider call - it delegates to the gate - so the repository has exactly one place that calls a provider's 'remote': _perform_provider_call, the innermost step of the gate's dispatch. The provider entry point that was captured before the guard was installed is not handed out: it lives in the closure of the dispatch primitive of its call site, the primitive performs the call instead of returning it, and it refuses to run outside the gate's dispatch method."
   }
 }

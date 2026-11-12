@@ -33,10 +33,16 @@ container and costs nothing.
 
 **The provider call itself.** The gate holds the provider object, not the guard that
 would route the call back into the gate: a guard is unwrapped before the gates run
-(``core.r1_bounds.unwrap_guard``), so a guarded call is dispatched exactly once. An
+(``core.r1_bounds._unwrap_guard``), so a guarded call is dispatched exactly once. An
 installed call site - one whose provider object carries the guard on its own
 ``remote`` - is called through the entry point that was captured before the guard was
 installed; every other object is called through its own ``remote``.
+
+The captured entry point is **not** reachable from the repository: it lives in the
+closure of the dispatch primitive of its call site, the primitive performs the call
+instead of returning the callable, and it refuses to run outside this dispatch
+method. The check is against the **code object** of ``DispatchGate.dispatch`` - a code
+object cannot be forged, so it is a runtime fact and not a naming convention.
 
 **The invocation allowance is consumed only by a dispatch that actually starts a
 provider call.** Every refusal - the authorisation, the policy, the bounds, the
@@ -68,11 +74,15 @@ from core.r1_bounds import (
     egress_policy,
     is_provider_callable,
     is_unset,
-    is_installed_call_site,
-    original_entrypoint,
     profile_for,
-    unwrap_guard,
 )
+
+# The two internals of the guard that only the gate may call. They are private
+# in ``core.r1_bounds`` and they refuse a call that does not come from the
+# dispatch method below: the captured provider entry point, the provider object
+# behind a guard and the innermost provider call are reachable from here and
+# from nowhere else.
+from core.r1_bounds import _perform_provider_call, _unwrap_guard
 
 #: The functions that write to the persistent volume and are therefore capped (D28).
 VOLUME_WRITING_FUNCTIONS = frozenset({"record_trajectory_remote"})
@@ -419,7 +429,7 @@ class DispatchGate:
         # provider object itself, so a guarded call is dispatched exactly once.
         # A second pass through the gate would take the concurrency semaphore a
         # second time and stall the dispatch instead of performing it.
-        fn = unwrap_guard(fn)
+        fn = _unwrap_guard(fn)
         provider_callable = is_provider_callable(fn)
 
         if provider_callable:
@@ -462,10 +472,10 @@ class DispatchGate:
                     # was installed on the object's own 'remote': calling the
                     # guarded 'remote' here would route the call back into this
                     # gate. Everything else is called through its own 'remote'.
-                    if is_installed_call_site(function_name, fn):
-                        result = original_entrypoint(function_name)(*args, **kwargs)  # type: ignore[misc]
-                    else:
-                        result = fn.remote(*args, **kwargs)
+                    # The call is made by the guard's own primitive, which
+                    # refuses to run outside this dispatch - the captured entry
+                    # point is never handed out.
+                    result = _perform_provider_call(function_name, fn, *args, **kwargs)
                 except DispatchRefusal:
                     raise
                 except Exception as exc:  # the provider's own failure - not a refusal

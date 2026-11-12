@@ -27,12 +27,30 @@ objects live in the module-private registry below, and the guard objects hold on
 opaque token and the call-site name - so no attribute of a guard yields a raw provider
 callable. The guard is installed on the provider object's *own* ``remote``
 (:func:`install_provider_guard`), so every reference to that object is gated too.
+
+**The captured provider entry point.** The installation replaces the object's own
+``remote``, so the entry point that the provider actually answers on has to be captured
+before the replacement. That captured callable is the most dangerous object of the
+module: a caller that can reach it can start a billable container without the gate,
+without the invocation budget and without the declared bounds. It is therefore never
+handed out. It lives in the closure of the **dispatch primitive** of its call site, and
+the primitive
+
+* performs the call instead of returning the callable,
+* refuses to run outside the R1 dispatch gate - the check is against the **code
+  object** of the gate's dispatch method, and a code object cannot be forged, so the
+  check is a runtime fact and not a naming convention.
+
+The same holds for the two other internals the gate needs: the unwrap helper (which
+yields the provider object behind a guard) and the innermost provider call. Both are
+private, and both refuse a call that does not come from the gate.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
@@ -870,10 +888,75 @@ _GUARDED_OBJECTS: Dict[str, Any] = {}
 #: The provider objects that are installed under their call-site name.
 _INSTALLED_OBJECTS: Dict[str, Any] = {}
 
-#: The entry point of an installed object, captured **before** the guard was
-#: installed on it. The gate calls this one: the object's own ``remote`` is the
-#: guard from that moment on.
-_ORIGINAL_ENTRYPOINTS: Dict[str, Any] = {}
+#: The captured provider entry point of each installed call site. The value is a
+#: **dispatch primitive**: a callable that performs the provider call and never
+#: returns the provider callable itself. The raw provider callable lives in the
+#: closure of the primitive - it is in no registry, in no attribute and in no
+#: module-level name - and the primitive refuses to run outside the R1 gate.
+_CAPTURED_ENTRYPOINTS: Dict[str, Callable[..., Any]] = {}
+
+
+def _gate_dispatch_code() -> Optional[Any]:
+    """The code object of the R1 gate's dispatch method.
+
+    The internals of this module are callable from that code object and from
+    nowhere else. A code object cannot be forged, so the check that uses it is
+    a runtime fact and not a naming convention.
+    """
+    try:
+        from benchmarks.r1_dispatch import DispatchGate
+    except Exception:
+        # The gate lives in the producer's package: the container image of the
+        # deployment carries only ``core`` and ``sandbox``. There the gate is
+        # not importable, and every internal call is refused (fail closed).
+        return None
+    return DispatchGate.dispatch.__code__
+
+
+def _assert_called_by_the_gate(function_name: str, what: str) -> None:
+    """Refuse an internal call that does not come from the R1 dispatch gate.
+
+    The caller is checked against the **code object** of the gate's dispatch
+    method. The captured provider entry point, the provider object behind a
+    guard and the innermost provider call are reachable from the gate only -
+    not through the public API of this module, not through a guard and not
+    through a registry.
+    """
+    reason = f"{what} may only be called from the R1 dispatch gate"
+    try:
+        caller = sys._getframe(2)
+    except Exception:  # pragma: no cover - CPython always has _getframe
+        raise UnauthorisedCallSite(function_name, reason)
+    expected = _gate_dispatch_code()
+    if expected is None or caller.f_code is not expected:
+        raise UnauthorisedCallSite(function_name, reason)
+
+
+def _make_captured_entrypoint(
+    function_name: str, raw: Callable[..., Any]
+) -> Callable[..., Any]:
+    """Build the dispatch primitive of an installed call site.
+
+    The raw provider callable lives in the closure of the returned callable
+    and nowhere else. The primitive performs the provider call - it never
+    returns the callable - and it performs it only from the innermost
+    provider call of the R1 gate.
+    """
+
+    def captured(*args: Any, **kwargs: Any) -> Any:
+        try:
+            caller = sys._getframe(1)
+        except Exception:  # pragma: no cover - CPython always has _getframe
+            caller = None
+        if caller is None or caller.f_code is not _perform_provider_call.__code__:
+            raise UnauthorisedCallSite(
+                function_name,
+                "the captured provider entry point may only be called from the "
+                "R1 dispatch gate",
+            )
+        return raw(*args, **kwargs)
+
+    return captured
 
 
 def _register_guarded_object(obj: Any) -> str:
@@ -906,13 +989,42 @@ def is_installed_call_site(function_name: str, fn: Any) -> bool:
     )
 
 
-def original_entrypoint(function_name: str) -> Optional[Callable[..., Any]]:
-    """The entry point captured before the guard was installed on the object.
+def _perform_provider_call(function_name: str, fn: Any, *args: Any, **kwargs: Any) -> Any:
+    """The provider call itself - the innermost step of an authorised dispatch.
 
-    ``None`` when the call site is not an installed one - the gate then calls
-    the object's own ``remote``, exactly as it did before the guard existed.
+    The R1 gate calls this, and nothing else may: the call is checked against
+    the **code object** of the gate's dispatch method, so the captured
+    provider entry point, the provider object behind a guard and the raw
+    provider method of a class stay unreachable from the rest of the
+    repository.
+
+    An installed call site is called through the entry point that was captured
+    before the guard was installed on the object's own ``remote``: calling the
+    guarded ``remote`` here would route the call back into the gate. Every
+    other provider callable is called through its own ``remote``.
+
+    The captured entry point is never handed out - the primitive that holds it
+    performs the call and returns its result.
     """
-    return _ORIGINAL_ENTRYPOINTS.get(function_name)
+    _assert_called_by_the_gate(function_name, "the provider call")
+    if is_installed_call_site(function_name, fn):
+        primitive = _CAPTURED_ENTRYPOINTS.get(function_name)
+        if primitive is None:
+            raise UnauthorisedCallSite(
+                function_name,
+                "the provider entry point of this call site was not captured",
+            )
+        return primitive(*args, **kwargs)
+    remote = getattr(fn, "remote", None)
+    if not callable(remote):
+        raise UnauthorisedCallSite(
+            function_name,
+            "the provider callable of this call site has no callable 'remote'",
+        )
+    # The call is written through the attribute on purpose: the call-site
+    # inventory of the repository is scanned for exactly this shape, so the
+    # innermost provider call of the workflow stays visible in it.
+    return fn.remote(*args, **kwargs)
 
 
 class _SubstitutedRemote:
@@ -929,7 +1041,7 @@ class _SubstitutedRemote:
         self.__dict__["remote"] = double
 
 
-def unwrap_guard(fn: Any) -> Any:
+def _unwrap_guard(fn: Any) -> Any:
     """The provider object behind a guard - or the object itself.
 
     The gate calls this before it dispatches, so that a guarded call is
@@ -939,7 +1051,12 @@ def unwrap_guard(fn: Any) -> Any:
 
     A guard whose ``remote`` was substituted by a local double yields that
     double: it is not a provider call and must not be treated as one.
+
+    The helper is private and the gate is its only caller: for a class method
+    it yields the **raw** provider method, whose own ``remote`` is not
+    guarded, so it may not be a public accessor of this module.
     """
+    _assert_called_by_the_gate("<unknown>", "the unwrap helper")
     if isinstance(fn, GuardedRemote):
         substituted = fn.substituted_remote()
         if substituted is not None:
@@ -1329,6 +1446,10 @@ def install_provider_guard(function_name: str, fn: Any) -> GuardedRemote:
     is the one the gate calls - otherwise the guarded ``remote`` would route the
     call back into the gate and recurse.
 
+    The captured entry point is **not** stored as a callable of this module:
+    it becomes the closure of the dispatch primitive of this call site, and
+    that primitive performs the call only from the R1 gate.
+
     The installation fails **closed**: if the object's ``remote`` cannot be
     replaced, the deployment is not guarded and the error stops the import
     instead of leaving an unguarded provider callable behind.
@@ -1340,7 +1461,7 @@ def install_provider_guard(function_name: str, fn: Any) -> GuardedRemote:
             "the guard cannot be installed on it"
         )
     _INSTALLED_OBJECTS[function_name] = fn
-    _ORIGINAL_ENTRYPOINTS[function_name] = original
+    _CAPTURED_ENTRYPOINTS[function_name] = _make_captured_entrypoint(function_name, original)
     guard = GuardedProviderRemote(function_name)
     try:
         setattr(fn, "remote", guard)
@@ -1491,11 +1612,9 @@ __all__ = [
     "is_installed_call_site",
     "missing_deployment_bounds",
     "modal_function_kwargs",
-    "original_entrypoint",
     "prefetch_ingress_cap_bytes",
     "profile_for",
     "register_deployed_function",
     "require",
-    "unwrap_guard",
     "verify_model_cache_manifest",
 ]
