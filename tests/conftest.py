@@ -48,6 +48,27 @@ _TEST_PRIVATE_EXPONENT = (
 _TEST_EXPONENT = 65537
 
 
+def effective_envelope(
+    policy: Any,
+    world: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """The **effective** dispatch envelope of a gate with this policy and world.
+
+    The envelope is rebuilt by the gate at dispatch time from the live
+    declarations and the effective profiles and egress policies. A signature
+    that covers anything else - a stub, a partial envelope - does not cover the
+    dispatch and is refused with ``approval_envelope_mismatch``.
+
+    The helper builds the *same* gate the test dispatches through, so the
+    signed envelope is the effective one: the fixture never signs a cover that
+    the gate cannot verify.
+    """
+    from benchmarks import r1_dispatch
+
+    gate = r1_dispatch.DispatchGate(policy=policy, **dict(world or {}))
+    return gate.dispatch_envelope_payload()
+
+
 def _int_from_base64(value: str) -> int:
     return int.from_bytes(base64.b64decode(value), "big")
 
@@ -85,7 +106,15 @@ def approval_authority(monkeypatch) -> Callable[..., Any]:
     * ``call_sites`` - an approval that covers other call sites;
     * ``policy_payload`` - an approval of another policy;
     * ``corrupt_signature`` - a signature that does not verify;
-    * ``pin_key=False`` - no key at all: the repository pins none.
+    * ``pin_key=False`` - no key at all: the repository pins none;
+    * ``include_dispatch_envelope=False`` - a legacy approval without an envelope.
+
+    By default the artifact signs the **effective** dispatch envelope of the
+    step - the one the gate rebuilds at dispatch time from the live
+    declarations and the effective world. ``world`` carries that world (the
+    ``profiles`` and ``egress_policies`` the gate is constructed with); a test
+    that dispatches through a different world has to sign that world, because
+    every other envelope is refused with ``approval_envelope_mismatch``.
     """
 
     def factory(
@@ -99,6 +128,7 @@ def approval_authority(monkeypatch) -> Callable[..., Any]:
         corrupt_signature: bool = False,
         dispatch_envelope: Optional[Mapping[str, Any]] = None,
         include_dispatch_envelope: bool = True,
+        world: Optional[Mapping[str, Any]] = None,
     ) -> Any:
         from core import r1_approval
 
@@ -118,7 +148,7 @@ def approval_authority(monkeypatch) -> Callable[..., Any]:
             "dispatch_envelope": (
                 dict(dispatch_envelope)
                 if dispatch_envelope is not None
-                else {"schema": "r1-dispatch-envelope/1"}
+                else effective_envelope(policy, world)
             ),
         }
         if not include_dispatch_envelope:

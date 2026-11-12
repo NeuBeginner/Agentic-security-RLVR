@@ -474,6 +474,7 @@ def _forged_approval(policy) -> Any:
         "approved_at": policy.approved_at,
         "call_sites": tuple(r1.FUNCTION_CLASS),
         "policy_digest": policy.policy_digest(),
+        "dispatch_envelope_digest": "forged",
         "artifact_digest": "forged",
     }
     if sentinel is not None:
@@ -804,6 +805,47 @@ def test_signed_envelope_rejects_changed_effective_configuration(change, signed_
         gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     assert excinfo.value.reason == "approval_envelope_mismatch"
     assert fake.calls == []
+
+
+def test_signed_envelope_binds_model_identity_and_cache_manifest(signed_approval, monkeypatch, tmp_path):
+    """The model revision and the cache-manifest bytes are approval inputs.
+
+    The envelope digests the **live** declarations of ``core.r1_bounds``, so a
+    change of the pinned revision or of the manifest the container verifies
+    invalidates the signature. The manifest is read on the volume, so on the
+    client it is ``ABSENT``; a manifest that is present with other bytes is a
+    different state and a different digest.
+    """
+    policy = _policy()
+    world = _approved_world()
+    gate = r1_dispatch.DispatchGate(
+        policy=policy, autoscaler_reader=_reader(), **world
+    )
+    artifact = signed_approval(policy, dispatch_envelope=gate.dispatch_envelope_payload())
+    gate.approval = artifact
+
+    original_model = r1.PINNED_MODEL
+    monkeypatch.setattr(
+        r1, "PINNED_MODEL",
+        dataclasses.replace(original_model, revision="changed-revision"),
+    )
+    fake = FakeProviderCallable()
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
+    assert excinfo.value.reason == "approval_envelope_mismatch"
+    assert fake.calls == []
+
+    # The revision is restored - the *manifest* is the next input.
+    monkeypatch.setattr(r1, "PINNED_MODEL", original_model)
+    manifest = tmp_path / "model_cache_manifest.json"
+    manifest.write_text('{"revision":"unexpected"}', encoding="utf-8")
+    monkeypatch.setattr(r1, "MODEL_CACHE_MANIFEST_PATH", str(manifest))
+    # The manifest is now present and has a different digest than the signed ABSENT state.
+    fake2 = FakeProviderCallable()
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo2:
+        gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake2, {})
+    assert excinfo2.value.reason == "approval_envelope_mismatch"
+    assert fake2.calls == []
 
 
 def test_signed_envelope_is_required_even_for_legacy_signed_policy(signed_approval):

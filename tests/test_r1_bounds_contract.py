@@ -263,7 +263,7 @@ def test_an_unapproved_egress_bound_blocks_the_dispatch(signed_approval):
     world["egress_policies"]["verify_exploit_remote"] = r1.EGRESS_POLICIES["verify_exploit_remote"]
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
-        policy=policy, approval=signed_approval(policy), **world
+        policy=policy, approval=signed_approval(policy, world=world), **world
     )
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
@@ -279,7 +279,7 @@ def test_a_function_without_an_egress_declaration_is_refused(monkeypatch, signed
     world = _approved_world()
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
-        policy=policy, approval=signed_approval(policy), **world
+        policy=policy, approval=signed_approval(policy, world=world), **world
     )
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
@@ -330,7 +330,7 @@ def test_a_configured_dispatch_is_performed_and_the_autoscaler_is_read_back(sign
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=signed_approval(policy),
+        approval=signed_approval(policy, world=world),
         autoscaler_reader=_reader(),
         **world,
     )
@@ -348,7 +348,7 @@ def test_the_invocation_budget_is_enforced(signed_approval):
     policy = _policy(invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1})
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=signed_approval(policy),
+        approval=signed_approval(policy, world=world),
         autoscaler_reader=_reader(),
         **world,
     )
@@ -366,7 +366,7 @@ def test_a_cap_above_the_deployed_ceiling_is_refused(signed_approval):
     world = _approved_world()
     policy = _policy(concurrency_caps={r1.SANDBOX_CPU: 49, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1})
     gate = r1_dispatch.DispatchGate(
-        policy=policy, approval=signed_approval(policy), **world
+        policy=policy, approval=signed_approval(policy, world=world), **world
     )
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
@@ -380,7 +380,7 @@ def test_the_autoscaler_readback_must_match_the_declaration(signed_approval):
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=signed_approval(policy),
+        approval=signed_approval(policy, world=world),
         autoscaler_reader=_reader(
             {
                 "min_containers": 0,
@@ -407,7 +407,7 @@ def test_a_class_without_a_readback_is_not_dispatchable(signed_approval):
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy,
-        approval=signed_approval(policy),
+        approval=signed_approval(policy, world=world),
         autoscaler_reader=unavailable,
         **world,
     )
@@ -427,7 +427,7 @@ def test_the_payload_byte_cap_is_enforced_on_the_volume_writing_function(signed_
     world = _approved_world()
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
-        policy=policy, approval=signed_approval(policy), **world
+        policy=policy, approval=signed_approval(policy, world=world), **world
     )
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
