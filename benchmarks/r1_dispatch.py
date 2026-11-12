@@ -613,6 +613,11 @@ class DispatchGate:
                 # The allowance is consumed here - after every gate, immediately
                 # before the call - so a refused attempt costs no invocation.
                 if not nested:
+                    # Re-verify the signature and live envelope at the last
+                    # possible point before consuming allowance and entering
+                    # the provider. This narrows the configuration TOCTOU window.
+                    if provider_callable:
+                        self._check_approval(container_class, function_name)
                     self._consume_budget(container_class, function_name)
                 try:
                     # The provider call itself. An installed call site is called

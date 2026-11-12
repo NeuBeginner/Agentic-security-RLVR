@@ -720,7 +720,7 @@ def test_a_pinned_key_with_a_matching_mirror_is_used(monkeypatch, tmp_path):
 # P0.5 - the signature binds the complete effective D26-D29 envelope
 # --------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("change", ["cpu_limit", "autoscaler", "egress", "ingress", "payload_cap"])
+@pytest.mark.parametrize("change", ["cpu_limit", "autoscaler", "egress", "ingress", "payload_cap", "volume_mount"])
 def test_signed_envelope_rejects_changed_effective_configuration(change, signed_approval, monkeypatch):
     """Any post-signature change to a safety/resource/network bound refuses before provider."""
     policy = _policy()
@@ -750,6 +750,10 @@ def test_signed_envelope_rejects_changed_effective_configuration(change, signed_
         )
     elif change == "payload_cap":
         monkeypatch.setattr(r1, "MAX_TRAJECTORY_PAYLOAD_BYTES", 1)
+    elif change == "volume_mount":
+        gate.profiles[r1.PERSISTENCE] = dataclasses.replace(
+            gate.profiles[r1.PERSISTENCE], mounts_volume=False
+        )
 
     fake = FakeProviderCallable()
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:

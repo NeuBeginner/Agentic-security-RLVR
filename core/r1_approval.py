@@ -11,7 +11,10 @@ field - so the gate authorised itself. The R1 re-review named that as a P0.
 **The approval is a signed artifact.** An approval is a JSON artifact that
 
 * names the step, the approver, the moment of the approval, the call sites it
-  covers and the exact policy it approves, and
+  covers and the exact policy it approves;
+* signs the canonical digest of the complete effective D26-D29 dispatch
+  envelope (resource/lifecycle/autoscaler profiles, network policies,
+  persistence limits, model/cache identity and cost-input digests), and
 * carries an **RSA signature** (RSASSA-PKCS1-v1_5 over SHA-256) over the
   canonical form of that payload.
 
