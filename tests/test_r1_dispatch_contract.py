@@ -89,6 +89,13 @@ def _policy(**overrides) -> r1_dispatch.StepPolicy:
     return r1_dispatch.StepPolicy(**values)
 
 
+def _signed_approval(signer, policy, world=None):
+    """Sign the exact effective envelope used by the gate in this test."""
+    options = dict(world or {})
+    gate = r1_dispatch.DispatchGate(policy=policy, **options)
+    return signer(policy, dispatch_envelope=gate.dispatch_envelope_payload())
+
+
 def _settings(settings: dict | None = None) -> dict:
     """The four effective autoscaler settings of the approved declaration."""
     return dict(
@@ -558,7 +565,7 @@ def test_an_approved_dispatch_reaches_the_provider_exactly_once(monkeypatch, sig
 
     with r1_dispatch.authorised_step(
         policy,
-        approval=signed_approval(policy),
+        approval=_signed_approval(signed_approval, policy, world),
         autoscaler_reader=_reader(),
         **world,
     ) as gate:
@@ -578,7 +585,7 @@ def test_the_boundary_guard_dispatches_through_the_same_gate(monkeypatch, signed
 
     with r1_dispatch.authorised_step(
         policy,
-        approval=signed_approval(policy),
+        approval=_signed_approval(signed_approval, policy),
         autoscaler_reader=_reader(),
         **world,
     ) as gate:
@@ -1159,7 +1166,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
         )
         gate_high = r1_dispatch.DispatchGate(
             policy=high_policy,
-            approval=signed_approval(high_policy),
+            approval=_signed_approval(signed_approval, high_policy, world),
             autoscaler_reader=lambda *_: payload,
             **world,
         )
@@ -1170,7 +1177,7 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
         )
         gate_small = r1_dispatch.DispatchGate(
             policy=small_policy,
-            approval=signed_approval(small_policy),
+            approval=_signed_approval(signed_approval, small_policy, world),
             autoscaler_reader=lambda *_: payload,
             **world,
         )
