@@ -1196,3 +1196,28 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
     assert excinfo.value.reason == reason
     assert gate.used_allowance(r1.SANDBOX_CPU) == 0
     assert fake.calls == []
+
+
+
+def test_signed_envelope_binds_cost_scenario_and_rate_card_bytes(signed_approval, monkeypatch):
+    """A rate-card or scenario edit invalidates the signature even if Python objects stay unchanged."""
+    policy = _policy()
+    world = _approved_world()
+    gate = r1_dispatch.DispatchGate(policy=policy, **world)
+    artifact = _signed_approval(signed_approval, policy, world)
+    gate.approval = artifact
+
+    original_read_bytes = Path.read_bytes
+
+    def altered_cost_file(path):
+        raw = original_read_bytes(path)
+        if path.name == "r1_rate_card.json":
+            return raw + b"\n# changed rate-card input\n"
+        return raw
+
+    monkeypatch.setattr(Path, "read_bytes", altered_cost_file)
+    fake = FakeProviderCallable()
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
+    assert excinfo.value.reason == "approval_envelope_mismatch"
+    assert fake.calls == []
