@@ -719,7 +719,12 @@ def test_a_pinned_key_with_a_matching_mirror_is_used(monkeypatch, tmp_path):
 # P0.5 - the signature binds the complete effective D26-D29 envelope
 # --------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("change", ["cpu_limit", "autoscaler", "egress", "ingress", "payload_cap", "volume_mount"])
+@pytest.mark.parametrize("change", [
+    "cpu_request", "cpu_limit", "memory_request", "memory_limit", "timeout",
+    "startup_timeout", "scaledown", "autoscaler", "min_containers",
+    "buffer_containers", "gpu_type", "provenance", "egress", "ingress",
+    "payload_cap", "volume_mount",
+])
 def test_signed_envelope_rejects_changed_effective_configuration(change, signed_approval, monkeypatch):
     """Any post-signature change to a safety/resource/network bound refuses before provider."""
     policy = _policy()
@@ -728,13 +733,53 @@ def test_signed_envelope_rejects_changed_effective_configuration(change, signed_
     artifact = signed_approval(policy, dispatch_envelope=gate.dispatch_envelope_payload())
     gate.approval = artifact
 
-    if change == "cpu_limit":
+    if change == "cpu_request":
+        gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
+            gate.profiles[r1.SANDBOX_CPU], cpu_request_cores=3.0
+        )
+    elif change == "cpu_limit":
         gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
             gate.profiles[r1.SANDBOX_CPU], cpu_limit_cores=8.0
+        )
+    elif change == "memory_request":
+        gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
+            gate.profiles[r1.SANDBOX_CPU], memory_request_mb=3072
+        )
+    elif change == "memory_limit":
+        gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
+            gate.profiles[r1.SANDBOX_CPU], memory_limit_mb=8192
+        )
+    elif change == "timeout":
+        gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
+            gate.profiles[r1.SANDBOX_CPU], timeout_sec=61
+        )
+    elif change == "startup_timeout":
+        gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
+            gate.profiles[r1.SANDBOX_CPU], startup_timeout_sec=121
+        )
+    elif change == "scaledown":
+        gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
+            gate.profiles[r1.SANDBOX_CPU], scaledown_window_sec=61
         )
     elif change == "autoscaler":
         gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
             gate.profiles[r1.SANDBOX_CPU], max_containers=47
+        )
+    elif change == "min_containers":
+        gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
+            gate.profiles[r1.SANDBOX_CPU], min_containers=1
+        )
+    elif change == "buffer_containers":
+        gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
+            gate.profiles[r1.SANDBOX_CPU], buffer_containers=1
+        )
+    elif change == "gpu_type":
+        gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
+            gate.profiles[r1.SANDBOX_CPU], gpu_type="H100"
+        )
+    elif change == "provenance":
+        gate.profiles[r1.SANDBOX_CPU] = dataclasses.replace(
+            gate.profiles[r1.SANDBOX_CPU], provenance={"cpu_limit_cores": "changed"}
         )
     elif change == "egress":
         gate.egress_policies["verify_exploit_remote"] = dataclasses.replace(
