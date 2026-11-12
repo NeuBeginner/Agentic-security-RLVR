@@ -83,7 +83,6 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 from core.r1_bounds import (
     AUTOSCALER_FIELDS,
     Bound,
-    FUNCTION_CLASS,
     UnauthorisedCallSite,
     assert_authorised_call_site,
     assert_payload_within_cap,
@@ -225,7 +224,7 @@ class StepPolicy:
             missing.append("monetary_ceiling_usd")
         if self.estimate_usd is None:
             missing.append("estimate_usd")
-        for container_class in FUNCTION_CLASS.values():
+        for container_class in r1_bounds.FUNCTION_CLASS.values():
             if container_class not in self.invocation_budgets:
                 missing.append(f"invocation_budgets[{container_class}]")
             if container_class not in self.concurrency_caps:
@@ -509,7 +508,7 @@ class DispatchGate:
             cost_files[relative] = hashlib.sha256(raw).hexdigest()
 
         effective_classes = sorted(
-            set(r1_bounds.CONTAINER_CLASSES) | set(r1_bounds.FUNCTION_CLASS.values())
+            set(r1_bounds.CONTAINER_CLASSES) | set(r1_bounds.r1_bounds.FUNCTION_CLASS.values())
         )
         profiles = {
             name: self._approval_value(self._profile(name))
@@ -838,7 +837,7 @@ class DispatchGate:
         policy = self._egress(function_name)
         if policy is None:
             self._refuse(
-                FUNCTION_CLASS.get(function_name, "unknown"),
+                r1_bounds.FUNCTION_CLASS.get(function_name, "unknown"),
                 function_name,
                 "no_egress_declaration",
                 "the function has no per-container egress declaration (D29)",
@@ -895,7 +894,7 @@ class DispatchGate:
             assert_payload_within_cap(payload_bytes, function_name)
         except Exception as exc:
             self._refuse(
-                FUNCTION_CLASS.get(function_name, "unknown"),
+                r1_bounds.FUNCTION_CLASS.get(function_name, "unknown"),
                 function_name,
                 "payload_byte_cap",
                 str(exc),
