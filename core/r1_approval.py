@@ -299,7 +299,13 @@ def verify_approval(payload: Mapping[str, Any], signature: bytes) -> VerifiedApp
         raise ApprovalNotVerified("the approval payload is not a mapping")
     if not isinstance(signature, (bytes, bytearray)):
         raise ApprovalNotVerified("the approval signature is not a byte string")
-    if not verify_signature(canonical_bytes(payload), bytes(signature), key):
+    try:
+        encoded_payload = canonical_bytes(payload)
+    except (TypeError, ValueError) as exc:
+        raise ApprovalNotVerified(
+            f"the approval payload is not canonical JSON: {type(exc).__name__}: {exc}"
+        ) from exc
+    if not verify_signature(encoded_payload, bytes(signature), key):
         raise ApprovalNotVerified(
             "the approval signature does not match the payload: the artifact is "
             "not signed by the approval authority"

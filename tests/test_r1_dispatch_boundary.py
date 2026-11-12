@@ -817,3 +817,24 @@ def test_signed_envelope_is_required_even_for_legacy_signed_policy(signed_approv
     with pytest.raises(r1_dispatch.DispatchRefusal):
         gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     assert fake.calls == []
+
+
+
+def test_non_finite_approval_payload_is_refused_before_provider(signed_approval):
+    """NaN/Infinity cannot enter a canonical signed approval."""
+    policy = _policy()
+    world = _approved_world()
+    gate = r1_dispatch.DispatchGate(
+        policy=policy, autoscaler_reader=_reader(), **world
+    )
+    valid = signed_approval(policy, dispatch_envelope=gate.dispatch_envelope_payload())
+    malformed_payload = dict(valid.payload)
+    malformed_payload["unexpected_number"] = float("nan")
+    malformed = type(valid)(payload=malformed_payload, signature=valid.signature)
+    gate.approval = malformed
+    fake = FakeProviderCallable()
+
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
+    assert excinfo.value.reason == "approval_not_verified"
+    assert fake.calls == []
