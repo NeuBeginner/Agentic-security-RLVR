@@ -1768,7 +1768,7 @@ def main(
 # =============================================================================
 # 12. THE DISPATCH GUARD (R1, D26-D29)
 # =============================================================================
-# Every provider callable of this app is wrapped: while a required bound of its
+# Every provider callable of this app is guarded: while a required bound of its
 # container class is required-but-unset, the call is refused and the deployment
 # cannot start a billable container. The declared dispatchable functions are the
 # ones with an egress declaration (core/r1_bounds.py); the others are refused as
@@ -1776,21 +1776,24 @@ def main(
 #
 # The guard covers the module-level functions AND the Modal classes: a class
 # method is a provider callable too (the instance's method is a modal function),
-# and before R1 the class-method path bypassed the guard entirely. Every wrapped
+# and before R1 the class-method path bypassed the guard entirely. Every guarded
 # call is routed through the single R1 dispatch gate, so the invocation budget,
 # the concurrency gate, the ceiling assertion, the payload cap and the autoscaler
 # read-back apply to it as well.
+#
+# The guard is installed **on the provider object itself** (its own 'remote'),
+# not only on the module-level name: every reference to that object - an import
+# of it, the object in the private registry of core.r1_bounds - is therefore
+# gated, and the raw provider callable is not reachable through any attribute of
+# the guard. The installation fails closed: if the guard cannot be installed on
+# an object, the import fails instead of leaving an unguarded callable behind.
 for _name, _obj in list(globals().items()):
     if _name.startswith("_") or _name in ("app", "model_volume", "gpu_image", "sandbox_image"):
         continue
     if isinstance(_obj, modal.Function):
-        _guarded = r1.GuardedRemote(_obj, _name)
-        globals()[_name] = _guarded
-        r1.register_deployed_function(_name, _guarded)
+        globals()[_name] = r1.install_provider_guard(_name, _obj)
     elif isinstance(_obj, modal.Cls):
-        _guarded = r1.GuardedClass(_obj, _name)
-        globals()[_name] = _guarded
-        r1.register_deployed_function(_name, _guarded)
+        globals()[_name] = r1.install_class_guard(_name, _obj)
 
 
 if __name__ == "__main__":

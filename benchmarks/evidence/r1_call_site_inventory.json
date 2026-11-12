@@ -126,12 +126,16 @@
     },
     "benchmarks/run_iteration19_cpu_smoke.py::_invoke::cpu_smoke": {
       "count": 1,
-      "disposition": "declared_out_of_scope",
-      "reason": "The Iteration 19 runtime smoke app is a separate, explicitly declared CPU-only deployment (gpu=None, cpu=0.5, memory=256 MiB, timeout=60 s, retries=0, no volume, no model, no secret). Its declared resources are asserted by tests/test_iteration19_evidence_integrity.py. It is not part of the evidence-regeneration workflow, it dispatches no GPU, no volume write and no model download, and it is not one of the stages R1 prices.",
-      "call_sites": []
+      "disposition": "refused",
+      "reason": "The Iteration 19 runtime smoke app is a separate deployment that is not part of the evidence-regeneration workflow: it has no approved step policy, no declared resource bounds and no egress declaration. The invocation is REFUSED, not classified out of scope: benchmarks/run_iteration19_cpu_smoke.py::_assert_authorised raises SmokeNotAuthorised before the ephemeral app is started and before the provider's 'remote' is touched (the approval variable R1_APPROVE_ITERATION19_CPU_SMOKE is not set). A separate CPU-only app does not make an unauthorised remote workload authorised.",
+      "call_sites": [
+        "cpu_smoke"
+      ],
+      "refused_by": "benchmarks.run_iteration19_cpu_smoke._assert_authorised",
+      "test": "tests/test_r1_dispatch_contract.py::test_the_iteration19_cpu_smoke_invocation_is_refused_before_the_provider_is_reached"
     }
   },
   "guard_implementation": {
-    "core/r1_bounds.py": "The guard itself: GuardedRemote (module-level functions), GuardedClass / GuardedClassInstance / GuardedClassMethod (the class methods, the bypass the review named). The guard holds no direct provider call - it delegates to the gate - so the repository has exactly one place that calls a provider's 'remote'."
+    "core/r1_bounds.py": "The guard itself: GuardedRemote (module-level functions), GuardedClass / GuardedClassInstance / GuardedClassMethod (the class methods, the bypass the review named) and GuardedProviderRemote (the guard installed on the provider object's own 'remote'). The guard holds no provider object: the raw objects live in the module-private registry of core/r1_bounds and the guard objects hold only an opaque token and the call-site name, so no attribute of a guard yields a raw provider callable. The guard holds no direct provider call - it delegates to the gate - so the repository has exactly one place that calls a provider's 'remote'."
   }
 }

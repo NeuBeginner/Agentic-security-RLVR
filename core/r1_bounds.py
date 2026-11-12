@@ -18,14 +18,24 @@ A bound is in one of two states:
 
 The module never invents a production value, never hardcodes a price, and never
 performs a provider call.
+
+**The guard.** The module also holds the guard of the deployment: the guard refuses a
+provider dispatch while a required bound of the call site's container class is
+required-but-unset, and it routes an authorised dispatch through the single gate of
+``benchmarks/r1_dispatch.py``. The guard holds **no provider object**: the raw Modal
+objects live in the module-private registry below, and the guard objects hold only an
+opaque token and the call-site name - so no attribute of a guard yields a raw provider
+callable. The guard is installed on the provider object's *own* ``remote``
+(:func:`install_provider_guard`), so every reference to that object is gated too.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from core.config import config
 
@@ -377,6 +387,14 @@ _PROTOCOL_UNSET = Unset(
     "cannot be bounded the affected step is not dispatchable (D29)"
 )
 
+#: The provider's own definition of egress, with its source and reading date.
+_PROVIDER_INGRESS_NOTE = (
+    "the provider bills outbound traffic as egress; a download into the container "
+    "is ingress and is not billed at the egress rate, and a read or a write of a "
+    "Modal Volume is not egress either "
+    "(https://modal.com/docs/guide/network-egress-billing, read 2026-11-12)"
+)
+
 EGRESS_POLICIES: Dict[str, EgressPolicy] = {
     "verify_exploit_remote": EgressPolicy(
         function_name="verify_exploit_remote",
@@ -445,17 +463,58 @@ EGRESS_POLICIES: Dict[str, EgressPolicy] = {
     "prefetch_model_cache_remote": EgressPolicy(
         function_name="prefetch_model_cache_remote",
         container_class=SANDBOX_CPU,
-        payload_cap_bytes=Unset(
-            "the prefetch cap is pinned_bytes x (1 + R_download); neither the retry "
-            "count nor the pinned revision's byte size is approved yet (D29)"
-        ),
+        payload_cap_bytes=0,
         protocol_allowance_bytes=_PROTOCOL_UNSET,
         block_network=False,
         offline=False,
-        basis="the model-cache prefetch of R2p is the only container that downloads "
-        "the model; its egress is bounded by the pinned revision (D29)",
+        basis="the outbound payload of the prefetch is zero by construction: the "
+        "model is downloaded (that is ingress - see INGRESS_POLICIES) and written to "
+        "the volume (a volume write is not egress). Only the provider's "
+        "control-plane overhead is outbound, and it is declared separately (D29; "
+        + _PROVIDER_INGRESS_NOTE
+        + ")",
     ),
 }
+
+
+@dataclass(frozen=True)
+class IngressPolicy:
+    """The **inbound** byte cap of one dispatched function.
+
+    The provider bills **outbound** traffic as egress. A download *into* the
+    container is ingress and is not billed at the egress rate, and a read or a
+    write of a Modal Volume is not egress either
+    (https://modal.com/docs/guide/network-egress-billing, read 2026-11-12).
+
+    The inbound cap is therefore declared **separately** from the outbound one:
+    it is a bound like any other, and it is never charged at the egress rate.
+    """
+
+    function_name: str
+    container_class: str
+    ingress_cap_bytes: Bound
+    basis: str
+
+
+#: The inbound byte caps of the dispatched functions. Only the prefetch has one:
+#: it is the only container of the cycle that downloads anything.
+INGRESS_POLICIES: Dict[str, IngressPolicy] = {
+    "prefetch_model_cache_remote": IngressPolicy(
+        function_name="prefetch_model_cache_remote",
+        container_class=SANDBOX_CPU,
+        ingress_cap_bytes=Unset(
+            "the inbound cap is pinned_bytes x (1 + R_download); neither the retry "
+            "count nor the pinned revision's byte size is approved yet (D29)"
+        ),
+        basis="the only inbound traffic of the cycle is the model download of the "
+        "prefetch: it is ingress, not egress, so it is declared and bounded "
+        "separately from the outbound traffic (D29)",
+    ),
+}
+
+
+def ingress_policy(function_name: str) -> Optional[IngressPolicy]:
+    return INGRESS_POLICIES.get(function_name)
 
 
 def egress_policy(function_name: str) -> Optional[EgressPolicy]:
@@ -589,8 +648,13 @@ DOWNLOAD_RETRY_ALLOWANCE: Bound = Unset(
 )
 
 
-def prefetch_payload_cap_bytes() -> int:
-    """``pinned_bytes x (1 + R_download)`` - the prefetch's per-container payload cap."""
+def prefetch_ingress_cap_bytes() -> int:
+    """``pinned_bytes x (1 + R_download)`` - the prefetch's per-container **ingress** cap.
+
+    These are the bytes the container *downloads*: the model download is
+    ingress and is not billed at the egress rate, so the cap is an ingress cap
+    and not a payload cap (D29).
+    """
     retry = require(DOWNLOAD_RETRY_ALLOWANCE, "DOWNLOAD_RETRY_ALLOWANCE", "prefetch")
     return int(PINNED_MODEL.bytes_total * (1 + float(retry)))
 
@@ -717,6 +781,12 @@ UNAUTHORISED_CALL_SITES: Dict[str, str] = {
         "the audit-role method of the GPU class is not one of the authorised stages; "
         "only the exploit generation and the refinement are"
     ),
+    "cpu_smoke": (
+        "the Iteration 19 runtime smoke app is a separate deployment that is not "
+        "part of the authorised trace: it has no approved step policy, no declared "
+        "bounds and no egress declaration, so its live invocation is refused until "
+        "a separate maintainer approval exists"
+    ),
 }
 
 
@@ -765,6 +835,123 @@ def is_provider_callable(obj: Any) -> bool:
         return True
     module = (type(obj).__module__ or "").split(".")[0]
     return module == "modal"
+
+
+# --------------------------------------------------------------------------------------
+# The provider registry - the one place that holds a raw provider object
+# --------------------------------------------------------------------------------------
+#
+# **Why a registry and not an attribute.** The R1 review named four bypasses: the
+# guard wrappers kept the raw Modal objects in their own instance dictionaries
+# (``_fn``, ``_obj``, ``_cls``), so a caller could reach the raw provider callable
+# and call it without the gate. A renamed attribute, a name-mangled attribute or an
+# attribute that "callers are not supposed to inspect" would not close that hole.
+#
+# The guard therefore keeps **no reference to a provider object at all**: the raw
+# objects live in the module-private registries below, and the guard objects hold
+# only an opaque token and the call-site name. There is no attribute of a guard
+# object, of a guarded class or of a guarded class instance that yields a raw
+# provider object - and an attribute that starts with an underscore is refused
+# outright instead of being delegated to the raw object.
+#
+# The registries are the trust boundary of the guard. Python has no private
+# memory, so a caller that deliberately imports this module and reads its
+# underscore-prefixed registries can still reach a provider object; that is a
+# property of the language, not of this guard. What the guard *does* guarantee is
+# the property the evidence needs: **every provider entry point the repository
+# hands out is gated**. The guard is installed on the provider object's *own*
+# ``remote`` (see :func:`install_provider_guard`), so even the raw object - from
+# wherever it is reached - refuses a call while the bounds are unapproved and
+# routes an approved call through the single gate.
+
+#: The provider objects the guard wraps, by an opaque token.
+_GUARDED_OBJECTS: Dict[str, Any] = {}
+
+#: The provider objects that are installed under their call-site name.
+_INSTALLED_OBJECTS: Dict[str, Any] = {}
+
+#: The entry point of an installed object, captured **before** the guard was
+#: installed on it. The gate calls this one: the object's own ``remote`` is the
+#: guard from that moment on.
+_ORIGINAL_ENTRYPOINTS: Dict[str, Any] = {}
+
+
+def _register_guarded_object(obj: Any) -> str:
+    """Register a provider object and return the opaque token that names it."""
+    token = uuid.uuid4().hex
+    _GUARDED_OBJECTS[token] = obj
+    return token
+
+
+def _guarded_object(token: str) -> Any:
+    """The provider object of a token - or a refusal."""
+    try:
+        return _GUARDED_OBJECTS[token]
+    except KeyError as exc:  # pragma: no cover - the registry holds every token
+        raise UnauthorisedCallSite(
+            "<unknown>",
+            "the guarded provider object is not registered any more",
+        ) from exc
+
+
+def is_installed_call_site(function_name: str, fn: Any) -> bool:
+    """True when the object is the provider object installed under this name.
+
+    An installed call site is dispatched through the entry point that was
+    captured before the guard was installed on the object's own ``remote``.
+    """
+    return (
+        function_name in _INSTALLED_OBJECTS
+        and fn is _INSTALLED_OBJECTS.get(function_name)
+    )
+
+
+def original_entrypoint(function_name: str) -> Optional[Callable[..., Any]]:
+    """The entry point captured before the guard was installed on the object.
+
+    ``None`` when the call site is not an installed one - the gate then calls
+    the object's own ``remote``, exactly as it did before the guard existed.
+    """
+    return _ORIGINAL_ENTRYPOINTS.get(function_name)
+
+
+class _SubstitutedRemote:
+    """A local double that was substituted on a guard.
+
+    A substituted ``remote`` starts no container and costs nothing, so the
+    dispatch contract of a provider call does not apply to it: it is passed
+    through and counted, exactly as it was before the guard was reworked. The
+    double itself is the guard's instance attribute - it is not a provider
+    object and the wrapper hands out no reference to it.
+    """
+
+    def __init__(self, double: Any) -> None:
+        self.__dict__["remote"] = double
+
+
+def unwrap_guard(fn: Any) -> Any:
+    """The provider object behind a guard - or the object itself.
+
+    The gate calls this before it dispatches, so that a guarded call is
+    dispatched **once**: the gate holds the provider object, not the guard that
+    would route the call back into the gate. A second pass through the gate
+    would take the concurrency semaphore twice and stall the dispatch.
+
+    A guard whose ``remote`` was substituted by a local double yields that
+    double: it is not a provider call and must not be treated as one.
+    """
+    if isinstance(fn, GuardedRemote):
+        substituted = fn.substituted_remote()
+        if substituted is not None:
+            return _SubstitutedRemote(substituted)
+        return _guarded_object(fn.__dict__["_object_token"])
+    if isinstance(fn, GuardedClassMethod):
+        substituted = fn.substituted_remote()
+        if substituted is not None:
+            return _SubstitutedRemote(substituted)
+        instance = _guarded_object(fn.__dict__["_instance_token"])
+        return getattr(instance, fn.__dict__["_method_name"])
+    return fn
 
 
 def missing_deployment_bounds() -> Dict[str, List[str]]:
@@ -825,16 +1012,36 @@ class GuardedRemote:
     ceiling assertion, the payload cap and the autoscaler read-back apply to it
     exactly as they apply to every other dispatch. A call that bypasses the gate
     is a bypass of the budget.
+
+    The wrapper holds **no reference to the provider object**: the raw Modal
+    callable lives in the module-private registry of this module, under an
+    opaque token, and the guard hands out its name and its guarded ``remote``
+    only. The R1 review named the raw object in the wrapper's own instance
+    dictionary (``_fn``) as a bypass of the gate; that attribute does not exist
+    any more, and no other attribute of the guard yields the raw callable.
     """
 
     def __init__(self, fn: Any, function_name: str) -> None:
-        self.__dict__["_fn"] = fn
         self.__dict__["_function_name"] = function_name
+        self.__dict__["_object_token"] = _register_guarded_object(fn)
         self.__dict__[PROVIDER_CALLABLE_MARKER] = True
 
     @property
     def function_name(self) -> str:
         return self.__dict__["_function_name"]
+
+    def substituted_remote(self) -> Optional[Any]:
+        """The local double that was substituted on this guard, if any.
+
+        A substituted ``remote`` starts no container and costs nothing, so the
+        dispatch contract of a provider call does not apply to it.
+        """
+        candidate = self.__dict__.get("remote")
+        if candidate is None:
+            return None
+        if getattr(candidate, "__func__", None) is type(self).remote:
+            return None
+        return candidate
 
     def r1_reaches_provider(self) -> bool:
         """True when calling ``remote`` would reach the provider.
@@ -843,27 +1050,109 @@ class GuardedRemote:
         starts no container and costs nothing, so the dispatch contract of a
         provider call does not apply to it.
         """
-        candidate = self.__dict__.get("remote")
-        if candidate is None:
-            return True
-        return getattr(candidate, "__func__", None) is type(self).remote
+        return self.substituted_remote() is None
 
     def remote(self, *args: Any, **kwargs: Any) -> Any:
         function_name = self.__dict__["_function_name"]
         assert_dispatch_allowed(function_name)
         container_class = FUNCTION_CLASS[function_name]
         return _dispatch_through_gate(
-            container_class, function_name, self.__dict__["_fn"], *args, **kwargs
+            container_class,
+            function_name,
+            _guarded_object(self.__dict__["_object_token"]),
+            *args,
+            **kwargs,
         )
 
     def __getattr__(self, item: str) -> Any:
+        """No attribute of the guard yields the raw provider callable.
+
+        The raw callable lives in the module-private registry of this module; the
+        guard hands out its name, its marker and its guarded ``remote`` - nothing
+        else. The underscore-prefixed attributes are refused outright, because
+        they are the ones the R1 review named as the bypass (``_fn``).
+        """
         if item == "update_autoscaler":
             raise UnauthorisedCallSite(
                 self.__dict__["_function_name"],
                 "the autoscaler of a guarded function may not be updated from this "
                 "repository: the read-back is read-only (D27)",
             )
-        return getattr(self.__dict__["_fn"], item)
+        if item.startswith("_"):
+            raise AttributeError(
+                f"the guarded function '{self.__dict__['_function_name']}' exposes no "
+                f"attribute '{item}': the guard holds no provider object"
+            )
+        raise AttributeError(
+            f"the guarded function '{self.__dict__['_function_name']}' exposes no "
+            f"attribute '{item}': only the guarded 'remote' is handed out"
+        )
+
+
+class GuardedProviderRemote:
+    """The guard installed on a provider object's **own** ``remote``.
+
+    This is the boundary installation: the provider object itself carries the
+    guard, so every reference to that object - the module-level name, an import
+    of it, the object in the private registry - reaches the dispatch gate. A
+    caller that gets hold of the raw object does not get an unguarded call.
+
+    The guard holds no reference to the provider object either: it holds the
+    call-site name and resolves the object in the private registry when it is
+    called.
+    """
+
+    def __init__(self, function_name: str) -> None:
+        self.__dict__["_function_name"] = function_name
+        self.__dict__[PROVIDER_CALLABLE_MARKER] = True
+
+    @property
+    def function_name(self) -> str:
+        return self.__dict__["_function_name"]
+
+    def r1_reaches_provider(self) -> bool:
+        return True
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self._dispatch(args, kwargs)
+
+    async def aio(self, *args: Any, **kwargs: Any) -> Any:
+        """The asynchronous variant of the guarded call.
+
+        The gate is synchronous, so the dispatch runs in a worker thread: the
+        call itself is the same gated call, not a second path.
+        """
+        import asyncio
+
+        return await asyncio.to_thread(self._dispatch, args, kwargs)
+
+    def _dispatch(self, args: Any, kwargs: Any) -> Any:
+        function_name = self.__dict__["_function_name"]
+        container_class = FUNCTION_CLASS.get(function_name)
+        if container_class is None:
+            raise UnauthorisedCallSite(
+                function_name,
+                "it is not a declared dispatchable function of the "
+                "evidence-regeneration workflow",
+            )
+        fn = _INSTALLED_OBJECTS.get(function_name)
+        if fn is None:
+            raise UnauthorisedCallSite(
+                function_name,
+                "the provider object of this call site is not installed",
+            )
+        return _dispatch_through_gate(container_class, function_name, fn, *args, **kwargs)
+
+    def __getattr__(self, item: str) -> Any:
+        if item.startswith("_"):
+            raise AttributeError(
+                f"the guarded provider remote of "
+                f"'{self.__dict__['_function_name']}' exposes no attribute '{item}'"
+            )
+        raise AttributeError(
+            f"the guarded provider remote of "
+            f"'{self.__dict__['_function_name']}' exposes no attribute '{item}'"
+        )
 
 
 class GuardedClassMethod:
@@ -875,10 +1164,21 @@ class GuardedClassMethod:
     exact bypass the R1 review named. The guard closes it: the call site is
     checked against the authorised trace, the declared bounds are checked, and the
     call is routed through the same gate as every other dispatch.
+
+    The method object itself is **not** held: it is resolved from the live
+    instance at the moment of the call and lives only as a local variable of that
+    call. No attribute of the guard yields a raw provider callable.
     """
 
-    def __init__(self, fn: Any, function_name: str, class_name: str) -> None:
-        self.__dict__["_fn"] = fn
+    def __init__(
+        self,
+        instance_token: str,
+        method_name: str,
+        function_name: str,
+        class_name: str,
+    ) -> None:
+        self.__dict__["_instance_token"] = instance_token
+        self.__dict__["_method_name"] = method_name
         self.__dict__["_function_name"] = function_name
         self.__dict__["_class_name"] = class_name
         self.__dict__[PROVIDER_CALLABLE_MARKER] = True
@@ -891,18 +1191,28 @@ class GuardedClassMethod:
     def class_name(self) -> str:
         return self.__dict__["_class_name"]
 
-    def r1_reaches_provider(self) -> bool:
+    def substituted_remote(self) -> Optional[Any]:
+        """The local double that was substituted on this guard, if any."""
         candidate = self.__dict__.get("remote")
         if candidate is None:
-            return True
-        return getattr(candidate, "__func__", None) is type(self).remote
+            return None
+        if getattr(candidate, "__func__", None) is type(self).remote:
+            return None
+        return candidate
+
+    def r1_reaches_provider(self) -> bool:
+        return self.substituted_remote() is None
 
     def remote(self, *args: Any, **kwargs: Any) -> Any:
         function_name = self.__dict__["_function_name"]
         assert_dispatch_allowed(function_name)
         container_class = FUNCTION_CLASS[function_name]
+        instance = _guarded_object(self.__dict__["_instance_token"])
+        # The method object is resolved here and nowhere else: it is a local
+        # variable of this call, so it cannot be reached afterwards.
+        method = getattr(instance, self.__dict__["_method_name"])
         return _dispatch_through_gate(
-            container_class, function_name, self.__dict__["_fn"], *args, **kwargs
+            container_class, function_name, method, *args, **kwargs
         )
 
     def __getattr__(self, item: str) -> Any:
@@ -912,26 +1222,56 @@ class GuardedClassMethod:
                 "the autoscaler of a guarded class method may not be updated from "
                 "this repository: the read-back is read-only (D27)",
             )
-        return getattr(self.__dict__["_fn"], item)
+        if item.startswith("_"):
+            raise AttributeError(
+                f"the guarded class method '{self.__dict__['_function_name']}' exposes "
+                f"no attribute '{item}': the guard holds no provider object"
+            )
+        raise AttributeError(
+            f"the guarded class method '{self.__dict__['_function_name']}' exposes no "
+            f"attribute '{item}': only the guarded 'remote' is handed out"
+        )
 
 
 class GuardedClassInstance:
-    """The guarded instance of a Modal class: every method of it is guarded."""
+    """The guarded instance of a Modal class: every method of it is guarded.
+
+    The instance holds no reference to the raw instance: the raw instance is in
+    the private registry under an opaque token. The instance hands out the
+    provider methods of the class - as :class:`GuardedClassMethod` objects - and
+    nothing else. Every other attribute of the raw instance (the raw class it
+    belongs to, its internal function map) is refused, so no raw provider
+    callable can be reached through the instance.
+    """
 
     def __init__(self, obj: Any, class_name: str) -> None:
-        self.__dict__["_obj"] = obj
         self.__dict__["_class_name"] = class_name
+        self.__dict__["_object_token"] = _register_guarded_object(obj)
+
+    @property
+    def class_name(self) -> str:
+        return self.__dict__["_class_name"]
 
     def __getattr__(self, item: str) -> Any:
-        attribute = getattr(self.__dict__["_obj"], item)
+        if item.startswith("_"):
+            raise AttributeError(
+                f"the guarded instance of '{self.__dict__['_class_name']}' exposes no "
+                f"attribute '{item}': the guard holds no provider object"
+            )
+        obj = _guarded_object(self.__dict__["_object_token"])
+        attribute = getattr(obj, item)
         remote = getattr(attribute, "remote", None)
         if callable(remote):
             return GuardedClassMethod(
-                attribute,
+                self.__dict__["_object_token"],
+                item,
                 f"{self.__dict__['_class_name']}.{item}",
                 self.__dict__["_class_name"],
             )
-        return attribute
+        raise AttributeError(
+            f"the guarded instance of '{self.__dict__['_class_name']}' exposes no "
+            f"attribute '{item}': only its provider methods are handed out"
+        )
 
 
 class GuardedClass:
@@ -941,11 +1281,16 @@ class GuardedClass:
     Instantiating it returns a :class:`GuardedClassInstance`, whose methods are
     :class:`GuardedClassMethod` objects: every provider call of a class method
     goes through the R1 gate.
+
+    The wrapper holds no reference to the raw class: the raw class is in the
+    private registry under an opaque token, and the underscore-prefixed
+    attributes - the ones the R1 review named as the bypass (``_cls``) - are
+    refused outright.
     """
 
     def __init__(self, cls: Any, class_name: str) -> None:
-        self.__dict__["_cls"] = cls
         self.__dict__["_class_name"] = class_name
+        self.__dict__["_object_token"] = _register_guarded_object(cls)
         self.__dict__[PROVIDER_CALLABLE_MARKER] = True
 
     @property
@@ -953,7 +1298,8 @@ class GuardedClass:
         return self.__dict__["_class_name"]
 
     def __call__(self, *args: Any, **kwargs: Any) -> GuardedClassInstance:
-        instance = self.__dict__["_cls"](*args, **kwargs)
+        cls = _guarded_object(self.__dict__["_object_token"])
+        instance = cls(*args, **kwargs)
         return GuardedClassInstance(instance, self.__dict__["_class_name"])
 
     def __getattr__(self, item: str) -> Any:
@@ -963,7 +1309,56 @@ class GuardedClass:
                 "the autoscaler of a guarded class may not be updated from this "
                 "repository: the read-back is read-only (D27)",
             )
-        return getattr(self.__dict__["_cls"], item)
+        if item.startswith("_"):
+            raise AttributeError(
+                f"the guarded class '{self.__dict__['_class_name']}' exposes no "
+                f"attribute '{item}': the guard holds no provider object"
+            )
+        raise AttributeError(
+            f"the guarded class '{self.__dict__['_class_name']}' exposes no attribute "
+            f"'{item}': only the guarded instantiation is handed out"
+        )
+
+
+def install_provider_guard(function_name: str, fn: Any) -> GuardedRemote:
+    """Install the guard on a provider callable and return the guarded name.
+
+    The guard is installed **on the provider object itself**: the object's own
+    ``remote`` is replaced by the guard, so every reference to that object is
+    gated. The original entry point is captured before the replacement, and it
+    is the one the gate calls - otherwise the guarded ``remote`` would route the
+    call back into the gate and recurse.
+
+    The installation fails **closed**: if the object's ``remote`` cannot be
+    replaced, the deployment is not guarded and the error stops the import
+    instead of leaving an unguarded provider callable behind.
+    """
+    original = getattr(fn, "remote", None)
+    if not callable(original):
+        raise RuntimeError(
+            f"the provider object of '{function_name}' has no callable 'remote'; "
+            "the guard cannot be installed on it"
+        )
+    _INSTALLED_OBJECTS[function_name] = fn
+    _ORIGINAL_ENTRYPOINTS[function_name] = original
+    guard = GuardedProviderRemote(function_name)
+    try:
+        setattr(fn, "remote", guard)
+    except Exception as exc:
+        raise RuntimeError(
+            f"the guard could not be installed on the provider object of "
+            f"'{function_name}': {type(exc).__name__}: {exc}"
+        ) from exc
+    wrapper = GuardedRemote(fn, function_name)
+    register_deployed_function(function_name, wrapper)
+    return wrapper
+
+
+def install_class_guard(class_name: str, cls: Any) -> GuardedClass:
+    """Install the guard on a Modal class and return the guarded name."""
+    wrapper = GuardedClass(cls, class_name)
+    register_deployed_function(class_name, wrapper)
+    return wrapper
 
 
 def assert_dispatch_allowed(function_name: str) -> None:
@@ -1016,6 +1411,17 @@ def declaration_record() -> Dict[str, Any]:
             container_class: class_network_policy(container_class)
             for container_class in CLASS_CONTAINER_CLASSES
         },
+        "ingress": {
+            name: {
+                "container_class": policy.container_class,
+                "ingress_cap_bytes": (
+                    None if is_unset(policy.ingress_cap_bytes) else policy.ingress_cap_bytes
+                ),
+                "basis": policy.basis,
+            }
+            for name, policy in INGRESS_POLICIES.items()
+        },
+        "ingress_note": _PROVIDER_INGRESS_NOTE,
         "authorised_call_sites": dict(FUNCTION_CLASS),
         "unauthorised_call_sites": dict(UNAUTHORISED_CALL_SITES),
         "storage_free_allowance": {
@@ -1051,6 +1457,7 @@ __all__ = [
     "GuardedClass",
     "GuardedClassInstance",
     "GuardedClassMethod",
+    "GuardedProviderRemote",
     "GuardedRemote",
     "MAX_TRAJECTORY_PAYLOAD_BYTES",
     "OFFLINE_ENV",
@@ -1074,13 +1481,21 @@ __all__ = [
     "declared_timeout",
     "deployed_max_containers",
     "egress_policy",
+    "ingress_policy",
+    "INGRESS_POLICIES",
+    "IngressPolicy",
     "is_provider_callable",
     "is_unset",
+    "install_class_guard",
+    "install_provider_guard",
+    "is_installed_call_site",
     "missing_deployment_bounds",
     "modal_function_kwargs",
-    "prefetch_payload_cap_bytes",
+    "original_entrypoint",
+    "prefetch_ingress_cap_bytes",
     "profile_for",
     "register_deployed_function",
     "require",
+    "unwrap_guard",
     "verify_model_cache_manifest",
 ]

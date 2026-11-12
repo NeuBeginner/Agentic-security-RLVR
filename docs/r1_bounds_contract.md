@@ -134,6 +134,23 @@ The current cycle: peak **56.908 GiB**, time-weighted **56.906 GiB**,
 **69.58 GiB-month** of footprint against an allowance of **1 252 GiB-month** ⇒ the
 storage of the whole cycle costs **USD 0**.00.
 
+### The footprint is a candidate estimate, and the capacity proof is unavailable
+
+The **cost** of the storage above is USD 0 while the footprint stays inside the
+allowance — that arithmetic is kept. The **proof** that the cycle fits the account
+is a different question, and it is **UNAVAILABLE**:
+
+| what | state | why |
+|---|---|---|
+| the **baseline** of the remote Volume | **UNKNOWN** | R1 performed **no Volume operation** (it is prohibited in this task), so the existing baseline of this workspace is **not measured** by this evidence. The `0.0 GiB` of the scenario is an **assumption**, not a measurement |
+| the **measured local bytes** | **5 034 779 bytes** (0.004689 GiB, 159 tracked files) | the tracked artifacts tree of this repository, measured on 2026-11-12 with `git cat-file -s`. These are the *local* evidence bytes — they are **not** the volume's baseline |
+| the **increment of a future run** | **CANDIDATE ESTIMATE** (56.888 GiB of model cache + 0.001/0.02 GiB of evidence) | the size of the artefacts a future run *would* write; the published run's tracked artifacts (0.004689 GiB) anchor the order of magnitude, the values themselves are not measured |
+| the **capacity proof** | **UNAVAILABLE** | it needs the volume's existing baseline. It stays unavailable until a **read-only baseline measurement** or a **defensible conservative bound** exists |
+
+The estimator reports these states in every run (`baseline_status`,
+`incremental_status`, `capacity_proof`, `capacity_proof_reasons`), so a reader never
+has to guess whether a number was measured or assumed.
+
 ## D29 — the egress
 
 | function | class | payload cap | protocol allowance | how the zero/cap is established |
@@ -143,7 +160,27 @@ storage of the whole cycle costs **USD 0**.00.
 | `record_trajectory_remote` | persistence | **0** | **unset** | 0 external by construction: the function opens a file and commits the volume |
 | `ProductionAuditAgent.generate_solidity_exploit` / `.refine_solidity_exploit` | GPU | **0** | **unset** | the **provider-enforced `block_network` of the whole GPU class** (see below) + the offline environment + the verified cache manifest |
 | `ProductionAuditAgent.audit_target_contract` | GPU | **0** | **unset** | the same class-level declaration; the call site itself is refused (it is not one of the authorised stages) |
-| `prefetch_model_cache_remote` (R2p) | sandbox CPU | **unset** (`pinned_bytes × (1 + R_download)`) | **unset** | the only container that downloads the model |
+| `prefetch_model_cache_remote` (R2p) | sandbox CPU | **0** | **unset** | the outbound payload is zero by construction: the model is **downloaded** (that is ingress — see below) and written to the volume (a volume write is not egress) |
+
+### The ingress is declared separately from the egress
+
+The provider bills **outbound** traffic as egress. A download *into* the container is
+**ingress** and is not billed at the egress rate, and a read or a write of a Modal
+Volume is not egress either
+(<https://modal.com/docs/guide/network-egress-billing>, read 2026-11-12).
+
+The model download of R2p is therefore **not** an egress: it is declared as an
+**ingress cap** (`core.r1_bounds.INGRESS_POLICIES`), bounded by
+`pinned_bytes × (1 + R_download)` = **122 155 995 204 bytes** with `R_download = 1`.
+The estimator prices the inbound bytes at the **ingress rate** of the rate card
+(`ingress_per_gib = 0.0`), never at the egress rate. The *outbound* traffic of the
+prefetch stays in the egress term: the protocol allowance (1 MiB per container, the
+measured order of magnitude of the control-plane and volume data-path traffic).
+
+The two are never mixed: an ingress declaration belongs to one dispatched function,
+so a step that dispatches a function with an ingress declaration has to declare that
+declaration — otherwise the step is **unavailable** (fail closed), not silently
+counted as zero.
 
 ### The GPU class: provider-level blocking
 
@@ -193,7 +230,8 @@ Modal call; `benchmarks/adapters.py` routes all eight of its dispatch sites thro
 it (a test asserts that no `.remote(` call survives in the producer).
 
 **The inventory.** `benchmarks/evidence/r1_call_site_inventory.json` lists **every**
-provider call site of the repository — 21 of them — with the disposition of each one.
+provider call site of the repository — 20 call sites, grouped into 16 call chains —
+with the disposition of each one.
 `tests/test_r1_dispatch_contract.py` parses every `.py` file of the repository, finds
 every call chain that reaches a provider's `remote` and compares the result with the
 inventory: a new call site that is not classified fails the test, so the inventory
@@ -205,7 +243,15 @@ cannot silently go stale. The dispositions are
 | `refused` | not part of the authorised trace; the guard refuses the call site with the reason of the refusal registry |
 | `guarded_class_method` | a class method; the class guard resolves the call site at runtime — authorised for the GPU class, refused for the T4 dev agent |
 | `gate` | the gate itself: the only place in the repository that calls a provider's `remote` |
-| `declared_out_of_scope` | a separate, explicitly declared CPU-only deployment (the Iteration 19 runtime smoke app), not one of the stages R1 prices |
+
+There is **no** "declared out of scope" disposition: a provider call that is not gated
+is **refused**, with the reason of the refusal registry. The Iteration 19 runtime smoke
+app was classified that way, and the R1 review named it as an unguarded invocation —
+a separate, CPU-only deployment is still an unauthorised remote workload. Its live
+invocation is now refused before the ephemeral app starts and before the provider's
+entry point is touched (`benchmarks/run_iteration19_cpu_smoke.py::_assert_authorised`);
+only an explicit maintainer approval (`R1_APPROVE_ITERATION19_CPU_SMOKE=1`) lifts the
+refusal, and the historical Iteration 19 evidence is untouched by any of this.
 
 The gate enforces, per step:
 
@@ -246,7 +292,7 @@ explicit: **it costs no invocation**, and the allowance stays intact for the nex
 attempt (a test pins it).
 
 **The guard at the function boundary.** Every provider callable of `modal_app.py` is
-wrapped: the module-level functions in `r1.GuardedRemote`, the Modal **classes** in
+guarded: the module-level functions in `r1.GuardedRemote`, the Modal **classes** in
 `r1.GuardedClass` (whose instances return `r1.GuardedClassMethod` objects). The class
 methods were the bypass the review named: before, the module-level guard covered only
 `modal.Function` objects, so `ProductionAuditAgent().generate_solidity_exploit.remote(...)`
@@ -260,6 +306,29 @@ reached the provider without the gate. Now:
   the budget, the concurrency gate, the ceiling, the payload cap and the read-back
   apply to it;
 * the mutating `update_autoscaler` accessor is **unreachable** through the guard.
+
+**The guard holds no provider object.** The R1 re-review named a second bypass: the
+wrappers kept the raw Modal objects in their own instance dictionaries (`_fn`, `_obj`,
+`_cls`), so a caller could reach the raw provider callable and call it without the
+gate. That is closed on two levels:
+
+1. **no attribute yields a raw provider callable.** The raw objects live in the
+   module-private registry of `core/r1_bounds.py`; the guard objects hold only an
+   opaque token and the call-site name, and every underscore-prefixed attribute is
+   refused outright instead of being delegated to the raw object. The class method is
+   resolved from the live instance *inside* the call, so it is a local variable of that
+   call and cannot be reached afterwards;
+2. **the guard is installed on the provider object itself** (`r1.GuardedProviderRemote`
+   replaces the object's own `remote`). Every reference to that object — the
+   module-level name, an import of it, the object in the registry — reaches the gate,
+   not the provider. The original entry point is captured before the replacement and
+   is the one the gate calls; the installation fails closed if it cannot be made.
+
+The trust boundary is explicit: Python has no private memory, so a caller that
+deliberately reads the module's underscore-prefixed registries can still reach a
+provider object. What the guard guarantees is the property the evidence needs — every
+provider entry point the repository hands out is gated, and the raw route the review
+named is closed on the object itself.
 
 **What the guard does not cover.** A manual `modal run` of the app's local entrypoint
 drives the GPU class methods directly, and Modal offers no way to revoke a deployed
@@ -276,7 +345,9 @@ authorisation of the operator, not by code.
 | `startup_timeout`, `scaledown_window` | required-but-unset | approval inputs; `T_billable` is not a number without them |
 | the **protocol allowance** | required-but-unset | an approval input with its source and date; without it the egress term is unavailable |
 | `MAX_TRAJECTORY_PAYLOAD_BYTES` | required-but-unset | the persistence function therefore refuses every payload (fail closed) |
-| the **prefetch function** (R2p) | not implemented in R1 | it is a separately authorised step and its download timeout is an approval input; its per-container egress bound **is** declared, so the estimator can price R2p |
+| the **prefetch function** (R2p) | not implemented in R1 | it is a separately authorised step and its download timeout is an approval input; its per-container **ingress** bound **is** declared, so the estimator can price R2p |
+| the **Iteration 19 CPU smoke** (a separate deployment) | **refused** | it is not part of the authorised trace: no approved step policy, no declared bounds, no egress declaration. The live invocation refuses before the ephemeral app starts; only an explicit maintainer approval lifts it |
+| the **capacity proof** of the storage | **unavailable** | the baseline of the remote Volume is not measured by this evidence (no Volume operation); it needs a read-only baseline measurement or a defensible conservative bound |
 | the **per-stage ceilings** | not approved | they are proposed in `docs/r1_cost_proposal.md` and await the maintainer's review |
 | every compute step | **not dispatchable** | the estimate is unavailable while the bounds above are unset, and an unavailable estimate means no dispatch |
 

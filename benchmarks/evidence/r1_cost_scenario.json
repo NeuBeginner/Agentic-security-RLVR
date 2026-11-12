@@ -1,16 +1,27 @@
 {
-  "schema": "r1-cost-scenario/1.0.0",
+  "schema": "r1-cost-scenario/1.1.0",
   "status": "PROPOSED - not maintainer-approved",
   "cycle_cap_usd": 20.0,
   "baseline_gib": 0.0,
+  "storage_baseline": {
+    "status": "UNKNOWN",
+    "assumed_gib": 0.0,
+    "reason": "No read-only Volume listing was performed in R1, and no Volume operation is permitted in this task: the existing remote Volume baseline of this workspace is NOT measured by this evidence. The 0.0 GiB is an ASSUMPTION of the proposal, not a measurement.",
+    "measured_local_repository_bytes": 5034779,
+    "measured_local_repository_note": "The tracked artifacts tree of this repository (159 files) measured on 2026-11-12 with git cat-file -s: 5034779 bytes = 0.004689 GiB. These are the local evidence bytes; they are NOT the volume's baseline.",
+    "candidate_future_run_gib": 56.888,
+    "candidate_future_run_note": "The model cache of the pinned revision (61077997602 bytes = 56.888 GiB) is the size of the artefact the prefetch would write. It is a CANDIDATE of a future run, not a measured footprint of the remote Volume.",
+    "capacity_proof": "UNAVAILABLE",
+    "capacity_proof_reason": "The capacity proof needs the volume's existing baseline: it stays unavailable until a read-only baseline measurement or a defensible conservative bound exists."
+  },
   "rate_card": "benchmarks/evidence/r1_rate_card.json",
   "notes": [
     "Every value in this file is a CANDIDATE for the maintainer's approval. The declared values in core/r1_bounds.py stay required-but-unset until they are approved; this file never changes a declaration.",
     "The candidate bounds are the input of the cost proposal (docs/r1_cost_proposal.md). The numbers of that document are produced by: python -m benchmarks.r1_estimator --scenario benchmarks/evidence/r1_cost_scenario.json",
     "pinned_bytes = 61077997602 (the pinned revision 655425b794ae4a19f2ea16fa480c6b39102721ee of qtum/Qwen3-Coder-30B-A3B-Audit, measured 2026-11-11) = 56.888 GiB.",
-    "The prefetch's payload cap is pinned_bytes x (1 + R_download) with R_download = 1: 122155995204 bytes.",
-    "The protocol allowance is 1 MiB per container: the workspace's own published billing export shows 0.00013117 USD of network egress (3.35 MB) for a whole app session on 2026-11-09, i.e. the measured order of magnitude of the control-plane and volume data-path traffic.",
-    "The storage is NOT priced per stage: the provider's published 1 TiB/month allowance (1024 GiB/month) is applied once to the cycle's time-weighted footprint, so the storage of this cycle costs USD 0.00 while the footprint (peak 56.908 GiB, time-weighted 56.906 GiB, 69.58 GiB-month) stays inside it. The footprint is computed and reported in every run.",
+    "The prefetch's INBOUND cap is pinned_bytes x (1 + R_download) with R_download = 1: 122155995204 bytes. The model download is INGRESS: the provider bills outbound traffic as egress, and a download into the container is not billed at the egress rate (https://modal.com/docs/guide/network-egress-billing, read 2026-11-12). The inbound cap is therefore declared separately (candidate_ingress) and is never charged at the egress rate; the write of the cache to the Volume is not egress either.",
+    "The protocol allowance is 1 MiB per container: the workspace's own published billing export shows 0.00013117 USD of network egress (3.35 MB) for a whole app session on 2026-11-09, i.e. the measured order of magnitude of the control-plane and volume data-path traffic. This is the whole OUTBOUND traffic of a container.",
+    "The storage is NOT priced per stage: the provider's published 1 TiB/month allowance (1024 GiB/month) is applied once to the cycle's time-weighted footprint, so the storage of this cycle costs USD 0.00 while the footprint stays inside it. The footprint is a CANDIDATE estimate (the baseline of the remote Volume is not measured - see storage_baseline), and the capacity proof is UNAVAILABLE: the cost assumption of USD 0 is kept, the proof that the cycle fits the account is not claimed.",
     "The GPU payload cap is 0 because the GPU class declares the provider-enforced block_network; the alternative (a conservative non-zero cap) is priced in docs/r1_cost_proposal.md and is BUDGET_INFEASIBLE."
   ],
   "steps": [
@@ -20,6 +31,7 @@
       "invocations": {"sandbox_cpu": 1},
       "concurrency_caps": {"sandbox_cpu": 1},
       "egress_functions": {"sandbox_cpu": ["prefetch_model_cache_remote"]},
+      "ingress_functions": {"sandbox_cpu": ["prefetch_model_cache_remote"]},
       "candidate_bounds": {
         "sandbox_cpu": {
           "cpu_request_cores": 2.0,
@@ -33,12 +45,19 @@
       },
       "candidate_egress": {
         "prefetch_model_cache_remote": {
-          "payload_cap_bytes": 122155995204,
+          "payload_cap_bytes": 0,
           "protocol_allowance_bytes": 1048576
+        }
+      },
+      "candidate_ingress": {
+        "prefetch_model_cache_remote": {
+          "ingress_cap_bytes": 122155995204
         }
       },
       "baseline_gib": 0.0,
       "incremental_gib": 56.888,
+      "incremental_status": "CANDIDATE_ESTIMATE",
+      "incremental_reason": "The model cache of the pinned revision (61077997602 bytes) is the size of the artefact the prefetch writes. It is a candidate of a future run, not a measured footprint of the remote Volume.",
       "t_exec_sec": 3600,
       "t_post_exec_to_publication_sec": 86400,
       "proposed_ceiling_usd": 5.0
@@ -65,6 +84,8 @@
       },
       "baseline_gib": 56.888,
       "incremental_gib": 0.0,
+      "incremental_status": "NO_INCREMENT",
+      "incremental_reason": "The CPU plumbing smoke writes nothing to the volume: the increment of this stage is zero by construction, not an estimate.",
       "t_exec_sec": 1200,
       "t_post_exec_to_publication_sec": 86400,
       "proposed_ceiling_usd": 0.1
@@ -116,6 +137,8 @@
       },
       "baseline_gib": 56.888,
       "incremental_gib": 0.001,
+      "incremental_status": "CANDIDATE_ESTIMATE",
+      "incremental_reason": "A candidate estimate of the evidence, log and temporary bytes of one inference smoke; the published run's tracked artifacts tree measured 0.004689 GiB, so the order of magnitude is anchored, the value itself is not measured.",
       "t_exec_sec": 1200,
       "t_post_exec_to_publication_sec": 86400,
       "proposed_ceiling_usd": 0.75
@@ -168,6 +191,8 @@
       },
       "baseline_gib": 56.888,
       "incremental_gib": 0.02,
+      "incremental_status": "CANDIDATE_ESTIMATE",
+      "incremental_reason": "A candidate estimate of the evidence, log and temporary bytes of the 16-target run; the published run's tracked artifacts tree measured 0.004689 GiB, so the order of magnitude is anchored, the value itself is not measured.",
       "t_exec_sec": 14400,
       "t_post_exec_to_publication_sec": 86400,
       "proposed_ceiling_usd": 13.5

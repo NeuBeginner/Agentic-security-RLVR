@@ -31,6 +31,13 @@ A dispatch of a *real provider callable* additionally requires an approved step
 policy. A local double (a test double) is passed through, because it starts no
 container and costs nothing.
 
+**The provider call itself.** The gate holds the provider object, not the guard that
+would route the call back into the gate: a guard is unwrapped before the gates run
+(``core.r1_bounds.unwrap_guard``), so a guarded call is dispatched exactly once. An
+installed call site - one whose provider object carries the guard on its own
+``remote`` - is called through the entry point that was captured before the guard was
+installed; every other object is called through its own ``remote``.
+
 **The invocation allowance is consumed only by a dispatch that actually starts a
 provider call.** Every refusal - the authorisation, the policy, the bounds, the
 egress, the ceiling, the payload cap, the concurrency gate, the read-back and the
@@ -61,7 +68,10 @@ from core.r1_bounds import (
     egress_policy,
     is_provider_callable,
     is_unset,
+    is_installed_call_site,
+    original_entrypoint,
     profile_for,
+    unwrap_guard,
 )
 
 #: The functions that write to the persistent volume and are therefore capped (D28).
@@ -405,6 +415,11 @@ class DispatchGate:
         Returns whatever the call returns. Raises :class:`DispatchRefusal` when the
         dispatch is not allowed; the refusal is recorded first.
         """
+        # A guard is unwrapped **before** the gates run: the gate holds the
+        # provider object itself, so a guarded call is dispatched exactly once.
+        # A second pass through the gate would take the concurrency semaphore a
+        # second time and stall the dispatch instead of performing it.
+        fn = unwrap_guard(fn)
         provider_callable = is_provider_callable(fn)
 
         if provider_callable:
@@ -423,7 +438,12 @@ class DispatchGate:
         token = _IN_DISPATCH.set(_IN_DISPATCH.get() + 1)
         try:
             semaphore = self._semaphore(container_class)
-            acquired = semaphore.acquire(timeout=self._acquire_timeout())
+            # A nested dispatch runs while the outer dispatch holds the permit of
+            # the class, so it must not take it a second time: it would wait for
+            # a permit that only the outer dispatch can release.
+            acquired = True
+            if not nested:
+                acquired = semaphore.acquire(timeout=self._acquire_timeout())
             if not acquired:
                 self._refuse(
                     container_class,
@@ -437,7 +457,15 @@ class DispatchGate:
                 if not nested:
                     self._consume_budget(container_class, function_name)
                 try:
-                    result = fn.remote(*args, **kwargs)
+                    # The provider call itself. An installed call site is called
+                    # through the entry point that was captured before the guard
+                    # was installed on the object's own 'remote': calling the
+                    # guarded 'remote' here would route the call back into this
+                    # gate. Everything else is called through its own 'remote'.
+                    if is_installed_call_site(function_name, fn):
+                        result = original_entrypoint(function_name)(*args, **kwargs)  # type: ignore[misc]
+                    else:
+                        result = fn.remote(*args, **kwargs)
                 except DispatchRefusal:
                     raise
                 except Exception as exc:  # the provider's own failure - not a refusal
@@ -455,7 +483,8 @@ class DispatchGate:
                     )
                     raise
             finally:
-                semaphore.release()
+                if not nested:
+                    semaphore.release()
         finally:
             _IN_DISPATCH.reset(token)
 

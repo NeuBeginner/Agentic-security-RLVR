@@ -61,6 +61,7 @@ from core.r1_bounds import (
     STORAGE_FREE_ALLOWANCE_SOURCE,
     Unset,
     egress_policy,
+    ingress_policy,
     is_unset,
     profile_for,
 )
@@ -97,6 +98,12 @@ class RateCard:
     approved_by: Optional[str] = None
     #: The provider's published free allowance of volume storage, in GiB/month.
     storage_free_allowance_gib_per_month: float = STORAGE_FREE_ALLOWANCE_GIB_PER_MONTH
+    #: The rate of **inbound** traffic. The provider bills outbound traffic as
+    #: egress; a download into the container is ingress and is not billed at the
+    #: egress rate, so the ingress rate is 0.
+    ingress_per_gib: float = 0.0
+    #: The source of the ingress rate, with its reading date.
+    ingress_source: str = ""
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RateCard":
@@ -114,6 +121,7 @@ class RateCard:
         if missing:
             raise ValueError(f"the rate card is missing: {', '.join(missing)}")
         allowance = data.get("storage_free_allowance_gib_per_month")
+        ingress = data.get("ingress_per_gib")
         return cls(
             cpu_per_core_sec=float(data["cpu_per_core_sec"]),
             memory_per_gib_sec=float(data["memory_per_gib_sec"]),
@@ -128,6 +136,8 @@ class RateCard:
                 if allowance is None
                 else float(allowance)
             ),
+            ingress_per_gib=0.0 if ingress is None else float(ingress),
+            ingress_source=str(data.get("ingress_source", "")),
         )
 
     @classmethod
@@ -156,9 +166,20 @@ class StepInputs:
     #: at a time, so the step's egress is bounded by invocations x the largest
     #: per-invocation cap.
     egress_functions: Dict[str, List[str]] = field(default_factory=dict)
+    #: The functions whose provider call carries an **inbound** byte cap, per
+    #: container class. The inbound bytes (the model download of R2p) are not
+    #: billed at the egress rate: they are ingress.
+    ingress_functions: Dict[str, List[str]] = field(default_factory=dict)
     #: The monetary ceiling proposed for this stage - the number the stage's worst
     #: case is reconciled against. It is a candidate, never an approval.
     ceiling_usd: Optional[float] = None
+    #: How the volume baseline of this step was established. "UNKNOWN" means the
+    #: baseline of the remote Volume is **not** measured by this evidence.
+    baseline_status: str = "UNKNOWN"
+    baseline_reason: str = ""
+    #: How the volume increment of this step was established.
+    incremental_status: str = "CANDIDATE_ESTIMATE"
+    incremental_reason: str = ""
 
 
 @dataclass
@@ -210,13 +231,14 @@ def estimate_step(
     profiles: Optional[Dict[str, Any]] = None,
     egress_policies: Optional[Dict[str, Any]] = None,
     allow_unapproved_rate_card: bool = False,
+    ingress_policies: Optional[Dict[str, Any]] = None,
 ) -> StepEstimate:
     """Estimate the **direct** terms of one step, or explain why it is unavailable.
 
-    The direct terms are the CPU, the memory, the GPU and the egress. The storage
-    is **not** priced here: it is priced once on the cycle's footprint by
-    :func:`aggregate_cycle` and allocated back to the stages, so the standing
-    baseline is never priced twice.
+    The direct terms are the CPU, the memory, the GPU, the egress and the
+    ingress. The storage is **not** priced here: it is priced once on the
+    cycle's footprint by :func:`aggregate_cycle` and allocated back to the
+    stages, so the standing baseline is never priced twice.
     """
     reasons: List[str] = []
     terms: Dict[str, float] = {}
@@ -303,6 +325,50 @@ def estimate_step(
         if rate_card is not None and egress_complete:
             terms[f"egress_{container_class}"] = (egress_bytes / GIB) * rate_card.egress_per_gib
 
+        # D29: the **inbound** bytes of the step are bounded separately and are
+        # never charged at the outbound egress rate. The model download of R2p is
+        # ingress: the provider bills outbound traffic as egress
+        # (https://modal.com/docs/guide/network-egress-billing, read 2026-11-12).
+        # An ingress declaration belongs to one dispatched function, so it has to
+        # be declared for the step: a dispatched function with an ingress
+        # declaration that the step does not declare makes the step unavailable.
+        ingress_bytes = 0
+        ingress_complete = True
+        ingress_cap = 0
+        ingress_all = _ingress_policies_for_class(container_class, ingress_policies)
+        dispatched = set(step.egress_functions.get(container_class, []))
+        declared_ingress = set(step.ingress_functions.get(container_class, []))
+        for name in sorted(dispatched & set(ingress_all) - declared_ingress):
+            reasons.append(
+                f"{container_class}: the ingress bound of {name} is not declared for "
+                "this step (D29)"
+            )
+            ingress_complete = False
+        ingress_declarations = {
+            name: policy
+            for name, policy in ingress_all.items()
+            if name in declared_ingress
+        }
+        for function_name, policy in ingress_declarations.items():
+            if is_unset(policy.ingress_cap_bytes):
+                ingress_complete = False
+                reasons.append(
+                    f"{container_class}: the ingress bound of {function_name} is "
+                    "required-but-unset (D29)"
+                )
+                break
+            ingress_cap = max(ingress_cap, int(policy.ingress_cap_bytes))
+        if ingress_declarations:
+            ingress_bytes = containers * ingress_cap
+        quantities[container_class]["ingress_bytes"] = ingress_bytes
+        quantities[container_class]["ingress_complete"] = ingress_complete
+        quantities[container_class]["ingress_cap_bytes"] = ingress_cap
+        quantities[container_class]["ingress_is_billed_as_egress"] = False
+        if rate_card is not None and ingress_complete and ingress_declarations:
+            terms[f"ingress_{container_class}"] = (
+                ingress_bytes / GIB
+            ) * rate_card.ingress_per_gib
+
     # D28: the volume footprint of the stage. The footprint is always reported -
     # the cost of it depends on the cycle's allowance.
     if is_unset(step.baseline_gib):
@@ -319,7 +385,11 @@ def estimate_step(
         volume_gib = float(step.baseline_gib) + float(step.incremental_gib)  # type: ignore[arg-type]
         quantities["volume"] = {
             "baseline_gib": float(step.baseline_gib),  # type: ignore[arg-type]
+            "baseline_status": step.baseline_status,
+            "baseline_reason": step.baseline_reason,
             "incremental_gib": float(step.incremental_gib),  # type: ignore[arg-type]
+            "incremental_status": step.incremental_status,
+            "incremental_reason": step.incremental_reason,
             "volume_gib": volume_gib,
             "t_exec_sec": float(step.t_exec_sec),  # type: ignore[arg-type]
             "t_post_exec_to_publication_sec": float(step.t_post_exec_to_publication_sec),  # type: ignore[arg-type]
@@ -363,6 +433,19 @@ def _policies_for_class(
     }
 
 
+def _ingress_policies_for_class(
+    container_class: str, ingress_policies: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    from core.r1_bounds import INGRESS_POLICIES
+
+    policies = ingress_policies if ingress_policies is not None else INGRESS_POLICIES
+    return {
+        name: policy
+        for name, policy in policies.items()
+        if policy.container_class == container_class
+    }
+
+
 # --------------------------------------------------------------------------------------
 # The storage footprint (D28) - one model, priced once
 # --------------------------------------------------------------------------------------
@@ -390,6 +473,10 @@ def storage_timeline(
                 "kind": "stage",
                 "duration_sec": duration,
                 "footprint_gib": float(volume["volume_gib"]),
+                "baseline_status": volume.get("baseline_status", "UNKNOWN"),
+                "baseline_reason": volume.get("baseline_reason", ""),
+                "incremental_status": volume.get("incremental_status", "CANDIDATE_ESTIMATE"),
+                "incremental_reason": volume.get("incremental_reason", ""),
             }
         )
     if segments:
@@ -401,6 +488,10 @@ def storage_timeline(
                 "kind": "retention",
                 "duration_sec": float(t_retention_sec),
                 "footprint_gib": segments[-1]["footprint_gib"],
+                "baseline_status": segments[-1]["baseline_status"],
+                "baseline_reason": segments[-1]["baseline_reason"],
+                "incremental_status": segments[-1]["incremental_status"],
+                "incremental_reason": segments[-1]["incremental_reason"],
             }
         )
     return segments
@@ -439,6 +530,26 @@ def storage_account(
     )
     peak_gib = max((float(segment["footprint_gib"]) for segment in segments), default=0.0)
     time_weighted_gib = weighted_gib_seconds / total_seconds if total_seconds else 0.0
+
+    # The **capacity proof** is a separate question from the cost of the storage.
+    # The cost of the cycle is USD 0 while the footprint stays inside the
+    # provider's allowance - but that arithmetic rests on the baseline of the
+    # remote Volume, and R1 performed no Volume operation: the baseline is not
+    # measured by this evidence. The proof that the cycle fits the account is
+    # therefore UNAVAILABLE until a read-only baseline measurement or a
+    # defensible conservative bound exists.
+    baseline_statuses = sorted({str(segment.get("baseline_status", "UNKNOWN")) for segment in segments})
+    capacity_reasons: List[str] = []
+    for segment in segments:
+        if str(segment.get("baseline_status", "UNKNOWN")) != "MEASURED":
+            reason = str(segment.get("baseline_reason", "")).strip()
+            if reason and reason not in capacity_reasons:
+                capacity_reasons.append(reason)
+    capacity_proof = "AVAILABLE" if segments and not capacity_reasons else "UNAVAILABLE"
+    incremental_statuses = sorted(
+        {str(segment.get("incremental_status", "CANDIDATE_ESTIMATE")) for segment in segments}
+    )
+
     return {
         "segments": list(segments),
         "total_window_sec": total_seconds,
@@ -454,6 +565,12 @@ def storage_account(
         "storage_usd": storage_usd,
         "within_free_allowance": billable_gib_months == 0.0,
         "allowance_source": STORAGE_FREE_ALLOWANCE_SOURCE,
+        "baseline_status": baseline_statuses[0] if baseline_statuses else "UNKNOWN",
+        "baseline_statuses": baseline_statuses,
+        "incremental_status": incremental_statuses[0] if incremental_statuses else "UNKNOWN",
+        "incremental_statuses": incremental_statuses,
+        "capacity_proof": capacity_proof,
+        "capacity_proof_reasons": capacity_reasons,
     }
 
 
@@ -533,6 +650,10 @@ def aggregate_cycle(
         "direct_terms_usd": direct_total,
         "storage": storage,
         "cycle_storage_usd": storage_usd,
+        "storage_capacity_proof": storage["capacity_proof"],
+        "storage_capacity_proof_reasons": storage["capacity_proof_reasons"],
+        "storage_baseline_status": storage["baseline_status"],
+        "storage_incremental_status": storage["incremental_status"],
         "steps": steps,
         "total_usd": total,
         "cycle_cap_usd": cycle_cap_usd,
@@ -561,6 +682,8 @@ def run_scenario(
     estimates: List[StepEstimate] = []
     profiles: Dict[str, Any] = {}
     egress_policies: Dict[str, Any] = {}
+    ingress_policies: Dict[str, Any] = {}
+    storage_baseline = scenario.get("storage_baseline", {})
 
     for step_data in scenario.get("steps", []):
         overrides_by_class = step_data.get("candidate_bounds", {})
@@ -575,6 +698,11 @@ def run_scenario(
             if policy is None:
                 continue
             egress_policies[function_name] = dataclasses.replace(policy, **overrides)
+        for function_name, overrides in step_data.get("candidate_ingress", {}).items():
+            policy = ingress_policy(function_name)
+            if policy is None:
+                continue
+            ingress_policies[function_name] = dataclasses.replace(policy, **overrides)
 
         ceiling = step_data.get("proposed_ceiling_usd")
         step = StepInputs(
@@ -590,7 +718,23 @@ def run_scenario(
                 container_class: list(names)
                 for container_class, names in step_data.get("egress_functions", {}).items()
             },
+            ingress_functions={
+                container_class: list(names)
+                for container_class, names in step_data.get("ingress_functions", {}).items()
+            },
             ceiling_usd=None if ceiling is None else float(ceiling),
+            baseline_status=str(
+                step_data.get("baseline_status", storage_baseline.get("status", "UNKNOWN"))
+            ),
+            baseline_reason=str(
+                step_data.get(
+                    "baseline_reason", storage_baseline.get("reason", "")
+                )
+            ),
+            incremental_status=str(
+                step_data.get("incremental_status", "CANDIDATE_ESTIMATE")
+            ),
+            incremental_reason=str(step_data.get("incremental_reason", "")),
         )
         estimates.append(
             estimate_step(
@@ -599,6 +743,7 @@ def run_scenario(
                 step_profiles or profiles,
                 egress_policies,
                 allow_unapproved_rate_card=allow_unapproved_rate_card,
+                ingress_policies=ingress_policies or None,
             )
         )
 
@@ -666,6 +811,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         f"billable={storage['billable_gib_months']:.2f} GiB-month "
         f"cost=${storage['storage_usd']:.6f}"
     )
+    print(
+        f"storage status: baseline={storage['baseline_status']} "
+        f"increment={storage['incremental_status']} "
+        f"capacity_proof={storage['capacity_proof']}"
+    )
+    for reason in storage["capacity_proof_reasons"]:
+        print(f"    ! {reason}")
     print(
         f"cycle  worst_case=${aggregate['total_usd']:.4f} cap=${aggregate['cycle_cap_usd']:.2f} "
         f"headroom=${aggregate['headroom_usd']:.4f} within_cap={aggregate['within_cap']}"

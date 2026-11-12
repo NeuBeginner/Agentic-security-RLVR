@@ -76,6 +76,36 @@ def test_the_storage_inside_the_free_allowance_costs_nothing():
     assert storage["footprint_gib_months"] > 0
 
 
+def test_the_storage_footprint_is_labelled_and_never_presented_as_measured():
+    """The baseline is not measured: the proof of the capacity is unavailable."""
+    result = _run()
+    storage = result["aggregate"]["storage"]
+    assert storage["baseline_status"] == "UNKNOWN"
+    assert storage["incremental_status"] == "CANDIDATE_ESTIMATE"
+    assert storage["capacity_proof"] == "UNAVAILABLE"
+    assert storage["capacity_proof_reasons"]
+    # The cost assumption of USD 0 is kept, but the proof is not claimed.
+    assert storage["storage_usd"] == 0.0
+    assert result["aggregate"]["storage_capacity_proof"] == "UNAVAILABLE"
+    assert result["aggregate"]["storage_baseline_status"] == "UNKNOWN"
+    assert result["aggregate"]["storage_incremental_status"] == "CANDIDATE_ESTIMATE"
+
+
+def test_the_scenario_separates_the_measured_local_bytes_from_the_candidates():
+    scenario = _scenario()
+    baseline = scenario["storage_baseline"]
+    assert baseline["status"] == "UNKNOWN"
+    assert baseline["capacity_proof"] == "UNAVAILABLE"
+    # The measured local bytes are a measurement of this repository ...
+    assert baseline["measured_local_repository_bytes"] > 0
+    # ... and the future run's bytes are a candidate.
+    assert baseline["candidate_future_run_gib"] > 0
+    # Every step declares the state of its own increment.
+    for step in scenario["steps"]:
+        assert step.get("incremental_status") in {"CANDIDATE_ESTIMATE", "NO_INCREMENT"}
+        assert step.get("incremental_reason", "").strip()
+
+
 def test_the_footprint_of_the_cycle_is_the_model_cache_plus_the_trajectories():
     result = _run()
     storage = result["aggregate"]["storage"]
@@ -155,8 +185,83 @@ def test_the_cycle_fits_the_cap_with_a_positive_headroom():
     aggregate = result["aggregate"]
     assert aggregate["verdict"] == r1_estimator.VERDICT_WITHIN_BUDGET
     assert aggregate["within_cap"] is True
-    assert aggregate["total_usd"] == pytest.approx(18.20, abs=0.02)
-    assert aggregate["headroom_usd"] == pytest.approx(1.80, abs=0.02)
+    assert aggregate["total_usd"] == pytest.approx(13.65, abs=0.02)
+    assert aggregate["headroom_usd"] == pytest.approx(6.35, abs=0.02)
+
+
+# --------------------------------------------------------------------------------------
+# the ingress is not the egress (D29)
+# --------------------------------------------------------------------------------------
+
+
+def test_the_model_download_is_ingress_and_is_not_charged_at_the_egress_rate():
+    """The 122 GB model download is inbound traffic, not outbound egress."""
+    result = _run()
+    r2p = next(step for step in result["steps"] if step["step_id"] == "R2p")
+    terms = r2p["terms_usd"]
+    # The egress term is the protocol allowance of one container - nothing else.
+    assert terms["egress_sandbox_cpu"] == pytest.approx(
+        (1024 * 1024) / (1024 ** 3) * 0.04
+    )
+    # The ingress term exists and is zero: ingress is not billed as egress.
+    assert terms["ingress_sandbox_cpu"] == 0.0
+
+
+def test_the_ingress_bytes_are_bounded_and_reported():
+    result = _run()
+    quantities = result["steps"][0]["quantities"]["sandbox_cpu"]
+    # The inbound bytes of the prefetch are bounded and reported ...
+    assert quantities["ingress_bytes"] == 122155995204
+    assert quantities["ingress_cap_bytes"] == 122155995204
+    assert quantities["ingress_complete"] is True
+    # ... and they are never billed as egress.
+    assert quantities["ingress_is_billed_as_egress"] is False
+    # The outbound bytes of the same container are the protocol allowance only.
+    assert quantities["egress_bytes"] == 1024 * 1024
+
+    scenario = _scenario()
+    ingress = scenario["steps"][0]["candidate_ingress"]["prefetch_model_cache_remote"]
+    assert ingress["ingress_cap_bytes"] == 122155995204
+    # The declared ingress policy of the prefetch is required-but-unset.
+    assert r1.is_unset(
+        r1.INGRESS_POLICIES["prefetch_model_cache_remote"].ingress_cap_bytes
+    )
+
+
+def test_only_the_prefetch_step_carries_the_ingress():
+    """The model download belongs to R2p - no other stage downloads anything."""
+    result = _run()
+    for step in result["steps"]:
+        quantities = step["quantities"]
+        for container_class, values in quantities.items():
+            if not isinstance(values, dict):
+                continue
+            ingress = values.get("ingress_bytes")
+            if ingress is None:
+                continue
+            if step["step_id"] == "R2p":
+                assert ingress == 122155995204
+            else:
+                assert ingress == 0
+
+
+def test_the_rate_card_states_the_ingress_rate_and_its_source():
+    card = json.loads(RATE_CARD_PATH.read_text(encoding="utf-8"))
+    assert card["ingress_per_gib"] == 0.0
+    assert "network-egress-billing" in card["ingress_source"]
+    assert card["approved_by"] is None
+
+
+def test_a_step_that_dispatches_a_function_with_an_ingress_bound_must_declare_it():
+    """A dispatched function with an ingress declaration has to declare it."""
+    scenario = _scenario()
+    scenario["steps"][0].pop("ingress_functions")
+    result = r1_estimator.run_scenario(
+        scenario, _rate_card(), allow_unapproved_rate_card=True
+    )
+    r2p = next(step for step in result["steps"] if step["step_id"] == "R2p")
+    assert r2p["available"] is False
+    assert any("ingress bound" in reason for reason in r2p["unavailable_reasons"])
 
 
 def test_a_cycle_that_does_not_fit_is_reported_as_exactly_budget_infeasible():
@@ -201,13 +306,16 @@ def test_the_authoritative_command_reproduces_the_numbers():
     output = completed.stdout
     assert "PROVISIONAL_ONLY / NOT_DISPATCHABLE" in output
     assert "WITHIN_BUDGET" in output
-    assert "worst_case=$18.2000" in output
+    assert "worst_case=$13.6493" in output
     assert "cap=$20.00" in output
-    assert "headroom=$1.8000" in output
+    assert "headroom=$6.3507" in output
     # The storage of the cycle is free - inside the 1 TiB/month allowance - and
     # its footprint is reported.
     assert "storage: peak=56.908 GiB" in output
     assert "billable=0.00 GiB-month" in output
+    # The footprint is a candidate estimate: the capacity proof is unavailable.
+    assert "storage status: baseline=UNKNOWN" in output
+    assert "capacity_proof=UNAVAILABLE" in output
     for step_id in ("R2p", "R3", "R3b", "R4"):
         assert step_id in output
 

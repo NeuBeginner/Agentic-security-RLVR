@@ -207,12 +207,31 @@ def test_every_inventory_entry_carries_a_disposition_and_a_reason():
         "refused",
         "guarded_class_method",
         "gate",
-        "declared_out_of_scope",
     }
     for key, entry in inventory["dispositions"].items():
         assert entry["disposition"] in allowed, key
         assert entry["reason"].strip(), key
         assert entry["count"] >= 1, key
+
+
+def test_no_provider_call_site_is_classified_out_of_scope():
+    """An unguarded provider call may not pass as complete.
+
+    "Declared out of scope" is not a disposition: a provider call that is not
+    gated has to be **refused** with the reason of the refusal registry. The
+    Iteration 19 CPU smoke was classified that way and the R1 review named it
+    as an unguarded invocation.
+    """
+    inventory = json.loads(INVENTORY_PATH.read_text(encoding="utf-8"))
+    out_of_scope = [
+        key
+        for key, entry in inventory["dispositions"].items()
+        if entry["disposition"] == "declared_out_of_scope"
+    ]
+    assert out_of_scope == []
+    # Every provider call site of the repository is either gated or refused.
+    for key, entry in inventory["dispositions"].items():
+        assert entry["disposition"] in {"gated", "refused", "guarded_class_method", "gate"}, key
 
 
 def test_every_gated_call_site_is_a_function_of_the_authorised_trace():
@@ -267,6 +286,7 @@ def test_the_refusal_registry_names_every_unauthorised_path_of_the_deployment():
         "DevReasoningAgent.generate_solidity_exploit",
         "DevReasoningAgent.refine_solidity_exploit",
         "ProductionAuditAgent.audit_target_contract",
+        "cpu_smoke",
     ):
         assert callee in r1.UNAUTHORISED_CALL_SITES, callee
 
@@ -328,6 +348,313 @@ def test_the_producer_dispatches_only_through_the_r1_gate():
         if ".remote(" in line and "dispatch_via_r1_gate" not in line
     ]
     assert direct_calls == []
+
+
+# --------------------------------------------------------------------------------------
+# F - the raw provider objects are not reachable through the guards
+# --------------------------------------------------------------------------------------
+#
+# The R1 review named four bypasses: the guard wrappers kept the raw Modal objects
+# in their own instance dictionaries, so a caller could reach the raw provider
+# callable and call it without the gate. Every one of them is closed here: the
+# attribute does not exist any more, and the guard is installed on the provider
+# object itself, so the raw object is gated too.
+
+
+class FakeProviderObject:
+    """A double of a provider *object* - its 'remote' is the provider entry point."""
+
+    def __init__(self) -> None:
+        self.calls = []
+
+    def remote(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return {"ok": True}
+
+
+def test_the_guard_of_a_module_function_exposes_no_raw_provider_function():
+    import modal_app
+
+    guarded = modal_app.verify_exploit_remote
+    assert isinstance(guarded, r1.GuardedRemote)
+    # The bypass the review named: the raw Modal function in the instance dict.
+    assert not hasattr(guarded, "_fn")
+    assert "_fn" not in guarded.__dict__
+    with pytest.raises(AttributeError):
+        guarded._fn  # noqa: B018 - the attribute access is the assertion
+    # No attribute of the guard yields the raw provider object.
+    for value in guarded.__dict__.values():
+        assert value is not r1._INSTALLED_OBJECTS["verify_exploit_remote"]
+
+
+def test_the_guard_of_a_class_exposes_no_raw_class():
+    import modal_app
+
+    guarded = modal_app.ProductionAuditAgent
+    assert isinstance(guarded, r1.GuardedClass)
+    assert not hasattr(guarded, "_cls")
+    assert "_cls" not in guarded.__dict__
+    with pytest.raises(AttributeError):
+        guarded._cls  # noqa: B018 - the attribute access is the assertion
+
+
+def test_the_guarded_instance_exposes_no_raw_instance():
+    import modal_app
+
+    agent = modal_app.ProductionAuditAgent()
+    assert isinstance(agent, r1.GuardedClassInstance)
+    assert not hasattr(agent, "_obj")
+    assert "_obj" not in agent.__dict__
+    with pytest.raises(AttributeError):
+        agent._obj  # noqa: B018 - the attribute access is the assertion
+    # The raw class of the instance is not reachable either.
+    assert not hasattr(agent, "_cls")
+
+
+def test_the_guarded_class_method_exposes_no_raw_method():
+    import modal_app
+
+    agent = modal_app.ProductionAuditAgent()
+    method = agent.generate_solidity_exploit
+    assert isinstance(method, r1.GuardedClassMethod)
+    assert not hasattr(method, "_fn")
+    assert "_fn" not in method.__dict__
+    with pytest.raises(AttributeError):
+        method._fn  # noqa: B018 - the attribute access is the assertion
+
+
+@pytest.mark.parametrize(
+    "attribute",
+    ["_fn", "_obj", "_cls", "_provider", "_remote", "__wrapped__"],
+)
+def test_no_guard_hands_out_an_underscore_attribute(attribute):
+    """Not one guard object carries an attribute that could hold a provider object."""
+    import modal_app
+
+    agent = modal_app.ProductionAuditAgent()
+    for guarded in (
+        modal_app.verify_exploit_remote,
+        modal_app.ProductionAuditAgent,
+        agent,
+        agent.generate_solidity_exploit,
+    ):
+        assert attribute not in guarded.__dict__
+        with pytest.raises(AttributeError):
+            getattr(guarded, attribute)
+
+
+def test_the_raw_provider_object_is_itself_guarded():
+    """The guard is installed on the provider object, not only on its name.
+
+    A caller that gets hold of the raw object - from wherever - reaches the
+    gate, not the provider.
+    """
+    import modal_app
+
+    raw = r1._INSTALLED_OBJECTS["verify_exploit_remote"]
+    assert isinstance(raw.remote, r1.GuardedProviderRemote)
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        raw.remote({"target": {}})
+    assert excinfo.value.reason == "no_approved_step_policy"
+
+
+def test_a_fake_provider_object_is_never_reached_while_the_bounds_are_unset():
+    """The installation gates the object itself: the fake's remote is never reached."""
+    fake = FakeProviderObject()
+    guarded = r1.install_provider_guard("r1_test_fake_provider_object", fake)
+
+    assert isinstance(fake.remote, r1.GuardedProviderRemote)
+    with pytest.raises(r1.UnauthorisedCallSite):
+        fake.remote({"x": 1})
+    assert fake.calls == []
+
+    with pytest.raises(r1.UnauthorisedCallSite):
+        guarded.remote({"x": 1})
+    assert fake.calls == []
+
+
+def test_the_guard_of_a_provider_object_is_installed_on_the_object_itself():
+    """The installation replaces the object's own 'remote' with the guard."""
+    fake = FakeProviderObject()
+    original = fake.remote
+    r1.install_provider_guard("r1_test_fake_provider_object_2", fake)
+
+    assert fake.remote is not original
+    assert isinstance(fake.remote, r1.GuardedProviderRemote)
+    # The original entry point is the one the gate calls.
+    entrypoint = r1.original_entrypoint("r1_test_fake_provider_object_2")
+    assert entrypoint == original
+    assert entrypoint.__self__ is fake
+
+
+def test_a_local_double_substituted_on_a_guard_is_called_instead_of_the_provider():
+    """A substituted 'remote' is a local function: it starts no container."""
+    import modal_app
+
+    calls = []
+
+    def local_double(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"ok": True}
+
+    modal_app.verify_exploit_remote.remote = local_double
+    try:
+        # The local double is not a provider call: the bounds of the class are
+        # unset, and the call is passed through instead of being refused.
+        result = modal_app.verify_exploit_remote.remote({"target": {}})
+        assert result == {"ok": True}
+        assert len(calls) == 1
+    finally:
+        del modal_app.verify_exploit_remote.__dict__["remote"]
+
+    # Without the substitution the same call is refused (fail closed).
+    with pytest.raises(r1.BoundsNotApproved):
+        modal_app.verify_exploit_remote.remote({"target": {}})
+
+
+def _install_fake_provider(monkeypatch, name: str) -> FakeProviderObject:
+    """Install a fake provider object under a call-site name, reversibly."""
+    fake = FakeProviderObject()
+    monkeypatch.setitem(r1._INSTALLED_OBJECTS, name, fake)
+    monkeypatch.setitem(r1._ORIGINAL_ENTRYPOINTS, name, fake.remote)
+    r1.install_provider_guard(name, fake)
+    return fake
+
+
+def test_an_approved_dispatch_reaches_the_provider_exactly_once(monkeypatch):
+    """The whole path - guard, gate, provider - runs once and is billed once.
+
+    This is the end-to-end proof of the reworked guard: the guarded call is
+    dispatched through the single gate, the provider's entry point is reached
+    exactly once, and the invocation allowance is consumed exactly once.
+    """
+    world = _approved_world()
+    fake = _install_fake_provider(monkeypatch, "verify_exploit_remote")
+    wrapper = r1.GuardedRemote(fake, "verify_exploit_remote")
+
+    with r1_dispatch.authorised_step(
+        _policy(invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1}),
+        autoscaler_reader=_reader(),
+        **world,
+    ) as gate:
+        result = gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", wrapper, {"a": 1})
+
+    assert result == {"ok": True}
+    assert len(fake.calls) == 1
+    assert gate.used_allowance(r1.SANDBOX_CPU) == 1
+    assert len(gate.dispatched()) == 1
+
+
+def test_the_boundary_guard_dispatches_through_the_same_gate(monkeypatch):
+    """The guard on the provider object's own 'remote' uses the single gate."""
+    world = _approved_world()
+    fake = _install_fake_provider(monkeypatch, "verify_exploit_remote")
+
+    with r1_dispatch.authorised_step(
+        _policy(invocation_budgets={r1.SANDBOX_CPU: 2, r1.GPU_CLASS: 1, r1.PERSISTENCE: 1}),
+        autoscaler_reader=_reader(),
+        **world,
+    ) as gate:
+        result = fake.remote({"a": 1})
+
+    assert result == {"ok": True}
+    assert len(fake.calls) == 1
+    assert gate.used_allowance(r1.SANDBOX_CPU) == 1
+
+
+# --------------------------------------------------------------------------------------
+# G - the Iteration 19 CPU smoke is refused, not classified out of scope
+# --------------------------------------------------------------------------------------
+
+
+class FakeSmokeRemote:
+    """The provider entry point of the smoke function - a double, never called."""
+
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def aio(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return {"ok": True}
+
+
+class FakeSmokeFunction:
+    def __init__(self) -> None:
+        self.remote = FakeSmokeRemote()
+
+
+class FakeSmokeApp:
+    """The ephemeral app of the smoke - it must not even start for a refusal."""
+
+    def __init__(self) -> None:
+        self.run_calls = 0
+        self.app_id = "ap-fake"
+
+    def run(self):
+        self.run_calls += 1
+        raise AssertionError(
+            "the ephemeral app must not start for a refused invocation"
+        )
+
+
+def test_the_iteration19_cpu_smoke_invocation_is_refused_before_the_provider_is_reached():
+    """The refusal happens before ``.remote.aio()`` - the provider is never reached."""
+    import asyncio
+
+    from benchmarks import run_iteration19_cpu_smoke as smoke
+
+    monkey = pytest.MonkeyPatch()
+    monkey.delenv(smoke.APPROVAL_ENV_VAR, raising=False)
+    try:
+        function = FakeSmokeFunction()
+        app = FakeSmokeApp()
+        with pytest.raises(smoke.SmokeNotAuthorised):
+            asyncio.run(smoke._invoke(function, app, "iteration19", "neubeginner"))
+        assert function.remote.calls == []
+        assert app.run_calls == 0
+    finally:
+        monkey.undo()
+
+
+def test_the_iteration19_cpu_smoke_run_refuses_before_it_writes_evidence(tmp_path):
+    """A refused run writes no evidence: it is not an attempted invocation."""
+    import argparse
+
+    from benchmarks import run_iteration19_cpu_smoke as smoke
+
+    monkey = pytest.MonkeyPatch()
+    monkey.delenv(smoke.APPROVAL_ENV_VAR, raising=False)
+    try:
+        args = argparse.Namespace(
+            profile="neubeginner",
+            seed="iteration19",
+            evidence_dir=str(tmp_path / "evidence"),
+        )
+        with pytest.raises(smoke.SmokeNotAuthorised):
+            smoke.run(args)
+        assert not (tmp_path / "evidence").exists()
+    finally:
+        monkey.undo()
+
+
+def test_the_iteration19_cpu_smoke_approval_is_explicit(monkeypatch):
+    """Only an explicit approval lifts the refusal - and it starts no container."""
+    from benchmarks import run_iteration19_cpu_smoke as smoke
+
+    monkeypatch.delenv(smoke.APPROVAL_ENV_VAR, raising=False)
+    with pytest.raises(smoke.SmokeNotAuthorised):
+        smoke._assert_authorised()
+
+    monkeypatch.setenv(smoke.APPROVAL_ENV_VAR, "1")
+    smoke._assert_authorised()  # does not raise - and calls nothing
+
+
+def test_the_iteration19_cpu_smoke_is_in_the_refusal_registry():
+    """The refused surface names the smoke function and its reason."""
+    assert "cpu_smoke" in r1.UNAUTHORISED_CALL_SITES
+    reason = r1.UNAUTHORISED_CALL_SITES["cpu_smoke"]
+    assert "refused" in reason
+    assert "approval" in reason
 
 
 # --------------------------------------------------------------------------------------
