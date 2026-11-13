@@ -699,3 +699,35 @@ def test_the_cycle_aggregate_prices_the_shared_storage_once():
     assert aggregate["storage"]["footprint_gib_months"] < aggregate["storage"][
         "free_allowance_gib_months"
     ]
+
+
+def test_verify_model_cache_manifest_checks_repo_revision_and_sha256(tmp_path):
+    import hashlib
+
+    weights = tmp_path / "model.safetensors"
+    weights.write_bytes(b"pinned-model-weights")
+    digest = hashlib.sha256(b"pinned-model-weights").hexdigest()
+
+    valid_manifest = {
+        "repo_id": r1.PINNED_MODEL.repo_id,
+        "revision": r1.PINNED_MODEL.revision,
+        "files": [{"path": "model.safetensors", "size": len(b"pinned-model-weights"), "sha256": digest}],
+    }
+    ok = r1.verify_model_cache_manifest(str(tmp_path), valid_manifest)
+    assert ok["status"] == "PASSED"
+
+    wrong_repo = dict(valid_manifest, repo_id="other/model")
+    assert r1.verify_model_cache_manifest(str(tmp_path), wrong_repo)["mismatched"] == ["repo_id"]
+
+    wrong_rev = dict(valid_manifest, revision="deadbeef")
+    assert r1.verify_model_cache_manifest(str(tmp_path), wrong_rev)["mismatched"] == ["revision"]
+
+    wrong_sha = {
+        "repo_id": r1.PINNED_MODEL.repo_id,
+        "revision": r1.PINNED_MODEL.revision,
+        "files": [{"path": "model.safetensors", "size": len(b"pinned-model-weights"), "sha256": "0" * 64}],
+    }
+    failed_sha = r1.verify_model_cache_manifest(str(tmp_path), wrong_sha)
+    assert failed_sha["status"] == "FAILED"
+    assert failed_sha["mismatched"] == ["model.safetensors"]
+

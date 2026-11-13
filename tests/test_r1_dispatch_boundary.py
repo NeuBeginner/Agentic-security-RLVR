@@ -880,3 +880,35 @@ def test_non_finite_approval_payload_is_refused_before_provider(signed_approval)
         gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     assert excinfo.value.reason == "approval_not_verified"
     assert fake.calls == []
+
+
+def test_dispatch_refuses_caller_supplied_mismatched_container_class(signed_approval):
+    world = _approved_world()
+    policy = _policy()
+    gate = r1_dispatch.DispatchGate(
+        policy=policy, autoscaler_reader=_reader(), **world
+    )
+    gate.approval = signed_approval(policy, dispatch_envelope=gate.dispatch_envelope_payload())
+    fake = FakeProviderCallable()
+
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        gate.dispatch(
+            r1.PERSISTENCE,
+            "ProductionAuditAgent.generate_solidity_exploit",
+            fake,
+            {},
+        )
+    assert excinfo.value.reason == "unauthorised_call_site"
+    assert fake.calls == []
+
+
+def test_dispatch_envelope_binds_volume_mount_and_toolchain():
+    world = _approved_world()
+    policy = _policy()
+    gate = r1_dispatch.DispatchGate(
+        policy=policy, autoscaler_reader=_reader(), **world
+    )
+    envelope = gate.dispatch_envelope_payload()
+    assert envelope["volume_configuration"]["volume_mount_path"] == "/vol/models"
+    assert envelope["toolchain"]["solc_version"] == "0.8.20"
+    assert envelope["toolchain"]["foundry_version"] == "1.9.0"

@@ -553,12 +553,17 @@ class DispatchGate:
             },
             "volume_configuration": {
                 "volume_name": str(r1_bounds.config.MODEL_VOLUME_NAME),
+                "volume_mount_path": "/vol/models",
                 "model_cache_dir": str(r1_bounds.config.MODEL_CACHE_DIR),
                 "trajectory_dir": str(r1_bounds.config.TRAJECTORY_DIR),
                 "storage_free_allowance_gib_per_month": self._approval_value(
                     r1_bounds.STORAGE_FREE_ALLOWANCE_GIB_PER_MONTH
                 ),
                 "storage_free_allowance_source": str(r1_bounds.STORAGE_FREE_ALLOWANCE_SOURCE),
+            },
+            "toolchain": {
+                "solc_version": "0.8.20",
+                "foundry_version": "1.9.0",
             },
             "container_classes": self._approval_value(r1_bounds.CONTAINER_CLASSES),
             "class_container_classes": self._approval_value(r1_bounds.CLASS_CONTAINER_CLASSES),
@@ -629,7 +634,7 @@ class DispatchGate:
         provider_callable = is_provider_callable(fn)
 
         if provider_callable:
-            self._check_authorisation(container_class, function_name)
+            container_class = self._check_authorisation(container_class, function_name)
             self._check_policy(container_class, function_name)
             self._check_approval(container_class, function_name)
             self._check_bounds(container_class, function_name)
@@ -714,10 +719,10 @@ class DispatchGate:
 
     # -- the individual gates ------------------------------------------------------
 
-    def _check_authorisation(self, container_class: str, function_name: str) -> None:
-        """Only the call sites of the authorised trace may be dispatched."""
+    def _check_authorisation(self, container_class: str, function_name: str) -> str:
+        """Only the call sites of the authorised trace may be dispatched under their declared class."""
         try:
-            assert_authorised_call_site(function_name)
+            expected_class = assert_authorised_call_site(function_name)
         except UnauthorisedCallSite as exc:
             self._refuse(
                 container_class,
@@ -725,6 +730,15 @@ class DispatchGate:
                 "unauthorised_call_site",
                 exc.reason,
             )
+            raise  # pragma: no cover - _refuse always raises
+        if container_class != expected_class:
+            self._refuse(
+                container_class,
+                function_name,
+                "unauthorised_call_site",
+                f"call site '{function_name}' belongs to class '{expected_class}', not '{container_class}'",
+            )
+        return expected_class
 
     def _check_policy(self, container_class: str, function_name: str) -> None:
         if self.policy is None:
