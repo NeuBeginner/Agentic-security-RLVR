@@ -1866,6 +1866,12 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 elapsed = round(time.time() - start_time, 3)
 
                 # 2b. Closed-loop refinement if candidate failed compilation or reverted without breach
+                initial_inference_response = inference_response
+                initial_verdict_dict = verdict_dict
+                refinement_attempted = False
+                refinement_inference_response: Any = None
+                refinement_verdict_dict: Any = None
+                refinement_function_name: Optional[str] = None
                 max_refinements = 1
                 refinements_done = 0
                 while (
@@ -1877,14 +1883,16 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     and self.provider in ("modal_h100", "modal_t4")
                 ):
                     refinements_done += 1
+                    refinement_attempted = True
                     err_trace = verdict.feedback or verdict.stderr or "Exploit candidate failed to breach invariant."
                     try:
                         if self.provider == "modal_h100":
                             from modal_app import ProductionAuditAgent
                             ref_agent = ProductionAuditAgent()
+                            refinement_function_name = "ProductionAuditAgent.refine_solidity_exploit"
                             rp_dict = dispatch_via_r1_gate(
                                 "gpu",
-                                "ProductionAuditAgent.refine_solidity_exploit",
+                                refinement_function_name,
                                 ref_agent.refine_solidity_exploit,
                                 target_dict,
                                 payload.test_code,
@@ -1895,14 +1903,16 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                             ref_agent = DevReasoningAgent()
                             # The dev T4 agent is not part of the authorised trace:
                             # it has no egress declaration, so the gate refuses it.
+                            refinement_function_name = "DevReasoningAgent.refine_solidity_exploit"
                             rp_dict = dispatch_via_r1_gate(
                                 "gpu",
-                                "DevReasoningAgent.refine_solidity_exploit",
+                                refinement_function_name,
                                 ref_agent.refine_solidity_exploit,
                                 target_dict,
                                 payload.test_code,
                                 err_trace,
                             )
+                        refinement_inference_response = rp_dict
                         ref_payload = ExploitPayload(**rp_dict)
                         if ref_payload and ref_payload.test_code and len(ref_payload.test_code.strip()) > 20:
                             candidates_count += 1
@@ -1916,6 +1926,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                                 target_dict,
                                 payload_dict,
                             )
+                            refinement_verdict_dict = verdict_dict
                             verdict = VerificationVerdict(**verdict_dict)
                         else:
                             break
@@ -2220,6 +2231,10 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             elif self.provider == "modal_t4":
                 modal_functions.append("DevReasoningAgent.generate_solidity_exploit")
             modal_functions.append("verify_exploit_remote")
+            if refinement_attempted and refinement_function_name:
+                modal_functions.append(refinement_function_name)
+                if refinement_verdict_dict is not None:
+                    modal_functions.append("verify_exploit_remote")
             if replay_attempted:
                 modal_functions.append("verify_replay_remote")
             if persistence_status == "persisted":
@@ -2293,14 +2308,18 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 write_stage_evidence_artifact,
             )
 
-            evm_runtime = verdict_dict.get("modal_runtime")
+            initial_evm_runtime = (
+                initial_verdict_dict.get("modal_runtime")
+                if isinstance(initial_verdict_dict, dict)
+                else None
+            )
             replay_runtime = replay_details.get("modal_runtime")
             # The runtime envelope of the inference stage is read from the
             # response it came from, and only when it really is an envelope:
             # a value that is not an object is not an envelope (Iteration 18).
             inference_runtime = (
-                inference_response.get("modal_runtime")
-                if isinstance(inference_response, dict)
+                initial_inference_response.get("modal_runtime")
+                if isinstance(initial_inference_response, dict)
                 else None
             )
             if not isinstance(inference_runtime, dict):
@@ -2322,10 +2341,10 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             stage_captures: Dict[str, StageResponseCapture] = {
                 "inference": StageResponseCapture(
                     stage="inference",
-                    attempted=inference_response is not None,
-                    executed=inference_response is not None,
-                    response_received=inference_response is not None,
-                    provider_response=inference_response,
+                    attempted=initial_inference_response is not None,
+                    executed=initial_inference_response is not None,
+                    response_received=initial_inference_response is not None,
+                    provider_response=initial_inference_response,
                     runtime_identity=inference_runtime,
                     runtime_identity_source="modal_runtime",
                     response_source="the response of the inference worker this client invoked",
@@ -2336,8 +2355,8 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     attempted=True,
                     executed=True,
                     response_received=True,
-                    provider_response=verdict_dict,
-                    runtime_identity=evm_runtime if isinstance(evm_runtime, dict) else None,
+                    provider_response=initial_verdict_dict,
+                    runtime_identity=initial_evm_runtime if isinstance(initial_evm_runtime, dict) else None,
                     runtime_identity_source="modal_runtime",
                     response_source="the response of verify_exploit_remote",
                     requested_fields=MODAL_IDENTITY_FIELDS,
@@ -2369,6 +2388,43 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     requested_fields=(),
                 ),
             }
+            if refinement_attempted:
+                ref_runtime = (
+                    refinement_inference_response.get("modal_runtime")
+                    if isinstance(refinement_inference_response, dict)
+                    else None
+                )
+                if not isinstance(ref_runtime, dict):
+                    ref_runtime = None
+                stage_captures["refinement"] = StageResponseCapture(
+                    stage="refinement",
+                    attempted=True,
+                    executed=refinement_inference_response is not None,
+                    response_received=refinement_inference_response is not None,
+                    provider_response=refinement_inference_response,
+                    runtime_identity=ref_runtime,
+                    runtime_identity_source="modal_runtime",
+                    response_source="the response of the refinement worker this client invoked",
+                    requested_fields=MODAL_IDENTITY_FIELDS,
+                )
+                ref_evm_runtime = (
+                    refinement_verdict_dict.get("modal_runtime")
+                    if isinstance(refinement_verdict_dict, dict)
+                    else None
+                )
+                if not isinstance(ref_evm_runtime, dict):
+                    ref_evm_runtime = None
+                stage_captures["evm_sandbox_after_refinement"] = StageResponseCapture(
+                    stage="evm_sandbox_after_refinement",
+                    attempted=refinement_verdict_dict is not None,
+                    executed=refinement_verdict_dict is not None,
+                    response_received=refinement_verdict_dict is not None,
+                    provider_response=refinement_verdict_dict,
+                    runtime_identity=ref_evm_runtime,
+                    runtime_identity_source="modal_runtime",
+                    response_source="the response of verify_exploit_remote after refinement",
+                    requested_fields=MODAL_IDENTITY_FIELDS,
+                )
 
             # The captures are checked before anything is written. A capture
             # whose flags, its payload and its runtime envelope contradict each
@@ -2472,6 +2528,27 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     ),
                 },
             }
+            if refinement_attempted:
+                modal_invocation_provenance["stages"]["refinement"] = build_modal_stage_provenance(
+                    function_name=refinement_function_name,
+                    resource="H100" if self.provider == "modal_h100" else "DEV_GPU",
+                    attempted=stage_captures["refinement"].attempted,
+                    evidence_ref=stage_evidence["refinement"],
+                    **_stage_facts("refinement"),
+                )
+                modal_invocation_provenance["stages"]["evm_sandbox_after_refinement"] = (
+                    build_modal_stage_provenance(
+                        function_name=(
+                            "verify_exploit_remote"
+                            if stage_captures["evm_sandbox_after_refinement"].attempted
+                            else None
+                        ),
+                        resource="CPU",
+                        attempted=stage_captures["evm_sandbox_after_refinement"].attempted,
+                        evidence_ref=stage_evidence["evm_sandbox_after_refinement"],
+                        **_stage_facts("evm_sandbox_after_refinement"),
+                    )
+                )
             modal_invocation_provenance["persisted_path"] = persisted_path
 
             if is_verified:

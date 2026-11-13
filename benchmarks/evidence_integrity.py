@@ -1804,6 +1804,8 @@ def validate_stage_evidence_binding(
 
 #: Stages that may appear in the Modal invocation provenance block.
 MODAL_PROVENANCE_STAGES = ("inference", "evm_sandbox", "independent_replay", "trajectory_persistence")
+#: Optional refinement stages appended when closed-loop refinement runs.
+OPTIONAL_MODAL_PROVENANCE_STAGES = ("refinement", "evm_sandbox_after_refinement")
 
 
 def build_modal_stage_provenance(
@@ -2460,6 +2462,9 @@ def validate_modal_invocation_provenance(
     may never be presented inside a worker envelope - stays a separate rule of
     :func:`validate_runtime_identity_envelope` and is not touched by this.
     """
+    if has_synthetic_modal_uri(artifact):
+        return False, "Modal provenance or artifact contains a synthetic log URI (modal-app://)"
+
     provenance = artifact.get("modal_invocation_provenance")
     if not isinstance(provenance, dict) or not provenance:
         return False, "Missing modal_invocation_provenance for the executed target"
