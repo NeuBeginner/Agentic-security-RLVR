@@ -438,6 +438,64 @@ def test_oracle_snapshot_with_trusted_emitter():
     assert context.get("deficit") == 100
 
 
+def _abi_encode_three_strings(s0: str, s1: str, s2: str) -> str:
+    def _pad_chunk(text: str) -> bytes:
+        raw = text.encode("utf-8")
+        padded_len = ((len(raw) + 31) // 32) * 32
+        return len(raw).to_bytes(32, "big") + raw.ljust(padded_len, b"\x00")
+
+    c0, c1, c2 = _pad_chunk(s0), _pad_chunk(s1), _pad_chunk(s2)
+    off0 = 96
+    off1 = off0 + len(c0)
+    off2 = off1 + len(c1)
+    head = off0.to_bytes(32, "big") + off1.to_bytes(32, "big") + off2.to_bytes(32, "big")
+    return "0x" + (head + c0 + c1 + c2).hex()
+
+
+def test_oracle_snapshot_abi_encoded_three_strings_with_trusted_emitter():
+    """OracleSnapshot(string,string,string) ABI payload decodes all three JSON strings."""
+    oracle = TrustedEVMStateOracle()
+    harness_addr = list(CANONICAL_HARNESS_ADDRESSES)[0]
+    data_hex = _abi_encode_three_strings(
+        json.dumps({"vault_balance": 1000, "victim_owed": 1000}),
+        json.dumps({"vault_balance": 0, "victim_owed": 1000}),
+        json.dumps({"deficit": 1000, "invariant_type": "DEPOSITOR_SOLVENCY_COLLAPSE"}),
+    )
+    raw_logs = [{
+        "address": harness_addr,
+        "topics": [TOPIC_ORACLE_SNAPSHOT],
+        "data": data_hex,
+    }]
+    init_state, fin_state, context, genuine, spoofed = oracle.parse_harness_evidence(
+        decoded_logs=[], stdout_text="", stderr_text="", raw_logs=raw_logs, trusted_harness_address=harness_addr
+    )
+    assert genuine is True
+    assert spoofed is False
+    assert init_state == {"vault_balance": 1000, "victim_owed": 1000}
+    assert fin_state == {"vault_balance": 0, "victim_owed": 1000}
+    assert context.get("deficit") == 1000
+    assert context.get("invariant_type") == "DEPOSITOR_SOLVENCY_COLLAPSE"
+
+
+def test_oracle_snapshot_corrupted_payload_fails_closed():
+    """Corrupted OracleSnapshot payload does NOT set has_genuine_harness_signal and marks error."""
+    oracle = TrustedEVMStateOracle()
+    harness_addr = list(CANONICAL_HARNESS_ADDRESSES)[0]
+    raw_logs = [{
+        "address": harness_addr,
+        "topics": [TOPIC_ORACLE_SNAPSHOT],
+        "data": "0x" + b"not-valid-abi-or-json".hex(),
+    }]
+    init_state, fin_state, context, genuine, spoofed = oracle.parse_harness_evidence(
+        decoded_logs=[], stdout_text="", stderr_text="", raw_logs=raw_logs, trusted_harness_address=harness_addr
+    )
+    assert genuine is False
+    assert spoofed is False
+    assert context.get("oracle_snapshot_decode_error") is True
+    assert init_state == {}
+    assert fin_state == {}
+
+
 def test_oracle_snapshot_with_foreign_emitter():
     """OracleSnapshot event emitted by untrusted address flags spoof attempt without NameError."""
     oracle = TrustedEVMStateOracle()
