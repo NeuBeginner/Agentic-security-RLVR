@@ -136,15 +136,20 @@ class ProductionAuditAgent:
                 f"mismatched={check['mismatched'][:5]}"
             )
 
-        print(f"[*] Initializing Production 30B Model on Modal {config.AUDIT_GPU_TYPE}: {config.AUDIT_GPU_MODEL}")
+        print(
+            f"[*] Initializing Production 30B Model on Modal {config.AUDIT_GPU_TYPE}: "
+            f"{config.AUDIT_GPU_MODEL}@{r1.PINNED_MODEL.revision}"
+        )
         self.tokenizer = AutoTokenizer.from_pretrained(
             config.AUDIT_GPU_MODEL,
+            revision=r1.PINNED_MODEL.revision,
             cache_dir=cache_dir,
             trust_remote_code=True,
             local_files_only=True,
         )
         self.model = AutoModelForCausalLM.from_pretrained(
             config.AUDIT_GPU_MODEL,
+            revision=r1.PINNED_MODEL.revision,
             torch_dtype=torch.bfloat16,
             device_map="auto",
             cache_dir=cache_dir,

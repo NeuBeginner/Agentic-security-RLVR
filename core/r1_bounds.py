@@ -63,6 +63,7 @@ provider callable is held anywhere in the repository.**
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -720,6 +721,22 @@ def verify_model_cache_manifest(
 
     ``listdir``/``getsize`` are injectable so the check is testable without a volume.
     """
+    if "repo_id" in manifest and manifest.get("repo_id") != PINNED_MODEL.repo_id:
+        return {
+            "status": "FAILED",
+            "reason": "the manifest repo_id does not match PINNED_MODEL.repo_id",
+            "missing": [],
+            "mismatched": ["repo_id"],
+            "checked": 0,
+        }
+    if "revision" in manifest and manifest.get("revision") != PINNED_MODEL.revision:
+        return {
+            "status": "FAILED",
+            "reason": "the manifest revision does not match PINNED_MODEL.revision",
+            "missing": [],
+            "mismatched": ["revision"],
+            "checked": 0,
+        }
     files = manifest.get("files")
     if not isinstance(files, list) or not files:
         return {
@@ -751,6 +768,18 @@ def verify_model_cache_manifest(
             continue
         if int(actual) != int(size):
             mismatched.append(name)
+            continue
+        expected_sha = entry.get("sha256")
+        if expected_sha is not None and os.path.isfile(full_path):
+            hasher = hashlib.sha256()
+            try:
+                with open(full_path, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                        hasher.update(chunk)
+                if hasher.hexdigest().lower() != str(expected_sha).lower():
+                    mismatched.append(name)
+            except OSError:
+                missing.append(name)
     status = "PASSED" if not missing and not mismatched else "FAILED"
     return {
         "status": status,
