@@ -3332,3 +3332,28 @@ def test_modal_billing_reconciliation_integrity():
     )
     assert is_valid is False
     assert "references unknown line item" in err
+
+
+def test_baseline5_api_path_uses_real_hypothesis_manager(monkeypatch):
+    """The API-backed Baseline 5 path must use the existing hypothesis manager."""
+    from core.hypothesis_manager import HypothesisManager
+    from core.schemas import TargetProgram
+
+    target = TargetProgram(
+        name="AccessControlVault",
+        source_code="contract AccessControlVault { function setOwner(address) external {} }",
+        invariants=["Only the current owner may change ownership"],
+        slither_findings=[{
+            "check": "unprotected-setowner",
+            "impact": "High",
+            "description": "Access control is missing from setOwner",
+            "function": "setOwner",
+        }],
+    )
+    manager = HypothesisManager(target)
+    hypotheses = manager.ingest_slither_findings()
+
+    assert hypotheses
+    converted = manager.to_attack_hypothesis(hypotheses[0])
+    assert converted.vulnerability_type == "AccessControl"
+    assert "setOwner" in converted.affected_functions
