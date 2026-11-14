@@ -87,8 +87,13 @@ DECLARED_RESOURCES = {
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install("mcp>=1.2,<2", "modal>=1.5,<2")
+    .pip_install("mcp>=1.2,<2", "modal>=1.5,<2", "pydantic>=2")
     .add_local_python_source("integrations", copy=True)
+    # The package ``core`` carries the models of the CPU audit service. The
+    # client of a remote call has to be able to import them, otherwise the
+    # answer of the service cannot be deserialised ("the 'core' module is not
+    # available in the remote environment").
+    .add_local_python_source("core", copy=True)
     .add_local_dir(str(TARGETS_LOCAL), remote_path="/opt/aegis/targets/solidity", copy=True)
     .add_local_dir(str(POCS_LOCAL), remote_path="/opt/aegis/cpu_audit_pocs", copy=True)
 )
