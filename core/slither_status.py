@@ -177,7 +177,9 @@ def classify_slither_outcome(
         report_error = raw_error if isinstance(raw_error, str) else None
         report_valid = (
             isinstance(raw_success, bool)
+            and "error" in report
             and (raw_error is None or isinstance(raw_error, str))
+            and (raw_success is False or raw_error is None)
             and isinstance(raw_results, dict)
             and isinstance(raw_detectors, list)
             and all(isinstance(item, dict) for item in raw_detectors)
