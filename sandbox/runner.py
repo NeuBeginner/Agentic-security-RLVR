@@ -65,7 +65,14 @@ sandbox_image = (
     .env({"PATH": "/root/.foundry/bin:$PATH"})
     .pip_install("pydantic>=2.0.0", "slither-analyzer", "solc-select")
     .add_local_dir(LOCAL_TRUSTED_HARNESSES_DIR, remote_path=TRUSTED_HARNESSES_DIR, copy=True)
-    .add_local_python_source("core", "sandbox")
+    # The Python packages of the repository are **copied** into the image instead of
+    # being mounted on container start. A deferred mount may not be followed by any
+    # further image layer, so an image that ends in a mount cannot be extended -
+    # which is exactly what the separate CPU-only audit application
+    # (`modal_cpu_audit_app.py`) needs: it adds the `benchmarks` package and its
+    # candidate registry on top of this image. The content of the container is the
+    # same either way; only the moment at which the files arrive changes.
+    .add_local_python_source("core", "sandbox", copy=True)
 )
 
 FOUNDRY_TOML_CONTENT = """[profile.default]
