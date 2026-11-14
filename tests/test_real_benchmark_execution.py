@@ -3334,9 +3334,9 @@ def test_modal_billing_reconciliation_integrity():
     assert "references unknown line item" in err
 
 
-def test_baseline5_api_path_uses_real_hypothesis_manager(monkeypatch):
-    """The API-backed Baseline 5 path must use the existing hypothesis manager."""
-    from core.hypothesis_manager import HypothesisManager
+def test_baseline5_api_hypothesis_builder_uses_canonical_manager():
+    """The API-backed Baseline 5 branch uses the real hypothesis manager API."""
+    from benchmarks.adapters import build_api_hypothesis
     from core.schemas import TargetProgram
 
     target = TargetProgram(
@@ -3350,10 +3350,13 @@ def test_baseline5_api_path_uses_real_hypothesis_manager(monkeypatch):
             "function": "setOwner",
         }],
     )
-    manager = HypothesisManager(target)
-    hypotheses = manager.ingest_slither_findings()
-
-    assert hypotheses
-    converted = manager.to_attack_hypothesis(hypotheses[0])
+    converted = build_api_hypothesis(target)
     assert converted.vulnerability_type == "AccessControl"
     assert "setOwner" in converted.affected_functions
+
+    # No Slither findings is a valid input: the model still receives a generic,
+    # invariant-focused analysis hypothesis rather than crashing or skipping.
+    target.slither_findings = []
+    fallback = build_api_hypothesis(target)
+    assert fallback.vulnerability_type == "SecurityAudit"
+    assert "invariants" in fallback.reasoning_trace
