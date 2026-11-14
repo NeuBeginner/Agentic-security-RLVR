@@ -598,7 +598,22 @@ def _consistent_results(control_category: str = "SAFE_RUN") -> Dict[str, Any]:
             "stages": {
                 "static_analysis": {
                     "analysis_mode": "slither",
+                    "analysis_status": "completed",
+                    "exit_code_disposition": "clean_exit",
+                    "slither_available": True,
                     "slither_version": "slither-analyzer 0.10.4",
+                    "slither_exit_code": 0,
+                    "slither_argv": ["slither", "src/Vault.sol", "--json", "slither.json"],
+                    "slither_stdout_tail": "Vault analyzed (1 contracts with 40 detectors)",
+                    "slither_stderr_tail": "",
+                    "slither_timed_out": False,
+                    "slither_report_present": True,
+                    "slither_report_valid": True,
+                    "slither_report_success": True,
+                    "slither_report_error": None,
+                    "detector_count": 6,
+                    "partial_findings": [],
+                    "partial_finding_count": 0,
                     "fallback_reason": None,
                     "finding_count": 5,
                 },
@@ -735,6 +750,57 @@ def test_the_evaluation_detects_a_fallback_static_analysis():
     assert evaluation["all_passed"] is False
     failing = [c["check"] for c in evaluation["checks"] if c["status"] == "FAIL"]
     assert "static_analysis_used_the_real_slither" in failing
+
+
+def test_the_evaluation_detects_an_unexplained_exit_code_of_the_detector():
+    """
+    A non-zero exit code with a valid report is not a completed analysis.
+
+    The evidence of the last acceptance run carried ``slither_exit_code: 255`` next
+    to ``analysis_mode: "slither"`` and was accepted. The gate has to reject that
+    combination: the exit code of the Slither CLI alone proves nothing.
+    """
+    results = _consistent_results("SAFE_RUN")
+    analysis = results["vulnerable_target"]["stages"]["static_analysis"]
+    analysis["slither_exit_code"] = 255
+    analysis["exit_code_disposition"] = "unexplained_exit_code"
+
+    evaluation = _evaluate_expectations(results)
+    assert evaluation["all_passed"] is False
+    failing = [c["check"] for c in evaluation["checks"] if c["status"] == "FAIL"]
+    assert "static_analysis_evidence_is_consistent" in failing
+
+
+def test_the_evaluation_detects_a_partial_static_analysis():
+    """A report that Slither did not finish is never the analysis of the run."""
+    results = _consistent_results("SAFE_RUN")
+    analysis = results["vulnerable_target"]["stages"]["static_analysis"]
+    analysis["analysis_status"] = "partial"
+    analysis["exit_code_disposition"] = "analysis_error"
+    analysis["slither_report_success"] = False
+
+    evaluation = _evaluate_expectations(results)
+    assert evaluation["all_passed"] is False
+    failing = [c["check"] for c in evaluation["checks"] if c["status"] == "FAIL"]
+    assert "static_analysis_evidence_is_consistent" in failing
+    assert "static_analysis_used_the_real_slither" in failing
+
+
+def test_the_evaluation_accepts_the_documented_findings_policy_exit_code():
+    """
+    The code 255 with a valid report is accepted when the evidence names the
+    documented cause: the findings policy of the Slither CLI.
+    """
+    results = _consistent_results("SAFE_RUN")
+    analysis = results["vulnerable_target"]["stages"]["static_analysis"]
+    analysis["slither_exit_code"] = 255
+    analysis["exit_code_disposition"] = "slither_findings_fail_on_policy"
+
+    evaluation = _evaluate_expectations(results)
+    assert evaluation["failed"] == 0, [
+        c for c in evaluation["checks"] if c["status"] != "PASS"
+    ]
+    assert evaluation["all_passed"] is True
 
 
 def test_the_evaluation_requires_the_refusal_of_an_unauthorised_call():

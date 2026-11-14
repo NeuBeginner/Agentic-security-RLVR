@@ -73,6 +73,8 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from core.slither_status import static_analysis_evidence_is_consistent  # noqa: E402
+
 DEFAULT_PROFILE = "neubeginner"
 DEFAULT_EVIDENCE_DIR = "benchmarks/evidence/cpu_audit"
 
@@ -639,14 +641,37 @@ def _evaluate_expectations(results: Dict[str, Any]) -> Dict[str, Any]:
     analysis = stages.get("static_analysis") or {}
     check(
         "static_analysis_provenance_is_reported",
-        analysis.get("analysis_mode") in ("slither", "fallback_heuristics", "unavailable"),
+        analysis.get("analysis_mode") in ("slither", "fallback_heuristics", "unavailable", "refused"),
         f"analysis_mode={analysis.get('analysis_mode')!r}, "
         f"slither_version={analysis.get('slither_version')!r}",
     )
     check(
-        "static_analysis_used_the_real_slither",
-        analysis.get("analysis_mode") == "slither",
+        "static_analysis_status_is_reported",
+        analysis.get("analysis_status") in ("completed", "partial", "fallback", "unavailable"),
+        f"analysis_status={analysis.get('analysis_status')!r}, "
+        f"exit_code_disposition={analysis.get('exit_code_disposition')!r}",
+    )
+    # The exit code, the status of the analysis, the validity of the report and the
+    # fallback flag have to tell the same story. The rule is the one of
+    # ``core.slither_status``, so the gate and the detector judge a run by exactly
+    # the same criteria.
+    check(
+        "static_analysis_evidence_is_consistent",
+        static_analysis_evidence_is_consistent(analysis),
         f"analysis_mode={analysis.get('analysis_mode')!r}, "
+        f"analysis_status={analysis.get('analysis_status')!r}, "
+        f"slither_exit_code={analysis.get('slither_exit_code')!r}, "
+        f"exit_code_disposition={analysis.get('exit_code_disposition')!r}, "
+        f"slither_report_valid={analysis.get('slither_report_valid')!r}, "
+        f"slither_report_success={analysis.get('slither_report_success')!r}, "
+        f"fallback_reason={analysis.get('fallback_reason')!r}",
+    )
+    check(
+        "static_analysis_used_the_real_slither",
+        analysis.get("analysis_mode") == "slither" and analysis.get("analysis_status") == "completed",
+        f"analysis_mode={analysis.get('analysis_mode')!r}, "
+        f"analysis_status={analysis.get('analysis_status')!r}, "
+        f"slither_exit_code={analysis.get('slither_exit_code')!r}, "
         f"fallback_reason={analysis.get('fallback_reason')!r}",
     )
     check(

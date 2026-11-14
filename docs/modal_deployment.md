@@ -320,9 +320,12 @@ The expectations are read from the evidence itself, never from a summary flag:
   `verification_result.confidence_status`);
 * the `state_delta_verified` claim matches the state delta it describes, and the
   basis of the breach is named (`trusted_harness_event`);
-* the static analysis states its provenance — `analysis_mode` is `slither` for the
-  real detector and `fallback_heuristics` for the fallback, and the run is only
-  accepted with the real detector;
+* the static analysis states its provenance **and** its status — `analysis_mode` is
+  `slither` for the real detector and `fallback_heuristics` for the fallback, and the
+  run is only accepted with the real detector **and** with `analysis_status:
+  completed`;
+* the exit code of the detector, the status of the analysis, the validity of its
+  report and the fallback flag agree with each other (see 8.2);
 * the service's own self-check (`consistency.all_consistent`) is true;
 * the three unauthorised calls are refused with `UNAUTHORIZED` / `NOT_AUTHORISED`.
 
@@ -350,6 +353,40 @@ checkable:
 | `state_delta_verified` | true **only** when a real state snapshot exists and the state changed |
 | `breach_evidence_basis` | how the breach was established: `trusted_harness_event` or `verified_state_snapshot` |
 | `reward_components` / `reward_penalty` / `reward_score` | the score is always the sum of its own components and its penalty |
+
+## 8.2 The status of the static analysis
+The exit code of the Slither CLI does **not** say whether the analysis succeeded. With
+its default `--fail-on pedantic` the CLI leaves with `sys.exit(-1)` (the shell code
+`255`) as soon as it found anything — and it writes the JSON report *before* that
+exit. The same code is used when the analysis itself failed. The evidence of the
+earlier runs carried `slither_exit_code: 255` next to `analysis_mode: "slither"` and a
+report with findings, and the gate accepted it: the mere presence of a report was
+treated as the proof of a successful analysis.
+
+The status of the run is therefore derived from the observable facts and written into
+the evidence of every run (`core/slither_status.py`):
+
+| Field | Meaning |
+|---|---|
+| `analysis_status` | `completed` (the target really was analysed), `partial` (a report that Slither did not finish), `fallback` (no usable report), `unavailable` (the stage did not run) |
+| `analysis_mode` | where the findings come from: `slither` (the real detectors) or `fallback_heuristics` (the heuristics of this repository) |
+| `exit_code_disposition` | the **named** reason of the exit code: `clean_exit`, `slither_findings_fail_on_policy`, `analysis_error`, `unparsable_report`, `unexplained_exit_code`, `no_valid_report`, `timed_out`, `not_run` |
+| `slither_exit_code`, `slither_argv`, `slither_stdout_tail`, `slither_stderr_tail` | the observable facts the disposition was derived from |
+| `slither_report_present` / `slither_report_valid` / `slither_report_success` / `slither_report_error` | whether a report was written, whether it could be parsed, and what the report itself states (`success` is written by the Slither CLI) |
+| `partial_findings` | the findings of a partial run — they are the evidence of the partial run and are **never** the findings of the analysis |
+
+The rules:
+
+1. the repository calls Slither with `--fail-none`, so the findings policy of the CLI
+   cannot turn a successful analysis into a non-zero exit code;
+2. a run with a non-zero exit code is **never** silently marked as a successful
+   analysis: the disposition names the cause, and a cause that cannot be named makes
+   the run `partial`;
+3. the findings of a partial run are the heuristics of this repository — the fallback
+   always names its reason (`fallback_reason`);
+4. `core.slither_status.static_analysis_evidence_is_consistent` is the single rule
+   that the acceptance gate and the offline tests share: the exit code, the status,
+   the validity of the report and the fallback flag may not contradict each other.
 
 The repair that this workstream made in `core/evaluator.py` (the shared evaluator of
 the repository, so the GPU path inherits it):

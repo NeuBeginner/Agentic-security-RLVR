@@ -775,13 +775,25 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
         findings = []
         analysis = {
             "mode": "unavailable",
+            "analysis_status": "unavailable",
+            "exit_code_disposition": "not_run",
             "engine": "slither (sandbox.runner.run_slither_analysis_detailed)",
             "findings": [],
             "finding_count": 0,
+            "partial_findings": [],
+            "partial_finding_count": 0,
             "detector_count": None,
             "slither_available": False,
             "slither_version": None,
             "slither_exit_code": None,
+            "slither_argv": [],
+            "slither_stdout_tail": "",
+            "slither_stderr_tail": "",
+            "slither_timed_out": False,
+            "slither_report_present": False,
+            "slither_report_valid": False,
+            "slither_report_success": None,
+            "slither_report_error": None,
             "error": f"{type(exc).__name__}: {exc}",
             "fallback_reason": None,
             "solc_version_requested": config.SOLC_VERSION,
@@ -794,6 +806,9 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
         run_id=run_id,
         target_name=target_name,
         analysis_mode=analysis.get("mode"),
+        analysis_status=analysis.get("analysis_status"),
+        exit_code_disposition=analysis.get("exit_code_disposition"),
+        slither_exit_code=analysis.get("slither_exit_code"),
         finding_count=len(findings),
         findings=[f.get("check") for f in findings if isinstance(f, dict)],
         duration_sec=round(time.time() - stage_started, 3),
@@ -987,10 +1002,23 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
             "static_analysis": {
                 "engine": analysis.get("engine"),
                 "analysis_mode": analysis.get("mode"),
+                "analysis_status": analysis.get("analysis_status"),
+                "exit_code_disposition": analysis.get("exit_code_disposition"),
                 "slither_available": analysis.get("slither_available"),
                 "slither_version": analysis.get("slither_version"),
                 "slither_exit_code": analysis.get("slither_exit_code"),
+                "slither_argv": analysis.get("slither_argv"),
+                "slither_stdout_tail": analysis.get("slither_stdout_tail"),
+                "slither_stderr_tail": analysis.get("slither_stderr_tail"),
+                "slither_timed_out": analysis.get("slither_timed_out"),
+                "slither_report_present": analysis.get("slither_report_present"),
+                "slither_report_valid": analysis.get("slither_report_valid"),
+                "slither_report_success": analysis.get("slither_report_success"),
+                "slither_report_error": analysis.get("slither_report_error"),
+                "solc_version_requested": analysis.get("solc_version_requested"),
                 "detector_count": analysis.get("detector_count"),
+                "partial_findings": analysis.get("partial_findings"),
+                "partial_finding_count": analysis.get("partial_finding_count"),
                 "fallback_reason": analysis.get("fallback_reason"),
                 "finding_count": len(findings),
                 "findings": findings,
@@ -1000,7 +1028,15 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
                     "stage. `analysis_mode` states where they come from: 'slither' is "
                     "the real detector, 'fallback_heuristics' are the deterministic "
                     "heuristics of this repository and are never presented as an "
-                    "analysis result."
+                    "analysis result. `analysis_status` states how the run of the "
+                    "detector ended: 'completed' is a finished analysis with a valid "
+                    "report, 'partial' is a report that Slither did not finish (the "
+                    "findings of such a run are kept in `partial_findings` and are "
+                    "never the findings of the analysis), 'fallback' is a run without a "
+                    "usable report. The exit code of the detector alone does not prove "
+                    "anything: the Slither CLI leaves with the code 255 when it found "
+                    "something, so `exit_code_disposition` names the reason of the exit "
+                    "code and has to be read with it."
                 ),
             },
             "hypothesis": hypothesis_record,
