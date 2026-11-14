@@ -821,6 +821,30 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 timeout=config.SANDBOX_TIMEOUT_SEC,
                 env=env,
             )
+            # Guard against transient Windows solc-0.8.20.exe access violations / ICEs
+            # when compiling large dependency graphs (forge-std) in fresh workspaces.
+            if os.name == "nt" and proc.returncode != 0 and not proc.timed_out:
+                for _retry in range(3):
+                    combined_err = (proc.stderr or "") + "\n" + (proc.stdout or "")
+                    if not any(
+                        sig in combined_err
+                        for sig in (
+                            "0xc0000005",
+                            "Internal compiler error",
+                            "solc exited with exit code",
+                        )
+                    ):
+                        break
+                    for artifact_subdir in ("out", "cache"):
+                        shutil.rmtree(os.path.join(tmpdir, artifact_subdir), ignore_errors=True)
+                    proc = run_subprocess_capped(
+                        cmd,
+                        cwd=tmpdir,
+                        timeout=config.SANDBOX_TIMEOUT_SEC,
+                        env=env,
+                    )
+                    if proc.returncode == 0 or proc.timed_out:
+                        break
             elapsed = time.time() - start_time
             raw_stdout, raw_stderr = proc.stdout, proc.stderr
             output_text = raw_stdout + "\\n" + raw_stderr
