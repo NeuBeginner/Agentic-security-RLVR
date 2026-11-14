@@ -1178,19 +1178,21 @@ def test_a_gpu_payload_cap_of_zero_is_only_possible_with_the_provider_blocking()
 # --------------------------------------------------------------------------------------
 
 
-def test_the_class_semaphore_is_initialized_once_under_concurrency(monkeypatch):
-    """Two first-time callers must receive the same semaphore for a class."""
+def test_the_class_semaphore_is_initialized_once_under_concurrency():
+    """The first-time membership check must not race across dispatch threads."""
     gate = r1_dispatch.DispatchGate(policy=_policy())
-    original = threading.BoundedSemaphore
     barrier = threading.Barrier(2)
     returned: List[Any] = []
     errors: List[BaseException] = []
 
-    def synchronized_semaphore(value=1):
-        barrier.wait(timeout=5)
-        return original(value)
+    class _BarrierDict(dict):
+        def __contains__(self, key):
+            # The old unsynchronised implementation checked membership outside
+            # a lock. Force both callers past that check before either can insert.
+            barrier.wait(timeout=5)
+            return super().__contains__(key)
 
-    monkeypatch.setattr(r1_dispatch.threading, "BoundedSemaphore", synchronized_semaphore)
+    gate._semaphores = _BarrierDict()
 
     def worker() -> None:
         try:
