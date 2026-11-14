@@ -572,6 +572,12 @@ class DispatchGate:
         ):
             raw = (root / relative).read_bytes()
             cost_files[relative] = hashlib.sha256(raw).hexdigest()
+        evidence_files = {}
+        for relative in (
+            "benchmarks/evidence/r1_readonly_evidence_20261114.json",
+        ):
+            raw = (root / relative).read_bytes()
+            evidence_files[relative] = hashlib.sha256(raw).hexdigest()
 
         effective_classes = sorted(
             set(r1_bounds.CONTAINER_CLASSES) | set(r1_bounds.FUNCTION_CLASS.values())
@@ -652,6 +658,7 @@ class DispatchGate:
                 "download_retry_allowance": self._approval_value(r1_bounds.DOWNLOAD_RETRY_ALLOWANCE),
             },
             "cost_inputs_sha256": cost_files,
+            "evidence_inputs_sha256": evidence_files,
         }
 
     def _semaphore(self, container_class: str) -> threading.BoundedSemaphore:
