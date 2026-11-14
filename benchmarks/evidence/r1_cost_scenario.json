@@ -1,7 +1,7 @@
 {
   "schema": "r1-cost-scenario/1.2.0",
   "status": "PROPOSED - not maintainer-approved",
-  "cycle_cap_usd": 20.0,
+  "cycle_cap_usd": 20,
   "baseline_gib": 59.930256,
   "storage_baseline": {
     "status": "MEASURED",
@@ -15,12 +15,24 @@
     "evidence_totals_path": "deliverable_1_storage_baseline_and_capacity.totals",
     "provenance": "benchmarks/evidence/r1_readonly_evidence_20261114.json (deliverable_1_storage_baseline_and_capacity) and docs/r1_readonly_evidence_report_20261114.md, section 1",
     "breakdown": {
-      "huggingface": {"files": 113, "bytes": 64178670067, "gib": 59.771044},
-      "checkpoints": {"files": 12, "bytes": 170685319, "gib": 0.158963},
-      "trajectories": {"files": 31, "bytes": 266638, "gib": 0.000248}
+      "huggingface": {
+        "files": 113,
+        "bytes": 64178670067,
+        "gib": 59.771044
+      },
+      "checkpoints": {
+        "files": 12,
+        "bytes": 170685319,
+        "gib": 0.158963
+      },
+      "trajectories": {
+        "files": 31,
+        "bytes": 266638,
+        "gib": 0.000248
+      }
     },
     "reason": "The standing baseline is MEASURED, not assumed: the read-only inventory of 2026-11-14 measured 64349622024 B = 59.930256 GiB on Volume 'aegis-model-cache'. It replaces the former 0.0 GiB assumption, which understated the footprint of every stage of the cycle.",
-    "capacity_proof": "AVAILABLE",
+    "capacity_proof": "UNAVAILABLE",
     "capacity_proof_basis": [
       "the standing baseline is measured read-only on 2026-11-14: 64349622024 B = 59.930256 GiB, 247 entries, two independent listings byte-identical",
       "the workspace holds exactly one Volume ('aegis-model-cache'), so the measured total IS the account-wide volume footprint",
@@ -53,14 +65,26 @@
     {
       "step_id": "R2p",
       "description": "model-cache prefetch - exactly 1 CPU container, exactly 1 attempt",
-      "invocations": {"sandbox_cpu": 1},
-      "concurrency_caps": {"sandbox_cpu": 1},
-      "egress_functions": {"sandbox_cpu": ["prefetch_model_cache_remote"]},
-      "ingress_functions": {"sandbox_cpu": ["prefetch_model_cache_remote"]},
+      "invocations": {
+        "sandbox_cpu": 1
+      },
+      "concurrency_caps": {
+        "sandbox_cpu": 1
+      },
+      "egress_functions": {
+        "sandbox_cpu": [
+          "prefetch_model_cache_remote"
+        ]
+      },
+      "ingress_functions": {
+        "sandbox_cpu": [
+          "prefetch_model_cache_remote"
+        ]
+      },
       "candidate_bounds": {
         "sandbox_cpu": {
-          "cpu_request_cores": 2.0,
-          "cpu_limit_cores": 4.0,
+          "cpu_request_cores": 2,
+          "cpu_limit_cores": 4,
           "memory_request_mb": 2048,
           "memory_limit_mb": 4096,
           "timeout_sec": 3600,
@@ -85,18 +109,26 @@
       "incremental_reason": "The pinned revision is ALREADY materialised on the measured volume (23/23 files, byte-exact, 61077997602 B), so in the measured state this prefetch writes only the manifest and the symlink layer. The candidate keeps the COLD-CACHE worst case - the full pinned cache - because the prefetch function is not implemented yet and its behaviour on an already materialised cache is not verified. The resulting footprint therefore counts the pinned bytes twice: it is an upper bound of the cycle, not a prediction of it.",
       "t_exec_sec": 3600,
       "t_post_exec_to_publication_sec": 86400,
-      "proposed_ceiling_usd": 5.0
+      "proposed_ceiling_usd": 5
     },
     {
       "step_id": "R3",
       "description": "CPU plumbing smoke - exactly 1 sandbox-CPU invocation",
-      "invocations": {"sandbox_cpu": 1},
-      "concurrency_caps": {"sandbox_cpu": 1},
-      "egress_functions": {"sandbox_cpu": ["verify_exploit_remote"]},
+      "invocations": {
+        "sandbox_cpu": 1
+      },
+      "concurrency_caps": {
+        "sandbox_cpu": 1
+      },
+      "egress_functions": {
+        "sandbox_cpu": [
+          "verify_exploit_remote"
+        ]
+      },
       "candidate_bounds": {
         "sandbox_cpu": {
-          "cpu_request_cores": 2.0,
-          "cpu_limit_cores": 4.0,
+          "cpu_request_cores": 2,
+          "cpu_limit_cores": 4,
           "memory_request_mb": 2048,
           "memory_limit_mb": 4096,
           "timeout_sec": 60,
@@ -105,10 +137,13 @@
         }
       },
       "candidate_egress": {
-        "verify_exploit_remote": {"payload_cap_bytes": 0, "protocol_allowance_bytes": 1048576}
+        "verify_exploit_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        }
       },
       "baseline_gib": 116.818256,
-      "incremental_gib": 0.0,
+      "incremental_gib": 0,
       "incremental_status": "NO_INCREMENT",
       "incremental_reason": "The CPU plumbing smoke writes nothing to the volume: the increment of this stage is zero by construction, not an estimate.",
       "t_exec_sec": 1200,
@@ -118,17 +153,32 @@
     {
       "step_id": "R3b",
       "description": "inference-plumbing smoke - worst case 4 invocations, refinement switched off",
-      "invocations": {"gpu": 1, "sandbox_cpu": 2, "persistence": 1},
-      "concurrency_caps": {"gpu": 1, "sandbox_cpu": 1, "persistence": 1},
+      "invocations": {
+        "gpu": 1,
+        "sandbox_cpu": 2,
+        "persistence": 1
+      },
+      "concurrency_caps": {
+        "gpu": 1,
+        "sandbox_cpu": 1,
+        "persistence": 1
+      },
       "egress_functions": {
-        "gpu": ["ProductionAuditAgent.generate_solidity_exploit"],
-        "sandbox_cpu": ["verify_exploit_remote", "verify_replay_remote"],
-        "persistence": ["record_trajectory_remote"]
+        "gpu": [
+          "ProductionAuditAgent.generate_solidity_exploit"
+        ],
+        "sandbox_cpu": [
+          "verify_exploit_remote",
+          "verify_replay_remote"
+        ],
+        "persistence": [
+          "record_trajectory_remote"
+        ]
       },
       "candidate_bounds": {
         "gpu": {
-          "cpu_request_cores": 4.0,
-          "cpu_limit_cores": 8.0,
+          "cpu_request_cores": 4,
+          "cpu_limit_cores": 8,
           "memory_request_mb": 16384,
           "memory_limit_mb": 32768,
           "timeout_sec": 120,
@@ -136,8 +186,8 @@
           "scaledown_window_sec": 60
         },
         "sandbox_cpu": {
-          "cpu_request_cores": 2.0,
-          "cpu_limit_cores": 4.0,
+          "cpu_request_cores": 2,
+          "cpu_limit_cores": 4,
           "memory_request_mb": 2048,
           "memory_limit_mb": 4096,
           "timeout_sec": 60,
@@ -146,7 +196,7 @@
         },
         "persistence": {
           "cpu_request_cores": 0.5,
-          "cpu_limit_cores": 1.0,
+          "cpu_limit_cores": 1,
           "memory_request_mb": 512,
           "memory_limit_mb": 1024,
           "timeout_sec": 60,
@@ -155,10 +205,22 @@
         }
       },
       "candidate_egress": {
-        "ProductionAuditAgent.generate_solidity_exploit": {"payload_cap_bytes": 0, "protocol_allowance_bytes": 1048576},
-        "verify_exploit_remote": {"payload_cap_bytes": 0, "protocol_allowance_bytes": 1048576},
-        "verify_replay_remote": {"payload_cap_bytes": 0, "protocol_allowance_bytes": 1048576},
-        "record_trajectory_remote": {"payload_cap_bytes": 0, "protocol_allowance_bytes": 1048576}
+        "ProductionAuditAgent.generate_solidity_exploit": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "verify_exploit_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "verify_replay_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "record_trajectory_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        }
       },
       "baseline_gib": 116.818256,
       "incremental_gib": 0.001,
@@ -171,17 +233,33 @@
     {
       "step_id": "R4",
       "description": "the 16-target run - worst case 96 invocations (32 GPU + 48 sandbox-CPU + 16 persistence)",
-      "invocations": {"gpu": 32, "sandbox_cpu": 48, "persistence": 16},
-      "concurrency_caps": {"gpu": 32, "sandbox_cpu": 48, "persistence": 16},
+      "invocations": {
+        "gpu": 32,
+        "sandbox_cpu": 48,
+        "persistence": 16
+      },
+      "concurrency_caps": {
+        "gpu": 32,
+        "sandbox_cpu": 48,
+        "persistence": 16
+      },
       "egress_functions": {
-        "gpu": ["ProductionAuditAgent.generate_solidity_exploit", "ProductionAuditAgent.refine_solidity_exploit"],
-        "sandbox_cpu": ["verify_exploit_remote", "verify_replay_remote"],
-        "persistence": ["record_trajectory_remote"]
+        "gpu": [
+          "ProductionAuditAgent.generate_solidity_exploit",
+          "ProductionAuditAgent.refine_solidity_exploit"
+        ],
+        "sandbox_cpu": [
+          "verify_exploit_remote",
+          "verify_replay_remote"
+        ],
+        "persistence": [
+          "record_trajectory_remote"
+        ]
       },
       "candidate_bounds": {
         "gpu": {
-          "cpu_request_cores": 4.0,
-          "cpu_limit_cores": 8.0,
+          "cpu_request_cores": 4,
+          "cpu_limit_cores": 8,
           "memory_request_mb": 16384,
           "memory_limit_mb": 32768,
           "timeout_sec": 120,
@@ -189,8 +267,8 @@
           "scaledown_window_sec": 60
         },
         "sandbox_cpu": {
-          "cpu_request_cores": 2.0,
-          "cpu_limit_cores": 4.0,
+          "cpu_request_cores": 2,
+          "cpu_limit_cores": 4,
           "memory_request_mb": 2048,
           "memory_limit_mb": 4096,
           "timeout_sec": 60,
@@ -199,7 +277,7 @@
         },
         "persistence": {
           "cpu_request_cores": 0.5,
-          "cpu_limit_cores": 1.0,
+          "cpu_limit_cores": 1,
           "memory_request_mb": 512,
           "memory_limit_mb": 1024,
           "timeout_sec": 60,
@@ -208,11 +286,26 @@
         }
       },
       "candidate_egress": {
-        "ProductionAuditAgent.generate_solidity_exploit": {"payload_cap_bytes": 0, "protocol_allowance_bytes": 1048576},
-        "ProductionAuditAgent.refine_solidity_exploit": {"payload_cap_bytes": 0, "protocol_allowance_bytes": 1048576},
-        "verify_exploit_remote": {"payload_cap_bytes": 0, "protocol_allowance_bytes": 1048576},
-        "verify_replay_remote": {"payload_cap_bytes": 0, "protocol_allowance_bytes": 1048576},
-        "record_trajectory_remote": {"payload_cap_bytes": 0, "protocol_allowance_bytes": 1048576}
+        "ProductionAuditAgent.generate_solidity_exploit": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "ProductionAuditAgent.refine_solidity_exploit": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "verify_exploit_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "verify_replay_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "record_trajectory_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        }
       },
       "baseline_gib": 116.819256,
       "incremental_gib": 0.02,
