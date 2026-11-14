@@ -1178,6 +1178,38 @@ def test_a_gpu_payload_cap_of_zero_is_only_possible_with_the_provider_blocking()
 # --------------------------------------------------------------------------------------
 
 
+def test_the_class_semaphore_is_initialized_once_under_concurrency(monkeypatch):
+    """Two first-time callers must receive the same semaphore for a class."""
+    gate = r1_dispatch.DispatchGate(policy=_policy())
+    original = threading.BoundedSemaphore
+    barrier = threading.Barrier(2)
+    returned: List[Any] = []
+    errors: List[BaseException] = []
+
+    def synchronized_semaphore(value=1):
+        barrier.wait(timeout=5)
+        return original(value)
+
+    monkeypatch.setattr(r1_dispatch.threading, "BoundedSemaphore", synchronized_semaphore)
+
+    def worker() -> None:
+        try:
+            returned.append(gate._semaphore(r1.SANDBOX_CPU))
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert not errors
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(returned) == 2
+    assert returned[0] is returned[1]
+
+
 def test_the_invocation_allowance_is_consumed_atomically_under_concurrency(signed_approval):
     """Two concurrent dispatches may never both pass the same remaining allowance."""
     world = _approved_world()
