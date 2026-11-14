@@ -151,6 +151,10 @@ class ExecutionResult(BaseModel):
     cheatcode_detected: bool = False
     verified_by_harness: bool = False
     reproducibility_confirmed: bool = False
+    # The failure of the independent replay, when the replay could not be
+    # executed at all (infrastructure). It is NOT the same as a replay that ran
+    # and did not reproduce: an infrastructure failure carries no reward.
+    replay_error: Optional[str] = None
     gas_used: Optional[int] = None
     state_delta: Dict[str, Any] = Field(default_factory=dict)
     evidence: Optional[ExecutionEvidence] = None
@@ -203,6 +207,17 @@ class VerificationVerdict(BaseModel):
     generation_iteration: int = Field(default=0)
     candidate_index: int = Field(default=0)
     replay_status: str = Field(default="NOT_ELIGIBLE", description="CONFIRMED, FAILED, or NOT_ELIGIBLE")
+    # The same statement as `replay_status`, as a boolean: the independent replay
+    # reproduced the breach of the trusted harness.
+    replay_confirmed: bool = False
+    # How the breach of the trusted harness was established. The trusted harness
+    # proves a breach through a verified event (emitter, topic, deficit), not
+    # through a state snapshot - so a verdict that rests on the event says so
+    # here instead of claiming a verified state delta.
+    breach_evidence_basis: str = Field(
+        default="none",
+        description="none | verified_state_snapshot | trusted_harness_event",
+    )
     evidence: Optional[ExecutionEvidence] = None
     invariant_results: List[InvariantResult] = Field(default_factory=list)
     verification_result: Optional[VerificationResult] = None
