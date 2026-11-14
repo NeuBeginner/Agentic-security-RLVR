@@ -655,12 +655,17 @@ class DispatchGate:
         }
 
     def _semaphore(self, container_class: str) -> threading.BoundedSemaphore:
-        if container_class not in self._semaphores:
-            cap = 1
-            if self.policy is not None:
-                cap = max(1, int(self.policy.concurrency_caps.get(container_class, 1)))
-            self._semaphores[container_class] = threading.BoundedSemaphore(cap)
-        return self._semaphores[container_class]
+        # Creation must be atomic: otherwise two first-time concurrent dispatches
+        # can each install a different semaphore and bypass the class concurrency cap.
+        with self._lock:
+            semaphore = self._semaphores.get(container_class)
+            if semaphore is None:
+                cap = 1
+                if self.policy is not None:
+                    cap = max(1, int(self.policy.concurrency_caps.get(container_class, 1)))
+                semaphore = threading.BoundedSemaphore(cap)
+                self._semaphores[container_class] = semaphore
+            return semaphore
 
     def _refuse(self, container_class: str, function_name: str, reason: str, detail: str = "") -> None:
         record = DispatchRecord(
