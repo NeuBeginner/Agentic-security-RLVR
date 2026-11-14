@@ -23,8 +23,12 @@ What is proven here:
 6. The model cache is mounted read-only and the artifacts are written into the
    dedicated results volume only.
 7. The driver refuses the live invocation without an explicit approval.
-8. The expectation evaluation of the driver detects a **false confirmation** - the
-   control target must not be reported as a confirmed exploit.
+8. The **authorisation of the service is enforced on the server side**: a direct
+   call to any of the three public functions without the shared token is refused
+   before any work is done - it does not depend on the environment of the caller.
+9. The expectation evaluation of the driver detects a **false confirmation** - the
+   control target must not be reported as a confirmed exploit - and it detects the
+   contradictions of the evidence instead of accepting them.
 """
 
 from __future__ import annotations
@@ -44,8 +48,10 @@ _ROOT = Path(__file__).resolve().parent.parent
 import modal_cpu_audit_app as app_module  # noqa: E402
 from benchmarks.run_cpu_audit import (  # noqa: E402
     APPROVAL_ENV_VAR,
+    AUTH_TOKEN_ENV_VAR,
     AuditNotAuthorised,
     _assert_authorised,
+    _auth_token,
     _evaluate_expectations,
     _scan_for_secrets,
 )
@@ -57,6 +63,10 @@ from sandbox.runner import (  # noqa: E402
 
 APP_SOURCE = (_ROOT / "modal_cpu_audit_app.py").read_text(encoding="utf-8")
 REGISTRY_PATH = _ROOT / "benchmarks" / "cpu_audit_pocs" / "registry.json"
+
+#: A token that is long enough to pass the length check of the service. It is a
+#: test value, never a real token.
+TEST_TOKEN = "t" * 40
 
 
 # ---------------------------------------------------------------------------
@@ -339,48 +349,417 @@ def test_the_driver_accepts_an_explicit_approval(monkeypatch):
     _assert_authorised()
 
 
+def test_the_driver_refuses_to_start_without_the_authorisation_token(monkeypatch):
+    """Without the token of the service every call would be refused anyway."""
+    monkeypatch.delenv(AUTH_TOKEN_ENV_VAR, raising=False)
+    monkeypatch.setattr("benchmarks.run_cpu_audit._token_from_env_file", lambda: "")
+    with pytest.raises(AuditNotAuthorised):
+        _auth_token()
+
+
+def test_the_driver_reads_the_authorisation_token(monkeypatch):
+    monkeypatch.setenv(AUTH_TOKEN_ENV_VAR, TEST_TOKEN)
+    assert _auth_token() == TEST_TOKEN
+
+
+def test_the_driver_reads_the_token_from_the_local_env_file(monkeypatch):
+    """The token may live in the local .env file, which is excluded from git."""
+    monkeypatch.delenv(AUTH_TOKEN_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        "benchmarks.run_cpu_audit._token_from_env_file", lambda: TEST_TOKEN
+    )
+    assert _auth_token() == TEST_TOKEN
+
+
+def test_the_env_file_is_excluded_from_git():
+    """The token of the service must never reach the repository."""
+    gitignore = (_ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert ".env" in gitignore.splitlines()
+
+
 # ---------------------------------------------------------------------------
-# 7. The expectation evaluation of the driver
+# 7. The authorisation of the service (server side)
 # ---------------------------------------------------------------------------
 
 
-def _results_with_control_category(category: str) -> Dict[str, Any]:
+def test_every_public_function_carries_the_authorisation_secret():
+    """The token has to reach the container, otherwise every call is refused."""
+    assert app_module.AUTH_SECRET_NAME == "aegis-cpu-audit-auth"
+    assert app_module.AUTH_TOKEN_ENV_VAR == "AEGIS_CPU_AUDIT_TOKEN"
+    # The secret is mounted into the container of every public function.
+    assert APP_SOURCE.count("secrets=[auth_secret]") == 3
+
+
+def test_the_authorisation_is_checked_before_any_work():
+    """
+    The check has to come before the work of the function.
+
+    The order is read from the source: the authorisation call precedes the
+    validation, the static analysis, the EVM and every access to a volume.
+    """
+    tree = ast.parse(APP_SOURCE)
+    work_calls = {
+        "validate_request",
+        "run_slither_analysis_detailed",
+        "run_payload_in_sandbox",
+        "verify_independent_replay_result",
+        "save_result_artifact",
+        "observed_runtime_facts",
+    }
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in ("audit_contract", "read_saved_result", "probe_environment")
+    }
+    assert set(functions) == {"audit_contract", "read_saved_result", "probe_environment"}
+
+    for name, node in functions.items():
+        statements = node.body
+        auth_index = None
+        for index, statement in enumerate(statements):
+            called = [
+                child.func.id
+                for child in ast.walk(statement)
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
+            ]
+            if "assert_authorised" in called:
+                auth_index = index
+                break
+            assert not (set(called) & work_calls), (
+                f"{name} calls {sorted(set(called) & work_calls)} before the authorisation"
+            )
+        assert auth_index is not None, f"{name} does not check the authorisation"
+
+
+def test_a_call_without_the_token_is_refused(monkeypatch):
+    """
+    A DIRECT call without the token is refused by the service itself.
+
+    The call goes to the real function of the application - there is no local
+    gate in between - and it is refused before any work is done.
+    """
+    monkeypatch.setenv(AUTH_TOKEN_ENV_VAR, TEST_TOKEN)
+
+    audit = app_module.audit_contract.local(
+        {"target_name": "Vault", "source_code": "contract Vault { }"}
+    )
+    assert audit["status"] == "UNAUTHORIZED"
+    assert audit["error"]["code"] == "NOT_AUTHORISED"
+
+    probe = app_module.probe_environment.local("")
+    assert probe["status"] == "UNAUTHORIZED"
+    assert probe["error"]["code"] == "NOT_AUTHORISED"
+
+    read_back = app_module.read_saved_result.local("some-run", "wrong-token")
+    assert read_back["status"] == "UNAUTHORIZED"
+    assert read_back["error"]["code"] == "NOT_AUTHORISED"
+
+
+def test_a_call_with_a_wrong_token_is_refused(monkeypatch):
+    monkeypatch.setenv(AUTH_TOKEN_ENV_VAR, TEST_TOKEN)
+
+    audit = app_module.audit_contract.local(
+        {
+            "target_name": "Vault",
+            "source_code": "contract Vault { }",
+            "auth_token": "x" * 40,
+        }
+    )
+    assert audit["status"] == "UNAUTHORIZED"
+    assert audit["error"]["code"] == "NOT_AUTHORISED"
+
+
+def test_the_service_refuses_every_call_when_the_secret_is_missing(monkeypatch):
+    """
+    Without the secret in the container the service is closed.
+
+    A missing secret must not open the service - it closes it.
+    """
+    monkeypatch.delenv(AUTH_TOKEN_ENV_VAR, raising=False)
+
+    audit = app_module.audit_contract.local(
+        {
+            "target_name": "Vault",
+            "source_code": "contract Vault { }",
+            "auth_token": TEST_TOKEN,
+        }
+    )
+    assert audit["status"] == "UNAUTHORIZED"
+    assert audit["error"]["code"] == "NOT_AUTHORISED"
+
+
+def test_the_authorisation_comparison_is_constant_time():
+    """The token is compared with hmac.compare_digest, never with ==."""
+    assert "hmac.compare_digest" in APP_SOURCE
+    assert "presented_token ==" not in APP_SOURCE
+
+
+def test_the_authorisation_token_is_never_echoed():
+    """The token of the caller must not travel into the result."""
+    refusal = app_module.refuse_unauthorised("audit_contract", "a reason")
+    assert "auth_token" not in json.dumps(refusal)
+
+
+# ---------------------------------------------------------------------------
+# 8. The expectation evaluation of the driver
+# ---------------------------------------------------------------------------
+
+
+def _consistent_results(control_category: str = "SAFE_RUN") -> Dict[str, Any]:
+    """
+    A run that satisfies every expectation of the end-to-end test.
+
+    The shape is the shape of the real result of the service, so the
+    evaluation is exercised against the structure it will actually see.
+    """
+    breach_confirmed = control_category == "EXPLOIT_CONFIRMED"
+
+    vulnerable_verdict = {
+        "category": "EXPLOIT_CONFIRMED",
+        "is_verified": True,
+        "reproducible": True,
+        "replay_status": "CONFIRMED",
+        "replay_confirmed": True,
+        "reward_score": 1.0,
+        "state_delta_verified": False,
+        "breach_evidence_basis": "trusted_harness_event",
+        "verification_result": {
+            "replay_confirmed": True,
+            "confidence_status": "CONFIRMED",
+        },
+        "evidence": {
+            "state_delta": {
+                "has_real_snapshot": False,
+                "state_changed": False,
+                "trace_context": {"verified_event": True},
+            }
+        },
+    }
+    control_verdict = {
+        "category": control_category,
+        "is_verified": breach_confirmed,
+        "reproducible": breach_confirmed,
+        "replay_status": "CONFIRMED" if breach_confirmed else "NOT_ELIGIBLE",
+        "replay_confirmed": breach_confirmed,
+        "reward_score": 1.0 if breach_confirmed else -0.1,
+        "state_delta_verified": False,
+        "breach_evidence_basis": "none",
+        "verification_result": {
+            "replay_confirmed": breach_confirmed,
+            "confidence_status": "CONFIRMED" if breach_confirmed else "UNVERIFIED",
+        },
+        "evidence": {"state_delta": {"has_real_snapshot": False, "state_changed": False}},
+    }
+
     return {
         "environment_probe": {
+            "declared_resources": {"gpu": None},
             "model_cache": {
                 "write_probe": {"result": "READ_ONLY_ENFORCED"},
                 "readable_files": [{"path": "trees/x.json"}],
             },
-            "runtime": {"gpu_device_exposed": False},
+            "runtime": {"gpu_device_exposed": False, "nvidia_device_nodes": []},
+            "toolchain": {
+                "solc": (
+                    "the `solc` on the PATH is the solc-select shim; it needs an "
+                    "active version selection and therefore prints a traceback "
+                    "instead of a version."
+                ),
+                "solc_on_path_is_a_shim": True,
+                "pinned_solc": {
+                    "requested_version": "0.8.20",
+                    "path": "/root/.svm/0.8.20/solc-0.8.20",
+                    "version_output": "solc, the solidity compiler commandline interface\nVersion: 0.8.20",
+                    "error": None,
+                },
+            },
         },
         "vulnerable_target": {
             "status": "COMPLETED",
-            "verdict": {"category": "EXPLOIT_CONFIRMED", "reproducible": True},
+            "verdict": vulnerable_verdict,
+            "reward": {
+                "score": 1.0,
+                "components": {
+                    "generation": 0.05,
+                    "compilation": 0.1,
+                    "verification": 0.1,
+                    "invariant": 0.25,
+                    "replay": 0.5,
+                },
+                "penalty": 0.0,
+                "spec_version": "2.0.0",
+                "is_verified": True,
+                "reproducible": True,
+                "replay_status": "CONFIRMED",
+                "replay_confirmed": True,
+            },
+            "consistency": {"all_consistent": True, "checks": {}},
             "stages": {
-                "static_analysis": {"finding_count": 1},
-                "hypothesis": {"count": 1},
+                "static_analysis": {
+                    "analysis_mode": "slither",
+                    "slither_version": "slither-analyzer 0.10.4",
+                    "fallback_reason": None,
+                    "finding_count": 5,
+                },
+                "hypothesis": {"count": 3},
+                "verification": {
+                    "execution": {
+                        "return_code": 0,
+                        "test_status": "Success",
+                        "harness_verdict": "BREACH",
+                        "harness_suite": "test/VaultHarness.t.sol",
+                    }
+                },
+                "replay": {
+                    "executed": True,
+                    "reproduced": True,
+                    "harness_verdict": "BREACH",
+                    "return_code": 0,
+                    "first_execution_id": "exec_aaaaaaaa",
+                    "replay_execution_id": "exec_bbbbbbbb",
+                    "independent_execution": True,
+                    "independence_basis": "distinct_execution_id",
+                },
             },
         },
-        "safe_control": {"status": "COMPLETED", "verdict": {"category": category}},
+        "safe_control": {
+            "status": "COMPLETED",
+            "verdict": control_verdict,
+            "consistency": {"all_consistent": True, "checks": {}},
+            "stages": {
+                "replay": {
+                    "executed": True,
+                    "reproduced": breach_confirmed,
+                    "harness_verdict": "BREACH" if breach_confirmed else "NO_BREACH",
+                    "return_code": 0,
+                }
+            },
+        },
         "invalid_contract": {"status": "REJECTED", "error": {"code": "TARGET_NOT_ALLOWED"}},
         "read_back": {"status": "READ_BACK", "parsed": True},
+        "unauthorised_audit_contract": {
+            "status": "UNAUTHORIZED",
+            "error": {"code": "NOT_AUTHORISED"},
+        },
+        "unauthorised_probe_environment": {
+            "status": "UNAUTHORIZED",
+            "error": {"code": "NOT_AUTHORISED"},
+        },
+        "unauthorised_read_saved_result": {
+            "status": "UNAUTHORIZED",
+            "error": {"code": "NOT_AUTHORISED"},
+        },
     }
 
 
 def test_the_evaluation_passes_a_consistent_run():
-    evaluation = _evaluate_expectations(_results_with_control_category("SAFE_RUN"))
+    evaluation = _evaluate_expectations(_consistent_results("SAFE_RUN"))
+    assert evaluation["failed"] == 0, [
+        c for c in evaluation["checks"] if c["status"] != "PASS"
+    ]
     assert evaluation["all_passed"] is True
-    assert evaluation["failed"] == 0
 
 
 def test_the_evaluation_detects_a_false_confirmation():
     """A breach reported for the safe control is a failure, not a pass."""
     evaluation = _evaluate_expectations(
-        _results_with_control_category("EXPLOIT_CONFIRMED")
+        _consistent_results("EXPLOIT_CONFIRMED")
     )
     assert evaluation["all_passed"] is False
     failing = [c for c in evaluation["checks"] if c["status"] == "FAIL"]
     assert any(c["check"] == "safe_control_not_confirmed" for c in failing)
+
+
+def test_the_evaluation_does_not_accept_a_claim_of_reproducibility_alone():
+    """
+    ``reproducible=True`` alone is not a pass.
+
+    A result that claims a confirmed exploit without an independent replay is
+    a failure, even when every other flag looks perfect.
+    """
+    results = _consistent_results("SAFE_RUN")
+    results["vulnerable_target"]["stages"]["replay"]["independent_execution"] = False
+    results["vulnerable_target"]["stages"]["replay"]["replay_execution_id"] = (
+        results["vulnerable_target"]["stages"]["replay"]["first_execution_id"]
+    )
+
+    evaluation = _evaluate_expectations(results)
+    assert evaluation["all_passed"] is False
+    failing = [c["check"] for c in evaluation["checks"] if c["status"] == "FAIL"]
+    assert "independent_replay_executed" in failing
+
+
+def test_the_evaluation_detects_contradictory_verdict_fields():
+    """A verdict whose fields disagree is a failure."""
+    results = _consistent_results("SAFE_RUN")
+    results["vulnerable_target"]["verdict"]["replay_status"] = "NOT_ELIGIBLE"
+
+    evaluation = _evaluate_expectations(results)
+    assert evaluation["all_passed"] is False
+    failing = [c["check"] for c in evaluation["checks"] if c["status"] == "FAIL"]
+    assert "verdict_fields_are_consistent" in failing
+
+
+def test_the_evaluation_detects_a_wrong_reward():
+    """The reward has to be the sum of its own components."""
+    results = _consistent_results("SAFE_RUN")
+    results["vulnerable_target"]["reward"]["score"] = 1.0
+    results["vulnerable_target"]["reward"]["components"]["replay"] = 0.0
+
+    evaluation = _evaluate_expectations(results)
+    assert evaluation["all_passed"] is False
+    failing = [c["check"] for c in evaluation["checks"] if c["status"] == "FAIL"]
+    assert "reward_is_correctly_awarded" in failing
+
+
+def test_the_evaluation_detects_a_state_delta_claim_without_a_snapshot():
+    """``state_delta_verified`` may not be claimed without a real snapshot."""
+    results = _consistent_results("SAFE_RUN")
+    results["vulnerable_target"]["verdict"]["state_delta_verified"] = True
+
+    evaluation = _evaluate_expectations(results)
+    assert evaluation["all_passed"] is False
+    failing = [c["check"] for c in evaluation["checks"] if c["status"] == "FAIL"]
+    assert "state_delta_claim_matches_the_evidence" in failing
+
+
+def test_the_evaluation_detects_a_fallback_static_analysis():
+    """A fallback must never be accepted as the analysis of the run."""
+    results = _consistent_results("SAFE_RUN")
+    results["vulnerable_target"]["stages"]["static_analysis"]["analysis_mode"] = (
+        "fallback_heuristics"
+    )
+
+    evaluation = _evaluate_expectations(results)
+    assert evaluation["all_passed"] is False
+    failing = [c["check"] for c in evaluation["checks"] if c["status"] == "FAIL"]
+    assert "static_analysis_used_the_real_slither" in failing
+
+
+def test_the_evaluation_requires_the_refusal_of_an_unauthorised_call():
+    """A run that does not prove the refusal of a direct call is not complete."""
+    results = _consistent_results("SAFE_RUN")
+    results["unauthorised_audit_contract"] = {
+        "status": "COMPLETED",
+        "error": {"code": "NOT_AUTHORISED"},
+    }
+
+    evaluation = _evaluate_expectations(results)
+    assert evaluation["all_passed"] is False
+    failing = [c["check"] for c in evaluation["checks"] if c["status"] == "FAIL"]
+    assert "unauthorised_call_refused:audit_contract" in failing
+
+
+def test_the_evaluation_requires_the_pinned_compiler_to_be_reported():
+    """The probe has to report the pinned compiler, not a bare `solc`."""
+    results = _consistent_results("SAFE_RUN")
+    results["environment_probe"]["toolchain"]["pinned_solc"]["version_output"] = None
+
+    evaluation = _evaluate_expectations(results)
+    assert evaluation["all_passed"] is False
+    failing = [c["check"] for c in evaluation["checks"] if c["status"] == "FAIL"]
+    assert "pinned_compiler_reported" in failing
 
 
 # ---------------------------------------------------------------------------

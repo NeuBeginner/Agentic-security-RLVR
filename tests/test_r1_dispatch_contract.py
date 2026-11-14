@@ -12,10 +12,11 @@ import ast
 import dataclasses
 import json
 import os
+import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pytest
 
@@ -181,10 +182,44 @@ def _provider_call_sites(path: Path) -> List[Tuple[str, str, str]]:
     return sites
 
 
+def _tracked_python_files() -> Optional[List[Path]]:
+    """
+    The Python files that are part of the repository.
+
+    Only the **tracked** files are scanned: the inventory classifies the
+    provider call sites of *the repository*, and a file that git does not track
+    is a local artefact of the working copy - it is not part of the project and
+    it cannot be classified in the evidence of the repository. A working copy
+    can hold a foreign directory (a local tool, an experiment, an integration
+    of another project), and such a directory must not be able to break the
+    contract of the repository.
+
+    When git cannot be reached the whole tree is scanned, as before.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "ls-files", "-z", "--", "*.py"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    names = [name for name in completed.stdout.split("\0") if name]
+    if not names:
+        return None
+    return sorted(REPO_ROOT / name for name in names)
+
+
 def _scanned_inventory() -> Dict[str, int]:
     """The inventory of the repository, as the scanner sees it."""
     counted: Dict[str, int] = {}
-    for path in sorted(REPO_ROOT.rglob("*.py")):
+    candidates = _tracked_python_files()
+    if candidates is None:
+        candidates = sorted(REPO_ROOT.rglob("*.py"))
+    for path in candidates:
         if any(part in _SKIP_DIRECTORIES for part in path.parts):
             continue
         relative = path.relative_to(REPO_ROOT).as_posix()

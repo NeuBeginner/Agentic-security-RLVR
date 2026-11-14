@@ -62,11 +62,15 @@ The entry point is a Modal **function**, not an HTTP endpoint: an unauthenticate
 public endpoint that compiles and executes untrusted Solidity would be an abuse and
 denial-of-service surface, and the acceptance criteria of this workstream ask for a
 reachable entry point, not for a public web route. The function is reachable from any
-client that holds the Modal credentials of the workspace.
+client that holds the Modal credentials of the workspace - which is exactly why the
+authorisation is enforced **on the server side**: every call must present the shared
+token of the Modal secret of the container, and a call without it is refused before
+any work is done (see :func:`assert_authorised`).
 """
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import re
@@ -89,8 +93,9 @@ from core.schemas import AttackHypothesis, ExploitPayload, TargetProgram
 from sandbox.runner import (  # noqa: E402
     TRUSTED_HARNESS_CONTRACTS,
     is_safe_target_name,
+    resolve_pinned_solc,
     run_payload_in_sandbox,
-    run_slither_analysis,
+    run_slither_analysis_detailed,
     verify_independent_replay_result,
 )
 
@@ -139,6 +144,42 @@ RESULT_SCHEMA_VERSION = "aegis-cpu-audit-result/1.0.0"
 
 #: The schema of the structured result of the environment probe.
 PROBE_SCHEMA_VERSION = "aegis-cpu-audit-probe/1.0.0"
+
+# ---------------------------------------------------------------------------
+# Authorisation
+# ---------------------------------------------------------------------------
+#
+# The authorisation of this service CANNOT live in the caller: every client
+# that holds the credentials of the workspace can reach a Modal function by
+# name. The service therefore keeps the shared token in a Modal **secret**,
+# and every call has to present it. The check happens inside the function,
+# before any work is done - a call without the token never compiles a
+# contract, never starts a container workload and never touches a volume.
+#
+# The secret is created out of band by the maintainer:
+#
+#     modal secret create aegis-cpu-audit-auth AEGIS_CPU_AUDIT_TOKEN=<token>
+#
+# and the token is presented by the caller in the ``auth_token`` field of the
+# request (or as the ``auth_token`` argument of the other two functions).
+
+#: The name of the Modal secret that carries the authorisation token.
+AUTH_SECRET_NAME = "aegis-cpu-audit-auth"
+
+#: The key of the authorisation token inside the secret.
+AUTH_TOKEN_ENV_VAR = "AEGIS_CPU_AUDIT_TOKEN"
+
+#: The shortest token that is accepted. A short token is refused rather than
+#: compared, so a truncated value can never be accepted by accident.
+MIN_AUTH_TOKEN_LENGTH = 32
+
+#: The key of the request field that carries the token.
+AUTH_REQUEST_FIELD = "auth_token"
+
+#: The secret itself. It is resolved by the provider when a container starts;
+#: a missing secret leaves the container without the token, and the service
+#: then refuses every call (fail-closed).
+auth_secret = modal.Secret.from_name(AUTH_SECRET_NAME)
 
 #: Hard input limits. The service is a compiler and an EVM, so the size of everything
 #: it accepts is bounded before anything is executed.
@@ -209,6 +250,78 @@ def log_event(event: str, **fields: Any) -> None:
     }
     record.update(fields)
     print(json.dumps(record, default=str, ensure_ascii=False), flush=True)
+
+
+# ---------------------------------------------------------------------------
+# The authorisation of a call (server side)
+# ---------------------------------------------------------------------------
+
+
+def expected_auth_token() -> Optional[str]:
+    """
+    The token the service expects, read from the secret of the container.
+
+    The value never leaves the container: it is only compared, in constant
+    time, against the token the caller presented.
+    """
+    token = os.environ.get(AUTH_TOKEN_ENV_VAR, "")
+    token = token.strip()
+    return token or None
+
+
+def refuse_unauthorised(call: str, reason: str) -> Dict[str, Any]:
+    """The structured refusal of a call that is not authorised."""
+    log_event("call_refused", call=call, reason=reason)
+    return {
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "status": "UNAUTHORIZED",
+        "error": {
+            "code": "NOT_AUTHORISED",
+            "reason": reason,
+            "call": call,
+        },
+    }
+
+
+def assert_authorised(call: str, presented_token: Any) -> Optional[Dict[str, Any]]:
+    """
+    The authorisation of one call, checked on the server side.
+
+    The check happens BEFORE any work: the caller has to present the token of
+    the Modal secret of the container. A missing, malformed or wrong token is
+    refused with a structured error, and the function returns before it
+    compiles a contract, runs a static analysis, starts an EVM or touches a
+    volume.
+
+    Returns ``None`` when the call is authorised, and the structured refusal
+    otherwise.
+    """
+    expected = expected_auth_token()
+    if not expected:
+        return refuse_unauthorised(
+            call,
+            "the service carries no authorisation token: the Modal secret "
+            f"{AUTH_SECRET_NAME!r} is not mounted into the container, so no "
+            "call can be authorised",
+        )
+    if not isinstance(presented_token, str) or not presented_token.strip():
+        return refuse_unauthorised(
+            call,
+            f"the call carried no {AUTH_REQUEST_FIELD!r}: this service accepts "
+            "only calls that present the shared authorisation token",
+        )
+    if len(presented_token) < MIN_AUTH_TOKEN_LENGTH:
+        return refuse_unauthorised(
+            call,
+            "the presented authorisation token is too short to be a valid token",
+        )
+    if not hmac.compare_digest(presented_token, expected):
+        return refuse_unauthorised(
+            call,
+            "the presented authorisation token does not match the token of the "
+            "service",
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -534,6 +647,76 @@ def _execution_dump(execution: Any) -> Dict[str, Any]:
         return {"raw": str(execution)}
 
 
+def consistency_report(
+    verdict: Any,
+    replay_record: Dict[str, Any],
+    run_id: str,
+) -> Dict[str, Any]:
+    """
+    The self-check of one result.
+
+    Every entry states a fact about the result, computed from the verdict and
+    from the replay record themselves. A reader of the evidence does not have
+    to trust that the fields agree - the report says whether they agree, and
+    ``all_consistent`` is the single answer.
+    """
+    components = dict(verdict.reward_components or {})
+    total = round(sum(components.values()) + float(verdict.reward_penalty), 6)
+    verification = verdict.verification_result
+    evidence = verdict.evidence
+    state_delta = (evidence.state_delta if evidence is not None else {}) or {}
+
+    exploit_confirmed = verdict.category.value == "EXPLOIT_CONFIRMED"
+
+    checks: Dict[str, Any] = {
+        # The reward is always the sum of its own components and its penalty.
+        "reward_total_matches_components": abs(total - float(verdict.reward_score)) < 1e-6,
+        # The replay credit exists exactly when the replay was confirmed.
+        "replay_component_iff_replay_confirmed": (
+            (float(components.get("replay", 0.0)) > 0.0) == bool(verdict.replay_confirmed)
+        ),
+        # A confirmed exploit is only possible with a confirmed independent replay.
+        "exploit_confirmed_requires_confirmed_replay": (
+            not exploit_confirmed
+            or (
+                bool(verdict.replay_confirmed)
+                and verdict.replay_status == "CONFIRMED"
+                and verdict.is_verified
+                and verdict.reproducible
+                and bool(replay_record.get("independent_execution"))
+            )
+        ),
+        # The embedded oracle result agrees with the verdict about the replay.
+        "verification_result_agrees_on_replay": (
+            verification is None
+            or bool(verification.replay_confirmed) == bool(verdict.replay_confirmed)
+        ),
+        # A state delta is only claimed as verified when a real snapshot exists
+        # and the state actually changed.
+        "state_delta_verified_matches_snapshot": (
+            bool(verdict.state_delta_verified)
+            == bool(state_delta.get("has_real_snapshot") and state_delta.get("state_changed"))
+        ),
+        # The verdict belongs to the run that produced the artifact.
+        "verdict_run_id_matches_run": verdict.run_id == run_id,
+        # The verdict never claims more than the harness reported.
+        "no_confirmation_without_trusted_verdict": (
+            not exploit_confirmed or bool(verdict.is_verified)
+        ),
+    }
+
+    return {
+        "checks": checks,
+        "all_consistent": all(bool(value) for value in checks.values()),
+        "breach_evidence_basis": verdict.breach_evidence_basis,
+        "replay_status": verdict.replay_status,
+        "replay_confirmed": bool(verdict.replay_confirmed),
+        "state_delta_verified": bool(verdict.state_delta_verified),
+        "state_delta_has_real_snapshot": bool(state_delta.get("has_real_snapshot")),
+        "state_delta_state_changed": bool(state_delta.get("state_changed")),
+    }
+
+
 # ---------------------------------------------------------------------------
 # The entry points
 # ---------------------------------------------------------------------------
@@ -545,6 +728,7 @@ def _execution_dump(execution: Any) -> Dict[str, Any]:
         MODEL_VOLUME_MOUNT_PATH: model_volume.with_mount_options(read_only=True),
         RESULTS_VOLUME_MOUNT_PATH: results_volume,
     },
+    secrets=[auth_secret],
     **DECLARED_RESOURCES,
 )
 def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
@@ -552,12 +736,25 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
     Audit one Solidity contract on CPU and return the structured result.
 
     The request carries the contract (``target_name`` and ``source_code``), an
-    optional ``run_id``, an optional ``candidate_code`` and an optional
-    ``run_replay`` flag. The result carries the stage-by-stage record, the verdict of
-    the trusted harness, the deterministic reward and the artifact that was stored.
+    optional ``run_id``, an optional ``candidate_code``, an optional
+    ``run_replay`` flag and the ``auth_token`` of the caller. The result
+    carries the stage-by-stage record, the verdict of the trusted harness, the
+    deterministic reward and the artifact that was stored.
     """
     started_monotonic = time.time()
-    log_event("audit_started", request_keys=sorted(request.keys()) if isinstance(request, dict) else None)
+
+    # -- The authorisation, BEFORE any work --------------------------------
+    presented_token = request.get(AUTH_REQUEST_FIELD) if isinstance(request, dict) else None
+    refusal = assert_authorised("audit_contract", presented_token)
+    if refusal is not None:
+        return refusal
+
+    log_event(
+        "audit_started",
+        request_keys=sorted(
+            key for key in request.keys() if key != AUTH_REQUEST_FIELD
+        ) if isinstance(request, dict) else None,
+    )
 
     validation = validate_request(request)
     if not validation.get("ok"):
@@ -571,17 +768,32 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
     # -- Stage 1: static analysis (real Slither, repository fallback) --------
     stage_started = time.time()
     try:
-        findings = run_slither_analysis(target)
-        analysis_error = None
+        analysis = run_slither_analysis_detailed(target)
+        findings = analysis["findings"]
+        analysis_error = analysis.get("error")
     except Exception as exc:  # noqa: BLE001 - the failure is the evidence
         findings = []
-        analysis_error = f"{type(exc).__name__}: {exc}"
+        analysis = {
+            "mode": "unavailable",
+            "engine": "slither (sandbox.runner.run_slither_analysis_detailed)",
+            "findings": [],
+            "finding_count": 0,
+            "detector_count": None,
+            "slither_available": False,
+            "slither_version": None,
+            "slither_exit_code": None,
+            "error": f"{type(exc).__name__}: {exc}",
+            "fallback_reason": None,
+            "solc_version_requested": config.SOLC_VERSION,
+        }
+        analysis_error = analysis["error"]
     target.slither_findings = findings
     log_event(
         "stage_completed",
         stage="static_analysis",
         run_id=run_id,
         target_name=target_name,
+        analysis_mode=analysis.get("mode"),
         finding_count=len(findings),
         findings=[f.get("check") for f in findings if isinstance(f, dict)],
         duration_sec=round(time.time() - stage_started, 3),
@@ -678,16 +890,30 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
     # -- Stage 4: independent replay (fresh EVM) ------------------------------
     replay_record: Dict[str, Any] = {"executed": False}
     replay_confirmed = False
+    replay_error: Optional[str] = None
+    first_execution_id = getattr(getattr(execution, "evidence", None), "execution_id", None)
     if validation["run_replay"]:
         stage_started = time.time()
         try:
             replay = verify_independent_replay_result(target, payload)
+            replay_execution_id = getattr(getattr(replay, "evidence", None), "execution_id", None)
+            # The replay is only independent when it is a DIFFERENT execution.
+            # The identity of the execution (the id of the oracle evidence) is
+            # compared explicitly, so a re-read of the first run can never be
+            # credited as an independent reproduction.
+            if replay_execution_id and first_execution_id:
+                independent = replay_execution_id != first_execution_id
+                independence_basis = "distinct_execution_id"
+            else:
+                independent = False
+                independence_basis = "not_determinable"
             replay_confirmed = (
                 getattr(replay, "harness_verdict", "") == "BREACH"
                 and getattr(replay, "invariant_violated", False)
                 and getattr(replay, "return_code", None) == 0
                 and not getattr(replay, "cheatcode_detected", False)
                 and getattr(getattr(replay, "category", None), "value", None) == "EXPLOIT_CONFIRMED"
+                and independent
             )
             replay_record = {
                 "executed": True,
@@ -702,9 +928,25 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
                 "stdout_byte_length": getattr(replay, "stdout_byte_length", None),
                 "stderr_byte_length": getattr(replay, "stderr_byte_length", None),
                 "duration_sec": round(time.time() - stage_started, 3),
+                # The identity of the replayed execution and its relation to the
+                # first one - the proof that the replay was a second, independent
+                # execution and not a re-read of the first one.
+                "first_execution_id": first_execution_id,
+                "replay_execution_id": replay_execution_id,
+                "independent_execution": bool(independent),
+                "independence_basis": independence_basis,
             }
         except Exception as exc:  # noqa: BLE001 - the failure is the evidence
-            replay_record = {"executed": True, "error": f"{type(exc).__name__}: {exc}"}
+            replay_error = f"{type(exc).__name__}: {exc}"
+            replay_record = {
+                "executed": True,
+                "reproduced": False,
+                "error": replay_error,
+                "first_execution_id": first_execution_id,
+                "replay_execution_id": None,
+                "independent_execution": False,
+                "independence_basis": "not_determinable",
+            }
         log_event(
             "stage_completed",
             stage="replay",
@@ -716,6 +958,9 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
     # The replay is its own evidence: it is a fresh EVM, never a re-read of the
     # first run. Only a confirmed replay raises the verdict to EXPLOIT_CONFIRMED.
     execution.reproducibility_confirmed = bool(replay_confirmed)
+    # A replay that could not be executed at all is an infrastructure failure,
+    # not an unreplayed breach - the evaluator has to know the difference.
+    execution.replay_error = replay_error
 
     # -- Stage 5: the deterministic verdict and reward -------------------------
     stage_started = time.time()
@@ -728,6 +973,7 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
         reward_score=verdict.reward_score,
         is_verified=verdict.is_verified,
         reproducible=verdict.reproducible,
+        replay_status=verdict.replay_status,
         duration_sec=round(time.time() - stage_started, 3),
     )
 
@@ -739,14 +985,22 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
         "target_name": target_name,
         "stages": {
             "static_analysis": {
-                "engine": "slither (sandbox.runner.run_slither_analysis)",
+                "engine": analysis.get("engine"),
+                "analysis_mode": analysis.get("mode"),
+                "slither_available": analysis.get("slither_available"),
+                "slither_version": analysis.get("slither_version"),
+                "slither_exit_code": analysis.get("slither_exit_code"),
+                "detector_count": analysis.get("detector_count"),
+                "fallback_reason": analysis.get("fallback_reason"),
                 "finding_count": len(findings),
                 "findings": findings,
                 "error": analysis_error,
                 "note": (
-                    "The findings are the real output of the repository's static analysis "
-                    "stage, including its deterministic fallback heuristics when Slither "
-                    "cannot run."
+                    "The findings are the output of the repository's static analysis "
+                    "stage. `analysis_mode` states where they come from: 'slither' is "
+                    "the real detector, 'fallback_heuristics' are the deterministic "
+                    "heuristics of this repository and are never presented as an "
+                    "analysis result."
                 ),
             },
             "hypothesis": hypothesis_record,
@@ -768,7 +1022,10 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
             "spec_version": verdict.reward_spec_version,
             "is_verified": verdict.is_verified,
             "reproducible": verdict.reproducible,
+            "replay_status": verdict.replay_status,
+            "replay_confirmed": verdict.replay_confirmed,
         },
+        "consistency": consistency_report(verdict, replay_record, run_id),
         "environment": observed_runtime_facts(),
         "declared_resources": DECLARED_RESOURCES,
         "timings": {"total_sec": round(time.time() - started_monotonic, 3)},
@@ -794,15 +1051,24 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
         MODEL_VOLUME_MOUNT_PATH: model_volume.with_mount_options(read_only=True),
         RESULTS_VOLUME_MOUNT_PATH: results_volume,
     },
+    secrets=[auth_secret],
     **DECLARED_RESOURCES,
 )
-def read_saved_result(run_id: str) -> Dict[str, Any]:
+def read_saved_result(run_id: str, auth_token: str = "") -> Dict[str, Any]:
     """
     Read back a stored audit result from the dedicated results volume.
 
     This is a **separate invocation**: it proves that the artifact survives the
     container that produced it, not only the write buffer of that container.
+
+    The call has to present the authorisation token of the service, exactly
+    like ``audit_contract`` does: the refusal happens before the volume is
+    touched.
     """
+    refusal = assert_authorised("read_saved_result", auth_token)
+    if refusal is not None:
+        return refusal
+
     if not isinstance(run_id, str) or not _RUN_ID_RE.match(run_id):
         return {
             "schema_version": PROBE_SCHEMA_VERSION,
@@ -855,16 +1121,25 @@ def read_saved_result(run_id: str) -> Dict[str, Any]:
         MODEL_VOLUME_MOUNT_PATH: model_volume.with_mount_options(read_only=True),
         RESULTS_VOLUME_MOUNT_PATH: results_volume,
     },
+    secrets=[auth_secret],
     **DECLARED_RESOURCES,
 )
-def probe_environment() -> Dict[str, Any]:
+def probe_environment(auth_token: str = "") -> Dict[str, Any]:
     """
     Probe the environment of the service: the volumes, the toolchain and the GPU state.
 
     The probe is the evidence of stage 3 of the integration: the model cache is
     reachable and readable, the read-only mount is real, the results volume is
     writable and the container has no GPU.
+
+    The probe is a reachable entry point like every other function of this
+    service, so it is authorised the same way: a call without the token is
+    refused before the probe reads anything.
     """
+    refusal = assert_authorised("probe_environment", auth_token)
+    if refusal is not None:
+        return refusal
+
     probe: Dict[str, Any] = {
         "schema_version": PROBE_SCHEMA_VERSION,
         "status": "COMPLETED",
@@ -989,6 +1264,65 @@ def probe_environment() -> Dict[str, Any]:
             toolchain[tool] = (completed.stdout or completed.stderr or "").strip()[:200]
         except (OSError, subprocess.SubprocessError) as exc:
             toolchain[tool] = f"NOT_AVAILABLE: {type(exc).__name__}: {exc}"
+
+    # The `solc` on the PATH is the **solc-select shim**, not a compiler: it
+    # reports a traceback when no version is selected for the shell. That is a
+    # property of the shim, not a missing compiler, so the probe says so
+    # explicitly instead of leaving a traceback in the evidence.
+    solc_entry = toolchain.get("solc", "")
+    if "solc_select" in solc_entry or "solc-select" in solc_entry:
+        toolchain["solc"] = (
+            "the `solc` on the PATH is the solc-select shim; it needs an active "
+            "version selection and therefore prints a traceback instead of a "
+            "version. The compiler that the service actually uses is reported "
+            "below as `pinned_solc`."
+        )
+        toolchain["solc_on_path_is_a_shim"] = True
+
+    # The versions that solc-select has installed in this container.
+    try:
+        completed = subprocess.run(
+            ["solc-select", "versions"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        toolchain["solc_select_versions"] = (
+            completed.stdout or completed.stderr or ""
+        ).strip()[:400]
+    except (OSError, subprocess.SubprocessError) as exc:
+        toolchain["solc_select_versions"] = f"NOT_AVAILABLE: {type(exc).__name__}: {exc}"
+
+    # The pinned compiler is NOT on the PATH of the container: the image bakes
+    # the verified binaries into the Foundry (svm) and the solc-select
+    # locations. A probe that asks a bare `solc` therefore reports a false
+    # negative, so the real binary is looked up and asked for its version.
+    pinned_solc = resolve_pinned_solc()
+    pinned_solc_entry: Dict[str, Any] = {
+        "requested_version": config.SOLC_VERSION,
+        "path": pinned_solc,
+        "version_output": None,
+        "error": None,
+    }
+    if pinned_solc:
+        try:
+            completed = subprocess.run(
+                [pinned_solc, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            pinned_solc_entry["version_output"] = (
+                completed.stdout or completed.stderr or ""
+            ).strip()[:200]
+        except (OSError, subprocess.SubprocessError) as exc:
+            pinned_solc_entry["error"] = f"{type(exc).__name__}: {exc}"
+    else:
+        pinned_solc_entry["error"] = (
+            "the pinned compiler was not found in the svm and solc-select "
+            "locations of the container"
+        )
+    toolchain["pinned_solc"] = pinned_solc_entry
     probe["toolchain"] = toolchain
 
     log_event(

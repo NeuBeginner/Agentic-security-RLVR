@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import tempfile
 import time
+from typing import Any, Dict, Optional
+
 import modal
 from core.schemas import ExploitPayload, ExecutionResult, TargetProgram, ResultCategory
 from core.config import config
@@ -592,45 +594,40 @@ def parse_forge_output(output_text: str):
     return structured_data, test_status, revert_reason, decoded_logs
 
 
-def run_slither_analysis(target: TargetProgram) -> list:
+def resolve_pinned_solc(version: str = None) -> Optional[str]:
     """
-    Executes Slither AST / taint analysis on the target contract.
-    Returns structured list of static vulnerability warnings to prime reasoning models.
+    Resolve the pinned Solidity compiler of the image.
+
+    The compiler is NOT on the PATH of the container: the image pre-bakes the
+    verified binaries into the Foundry (svm) and the solc-select locations. A
+    probe that asks a bare ``solc`` therefore reports a false negative, so the
+    real binary is looked up in the places where it is actually installed.
+
+    Returns the absolute path of the binary, or ``None`` when the pinned
+    compiler is not installed.
     """
-    if not is_safe_target_name(target.name):
-        return []
-    with tempfile.TemporaryDirectory() as tmpdir:
-        src_dir = os.path.join(tmpdir, "src")
-        os.makedirs(src_dir, exist_ok=True)
-        
-        target_path = os.path.join(src_dir, f"{target.name}.sol")
-        with open(target_path, "w", encoding="utf-8") as f:
-            f.write(target.source_code)
-            
-        json_out = os.path.join(tmpdir, "slither.json")
-        cmd = ["slither", target_path, "--json", json_out, "--solc-solcs-select", config.SOLC_VERSION]
-        
-        try:
-            run_subprocess_capped(cmd, cwd=tmpdir, env=os.environ.copy(), timeout=30)
-            if os.path.exists(json_out):
-                with open(json_out, "r", encoding="utf-8") as jf:
-                    data = json.load(jf)
-                    results = data.get("results", {}).get("detectors", [])
-                    extracted = []
-                    for det in results[:5]:  # Top 5 most critical detectors
-                        extracted.append({
-                            "check": det.get("check"),
-                            "impact": det.get("impact"),
-                            "confidence": det.get("confidence"),
-                            "description": det.get("description", "")[:200]
-                        })
-                    return extracted
-        except Exception:
-            pass
-            
-    # Fallback AST heuristic detection if Slither binary is offline
+    wanted = version or config.SOLC_VERSION
+    home = os.path.expanduser("~")
+    candidates = [
+        os.path.join(home, ".svm", wanted, f"solc-{wanted}"),
+        os.path.join(home, ".solc-select", "artifacts", f"solc-{wanted}", f"solc-{wanted}"),
+        shutil.which("solc"),
+    ]
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _slither_fallback_findings(source_code: str) -> list:
+    """
+    The deterministic fallback heuristics of this repository.
+
+    These are NOT the output of the Slither detectors. They are used only when
+    Slither cannot run, and every caller that reports them says so explicitly.
+    """
     fallback_detectors = []
-    src_lower = target.source_code.lower()
+    src_lower = source_code.lower()
     if ".call{value:" in src_lower and "balances[" in src_lower:
         fallback_detectors.append({
             "check": "reentrancy-eth",
@@ -646,6 +643,127 @@ def run_slither_analysis(target: TargetProgram) -> list:
             "description": "Exchange rate share division susceptible to first-depositor inflation attack."
         })
     return fallback_detectors
+
+
+def run_slither_analysis_detailed(target: TargetProgram, include_version: bool = True) -> dict:
+    """
+    Run the static analysis and report WHERE the findings come from.
+
+    The result always states whether the findings are the output of the real
+    Slither detectors (``mode == "slither"``) or of the deterministic fallback
+    heuristics of this repository (``mode == "fallback_heuristics"``). A
+    fallback is never presented as an analysis result, and the reason for the
+    fallback is part of the result.
+
+    The shape of the result::
+
+        {
+            "mode": "slither" | "fallback_heuristics" | "refused",
+            "engine": "slither (sandbox.runner.run_slither_analysis)",
+            "findings": [...],
+            "finding_count": int,
+            "detector_count": int | None,
+            "slither_available": bool,
+            "slither_version": str | None,
+            "slither_exit_code": int | None,
+            "error": str | None,
+            "fallback_reason": str | None,
+            "solc_version_requested": str,
+        }
+    """
+    record: Dict[str, Any] = {
+        "mode": "unavailable",
+        "engine": "slither (sandbox.runner.run_slither_analysis)",
+        "findings": [],
+        "finding_count": 0,
+        "detector_count": None,
+        "slither_available": False,
+        "slither_version": None,
+        "slither_exit_code": None,
+        "error": None,
+        "fallback_reason": None,
+        "solc_version_requested": config.SOLC_VERSION,
+    }
+
+    if not is_safe_target_name(target.name):
+        record["mode"] = "refused"
+        record["error"] = "the target name is not a safe Solidity identifier"
+        return record
+
+    if include_version:
+        try:
+            version_proc = run_subprocess_capped(
+                ["slither", "--version"],
+                cwd=os.getcwd(),
+                env=os.environ.copy(),
+                timeout=30,
+            )
+            version_text = (version_proc.stdout or version_proc.stderr or "").strip()
+            record["slither_version"] = version_text.splitlines()[0][:200] if version_text else None
+            record["slither_available"] = version_proc.returncode == 0
+        except Exception as exc:  # noqa: BLE001 - the failure is the evidence
+            record["error"] = f"{type(exc).__name__}: {exc}"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        src_dir = os.path.join(tmpdir, "src")
+        os.makedirs(src_dir, exist_ok=True)
+
+        target_path = os.path.join(src_dir, f"{target.name}.sol")
+        with open(target_path, "w", encoding="utf-8") as f:
+            f.write(target.source_code)
+
+        json_out = os.path.join(tmpdir, "slither.json")
+        cmd = ["slither", target_path, "--json", json_out, "--solc-solcs-select", config.SOLC_VERSION]
+
+        try:
+            completed = run_subprocess_capped(cmd, cwd=tmpdir, env=os.environ.copy(), timeout=30)
+            record["slither_exit_code"] = completed.returncode
+            if os.path.exists(json_out):
+                with open(json_out, "r", encoding="utf-8") as jf:
+                    data = json.load(jf)
+                    detectors = data.get("results", {}).get("detectors", [])
+                    extracted = []
+                    for det in detectors[:5]:  # Top 5 most critical detectors
+                        extracted.append({
+                            "check": det.get("check"),
+                            "impact": det.get("impact"),
+                            "confidence": det.get("confidence"),
+                            "description": det.get("description", "")[:200]
+                        })
+                    record["mode"] = "slither"
+                    record["findings"] = extracted
+                    record["finding_count"] = len(extracted)
+                    record["detector_count"] = len(detectors)
+                    record["slither_available"] = True
+                    return record
+            record["error"] = (
+                "slither produced no JSON report "
+                f"(exit code {completed.returncode}): "
+                f"{(completed.stderr or completed.stdout or '').strip()[:400]}"
+            )
+        except Exception as exc:  # noqa: BLE001 - the failure is the evidence
+            record["error"] = f"{type(exc).__name__}: {exc}"
+
+    # Fallback AST heuristic detection if Slither binary is offline. The mode
+    # says so explicitly - the fallback is never passed off as an analysis.
+    record["mode"] = "fallback_heuristics"
+    record["fallback_reason"] = record["error"] or "slither produced no report"
+    record["findings"] = _slither_fallback_findings(target.source_code)
+    record["finding_count"] = len(record["findings"])
+    return record
+
+
+def run_slither_analysis(target: TargetProgram) -> list:
+    """
+    Executes Slither AST / taint analysis on the target contract.
+    Returns structured list of static vulnerability warnings to prime reasoning models.
+
+    The findings are the output of the real Slither detectors when Slither can
+    run, and the deterministic fallback heuristics of this repository otherwise.
+    Callers that report the findings use ``run_slither_analysis_detailed`` so
+    that the provenance of the findings is part of the evidence.
+    """
+    return run_slither_analysis_detailed(target, include_version=False)["findings"]
 
 
 def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> ExecutionResult:

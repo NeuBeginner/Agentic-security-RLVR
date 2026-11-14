@@ -33,10 +33,20 @@ given out of band (the technical assignment of this workstream). The refusal hap
 **before** the application is imported and before anything of this run touches the
 provider, so a refused run reaches neither the control plane nor a container.
 
+The service itself is authorised **on the server side**: every call has to present
+the shared token of the Modal secret ``aegis-cpu-audit-auth``. The driver reads that
+token from its own environment (``AEGIS_CPU_AUDIT_TOKEN``) and presents it with every
+call. A direct call without the token is refused by the service before it does any
+work - the local approval of the driver is not, and never was, the authorisation of
+the service.
+
 Usage::
 
     # one-off authorisation of this run
     $env:AEGIS_APPROVE_CPU_AUDIT = "1"
+
+    # the token of the Modal secret of the service
+    $env:AEGIS_CPU_AUDIT_TOKEN = "<the token of the secret aegis-cpu-audit-auth>"
 
     # deploy the CPU application
     modal deploy modal_cpu_audit_app.py --profile neubeginner
@@ -73,6 +83,11 @@ APPROVAL_ENV_VAR = "AEGIS_APPROVE_CPU_AUDIT"
 #: The values the approval variable may carry.
 APPROVAL_VALUES = ("1", "true", "yes")
 
+#: The environment variable that carries the shared authorisation token of the
+#: service. The token lives in the Modal secret ``aegis-cpu-audit-auth`` and is
+#: presented with every call - the service checks it on its own side.
+AUTH_TOKEN_ENV_VAR = "AEGIS_CPU_AUDIT_TOKEN"
+
 #: The name of the Modal application under test.
 APP_NAME = "aegis-rlvr-cpu-audit"
 
@@ -102,6 +117,52 @@ def _assert_authorised() -> None:
         "dispatch envelope, and the R1 dispatch gate therefore cannot authorise it. "
         f"Set {APPROVAL_ENV_VAR}=1 only with an explicit maintainer approval."
     )
+
+
+def _token_from_env_file() -> str:
+    """
+    The token of the service from the local ``.env`` file, when there is one.
+
+    The file is excluded from git, so the token of the service never reaches
+    the repository. The environment variable wins over the file.
+    """
+    env_path = _ROOT / ".env"
+    if not env_path.is_file():
+        return ""
+    try:
+        # ``utf-8-sig`` tolerates the byte order mark that Windows editors
+        # write - without it the very first key of the file would be
+        # unrecognisable.
+        content = env_path.read_text(encoding="utf-8-sig")
+    except OSError:
+        return ""
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith(f"{AUTH_TOKEN_ENV_VAR}="):
+            return stripped.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+def _auth_token() -> str:
+    """
+    The shared authorisation token of the service.
+
+    The token is presented with every call. Without it the service refuses the
+    call on its own side, so the driver refuses to start instead of burning a
+    container on a call that is bound to be refused.
+    """
+    token = os.environ.get(AUTH_TOKEN_ENV_VAR, "").strip() or _token_from_env_file()
+    if not token:
+        raise AuditNotAuthorised(
+            "the live CPU-only audit invocation is refused: the shared authorisation "
+            f"token of the service is missing. Set {AUTH_TOKEN_ENV_VAR} (or put it "
+            "into the local .env file) to the token of the Modal secret "
+            "aegis-cpu-audit-auth - without it every call to the service is refused "
+            "on the server side."
+        )
+    return token
 
 
 def _utc_now() -> str:
@@ -173,12 +234,16 @@ async def _run_deployed_suite(run_id: str) -> Dict[str, Any]:
     probe_environment = modal.Function.from_name(APP_NAME, "probe_environment")
     read_saved_result = modal.Function.from_name(APP_NAME, "read_saved_result")
 
+    # The authorisation of the service is checked on the server side: the token
+    # of the Modal secret travels with every call.
+    token = _auth_token()
+
     vault_source = _read_target_source("benchmarks/targets/solidity/Vault.sol")
     control_source = _read_target_source("benchmarks/targets/solidity/controls/SecureVault.sol")
 
     results: Dict[str, Any] = {}
 
-    results["environment_probe"] = await probe_environment.remote.aio()
+    results["environment_probe"] = await probe_environment.remote.aio(token)
 
     results["vulnerable_target"] = await audit_contract.remote.aio(
         {
@@ -186,6 +251,7 @@ async def _run_deployed_suite(run_id: str) -> Dict[str, Any]:
             "source_code": vault_source,
             "run_id": f"{run_id}-vault",
             "run_replay": True,
+            "auth_token": token,
         }
     )
 
@@ -195,6 +261,7 @@ async def _run_deployed_suite(run_id: str) -> Dict[str, Any]:
             "source_code": control_source,
             "run_id": f"{run_id}-control",
             "run_replay": True,
+            "auth_token": token,
         }
     )
 
@@ -203,12 +270,30 @@ async def _run_deployed_suite(run_id: str) -> Dict[str, Any]:
             "target_name": "NotAllowlisted",
             "source_code": "contract Whatever { function f() public {} }",
             "run_id": f"{run_id}-invalid",
+            "auth_token": token,
         }
     )
 
     # The read-back happens in a separate invocation: a container that did not
     # produce the artifact reads it back from the volume.
-    results["read_back"] = await read_saved_result.remote.aio(f"{run_id}-vault")
+    results["read_back"] = await read_saved_result.remote.aio(f"{run_id}-vault", token)
+
+    # -- the authorisation of the service, proven by a DIRECT call ------------
+    # The three public functions are called WITHOUT the token. The service has
+    # to refuse every one of them, and it has to refuse them before it does
+    # any work. This is the evidence that the authorisation does not depend on
+    # the local environment of the driver.
+    results["unauthorised_audit_contract"] = await audit_contract.remote.aio(
+        {
+            "target_name": "Vault",
+            "source_code": vault_source,
+            "run_id": f"{run_id}-unauthorised",
+        }
+    )
+    results["unauthorised_probe_environment"] = await probe_environment.remote.aio("")
+    results["unauthorised_read_saved_result"] = await read_saved_result.remote.aio(
+        f"{run_id}-vault", "not-the-token"
+    )
 
     return results
 
@@ -217,19 +302,21 @@ async def _run_ephemeral_suite(run_id: str) -> Dict[str, Any]:
     """Run the same suite against an ephemeral (not deployed) application."""
     from modal_cpu_audit_app import app, audit_contract, probe_environment, read_saved_result
 
+    token = _auth_token()
     vault_source = _read_target_source("benchmarks/targets/solidity/Vault.sol")
     control_source = _read_target_source("benchmarks/targets/solidity/controls/SecureVault.sol")
 
     results: Dict[str, Any] = {}
     async with app.run():
         results["app_id"] = app.app_id
-        results["environment_probe"] = await probe_environment.remote.aio()
+        results["environment_probe"] = await probe_environment.remote.aio(token)
         results["vulnerable_target"] = await audit_contract.remote.aio(
             {
                 "target_name": "Vault",
                 "source_code": vault_source,
                 "run_id": f"{run_id}-vault",
                 "run_replay": True,
+                "auth_token": token,
             }
         )
         results["safe_control"] = await audit_contract.remote.aio(
@@ -238,6 +325,7 @@ async def _run_ephemeral_suite(run_id: str) -> Dict[str, Any]:
                 "source_code": control_source,
                 "run_id": f"{run_id}-control",
                 "run_replay": True,
+                "auth_token": token,
             }
         )
         results["invalid_contract"] = await audit_contract.remote.aio(
@@ -245,9 +333,23 @@ async def _run_ephemeral_suite(run_id: str) -> Dict[str, Any]:
                 "target_name": "NotAllowlisted",
                 "source_code": "contract Whatever { function f() public {} }",
                 "run_id": f"{run_id}-invalid",
+                "auth_token": token,
             }
         )
-        results["read_back"] = await read_saved_result.remote.aio(f"{run_id}-vault")
+        results["read_back"] = await read_saved_result.remote.aio(f"{run_id}-vault", token)
+
+        # -- the authorisation of the service, proven by a DIRECT call --------
+        results["unauthorised_audit_contract"] = await audit_contract.remote.aio(
+            {
+                "target_name": "Vault",
+                "source_code": vault_source,
+                "run_id": f"{run_id}-unauthorised",
+            }
+        )
+        results["unauthorised_probe_environment"] = await probe_environment.remote.aio("")
+        results["unauthorised_read_saved_result"] = await read_saved_result.remote.aio(
+            f"{run_id}-vault", "not-the-token"
+        )
     return results
 
 
@@ -332,7 +434,11 @@ def _evaluate_expectations(results: Dict[str, Any]) -> Dict[str, Any]:
     Check the recorded results against the expectations of the test.
 
     Every expectation is either met, violated or unobservable - never silently
-    "passed".
+    "passed". The checks look at the evidence itself, not at a summary flag: a
+    result is only accepted when the first execution really ran, the replay
+    really was a second and independent execution, the trusted verdict of the
+    two runs agrees, the reward is the sum of its own components and every
+    field of the result tells the same story.
     """
     checks: List[Dict[str, Any]] = []
 
@@ -345,6 +451,7 @@ def _evaluate_expectations(results: Dict[str, Any]) -> Dict[str, Any]:
             }
         )
 
+    # -- the environment ------------------------------------------------------
     probe = results.get("environment_probe") or {}
     cache = probe.get("model_cache") or {}
     write_probe = (cache.get("write_probe") or {}).get("result")
@@ -358,53 +465,235 @@ def _evaluate_expectations(results: Dict[str, Any]) -> Dict[str, Any]:
         bool(cache.get("readable_files")),
         f"{len(cache.get('readable_files') or [])} file(s) of the cache were read",
     )
+    runtime = probe.get("runtime") or {}
     check(
         "no_gpu_in_container",
-        probe.get("runtime", {}).get("gpu_device_exposed") is False,
-        f"nvidia device nodes: {probe.get('runtime', {}).get('nvidia_device_nodes')}",
+        runtime.get("gpu_device_exposed") is False,
+        f"nvidia device nodes: {runtime.get('nvidia_device_nodes')}",
+    )
+    check(
+        "no_gpu_requested_by_the_service",
+        (probe.get("declared_resources") or {}).get("gpu") is None,
+        f"declared gpu: {(probe.get('declared_resources') or {}).get('gpu')!r}",
+    )
+    pinned_solc = (probe.get("toolchain") or {}).get("pinned_solc") or {}
+    check(
+        "pinned_compiler_reported",
+        bool(pinned_solc.get("version_output")),
+        f"the pinned compiler {pinned_solc.get('requested_version')!r} reported: "
+        f"{pinned_solc.get('version_output')!r} ({pinned_solc.get('error')!r})",
+    )
+    solc_entry = str((probe.get("toolchain") or {}).get("solc", ""))
+    check(
+        "the_bare_solc_entry_is_explained",
+        "Traceback" not in solc_entry,
+        f"the `solc` on the PATH reported: {solc_entry!r}",
     )
 
+    # -- the vulnerable target ------------------------------------------------
     vulnerable = results.get("vulnerable_target") or {}
     verdict = vulnerable.get("verdict") or {}
+    stages = vulnerable.get("stages") or {}
+    execution = (stages.get("verification") or {}).get("execution") or {}
+    replay = stages.get("replay") or {}
+    verification_result = verdict.get("verification_result") or {}
+
     check(
         "vulnerable_target_executed",
         vulnerable.get("status") == "COMPLETED",
         f"status={vulnerable.get('status')!r}",
     )
+
+    # The FIRST Foundry run has to have really happened: the trusted harness
+    # ran, the suite passed and the harness itself reported the breach.
+    check(
+        "first_foundry_run_succeeded",
+        (
+            execution.get("return_code") == 0
+            and execution.get("test_status") == "Success"
+            and bool(execution.get("harness_suite"))
+            and execution.get("harness_verdict") == "BREACH"
+        ),
+        f"return_code={execution.get('return_code')!r}, "
+        f"test_status={execution.get('test_status')!r}, "
+        f"harness_verdict={execution.get('harness_verdict')!r}, "
+        f"harness_suite={execution.get('harness_suite')!r}",
+    )
+
+    # The replay has to be a SECOND and independent execution, not a re-read
+    # of the first one.
+    check(
+        "independent_replay_executed",
+        (
+            replay.get("executed") is True
+            and replay.get("independent_execution") is True
+            and bool(replay.get("first_execution_id"))
+            and replay.get("first_execution_id") != replay.get("replay_execution_id")
+        ),
+        f"executed={replay.get('executed')!r}, "
+        f"independent_execution={replay.get('independent_execution')!r}, "
+        f"basis={replay.get('independence_basis')!r}, "
+        f"first_execution_id={replay.get('first_execution_id')!r}, "
+        f"replay_execution_id={replay.get('replay_execution_id')!r}",
+    )
+
+    check(
+        "replay_reproduced_the_breach",
+        (
+            replay.get("reproduced") is True
+            and replay.get("harness_verdict") == "BREACH"
+            and replay.get("return_code") == 0
+        ),
+        f"reproduced={replay.get('reproduced')!r}, "
+        f"harness_verdict={replay.get('harness_verdict')!r}, "
+        f"return_code={replay.get('return_code')!r}",
+    )
+
+    # The trusted verdict of the first run and of the replay have to agree, and
+    # they have to agree with the verdict of the service.
+    check(
+        "trusted_verdict_matches_across_both_runs",
+        (
+            execution.get("harness_verdict") == "BREACH"
+            and replay.get("harness_verdict") == execution.get("harness_verdict")
+            and verdict.get("category") == "EXPLOIT_CONFIRMED"
+        ),
+        f"first={execution.get('harness_verdict')!r}, "
+        f"replay={replay.get('harness_verdict')!r}, "
+        f"category={verdict.get('category')!r}",
+    )
+
     check(
         "vulnerable_target_breach_confirmed",
         verdict.get("category") == "EXPLOIT_CONFIRMED",
         f"category={verdict.get('category')!r}, reward={verdict.get('reward_score')!r}",
     )
+
+    # Every field of the verdict has to tell the same story.
     check(
-        "vulnerable_target_replayed",
-        verdict.get("reproducible") is True,
-        f"reproducible={verdict.get('reproducible')!r}",
+        "verdict_fields_are_consistent",
+        (
+            verdict.get("is_verified") is True
+            and verdict.get("reproducible") is True
+            and verdict.get("replay_status") == "CONFIRMED"
+            and verdict.get("replay_confirmed") is True
+            and verification_result.get("replay_confirmed") is True
+            and verification_result.get("confidence_status") == "CONFIRMED"
+        ),
+        f"is_verified={verdict.get('is_verified')!r}, "
+        f"reproducible={verdict.get('reproducible')!r}, "
+        f"replay_status={verdict.get('replay_status')!r}, "
+        f"replay_confirmed={verdict.get('replay_confirmed')!r}, "
+        f"verification_result.replay_confirmed="
+        f"{verification_result.get('replay_confirmed')!r}, "
+        f"verification_result.confidence_status="
+        f"{verification_result.get('confidence_status')!r}",
+    )
+
+    # The state delta may only be claimed as verified when a real snapshot
+    # exists and the state changed; otherwise the basis of the breach has to be
+    # named explicitly.
+    state_delta = ((verdict.get("evidence") or {}).get("state_delta")) or {}
+    check(
+        "state_delta_claim_matches_the_evidence",
+        (
+            bool(verdict.get("state_delta_verified"))
+            == bool(state_delta.get("has_real_snapshot") and state_delta.get("state_changed"))
+            and (
+                verdict.get("state_delta_verified") is True
+                or verdict.get("breach_evidence_basis") in ("trusted_harness_event", "none")
+            )
+        ),
+        f"state_delta_verified={verdict.get('state_delta_verified')!r}, "
+        f"has_real_snapshot={state_delta.get('has_real_snapshot')!r}, "
+        f"state_changed={state_delta.get('state_changed')!r}, "
+        f"breach_evidence_basis={verdict.get('breach_evidence_basis')!r}",
+    )
+
+    # The reward has to be the sum of its own components, and the replay credit
+    # may only be there when the replay was confirmed.
+    reward = vulnerable.get("reward") or {}
+    components = reward.get("components") or {}
+    component_total = round(
+        sum(float(value) for value in components.values()) + float(reward.get("penalty", 0.0)), 6
     )
     check(
-        "static_analysis_executed",
-        bool((vulnerable.get("stages", {}).get("static_analysis") or {}).get("finding_count")),
-        f"findings={(vulnerable.get('stages', {}).get('static_analysis') or {}).get('finding_count')!r}",
+        "reward_is_correctly_awarded",
+        (
+            float(reward.get("score", 0.0)) == 1.0
+            and abs(component_total - float(reward.get("score", 0.0))) < 1e-6
+            and float(components.get("replay", 0.0)) > 0.0
+            and verdict.get("replay_confirmed") is True
+        ),
+        f"score={reward.get('score')!r}, components={components!r}, "
+        f"penalty={reward.get('penalty')!r}, sum={component_total!r}",
+    )
+
+    consistency = vulnerable.get("consistency") or {}
+    check(
+        "result_is_internally_consistent",
+        consistency.get("all_consistent") is True,
+        f"the self-check of the service reports: {consistency.get('checks')!r}",
+    )
+
+    analysis = stages.get("static_analysis") or {}
+    check(
+        "static_analysis_provenance_is_reported",
+        analysis.get("analysis_mode") in ("slither", "fallback_heuristics", "unavailable"),
+        f"analysis_mode={analysis.get('analysis_mode')!r}, "
+        f"slither_version={analysis.get('slither_version')!r}",
+    )
+    check(
+        "static_analysis_used_the_real_slither",
+        analysis.get("analysis_mode") == "slither",
+        f"analysis_mode={analysis.get('analysis_mode')!r}, "
+        f"fallback_reason={analysis.get('fallback_reason')!r}",
+    )
+    check(
+        "static_analysis_produced_findings",
+        bool(analysis.get("finding_count")),
+        f"findings={analysis.get('finding_count')!r}",
     )
     check(
         "hypothesis_derived",
-        bool((vulnerable.get("stages", {}).get("hypothesis") or {}).get("count")),
-        f"hypotheses={(vulnerable.get('stages', {}).get('hypothesis') or {}).get('count')!r}",
+        bool((stages.get("hypothesis") or {}).get("count")),
+        f"hypotheses={(stages.get('hypothesis') or {}).get('count')!r}",
     )
 
+    # -- the safe control -----------------------------------------------------
     control = results.get("safe_control") or {}
     control_verdict = control.get("verdict") or {}
+    control_replay = (control.get("stages") or {}).get("replay") or {}
     check(
         "safe_control_not_confirmed",
-        control_verdict.get("category") != "EXPLOIT_CONFIRMED",
-        f"category={control_verdict.get('category')!r}",
+        control_verdict.get("category") != "EXPLOIT_CONFIRMED"
+        and control_verdict.get("is_verified") is not True,
+        f"category={control_verdict.get('category')!r}, "
+        f"is_verified={control_verdict.get('is_verified')!r}, "
+        f"reward={control_verdict.get('reward_score')!r}",
     )
     check(
         "safe_control_executed",
         control.get("status") == "COMPLETED",
         f"status={control.get('status')!r}",
     )
+    check(
+        "safe_control_replay_confirmed_no_breach",
+        control_replay.get("executed") is True
+        and control_replay.get("reproduced") is False
+        and control_replay.get("harness_verdict") == "NO_BREACH",
+        f"executed={control_replay.get('executed')!r}, "
+        f"reproduced={control_replay.get('reproduced')!r}, "
+        f"harness_verdict={control_replay.get('harness_verdict')!r}",
+    )
+    check(
+        "safe_control_result_is_internally_consistent",
+        (control.get("consistency") or {}).get("all_consistent") is True,
+        f"the self-check of the service reports: "
+        f"{(control.get('consistency') or {}).get('checks')!r}",
+    )
 
+    # -- the refusal and the read-back ---------------------------------------
     invalid = results.get("invalid_contract") or {}
     check(
         "invalid_contract_rejected",
@@ -418,6 +707,20 @@ def _evaluate_expectations(results: Dict[str, Any]) -> Dict[str, Any]:
         read_back.get("status") == "READ_BACK" and read_back.get("parsed") is True,
         f"status={read_back.get('status')!r}, parsed={read_back.get('parsed')!r}",
     )
+
+    # -- the authorisation of the service ------------------------------------
+    for key, call in (
+        ("unauthorised_audit_contract", "audit_contract"),
+        ("unauthorised_probe_environment", "probe_environment"),
+        ("unauthorised_read_saved_result", "read_saved_result"),
+    ):
+        refused = results.get(key) or {}
+        error = refused.get("error") or {}
+        check(
+            f"unauthorised_call_refused:{call}",
+            refused.get("status") == "UNAUTHORIZED" and error.get("code") == "NOT_AUTHORISED",
+            f"status={refused.get('status')!r}, code={error.get('code')!r}",
+        )
 
     return {
         "checks": checks,
