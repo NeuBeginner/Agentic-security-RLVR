@@ -445,6 +445,22 @@ def _decode_b64(value: Optional[str]) -> Optional[bytes]:
         return None
 
 
+def build_api_hypothesis(target_prog):
+    """Build the API-backed Baseline 5 hypothesis using the canonical manager."""
+    from core.hypothesis_manager import HypothesisManager
+    from core.schemas import AttackHypothesis
+
+    manager = HypothesisManager(target_prog)
+    hypotheses = manager.ingest_slither_findings()
+    if hypotheses:
+        return manager.to_attack_hypothesis(hypotheses[0])
+    return AttackHypothesis(
+        vulnerability_type="SecurityAudit",
+        reasoning_trace="No Slither finding supplied; inspect the target source and stated invariants.",
+        attack_vector="Analyze externally callable state-changing functions and attempt to violate a stated invariant.",
+    )
+
+
 def invoke_llm_provider(provider: str, model_id: str, prompt: str) -> str:
     """Invokes configured LLM provider directly."""
     prov = provider.lower()
@@ -1831,22 +1847,8 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     inference_response = p_dict
                     payload = ExploitPayload(**p_dict)
                 else:
-                    # Use the repository's actual hypothesis manager API.  The old
-                    # import pointed at a nonexistent module and the old constructor /
-                    # method names did not exist, so every API-backed Baseline 5 run
-                    # failed before candidate generation.
-                    from core.hypothesis_manager import HypothesisManager
-                    hyp_mgr = HypothesisManager(target_prog)
-                    hypotheses = hyp_mgr.ingest_slither_findings()
-                    selected_hyp = (
-                        hyp_mgr.to_attack_hypothesis(hypotheses[0])
-                        if hypotheses
-                        else AttackHypothesis(
-                            vulnerability_type="SecurityAudit",
-                            reasoning_trace="No Slither finding supplied; inspect the target source and stated invariants.",
-                            attack_vector="Analyze externally callable state-changing functions and attempt to violate a stated invariant.",
-                        )
-                    )
+                    # Keep the API-backed path on the same tested hypothesis builder.
+                    selected_hyp = build_api_hypothesis(target_prog)
                     prompt = (
                         f"Synthesize an ExploitModule for target {target_prog.name}.\n"
                         f"Hypothesis: {selected_hyp.vulnerability_type} ({selected_hyp.reasoning_trace})\n"
