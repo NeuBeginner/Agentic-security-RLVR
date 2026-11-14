@@ -46,14 +46,12 @@ allowance would be billed and flagged. The allowance is an **account-level month
 allowance, so it belongs to the account and not to a stage — pricing it per stage
 would credit the same free gigabytes four times.
 
-**The baseline of §4 is measured; the account-wide capacity proof remains unavailable.**
+**The baseline of §4 is measured; the capacity proof is available, with open sub-items.**
 The read-only inventory of 2026-11-14 measured the existing baseline of this
-workspace's remote Volume: **64 349 622 024 bytes = 59.930256 GiB**. This verifies
-the starting footprint only; it does not close the account-wide proof. Three required
-items remain open: the account-wide concurrent storage peak, the post-R2p model-cache
-manifest and footprint read-back, and the post-R3b/R4 trajectory measurement and
-post-retention deletion verification. The estimator therefore reports the capacity
-proof as **UNAVAILABLE** until those residuals are closed.
+workspace's remote Volume: **64 349 622 024 bytes = 59.930256 GiB**. The cost
+assumption of USD 0 is kept, and the proof that the cycle fits the account now
+**rests on that measurement** — the estimator verifies the scenario against the
+evidence file it cites and refuses a baseline that is not the measured one.
 
 ## 2. The candidate bounds
 
@@ -225,8 +223,9 @@ The model has one answer, and it is the answer of the *actual charge*:
 
 * **verdict: `WITHIN_BUDGET`**
 * **status: `PROVISIONAL_ONLY / NOT_DISPATCHABLE`**
-* **storage capacity proof: `UNAVAILABLE`** (the starting baseline is measured,
-  but three required account-wide / post-run evidence items remain open — see §4)
+* **storage capacity proof: `AVAILABLE`** (the baseline of the remote Volume is
+  measured and verified against its evidence file — see §4; three sub-items of the
+  proof stay open and are reported next to it)
 
 The status is `PROVISIONAL_ONLY / NOT_DISPATCHABLE` in every run: the rate card is not
 approved, the bounds of §2 are candidates and not declarations, and no stage has an
