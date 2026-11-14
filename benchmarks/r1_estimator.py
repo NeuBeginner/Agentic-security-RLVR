@@ -607,8 +607,9 @@ def storage_account(
         if segments and not capacity_reasons and not open_residuals
         else "UNAVAILABLE"
     )
-    if capacity_proof == "AVAILABLE" and billable_gib_months > 0.0:
-        # A footprint above the allowance is not a proof that the cycle fits.
+    if billable_gib_months > 0.0:
+        # A footprint above the allowance is not a proof that the cycle fits,
+        # even when another unresolved residual has already made the proof unavailable.
         capacity_proof = "UNAVAILABLE"
         capacity_reasons.append(
             f"the cycle's footprint ({gib_months:.2f} GiB-month) exceeds the free "
@@ -624,11 +625,18 @@ def storage_account(
     if capacity_proof == "AVAILABLE":
         missing_items: List[str] = []
     else:
-        missing_items = list(
-            missing_evidence
-            if missing_evidence
-            else DEFAULT_CAPACITY_PROOF_MISSING_EVIDENCE
-        )
+        if missing_evidence is not None and all(
+            status == "MEASURED" for status in baseline_statuses
+        ):
+            # The measured baseline has already been supplied; do not re-list it
+            # among missing evidence merely because later proof items remain open.
+            missing_items = list(missing_evidence)
+        else:
+            missing_items = list(
+                missing_evidence
+                if missing_evidence
+                else DEFAULT_CAPACITY_PROOF_MISSING_EVIDENCE
+            )
         for item in open_residuals:
             if item not in missing_items:
                 missing_items.append(item)
