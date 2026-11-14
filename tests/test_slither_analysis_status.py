@@ -575,3 +575,22 @@ def test_a_report_with_malformed_detectors_is_rejected(detectors):
 def test_evidence_gate_rejects_completed_analysis_without_success_true():
     record = _record(slither_report_success=None)
     assert static_analysis_evidence_is_consistent(record) is False
+
+
+def test_a_report_without_the_required_error_field_is_rejected():
+    report = _report()
+    del report["error"]
+    outcome = classify_slither_outcome(
+        exit_code=0, report=report, report_present=True, report_parsable=True
+    )
+    assert outcome["report_valid"] is False
+    assert outcome["analysis_status"] == STATUS_PARTIAL
+
+
+def test_a_successful_report_may_not_contain_an_error_message():
+    report = _report(error="unexpected error")
+    outcome = classify_slither_outcome(
+        exit_code=0, report=report, report_present=True, report_parsable=True
+    )
+    assert outcome["report_valid"] is False
+    assert outcome["analysis_status"] == STATUS_PARTIAL
