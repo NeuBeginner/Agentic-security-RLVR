@@ -637,9 +637,8 @@ def storage_account(
                 if missing_evidence
                 else DEFAULT_CAPACITY_PROOF_MISSING_EVIDENCE
             )
-        for item in open_residuals:
-            if item not in missing_items:
-                missing_items.append(item)
+        # Residuals are reported separately in capacity_proof_residuals;
+        # they are not missing baseline evidence and must not be conflated with it.
 
     return {
         "segments": list(segments),
