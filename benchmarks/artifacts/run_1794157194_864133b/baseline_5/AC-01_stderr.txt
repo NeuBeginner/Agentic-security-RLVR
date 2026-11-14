@@ -1,0 +1,8 @@
+Warning: dynamic test linking disabled for 2 files: error: file ./AccessControlVault.sol not found
+Error: Compiler run failed:
+Error (6275): Source "test/AccessControlVault.sol" not found: File not found. Searched the following locations: "/tmp/tmp29qs78_o".
+ParserError: Source "test/AccessControlVault.sol" not found: File not found. Searched the following locations: "/tmp/tmp29qs78_o".
+ --> test/AccessControlVaultHarness.t.sol:5:1:
+  |
+5 | import {AccessControlVault} from "./AccessControlVault.sol";
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

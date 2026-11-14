@@ -1,0 +1,277 @@
+name: Aegis-RLVR CI
+
+on:
+  push:
+    branches:
+      - 'audit/**'
+      - 'feature/**'
+      - 'integration/**'
+      - 'feat/**'
+      - 'codex/**'
+  pull_request:
+    branches:
+      - main
+      - 'feature/**'
+      - 'audit/**'
+      - 'integration/**'
+      - 'feat/**'
+      - 'docs/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Reward v2 and trusted harness regression suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history: the Iteration 14 validation evidence is bound to the
+          # exact code SHA and CI has to prove that the SHA belongs to this
+          # branch's history.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-cov numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install "transformers>=4.44,<5"
+
+      - name: Run trusted evidence and reward contract tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          python -m pytest -q tests/test_harness_contract.py
+          python -m pytest -q tests/test_reward_shaping_hardening.py
+          python -m pytest -q tests/test_contract_normalization_v2.py
+
+      - name: Run Iteration 14 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration14_evidence_integrity.py
+
+      - name: Run Iteration 15 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration15_evidence_integrity.py
+
+      - name: Run Iteration 16 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration16_evidence_integrity.py
+
+      - name: Run Iteration 17 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration17_evidence_integrity.py
+
+      - name: Run Iteration 18 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration18_evidence_integrity.py
+
+      - name: Run Iteration 19 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration19_evidence_integrity.py
+
+      - name: Run Iteration 20 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration20_evidence_integrity.py
+
+      - name: Run Iteration 21 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration21_evidence_integrity.py
+
+      - name: Run Iteration 22 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration22_evidence_integrity.py
+
+      - name: Run Iteration 23 evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_iteration23_evidence_integrity.py
+
+      - name: Run consolidated closure evidence-integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q tests/test_consolidated_closure_evidence_integrity.py
+
+      - name: Run GRPO and trajectory integrity tests
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          python -m pytest -q tests/test_grpo.py
+          python -m pytest -q tests/test_grpo_integrity.py
+          python -m pytest -q tests/test_trajectory_integrity.py
+          python -m pytest -q tests/test_round5_regression.py
+
+      - name: Run complete test suite
+        env:
+          PYTHONPATH: .
+          TOKENIZERS_PARALLELISM: "false"
+        run: python -m pytest -q --junitxml=test-results.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-reconciled-ci-report
+          path: test-results.xml
+          if-no-files-found: warn
+
+  foundry-integration:
+    name: Real Foundry EVM integration probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history: the evidence-binding check verifies that the published
+          # validation evidence belongs to this branch.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-cov numpy
+
+      - name: Install Foundry Toolchain
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Prebake Solc Compilers for Offline Mode
+        run: |
+          python sandbox/prebake_solc.py
+
+      - name: Setup Foundry standard libraries
+        run: |
+          sudo mkdir -p /opt/foundry_base/lib
+          sudo git clone --depth 1 -b v1.9.5 https://github.com/foundry-rs/forge-std.git /opt/foundry_base/lib/forge-std
+          sudo git clone --depth 1 -b v5.0.2 https://github.com/OpenZeppelin/openzeppelin-contracts.git /opt/foundry_base/lib/openzeppelin-contracts
+          sudo chmod -R 777 /opt/foundry_base
+
+      - name: Run Live Foundry Integration Tests
+        env:
+          PYTHONPATH: .
+          FOUNDRY_CI: "true"
+        run: |
+          forge --version
+          python -m pytest -v -rA tests/test_real_benchmark_execution.py -k "test_real_foundry_integration" --junitxml=test-results-foundry.xml
+          python -m pytest -v -rA tests/test_iteration14_evidence_integrity.py -k "real_foundry" --junitxml=test-results-foundry-iteration14.xml
+
+      - name: Validate Iteration 14 billing join table and evidence binding
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.regenerate_billing_join_table --check
+          python -m benchmarks.validate_iteration14_evidence --check
+
+      - name: Validate Iteration 15 billing join table and evidence binding
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.regenerate_billing_join_table --check
+          python -m benchmarks.validate_iteration15_evidence --check
+
+      - name: Validate Iteration 16 per-stage evidence binding
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_iteration16_evidence --check
+
+      - name: Validate Iteration 17 stage-evidence state machine
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_iteration17_evidence --check
+
+      - name: Validate Iteration 18 response/envelope binding
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_iteration18_evidence --check
+
+      - name: Validate Iteration 19 live CPU-only smoke evidence
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_iteration19_evidence --check
+
+      - name: Validate Iteration 20 production runtime-identity producer
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_iteration20_evidence --check
+
+      - name: Validate Iteration 21 provider-backed container identity
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_iteration21_evidence --check
+
+      - name: Validate Iteration 22 strict observation side
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_iteration22_evidence --check
+
+      - name: Validate Iteration 23 registered observation side
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_iteration23_evidence --check
+
+      - name: Validate the consolidated closure evidence
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m benchmarks.validate_consolidated_closure_evidence --check
+
+      - name: Upload Foundry test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-foundry-integration-report
+          path: test-results-foundry.xml
+          if-no-files-found: warn

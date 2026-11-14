@@ -1,0 +1,968 @@
+{
+  "manifest_version": "1.0.0",
+  "run_id": "run_1794157194_864133b",
+  "timestamp_utc": "2026-11-08 16:59:54Z",
+  "execution_mode": "REAL_EXPERIMENT",
+  "is_synthetic_smoke": false,
+  "git": {
+    "commit_sha": "864133bbcd2b8252d29198b213e0ccd174b2c7c8",
+    "is_dirty": false,
+    "branch": "feat/empirical-benchmark-runner"
+  },
+  "environment": {
+    "python_version": "3.10.11",
+    "os_platform": "win32",
+    "slither_version": null,
+    "forge_version": null,
+    "solc_version": null,
+    "modal_version": "1.5.5",
+    "modal_authenticated": true,
+    "package_versions": {
+      "pydantic": "2.13.4",
+      "torch": "2.5.1+cu121",
+      "pytest": "9.1.1",
+      "google-genai": "2.11.0",
+      "openai": "2.46.0"
+    },
+    "provider_configs": {
+      "gemini": {
+        "available": false
+      },
+      "openai": {
+        "available": false
+      }
+    }
+  },
+  "dataset": {
+    "version": "1.0.0",
+    "dataset_sha256": "919fe6774a90b719c3be37f0f578323f526e1d4d95e7479f8b5f51b6ab811c89",
+    "target_count": 16,
+    "target_ids": [
+      "REENT-01",
+      "ERC4626-01",
+      "AC-01",
+      "ORACLE-01",
+      "FLASH-01",
+      "SIG-01",
+      "STATE-01",
+      "BIZ-01",
+      "LIQ-01",
+      "BRIDGE-01",
+      "DOS-01",
+      "PREC-01",
+      "SAFE-01",
+      "SAFE-02",
+      "SAFE-03",
+      "SAFE-04"
+    ]
+  },
+  "adapters": {
+    "baseline_5": {
+      "baseline_id": "baseline_5",
+      "baseline_name": "Full Aegis-RLVR (Modal H100 Reasoning + Modal CPU EVM Replay)",
+      "availability_status": "AVAILABLE",
+      "availability_reason": null,
+      "command": null,
+      "argv": null,
+      "planned_command": "modal run modal_app.py --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+      "planned_argv": [
+        "modal",
+        "run",
+        "modal_app.py",
+        "--hypotheses=3",
+        "--provider=modal_h100",
+        "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+      ],
+      "timeout_sec": 120,
+      "resource_budget": {
+        "timeout_sec": 120,
+        "max_hypotheses": 3,
+        "allowlist": [
+          "AccessControlVault",
+          "AuctionDoS",
+          "CrossContractBridge",
+          "ERC4626Vault",
+          "FeeShareYieldVault",
+          "FlashLoanRewardPool",
+          "LendingLiquidation",
+          "OracleLendingPool",
+          "PrecisionStakingPool",
+          "RewardDistributorLogic",
+          "SecureAccessControlVault",
+          "SecureERC4626Vault",
+          "SecureOraclePool",
+          "SecureVault",
+          "SignatureReplayWallet",
+          "Vault"
+        ]
+      },
+      "config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+      "planned_timeout_sec": 120,
+      "planned_resource_budget": {
+        "timeout_sec": 120,
+        "max_hypotheses": 3,
+        "allowlist": [
+          "AccessControlVault",
+          "AuctionDoS",
+          "CrossContractBridge",
+          "ERC4626Vault",
+          "FeeShareYieldVault",
+          "FlashLoanRewardPool",
+          "LendingLiquidation",
+          "OracleLendingPool",
+          "PrecisionStakingPool",
+          "RewardDistributorLogic",
+          "SecureAccessControlVault",
+          "SecureERC4626Vault",
+          "SecureOraclePool",
+          "SecureVault",
+          "SignatureReplayWallet",
+          "Vault"
+        ]
+      },
+      "planned_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+      "duration_seconds": 1532.875,
+      "target_count": 16,
+      "completed_targets": 16,
+      "cost_status": "unmeasured",
+      "cost_usd": null,
+      "artifact_files": [
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/REENT-01.json",
+          "size_bytes": 5686,
+          "sha256": "30fab9207dd523310d0f05afd1a76df159f3934f1ac52dcecb30ad1de95629d3"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/ERC4626-01.json",
+          "size_bytes": 5748,
+          "sha256": "39404c4fe606e2a88f41366439551d3bc5a34f6e66fb32a36e9e57e6c65be3dd"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/AC-01.json",
+          "size_bytes": 5999,
+          "sha256": "3d8a50251a834d92daeaa5cf3e885c16be56998dbf8f1ab459ac7cd6a3b014ba"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/ORACLE-01.json",
+          "size_bytes": 6031,
+          "sha256": "6c5d7a4d5cd3218d4ed82c203223460d7a0ac6e25f2761104a43cb425b1e4b0b"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/FLASH-01.json",
+          "size_bytes": 6020,
+          "sha256": "ecef2d3346db2702d385cf1e690ffc29380d30002f68a0c44dd419ac054ff4ae"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SIG-01.json",
+          "size_bytes": 5510,
+          "sha256": "0d518f8d870d50aec393525b7c08571b2f9a2b97128776c40902c6d7852197a8"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/STATE-01.json",
+          "size_bytes": 6056,
+          "sha256": "cb2c572f0cb99cdf870f4f36df64b21a9a9521dd2aa801a5b7784f2a8ca9fccc"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/BIZ-01.json",
+          "size_bytes": 6002,
+          "sha256": "99d36e173fc29562cb6e0d373712068742faf1223733581b6654b4fb3c99b631"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/LIQ-01.json",
+          "size_bytes": 6002,
+          "sha256": "25265910f6ceacded9f7da64095bb45cb51bb7863dd4bf63fcfd567a89bd0511"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/BRIDGE-01.json",
+          "size_bytes": 6052,
+          "sha256": "85d71ccab68db847005e4d7403e911f2a8131f534cef10a3f746bf57705ef7c9"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/DOS-01.json",
+          "size_bytes": 5908,
+          "sha256": "f66b3048a72a8263fa0d9a498069818aba68aca1de3c4a0e62155640ad72159c"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/PREC-01.json",
+          "size_bytes": 5437,
+          "sha256": "5cd6c7ef6211134019e6a1302fd45452450c71e323fdb3775948635e2d7e1001"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SAFE-01.json",
+          "size_bytes": 5923,
+          "sha256": "79331cf2fc6c6254f2ea0ea1f76f712d9ac96ad8e37ca1937349eaf0650a154d"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SAFE-02.json",
+          "size_bytes": 6076,
+          "sha256": "e43e455951e94f94189b078f2eacedea303cfa56ed0af744e7accb0d97396750"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SAFE-03.json",
+          "size_bytes": 6006,
+          "sha256": "d32993145469fb6bf019e463c51fbb7779d80e38f311be25faa01bada0bed0c2"
+        },
+        {
+          "relative_path": "benchmarks/artifacts/run_1794157194_864133b/baseline_5/SAFE-04.json",
+          "size_bytes": 6008,
+          "sha256": "f6759692458a5676e2ffecfa191e54e652f95098c7ce39920f351672dce723c1"
+        }
+      ],
+      "per_target_provenance": {
+        "REENT-01": {
+          "target_name": "Vault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "Vault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name Vault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 82.059,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "808a6bb921ae4a0b441e9010586757e731b8730f36d2563d2fd60b943b4ffae5"
+        },
+        "ERC4626-01": {
+          "target_name": "ERC4626Vault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "ERC4626Vault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name ERC4626Vault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 99.205,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "eeab092678b889613546eb43e2fbf9216a20c05097dd76b9b66216b2c1975a57"
+        },
+        "AC-01": {
+          "target_name": "AccessControlVault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "AccessControlVault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name AccessControlVault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 78.626,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "c5722f06f095fa09abe39b0eb225a02ac37028105912b2840bd216306c2df2de"
+        },
+        "ORACLE-01": {
+          "target_name": "OracleLendingPool",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "OracleLendingPool",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name OracleLendingPool --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 87.659,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e19fe12c5a765875a6eb8d46dff5d58771f14ec48e8a5dade3adcae92a8112ae"
+        },
+        "FLASH-01": {
+          "target_name": "FlashLoanRewardPool",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "FlashLoanRewardPool",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name FlashLoanRewardPool --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 76.996,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "da29936ad28bd396570b55d21f62ca007cc731a5050401851f12f8814d045027"
+        },
+        "SIG-01": {
+          "target_name": "SignatureReplayWallet",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "SignatureReplayWallet",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name SignatureReplayWallet --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 64.676,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "519608493cd8851b52addfed28f69989363ea446748e02625c47fffda503edc5"
+        },
+        "STATE-01": {
+          "target_name": "RewardDistributorLogic",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "RewardDistributorLogic",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name RewardDistributorLogic --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 88.726,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "4f414c6697ef8d9ba4fd651be79b866b7aa7bd0a87f569528f55972018d2498b"
+        },
+        "BIZ-01": {
+          "target_name": "FeeShareYieldVault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "FeeShareYieldVault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name FeeShareYieldVault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 89.184,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "eaa91b3a3fefabc7c0fc925c50bff033c09350113b0b0f7085f2f86a45b7cd3d"
+        },
+        "LIQ-01": {
+          "target_name": "LendingLiquidation",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "LendingLiquidation",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name LendingLiquidation --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 86.364,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "bc4c561109874acbb75837cbd100cae515ad120970829bf666e4f572f5cb38a2"
+        },
+        "BRIDGE-01": {
+          "target_name": "CrossContractBridge",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "CrossContractBridge",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name CrossContractBridge --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 105.583,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "595ad0bf5d7b079079fa9a41d412fd1d21172ececf2a973cffaab99b639c002e"
+        },
+        "DOS-01": {
+          "target_name": "AuctionDoS",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "AuctionDoS",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name AuctionDoS --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 61.891,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "7a3228af9563e4bcaf2d0cb23d63a1be1e0d3b5468ed7fbaf4c81f5b563e25fa"
+        },
+        "PREC-01": {
+          "target_name": "PrecisionStakingPool",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "PrecisionStakingPool",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name PrecisionStakingPool --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 231.864,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "072f4e8e1984ea8ce78f54aedb2102000860bb6ba18b07d280881618790c03ff"
+        },
+        "SAFE-01": {
+          "target_name": "SecureVault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "SecureVault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name SecureVault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 88.055,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "a8e432a00635c06396083e34f9fdf5a73846000ddf66134cbc2b1bcafeba9c3d"
+        },
+        "SAFE-02": {
+          "target_name": "SecureAccessControlVault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "SecureAccessControlVault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name SecureAccessControlVault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 67.407,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "0062eca853774b8b4467f2a9888213ac01fa1f173fc7766bc6777ace055b78cd"
+        },
+        "SAFE-03": {
+          "target_name": "SecureERC4626Vault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "SecureERC4626Vault",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name SecureERC4626Vault --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 115.889,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "3431d0d3247ebb5977645504bd9e6caeff20dc41a081e9741cd6142dd773ecab"
+        },
+        "SAFE-04": {
+          "target_name": "SecureOraclePool",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "argv": [
+            "modal",
+            "run",
+            "modal_app.py",
+            "--target-name",
+            "SecureOraclePool",
+            "--hypotheses=3",
+            "--provider=modal_h100",
+            "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+          ],
+          "command": "modal run modal_app.py --target-name SecureOraclePool --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+          "provider": "modal_h100",
+          "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+          "timeout_sec": 120,
+          "resource_budget": {
+            "timeout_sec": 120,
+            "max_hypotheses": 3,
+            "allowlist": [
+              "AccessControlVault",
+              "AuctionDoS",
+              "CrossContractBridge",
+              "ERC4626Vault",
+              "FeeShareYieldVault",
+              "FlashLoanRewardPool",
+              "LendingLiquidation",
+              "OracleLendingPool",
+              "PrecisionStakingPool",
+              "RewardDistributorLogic",
+              "SecureAccessControlVault",
+              "SecureERC4626Vault",
+              "SecureOraclePool",
+              "SecureVault",
+              "SignatureReplayWallet",
+              "Vault"
+            ]
+          },
+          "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+          "prompt_hash": null,
+          "duration_seconds": 101.988,
+          "exit_code": null,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "09aeaf17ddfe5b4156668bba5d563512ce8dc17484fbfc3299da4553e4b4c6d8"
+        }
+      }
+    }
+  },
+  "total_duration_seconds": 1533.051
+}

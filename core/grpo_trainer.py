@@ -10,6 +10,12 @@ import torch.nn.functional as F
 
 from core.config import config
 from core.schemas import GRPORollout, GRPOGroup, GRPOTrainingStepStats, RLVRTrajectory, ResultCategory
+from core.reward_shaping import (
+    LEGACY_REWARD_SPEC_VERSION,
+    REWARD_SPEC_VERSION,
+    breakdown_from_components,
+    verify_breakdown_consistency,
+)
 
 
 def compute_prompt_hash(prompt_str: str) -> str:
@@ -22,15 +28,61 @@ def make_group_key(
     target_name: str,
     prompt_str: str,
     model_id: str = "default",
-    checkpoint_id: str = "base"
+    checkpoint_id: str = "base",
+    reward_spec_version: str = REWARD_SPEC_VERSION
 ) -> str:
     """
     Creates a collision-resistant, version-aware group identity (Round 4).
     Guarantees that prompts differing after character 80 and different model/checkpoint
     configurations are never erroneously merged into the same GRPO advantage group.
+
+    Reward Specification isolation (2.0.0): the version of the reward
+    specification is part of the group identity as well. Rewards produced by
+    different specifications are not comparable, so trajectories scored by
+    different specifications MUST NOT share one advantage group.
     """
     p_hash = compute_prompt_hash(prompt_str)
-    return f"{target_name}___{p_hash}___{model_id}___{checkpoint_id}"
+    return f"{target_name}___{p_hash}___{model_id}___{checkpoint_id}___{reward_spec_version}"
+
+
+def verify_reward_reproducibility(trajectory: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Re-derives the stored reward from the stored reward components.
+
+    Proves that a trajectory's reward is still reproducible from its own
+    recorded evidence attribution (no hidden re-weighting between recording and
+    training). Fails closed for trajectories that carry no attribution.
+    """
+    components = trajectory.get("reward_components") or {}
+    penalty = float(trajectory.get("reward_penalty", 0.0) or 0.0)
+    total = float(trajectory.get("reward", 0.0) or 0.0)
+    spec_version = str(trajectory.get("reward_spec_version") or LEGACY_REWARD_SPEC_VERSION)
+
+    breakdown = breakdown_from_components(
+        spec_version=spec_version,
+        category=str(trajectory.get("category", "")),
+        components=components,
+        penalty=penalty,
+        total=total,
+    )
+
+    reproducible = bool(components) and verify_breakdown_consistency(breakdown)
+
+    return {
+        "trajectory_id": trajectory.get("trajectory_id"),
+        "reward_spec_version": spec_version,
+        "has_attribution": bool(components),
+        "reproducible": reproducible,
+        "recorded_total": total,
+        "recomputed_total": round(sum(components.values()) + penalty, 10) if components else None,
+        "components": dict(components),
+        "penalty": penalty,
+        "reason": (
+            "ok"
+            if reproducible
+            else ("missing_reward_attribution" if not components else "total_does_not_match_components")
+        ),
+    }
 
 
 # =============================================================================
@@ -254,6 +306,55 @@ def compute_rollout_baselines(
 # 3. DATASET BATCHING & GROUPING (ROUND 4)
 # =============================================================================
 
+def diagnose_group_spread(
+    groups: List[GRPOGroup],
+    std_threshold: float = 1e-6
+) -> Dict[str, Any]:
+    """
+    Diagnoses the reward spread across GRPO groups.
+
+    A group whose rollouts all received the same reward carries NO learning signal:
+    `compute_group_advantages` returns all-zero advantages for it, so the policy
+    gradient for that group is exactly zero. This is the normal state of a young
+    pipeline (every candidate fails at the same gate), and it must be visible rather
+    than silently producing a meaningless training run.
+
+    Returns:
+        {
+            "total_groups": int,
+            "degenerate_groups": int,
+            "informative_groups": int,
+            "degenerate_ratio": float,
+            "mean_group_std": float,
+            "mean_abs_advantage": float,
+            "total_rollouts": int,
+            "degenerate_group_ids": List[str],
+        }
+    """
+    degenerate: List[str] = []
+    stds: List[float] = []
+    all_advantages: List[float] = []
+
+    for g in groups:
+        stds.append(float(g.std_reward))
+        for r in g.rollouts:
+            all_advantages.append(abs(float(r.advantage)))
+        if float(g.std_reward) < std_threshold:
+            degenerate.append(g.group_id)
+
+    total = len(groups)
+    return {
+        "total_groups": total,
+        "degenerate_groups": len(degenerate),
+        "informative_groups": total - len(degenerate),
+        "degenerate_ratio": (len(degenerate) / total) if total else 0.0,
+        "mean_group_std": (sum(stds) / len(stds)) if stds else 0.0,
+        "mean_abs_advantage": (sum(all_advantages) / len(all_advantages)) if all_advantages else 0.0,
+        "total_rollouts": len(all_advantages),
+        "degenerate_group_ids": degenerate,
+    }
+
+
 def group_rollouts_by_prompt(
     rollouts_data: List[Dict[str, Any]],
     group_size: Optional[int] = None
@@ -290,8 +391,11 @@ def group_rollouts_by_prompt(
         prompt_used = r.get("prompt_used", "")
         model_id = r.get("model_id", "default")
         checkpoint_id = r.get("checkpoint_id", "base")
+        # Reward Specification isolation: trajectories scored by different
+        # reward specifications are never merged into one advantage group.
+        reward_spec_version = str(r.get("reward_spec_version") or LEGACY_REWARD_SPEC_VERSION)
 
-        key = make_group_key(target_name, prompt_used, model_id, checkpoint_id)
+        key = make_group_key(target_name, prompt_used, model_id, checkpoint_id, reward_spec_version)
         if key not in buckets:
             buckets[key] = []
         buckets[key].append(r)
@@ -317,6 +421,10 @@ def group_rollouts_by_prompt(
             model_id = first_item.get("model_id", "default")
             checkpoint_id = first_item.get("checkpoint_id", "base")
             p_hash = compute_prompt_hash(prompt_str)
+            # The whole group shares ONE reward specification version.
+            group_spec_version = str(
+                first_item.get("reward_spec_version") or LEGACY_REWARD_SPEC_VERSION
+            )
 
             rollouts: List[GRPORollout] = []
             for item, adv in zip(chunk, advantages):
@@ -358,7 +466,11 @@ def group_rollouts_by_prompt(
                     reproduced=bool(item.get("reproduced", False)),
                     feedback=str(item.get("feedback_trace", "")),
                     advantage=adv,
-                    generated_token_ids=item.get("generated_token_ids")
+                    generated_token_ids=item.get("generated_token_ids"),
+                    reward_components={
+                        k: float(v) for k, v in (item.get("reward_components") or {}).items()
+                    },
+                    reward_spec_version=group_spec_version,
                 ))
 
             groups.append(GRPOGroup(
@@ -371,7 +483,8 @@ def group_rollouts_by_prompt(
                 system_prompt=first_item.get("system_prompt", "You are an autonomous Web3 smart contract security auditor."),
                 rollouts=rollouts,
                 mean_reward=mean_r,
-                std_reward=std_r
+                std_reward=std_r,
+                reward_spec_version=group_spec_version,
             ))
 
     return groups
@@ -438,6 +551,8 @@ def evaluate_trajectory_eligibility(
         "raw_token_provenance": raw_prov,
         "raw_dataset_split": raw_split,
         "raw_category": str(raw_cat) if raw_cat is not None else None,
+        "raw_reward_spec_version": raw_data.get("reward_spec_version"),
+        "raw_reward_components": raw_data.get("reward_components"),
         "token_ids_present": has_tok_ids,
         "token_ids_len": tok_ids_len,
         "token_ids_valid_types": valid_tok_types,
@@ -873,6 +988,20 @@ def train_grpo_epochs(
     all_step_stats: List[GRPOTrainingStepStats] = []
     if not groups:
         return all_step_stats
+
+    # Fail-closed: a training run in which EVERY group is degenerate produces an
+    # all-zero policy gradient. Such a run cannot teach the model anything, so it
+    # must fail loudly instead of silently reporting a meaningless loss.
+    spread = diagnose_group_spread(groups)
+    print(f"[*] Group reward spread: {spread['informative_groups']}/{spread['total_groups']} informative "
+          f"(degenerate_ratio={spread['degenerate_ratio']:.2f}, mean_group_std={spread['mean_group_std']:.4f}, "
+          f"mean_abs_advantage={spread['mean_abs_advantage']:.4f})")
+    if spread["informative_groups"] == 0 and spread["total_groups"] > 0:
+        raise ValueError(
+            "Fail-closed: every GRPO group is degenerate (all rollouts share an identical reward). "
+            "The policy gradient would be exactly zero and no learning can occur. "
+            "Collect trajectories with reward diversity within each prompt group before training."
+        )
 
     # Step A: Pre-tokenize and calculate old_logprobs + ref_logprobs for each candidate
     print(f"[*] Pre-computing old_logprobs and frozen reference ref_logprobs across {len(groups)} group(s)...")

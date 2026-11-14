@@ -1,0 +1,259 @@
+{
+  "schema_version": "1.0.0",
+  "generator": "benchmarks/validate_iteration22_evidence.py",
+  "code_sha": "f0ce026d446e2c69a87f2bb4c155dcf0d36cd58b",
+  "generated_at_utc": "2026-11-10T11:17:32Z",
+  "scope": {
+    "iteration": 22,
+    "purpose": "validate that the strict provenance validation requires the observation side of every observed identity fact, and the evidence of it",
+    "evidence_dir": "benchmarks/evidence/iteration21_producer_capture",
+    "capture_source": "the local capture of Iteration 21 is re-read: the producer is not changed by this iteration, so no new capture is made",
+    "stage": "evm_sandbox",
+    "target_id": "ITER22-01",
+    "runtime": "local probes against the installed contract - no Modal invocation, no provider query, no deployment, no GPU, no change to a deployed worker",
+    "simulation": "the OBSERVED branch of the producer is exercised in a simulated container context (a patched modal.current_function_call_id); it is a simulation and is called one",
+    "benchmark_run": "not touched - the 16-target run on disk still fails the Iteration 16-18 validators and this iteration does not change that"
+  },
+  "git": {
+    "head": "f0ce026d446e2c69a87f2bb4c155dcf0d36cd58b",
+    "branch": "minimax/iteration-14-evidence-integrity",
+    "dirty": true,
+    "tracked_changes": [
+      "M benchmarks/benchmark_results.json"
+    ],
+    "untracked_paths": [
+      "benchmarks/evidence/iteration22_validation_evidence.json",
+      "test-results-iteration18-local.xml",
+      "test-results-iteration19-local.xml"
+    ]
+  },
+  "checks": [
+    {
+      "check": "P4.1.the_strict_mode_rejects_an_observed_fact_without_a_side",
+      "status": "PASSED",
+      "error": null,
+      "planned": "in the strict mode an observed identity fact has to name the side that observed it - for the worker field and for every client field",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "field": "function_call_id",
+          "side": null,
+          "rejected": true,
+          "error": "The runtime-identity envelope carries a malformed fact for 'function_call_id': The fact names no observation side: an observed fact has to say whether the worker or the client observed it"
+        },
+        {
+          "field": "app_id",
+          "side": null,
+          "rejected": true,
+          "error": "The runtime-identity envelope carries a malformed fact for 'app_id': The fact names no observation side: an observed fact has to say whether the worker or the client observed it"
+        },
+        {
+          "field": "app_page_url",
+          "side": null,
+          "rejected": true,
+          "error": "The runtime-identity envelope carries a malformed fact for 'app_page_url': The fact names no observation side: an observed fact has to say whether the worker or the client observed it"
+        },
+        {
+          "field": "container_id",
+          "side": null,
+          "rejected": true,
+          "error": "The runtime-identity envelope carries a malformed fact for 'container_id': The fact names no observation side: an observed fact has to say whether the worker or the client observed it"
+        }
+      ]
+    },
+    {
+      "check": "P4.2.null_unknown_and_contradictory_sides_are_rejected",
+      "status": "PASSED",
+      "error": null,
+      "planned": "a null, an unknown and a contradictory observation side are rejected for every observed identity fact",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "side": "null",
+          "rejected": true,
+          "error": "The runtime-identity envelope carries a malformed fact for 'function_call_id': The fact names no observation side: an observed fact has to say whether the worker or the client observed it"
+        },
+        {
+          "side": "unknown",
+          "rejected": true,
+          "error": "The runtime-identity envelope carries a malformed fact for 'function_call_id': The fact names the unknown observation side 'oracle'; a fact may name only worker, client"
+        },
+        {
+          "side": "contradictory",
+          "rejected": true,
+          "error": "The runtime-identity envelope carries a malformed fact for 'function_call_id': The fact names the observation side 'client', but this envelope is 'worker'-side: a worker observation may not be presented as a client observation"
+        }
+      ]
+    },
+    {
+      "check": "P4.3.the_strict_mode_accepts_the_valid_facts",
+      "status": "PASSED",
+      "error": null,
+      "planned": "a worker fact that names the worker side and a client fact that names the client side are accepted in the strict mode",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "fact": "worker function_call_id",
+          "accepted": true,
+          "error": null
+        },
+        {
+          "fact": "client app_id",
+          "accepted": true,
+          "error": null
+        },
+        {
+          "fact": "client app_page_url",
+          "accepted": true,
+          "error": null
+        },
+        {
+          "fact": "client container_id",
+          "accepted": true,
+          "error": null
+        },
+        {
+          "fact": "the client block",
+          "accepted": true,
+          "error": null
+        }
+      ]
+    },
+    {
+      "check": "P4.4.the_compatibility_path_still_accepts_a_side_less_fact",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the artifacts of Iterations 14-20 stay readable through the non-strict compatibility path - no side is inferred and none is backfilled",
+      "attempted": true,
+      "executed": true
+    },
+    {
+      "check": "P4.5.the_strict_consumer_rejects_the_omission_with_recomputed_digests",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the strict provenance consumer - the function that decides whether an artifact may be published - rejects an observed stage fact that names no side, while the digests of the artifact are recomputed from the bytes on disk",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "probe": "the complete artifact",
+          "accepted": true,
+          "error": null
+        },
+        {
+          "probe": "the artifact without the side",
+          "accepted": false,
+          "error": "The fact for 'function_call_id' names no observation side: an observed value has to say which side observed it - the registered source of 'function_call_id' may only be observed from the 'worker' side"
+        }
+      ]
+    },
+    {
+      "check": "P4.6.the_published_capture_passes_the_strict_mode",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the local capture of Iteration 21 - the producer names the side of every fact - still passes the strict mode, and no side is backfilled into it",
+      "attempted": true,
+      "executed": true
+    },
+    {
+      "check": "P4.7.the_producer_source_is_unchanged_since_the_capture",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the producer source is byte-wise unchanged between the commit the capture was made from and the commit the report is bound to - the capture is therefore still the capture of this producer",
+      "attempted": true,
+      "executed": true,
+      "capture_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
+      "reported_code_sha": "f0ce026d446e2c69a87f2bb4c155dcf0d36cd58b",
+      "producer_source_changed": false
+    },
+    {
+      "check": "P4.8.the_artifact_digest_is_the_digest_of_the_bytes_on_disk",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the SHA-256 of the stage evidence artifact on disk equals the digest the capture record claims",
+      "attempted": true,
+      "executed": true,
+      "recorded_sha256": "f877d58110a79c0461e353f5bc1a92fc9f5cabd2c0db406836939141f29f50de",
+      "actual_sha256": "f877d58110a79c0461e353f5bc1a92fc9f5cabd2c0db406836939141f29f50de"
+    },
+    {
+      "check": "P4.9.the_historical_evidence_stays_valid",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the published evidence of Iterations 20 and 21 still satisfies its own validator - the compatibility path is intact",
+      "attempted": true,
+      "executed": true,
+      "history": [
+        {
+          "iteration": 20,
+          "errors": [],
+          "checks_total": 12
+        },
+        {
+          "iteration": 21,
+          "errors": [],
+          "checks_total": 13
+        }
+      ]
+    },
+    {
+      "check": "P4.10.no_live_invocation_no_provider_query_no_deployment_and_no_gpu",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the capture was made locally: no Modal invocation, no provider query, no deployment, no GPU and no change to a deployed worker",
+      "attempted": true,
+      "executed": true,
+      "live_modal_invocation": false,
+      "provider_queried": false,
+      "deployment": "none",
+      "gpu": "none"
+    },
+    {
+      "check": "P4.11.the_pre_fix_rule_reproduces_the_defect",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the rule of Iteration 21 - the side is compared only when the fact names one, and a fact that names no side is accepted - is reproduced here and still accepts the omission: the defect was real, and the strict mode of this iteration rejects it",
+      "attempted": true,
+      "executed": true,
+      "probes": [
+        {
+          "field": "function_call_id",
+          "accepted_by_the_pre_fix_rule": true,
+          "pre_fix_error": null
+        },
+        {
+          "field": "app_id",
+          "accepted_by_the_pre_fix_rule": true,
+          "pre_fix_error": null
+        },
+        {
+          "field": "app_page_url",
+          "accepted_by_the_pre_fix_rule": true,
+          "pre_fix_error": null
+        },
+        {
+          "field": "container_id",
+          "accepted_by_the_pre_fix_rule": true,
+          "pre_fix_error": null
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "checks_total": 11,
+    "checks_passed": 11,
+    "checks_failed": 0,
+    "failed_checks": [],
+    "overall_status": "PASSED"
+  },
+  "interpretation": {
+    "planned": "validate that the strict mode rejects an observed identity fact without an observation side, that it accepts the valid facts, that the compatibility path keeps the side-less artifacts of Iterations 14-20 readable, that the strict provenance consumer itself rejects the omission with recomputed digests, and that the report is bound to the code SHA it was produced from",
+    "attempted": "the worker field and every client field, the null, unknown and contradictory sides, the compatibility path, the strict provenance consumer, the published capture of Iteration 21, the producer source, the artifact digest, the historical evidence and the boundary of the iteration",
+    "executed": "the checks were executed against the artifacts stored on disk",
+    "observed": "the report states exactly what the strict validators accept and reject; the producer is not changed by this iteration and no side is inferred or backfilled into any artifact",
+    "reported": "PASSED means every check of the mandatory observation side passed; FAILED means at least one did not. No Modal invocation was made, the provider was never asked, no worker was deployed and no live validation is claimed. The OBSERVED branch of the producer was exercised in a simulated container context and is a simulation."
+  }
+}

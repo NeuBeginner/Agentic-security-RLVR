@@ -1,0 +1,195 @@
+{
+  "schema_version": "1.0.0",
+  "generator": "benchmarks/validate_iteration21_evidence.py",
+  "code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
+  "generated_at_utc": "2026-11-10T10:28:05Z",
+  "scope": {
+    "iteration": 21,
+    "purpose": "validate the provider-backed container identity of the production producer and the evidence of it",
+    "evidence_dir": "benchmarks/evidence/iteration21_producer_capture",
+    "stage": "evm_sandbox",
+    "target_id": "ITER21-01",
+    "runtime": "local producer capture under a hostile environment - no Modal invocation, no provider query, no deployment, no GPU, no change to a deployed worker",
+    "benchmark_run": "not touched - the 16-target run on disk still fails the Iteration 16-18 validators and this iteration does not change that"
+  },
+  "git": {
+    "head": "40c063093c8d773d20f828fb290c68b5790a7cc5",
+    "branch": "minimax/iteration-14-evidence-integrity",
+    "dirty": false,
+    "tracked_changes": [],
+    "untracked_paths": [
+      "benchmarks/evidence/iteration21_producer_capture/",
+      "benchmarks/evidence/iteration21_validation_evidence.json",
+      "test-results-iteration18-local.xml",
+      "test-results-iteration19-local.xml"
+    ]
+  },
+  "checks": [
+    {
+      "check": "P3.1.producer_source_reads_no_forbidden_environment_variable",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the source of the production producer reads neither MODAL_WORKER_ID (the SDK's 'worker_id' configuration setting, documented as internal debugging use), nor HOSTNAME (a generic container hostname), nor MODAL_TASK_ID (read only by an internal experimental module) - none of them is a provider-issued container identifier",
+      "attempted": true,
+      "executed": true,
+      "producer_source": "modal_app.py",
+      "forbidden_names": [
+        "MODAL_WORKER_ID",
+        "HOSTNAME",
+        "MODAL_TASK_ID"
+      ],
+      "forbidden_lookups": [],
+      "other_lookups": [
+        {
+          "line": 848,
+          "name": "PYTORCH_CUDA_ALLOC_CONF",
+          "kind": "environ[]"
+        },
+        {
+          "line": 852,
+          "name": "TRAINING_STATUS",
+          "kind": "environ.get"
+        }
+      ]
+    },
+    {
+      "check": "P3.2.no_live_invocation_no_provider_query_and_no_deployment",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the capture was made locally: no Modal invocation, no provider query, no deployment, no GPU and no change to a deployed worker",
+      "attempted": true,
+      "executed": true,
+      "live_modal_invocation": false,
+      "provider_queried": false,
+      "deployment": "none",
+      "gpu": "none"
+    },
+    {
+      "check": "P3.3.sentinel_never_touched",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the sentinel that stood in for modal.running_app while the producer ran was never touched",
+      "attempted": true,
+      "executed": true,
+      "accesses": []
+    },
+    {
+      "check": "P3.4.a_spoofed_environment_does_not_become_an_observation",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the capture ran with MODAL_WORKER_ID, HOSTNAME and MODAL_TASK_ID set to fake, well-formed values, and the container id stayed NOT_AVAILABLE",
+      "attempted": true,
+      "executed": true,
+      "spoofed_environment_variables": {
+        "HOSTNAME": "spoofed-host",
+        "MODAL_TASK_ID": "ta-SpoofedTaskId00000000000",
+        "MODAL_WORKER_ID": "ta-SpoofedWorkerId0000000000"
+      },
+      "container_id_status": "NOT_AVAILABLE"
+    },
+    {
+      "check": "P3.5.envelope_is_typed_worker_side_and_source_checked",
+      "status": "PASSED",
+      "error": null,
+      "planned": "every identity fact of the envelope is a typed fact that names the worker side, and every observed fact names a registered observation source",
+      "attempted": true,
+      "executed": true,
+      "envelope_fields": [
+        "app_id",
+        "container_id",
+        "function_call_id"
+      ]
+    },
+    {
+      "check": "P3.6.the_worker_holds_no_observed_container_id",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the worker envelope holds no observed container id and no raw container id value: the worker attests only what the SDK gives it",
+      "attempted": true,
+      "executed": true,
+      "container_id_value": null
+    },
+    {
+      "check": "P3.7.container_id_is_an_explicit_absence_with_the_precise_reason",
+      "status": "PASSED",
+      "error": null,
+      "planned": "'container_id' is an explicit NOT_AVAILABLE with the exact reason of the producer and holds no value",
+      "attempted": true,
+      "executed": true,
+      "field": "container_id"
+    },
+    {
+      "check": "P3.8.client_observation_is_client_side_and_correlated",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the client-observed facts name the client side, the worker envelope holds no client-side fact, and the client-side container id is either an explicit absence or correlated to the very function call the worker observed",
+      "attempted": true,
+      "executed": true,
+      "client_observed": {
+        "app_id": "NOT_AVAILABLE",
+        "app_page_url": "NOT_AVAILABLE",
+        "container_id": "NOT_AVAILABLE"
+      }
+    },
+    {
+      "check": "P3.9.artifact_digest_matches_the_bytes_on_disk",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the SHA-256 of the stage evidence artifact on disk equals the digest the capture record claims",
+      "attempted": true,
+      "executed": true,
+      "recorded_sha256": "f877d58110a79c0461e353f5bc1a92fc9f5cabd2c0db406836939141f29f50de",
+      "actual_sha256": "f877d58110a79c0461e353f5bc1a92fc9f5cabd2c0db406836939141f29f50de"
+    },
+    {
+      "check": "P3.10.stage_evidence_artifact_satisfies_the_contract",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the stage evidence artifact satisfies the unchanged Iteration 18 artifact contract and carries exactly the envelope of the captured response",
+      "attempted": true,
+      "executed": true,
+      "stage": "evm_sandbox",
+      "target_id": "ITER21-01"
+    },
+    {
+      "check": "P3.11.stage_facts_keep_the_side_of_the_envelope",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the facts derived from the envelope keep the side the envelope declared",
+      "attempted": true,
+      "executed": true
+    },
+    {
+      "check": "P3.12.provenance_block_satisfies_the_provenance_validator",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the provenance block of the capture satisfies the repository's own provenance validator in the strict source mode, with the stage evidence artifact of this very capture as its evidence",
+      "attempted": true,
+      "executed": true
+    },
+    {
+      "check": "P3.13.capture_is_bound_to_its_code_sha",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the capture names the commit it was made from, and that commit is the one the report is bound to",
+      "attempted": true,
+      "executed": true,
+      "capture_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
+      "reported_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5"
+    }
+  ],
+  "summary": {
+    "checks_total": 13,
+    "checks_passed": 13,
+    "checks_failed": 0,
+    "failed_checks": [],
+    "overall_status": "PASSED"
+  },
+  "interpretation": {
+    "planned": "validate the source of the fixed production producer, the hostile environment the capture ran in, the registry of the allowed observation sources, the client-side correlation, the unchanged Iteration 18 artifact contract, the provenance consumer and the binding of the report to the code SHA it was produced from",
+    "attempted": "the producer source, the sentinel on modal.running_app, the spoofed environment, the envelope of the capture, the client-observed block, the stage evidence artifact and its digest, the provenance block and the source binding",
+    "executed": "the checks were executed against the artifacts stored on disk",
+    "observed": "the report states exactly what the capture record, the stage evidence artifact and the provenance block contain; a fact the worker cannot observe is reported as NOT_AVAILABLE with its reason and is never filled in",
+    "reported": "PASSED means every check of the provider-backed container identity passed; FAILED means at least one did not. The capture is a LOCAL capture of the producer: no Modal invocation was made, the provider was never asked, no worker was deployed and no live validation is claimed. The deployed workers still need a new deployment to carry the fix, and that is outside this iteration"
+  }
+}

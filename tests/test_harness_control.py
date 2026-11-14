@@ -47,7 +47,13 @@ contract Vault {
 
 
 def test_control_1_malformed_contract_name_triggers_format_error():
-    """Confirms that an exploit naming contract differently is rejected before Foundry."""
+    """
+    Confirms that a wrongly-named exploit is mechanically repaired to the harness
+    contract name before validation, so it can actually reach Foundry and produce a
+    verifiable reward instead of dying at the format gate.
+
+    The strict validator itself remains unchanged and is asserted separately below.
+    """
     bad_solidity = """
 ```solidity
 // SPDX-License-Identifier: MIT
@@ -62,10 +68,43 @@ contract ReentrancyAttack {
     target = TargetProgram(name="Vault", source_code=VAULT_SOL)
     payload = parse_model_response(target, bad_solidity)
 
-    assert not payload.format_valid
-    assert "instead of mandatory 'ExploitModule'" in payload.format_error_reason
+    # The name is repaired mechanically, so the candidate is now format-valid.
+    assert payload.format_valid
+    assert payload.contract_name_normalized is True
+    assert payload.original_contract_name == "ReentrancyAttack"
+    assert "contract ExploitModule" in payload.test_code
+    assert "contract ReentrancyAttack" not in payload.test_code
 
-    # Evaluator must assign GENERATION_FORMAT_ERROR and reward -0.50
+    # The strict validator must still reject the original name on its own.
+    original_code = "contract ReentrancyAttack {\n    constructor(address _target) payable {}\n    function runExploit() external payable {}\n}"
+    strict_valid, strict_reason = validate_exploit_format(original_code)
+    assert strict_valid is False
+    assert "instead of mandatory 'ExploitModule'" in strict_reason
+
+
+def test_control_1b_format_error_still_assigned_when_normalization_cannot_help():
+    """
+    A structurally broken exploit that cannot be repaired mechanically must still be
+    rejected upfront with GENERATION_FORMAT_ERROR and the format reward.
+    """
+    broken_solidity = """
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract ReentrancyAttack {
+    constructor(address _target) payable {}
+    // Missing mandatory runExploit() entrypoint
+}
+```
+"""
+    target = TargetProgram(name="Vault", source_code=VAULT_SOL)
+    payload = parse_model_response(target, broken_solidity)
+
+    assert not payload.format_valid
+    assert payload.format_error_reason
+
+    # Evaluator must assign GENERATION_FORMAT_ERROR and the format reward
     dummy_result = ExecutionResult(
         return_code=-4,
         stdout="",
@@ -174,6 +213,8 @@ def test_control_4a_unreplayed_breach_receives_partial_reward_only():
         test_status="Success",
         decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
         invariant_violated=True,
+        harness_verdict="BREACH",
+        harness_suite="test/VaultHarness.t.sol",
         reproducibility_confirmed=False  # NOT confirmed in replay!
     )
     verdict = evaluate_execution_trace(payload, result)
@@ -210,6 +251,8 @@ def test_control_4b_replayed_breach_receives_confirmed_exploit():
         test_status="Success",
         decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
         invariant_violated=True,
+        harness_verdict="BREACH",
+        harness_suite="test/VaultHarness.t.sol",
         reproducibility_confirmed=True  # Confirmed!
     )
     verdict = evaluate_execution_trace(payload, result)

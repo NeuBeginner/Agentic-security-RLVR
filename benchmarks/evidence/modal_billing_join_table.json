@@ -1,0 +1,770 @@
+{
+  "schema_version": "3.0.0",
+  "generated_by": "benchmarks/regenerate_billing_join_table.py",
+  "description": "Modal billing attribution split into application/session level (every raw line item accounted for exactly once) and target level (a cost is only published for an exact, unique provider-backed join to a single raw billing record).",
+  "source_raw_export": {
+    "path": "benchmarks/evidence/modal_billing_report_raw.json",
+    "sha256": "1529b1b90ad609332d77837e3ee2f13e674dcdb90db401324f2b710e7662fc18",
+    "line_item_count": 25,
+    "total_cost_usd": 1.32967791
+  },
+  "run": {
+    "run_id": "run_1794209615_70f5d22",
+    "baseline_id": "baseline_5",
+    "run_dir": "benchmarks/artifacts/run_1794209615_70f5d22",
+    "targets_count": 16,
+    "artifacts_found": 16
+  },
+  "canonical_run_app_session": {
+    "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+    "status": "OBSERVED",
+    "reason": null,
+    "evidence_ref": {
+      "path": "benchmarks/evidence/modal_control_harness_validation.json",
+      "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+      "field": "canonical_run_app_session"
+    }
+  },
+  "app_session_level": [
+    {
+      "app_id": "ap-1HyKJ36RL77ZqYazFSctJ0",
+      "resource": "CPU",
+      "interval_start": "2026-11-05T00:00:00",
+      "descriptions": [
+        "purge-unwanted-models"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "1|ap-1HyKJ36RL77ZqYazFSctJ0|CPU|2026-11-05T00:00:00|purge-unwanted-models|main"
+      ],
+      "cost_usd": 3.28e-06,
+      "cost_usd_exact": "0.00000328",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-1HyKJ36RL77ZqYazFSctJ0",
+      "resource": "Memory",
+      "interval_start": "2026-11-05T00:00:00",
+      "descriptions": [
+        "purge-unwanted-models"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "0|ap-1HyKJ36RL77ZqYazFSctJ0|Memory|2026-11-05T00:00:00|purge-unwanted-models|main"
+      ],
+      "cost_usd": 5.6e-07,
+      "cost_usd_exact": "0.00000056",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "resource": "CPU",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "5|ap-EDUitOwWeMrIdYbTh4kB63|CPU|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.03001687,
+      "cost_usd_exact": "0.03001687",
+      "belongs_to_canonical_run_app_session": true
+    },
+    {
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "resource": "H100",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "4|ap-EDUitOwWeMrIdYbTh4kB63|H100|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.74323683,
+      "cost_usd_exact": "0.74323683",
+      "belongs_to_canonical_run_app_session": true
+    },
+    {
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "resource": "Memory",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "2|ap-EDUitOwWeMrIdYbTh4kB63|Memory|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.00696753,
+      "cost_usd_exact": "0.00696753",
+      "belongs_to_canonical_run_app_session": true
+    },
+    {
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "resource": "Network Egress",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "3|ap-EDUitOwWeMrIdYbTh4kB63|Network Egress|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 2.6e-07,
+      "cost_usd_exact": "0.00000026",
+      "belongs_to_canonical_run_app_session": true
+    },
+    {
+      "app_id": "ap-L3wq4VVUBVKKSNf2ZLrtGd",
+      "resource": "CPU",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "8|ap-L3wq4VVUBVKKSNf2ZLrtGd|CPU|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.00320238,
+      "cost_usd_exact": "0.00320238",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-L3wq4VVUBVKKSNf2ZLrtGd",
+      "resource": "Memory",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "7|ap-L3wq4VVUBVKKSNf2ZLrtGd|Memory|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.00013702,
+      "cost_usd_exact": "0.00013702",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-L3wq4VVUBVKKSNf2ZLrtGd",
+      "resource": "Network Egress",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "6|ap-L3wq4VVUBVKKSNf2ZLrtGd|Network Egress|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.00013117,
+      "cost_usd_exact": "0.00013117",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-U2RnBP52bKiPtyGkNwxTDh",
+      "resource": "CPU",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "test-sandbox-build"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "10|ap-U2RnBP52bKiPtyGkNwxTDh|CPU|2026-11-09T00:00:00|test-sandbox-build|main"
+      ],
+      "cost_usd": 3.28e-06,
+      "cost_usd_exact": "0.00000328",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-U2RnBP52bKiPtyGkNwxTDh",
+      "resource": "Memory",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "test-sandbox-build"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "9|ap-U2RnBP52bKiPtyGkNwxTDh|Memory|2026-11-09T00:00:00|test-sandbox-build|main"
+      ],
+      "cost_usd": 5.6e-07,
+      "cost_usd_exact": "0.00000056",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-VHU67DPTwU55ifH11fqXR5",
+      "resource": "CPU",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "comfyui-fast"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "13|ap-VHU67DPTwU55ifH11fqXR5|CPU|2026-11-09T00:00:00|comfyui-fast|main"
+      ],
+      "cost_usd": 0.01639738,
+      "cost_usd_exact": "0.01639738",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-VHU67DPTwU55ifH11fqXR5",
+      "resource": "Memory",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "comfyui-fast"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "12|ap-VHU67DPTwU55ifH11fqXR5|Memory|2026-11-09T00:00:00|comfyui-fast|main"
+      ],
+      "cost_usd": 0.01109336,
+      "cost_usd_exact": "0.01109336",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-VHU67DPTwU55ifH11fqXR5",
+      "resource": "Network Egress",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "comfyui-fast"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "11|ap-VHU67DPTwU55ifH11fqXR5|Network Egress|2026-11-09T00:00:00|comfyui-fast|main"
+      ],
+      "cost_usd": 0.03751206,
+      "cost_usd_exact": "0.03751206",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-apQN7A8mIFzNea2aevxlbt",
+      "resource": "CPU",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "comfyui-fast"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "16|ap-apQN7A8mIFzNea2aevxlbt|CPU|2026-11-09T00:00:00|comfyui-fast|main"
+      ],
+      "cost_usd": 0.00694988,
+      "cost_usd_exact": "0.00694988",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-apQN7A8mIFzNea2aevxlbt",
+      "resource": "Memory",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "comfyui-fast"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "14|ap-apQN7A8mIFzNea2aevxlbt|Memory|2026-11-09T00:00:00|comfyui-fast|main"
+      ],
+      "cost_usd": 0.00027077,
+      "cost_usd_exact": "0.00027077",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-apQN7A8mIFzNea2aevxlbt",
+      "resource": "Network Egress",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "comfyui-fast"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "15|ap-apQN7A8mIFzNea2aevxlbt|Network Egress|2026-11-09T00:00:00|comfyui-fast|main"
+      ],
+      "cost_usd": 0.00039323,
+      "cost_usd_exact": "0.00039323",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-binXZAE9bIMbsJZrYavbP0",
+      "resource": "CPU",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "20|ap-binXZAE9bIMbsJZrYavbP0|CPU|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.00522721,
+      "cost_usd_exact": "0.00522721",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-binXZAE9bIMbsJZrYavbP0",
+      "resource": "H100",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "17|ap-binXZAE9bIMbsJZrYavbP0|H100|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.13359894,
+      "cost_usd_exact": "0.13359894",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-binXZAE9bIMbsJZrYavbP0",
+      "resource": "Memory",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "19|ap-binXZAE9bIMbsJZrYavbP0|Memory|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.00080545,
+      "cost_usd_exact": "0.00080545",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-binXZAE9bIMbsJZrYavbP0",
+      "resource": "Network Egress",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "18|ap-binXZAE9bIMbsJZrYavbP0|Network Egress|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.02657469,
+      "cost_usd_exact": "0.02657469",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-jWAtiLAS2vzvZRy61raOrG",
+      "resource": "CPU",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "24|ap-jWAtiLAS2vzvZRy61raOrG|CPU|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.006686,
+      "cost_usd_exact": "0.006686",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-jWAtiLAS2vzvZRy61raOrG",
+      "resource": "H100",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "23|ap-jWAtiLAS2vzvZRy61raOrG|H100|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.28324992,
+      "cost_usd_exact": "0.28324992",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-jWAtiLAS2vzvZRy61raOrG",
+      "resource": "Memory",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "21|ap-jWAtiLAS2vzvZRy61raOrG|Memory|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.00173057,
+      "cost_usd_exact": "0.00173057",
+      "belongs_to_canonical_run_app_session": false
+    },
+    {
+      "app_id": "ap-jWAtiLAS2vzvZRy61raOrG",
+      "resource": "Network Egress",
+      "interval_start": "2026-11-09T00:00:00",
+      "descriptions": [
+        "aegis-rlvr-security"
+      ],
+      "environments": [
+        "main"
+      ],
+      "line_item_count": 1,
+      "line_item_keys": [
+        "22|ap-jWAtiLAS2vzvZRy61raOrG|Network Egress|2026-11-09T00:00:00|aegis-rlvr-security|main"
+      ],
+      "cost_usd": 0.01548871,
+      "cost_usd_exact": "0.01548871",
+      "belongs_to_canonical_run_app_session": false
+    }
+  ],
+  "target_level": [
+    {
+      "target_id": "REENT-01",
+      "target_name": "Vault",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "ERC4626-01",
+      "target_name": "ERC4626Vault",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "AC-01",
+      "target_name": "AccessControlVault",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "ORACLE-01",
+      "target_name": "OracleLendingPool",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "FLASH-01",
+      "target_name": "FlashLoanRewardPool",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "SIG-01",
+      "target_name": "SignatureReplayWallet",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "STATE-01",
+      "target_name": "RewardDistributorLogic",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "BIZ-01",
+      "target_name": "FeeShareYieldVault",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "LIQ-01",
+      "target_name": "LendingLiquidation",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "BRIDGE-01",
+      "target_name": "CrossContractBridge",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "DOS-01",
+      "target_name": "AuctionDoS",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "PREC-01",
+      "target_name": "PrecisionStakingPool",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "SAFE-01",
+      "target_name": "SecureVault",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "SAFE-02",
+      "target_name": "SecureAccessControlVault",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "SAFE-03",
+      "target_name": "SecureERC4626Vault",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    },
+    {
+      "target_id": "SAFE-04",
+      "target_name": "SecureOraclePool",
+      "app_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+      "cost_usd": null,
+      "cost_usd_exact": null,
+      "cost_status": "UNATTRIBUTED_NO_INVOCATION_LEVEL_JOIN",
+      "cost_reason_code": "NO_JOIN_PROVIDED",
+      "cost_reason": "no provider-backed invocation-level join was provided for this target; Modal billing exposes no target-level correlation",
+      "invocation_join": null,
+      "app_id_evidence_ref": {
+        "path": "benchmarks/evidence/modal_control_harness_validation.json",
+        "sha256": "7a56eadb65803946c0fb0d8afcf83f58c839638b79d83c11ac3d1d1c2c7468e5",
+        "field": "canonical_run_app_session"
+      }
+    }
+  ],
+  "totals": {
+    "raw_export_total_cost_usd": 1.32967791,
+    "canonical_run_app_session_total_cost_usd": 0.78022149,
+    "h100_total_cost_usd": 1.16008569,
+    "h100_line_item_count": 3,
+    "app_session_row_count": 25,
+    "target_row_count": 16
+  },
+  "attribution_policy": {
+    "status": "APP_SESSION_LEVEL_ONLY",
+    "per_target_cost_usd": null,
+    "policy_reason": "Modal billing is reported at app-session and interval granularity. A target-level cost is assigned only when a documented provider correlation key resolves to exactly one raw billing line item of the claimed application; otherwise the target-level cost stays null and the reason is machine-readable.",
+    "provider_join_fields": [
+      "invocation_id",
+      "function_call_id",
+      "task_id"
+    ],
+    "aggregate_bucket_allocation": "FORBIDDEN"
+  },
+  "validation": {
+    "status": "PASSED",
+    "error": null,
+    "checks": [
+      "every raw line item is accounted for exactly once",
+      "no raw line item is counted twice",
+      "every referenced application id exists in the raw export",
+      "aggregates reconcile exactly with the raw export",
+      "no target carries a cost without an exact provider-backed join",
+      "no two targets claim the same billing record",
+      "every unattributed target carries a machine-readable cost_reason_code"
+    ]
+  }
+}
