@@ -28,7 +28,28 @@ from typing import Any
 
 import modal
 
-_ROOT = Path(__file__).resolve().parents[2]
+def _repository_root() -> Path:
+    """
+    The root of the sources of the server.
+
+    While the application is deployed, this module is the entrypoint of the
+    image and it is copied to ``/root``, while the package ``integrations`` is
+    installed into ``site-packages``. The root therefore cannot be derived from
+    the path of this file alone: the installed package is the authority.
+    """
+    here = Path(__file__).resolve()
+    for candidate in here.parents:
+        if (candidate / "integrations" / "modal_mcp").is_dir():
+            return candidate
+    try:
+        import integrations
+
+        return Path(integrations.__file__).resolve().parent.parent
+    except Exception:  # pragma: no cover - the package is always installed
+        return here.parent
+
+
+_ROOT = _repository_root()
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
