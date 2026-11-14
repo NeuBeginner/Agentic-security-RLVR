@@ -18,9 +18,14 @@ fail-closed approval of the benchmark.
 * **Transport** - MCP over Streamable HTTP, at the path `/mcp`.
 * **Runtime** - a CPU-only Modal application. It declares `gpu=None`, so it
   cannot allocate an accelerator, not even by accident.
-* **Credential** - a dedicated Modal API token, stored in the Modal Secret
+* **Credential** - a Modal API token, stored in the Modal Secret
   `modal-mcp-credentials`. The server builds its client from that token
-  explicitly; it never falls back to an ambient credential.
+  explicitly; it never falls back to an ambient credential. At the first stage
+  the token is the **member token of the workspace profile** (`neubeginner`);
+  a dedicated token is an upgrade, not a precondition. The credential has to
+  belong to the workspace that holds the CPU audit application, otherwise the
+  server does not see that application at all
+  (`App 'aegis-rlvr-cpu-audit' not found in environment 'main'`).
 * **Boundary** - a fixed list of named operations. There is no tool that runs
   an arbitrary command and no tool that reads an arbitrary path.
 
@@ -58,7 +63,11 @@ for a confirmation and warns before a write.
 * **Replay protection** - every call that starts work needs a `request_id`.
   The identifier and the fingerprint of the request are kept in a ledger: the
   same request is executed once, and an identifier that was used for another
-  request is refused.
+  request is refused. The fingerprint covers the **arguments** of the call, not
+  its identifier: two calls with the same arguments are the same work, so the
+  second one is refused with `REPLAY_DETECTED` even under a new identifier.
+  A repeated execution therefore needs a distinct argument - for the CPU audit
+  that is a new `run_id`.
 * **Write operations** - `modal_deploy_dev` and `modal_stop_app` need both
   the write switch of the server (`MODAL_MCP_WRITE_ENABLED`) and the
   confirmation value of the owner. The switch is off by default.
@@ -130,6 +139,30 @@ The application is CPU-only, has no web route other than the MCP endpoint and
 the OAuth endpoints, and mounts the results volume of the audit service
 read-only.
 
+The deployment has to be made from a tree that contains the **whole
+repository**, not from a partial copy of it: the image of the server carries
+the package `core`, because the client of a remote call has to be able to
+import the models of the CPU audit service - without them the answer of the
+service cannot be deserialised (`the 'core' module is not available in the
+remote environment`). The image also carries the trusted target sources and the
+candidate registry, so that a caller cannot audit a source that has no
+immutable harness.
+
+### The live deployment
+
+| What | Value |
+|---|---|
+| Workspace | `neubeginner` |
+| Environment | `main` |
+| Application | `aegis-modal-mcp` (`ap-vraztN0bgzD9drPlLtnD8P`) |
+| Endpoint | `https://neubeginner--modal-mcp.modal.run/mcp` |
+| The same endpoint with the region in the name | `https://neubeginner--modal-mcp.us-east.modal.run/mcp` |
+| Secret | `modal-mcp-credentials` |
+| Resources | CPU-only (`gpu=None`), 1 CPU, 1 GB, 300 s, 0-4 containers |
+
+Both names of the endpoint answer; the one without the region is the one that
+is written into the documentation and into the OAuth issuer.
+
 ### The variables of the server
 
 | Variable | Where it comes from | Meaning |
@@ -171,7 +204,7 @@ so a call against it proves the same thing as a call against the deployment.
 2. Select the plus button and **Add custom MCP server**.
 3. Enter the name and the description of the server.
 4. Under **Connection**, enter the endpoint, including the path:
-   `https://<workspace>--modal-mcp.modal.run/mcp`.
+   `https://neubeginner--modal-mcp.modal.run/mcp`.
 5. Set the authentication to **OAuth**. The server publishes its metadata at
    `/.well-known/oauth-authorization-server` and registers clients itself, so
    no client id has to be entered by hand.
@@ -232,3 +265,9 @@ server and not the behaviour of the API of Modal.
   is visible instead of hidden. The fix on the side of the service is one
   line (`volume.reload()` before the read); it belongs to the branch of the
   CPU audit service, not to this one.
+* The credential of the server is the member token of the workspace profile.
+  A **dedicated** Modal token (an own identity with its own rights) is the
+  next step; the issuance of one needs a confirmation of the owner in the
+  browser of Modal, and the secret has to be recreated afterwards. Nothing in
+  the code depends on that upgrade - the server reads the credential from the
+  secret and nothing else.
