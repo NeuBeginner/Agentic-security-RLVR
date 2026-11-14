@@ -1178,12 +1178,14 @@ def test_a_gpu_payload_cap_of_zero_is_only_possible_with_the_provider_blocking()
 # --------------------------------------------------------------------------------------
 
 
-def test_the_class_semaphore_is_initialized_once_under_concurrency():
+def test_the_class_semaphore_is_initialized_once_under_concurrency(monkeypatch):
     """The first-time membership check must not race across dispatch threads."""
     gate = r1_dispatch.DispatchGate(policy=_policy())
     barrier = threading.Barrier(2)
     returned: List[Any] = []
+    created: List[Any] = []
     errors: List[BaseException] = []
+    original = threading.BoundedSemaphore
 
     class _BarrierDict(dict):
         def __contains__(self, key):
@@ -1192,6 +1194,12 @@ def test_the_class_semaphore_is_initialized_once_under_concurrency():
             barrier.wait(timeout=5)
             return super().__contains__(key)
 
+    def counting_semaphore(value=1):
+        semaphore = original(value)
+        created.append(semaphore)
+        return semaphore
+
+    monkeypatch.setattr(r1_dispatch.threading, "BoundedSemaphore", counting_semaphore)
     gate._semaphores = _BarrierDict()
 
     def worker() -> None:
@@ -1208,6 +1216,7 @@ def test_the_class_semaphore_is_initialized_once_under_concurrency():
 
     assert not errors
     assert all(not thread.is_alive() for thread in threads)
+    assert len(created) == 1
     assert len(returned) == 2
     assert returned[0] is returned[1]
 
