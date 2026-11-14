@@ -159,18 +159,31 @@ def classify_slither_outcome(
     of the exit code and the facts the disposition was derived from.
     """
     parsed = isinstance(report, dict)
-    report_valid = bool(parsed and isinstance(report.get("results"), dict))
     report_success: Optional[bool] = None
     report_error: Optional[str] = None
     detectors: List[Dict[str, Any]] = []
 
-    if report_valid:
+    # Slither's JSON contract is explicit: success must be a boolean, error
+    # must be null or a string, and results.detectors must be a list of objects.
+    # Do not silently coerce missing/null/malformed fields into an empty report.
+    report_valid = False
+    if parsed:
         raw_success = report.get("success")
-        report_success = raw_success if isinstance(raw_success, bool) else None
         raw_error = report.get("error")
+        raw_results = report.get("results")
+        raw_detectors = raw_results.get("detectors") if isinstance(raw_results, dict) else None
+
+        report_success = raw_success if isinstance(raw_success, bool) else None
         report_error = raw_error if isinstance(raw_error, str) else None
-        raw_detectors = report.get("results", {}).get("detectors") or []
-        detectors = [item for item in raw_detectors if isinstance(item, dict)]
+        report_valid = (
+            isinstance(raw_success, bool)
+            and (raw_error is None or isinstance(raw_error, str))
+            and isinstance(raw_results, dict)
+            and isinstance(raw_detectors, list)
+            and all(isinstance(item, dict) for item in raw_detectors)
+        )
+        if report_valid:
+            detectors = raw_detectors
 
     has_findings = bool(detectors)
 
@@ -184,7 +197,7 @@ def classify_slither_outcome(
     elif not report_parsable or not report_valid:
         status = STATUS_PARTIAL
         disposition = DISPOSITION_UNPARSABLE_REPORT
-    elif report_success is False:
+    elif report_success is not True:
         status = STATUS_PARTIAL
         disposition = DISPOSITION_ANALYSIS_ERROR
     elif exit_code == 0:
@@ -259,7 +272,7 @@ def static_analysis_evidence_is_consistent(record: Dict[str, Any]) -> bool:
     # 2. A completed analysis needs a valid report that does not state a failure,
     #    no fallback, and an exit code that is explained.
     if status == STATUS_COMPLETED:
-        if report_valid is not True or report_success is False:
+        if report_valid is not True or report_success is not True:
             return False
         if fallback_reason is not None:
             return False
