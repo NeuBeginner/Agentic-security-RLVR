@@ -221,3 +221,14 @@ server and not the behaviour of the API of Modal.
   of that service. Without that token the CPU tools refuse themselves with
   `CPU_AUTH_TOKEN_MISSING` - the server never invents a verdict and never
   pretends that the audit ran.
+* `modal_read_evidence` reads the artifact through the **API of the volume**,
+  not through the container of the audit service. The reason is a defect of
+  the CPU audit service that this integration found: `read_saved_result` reads
+  the volume without reloading it, and a container that was started before a
+  commit keeps the snapshot of the volume it was started with. A run that was
+  committed after that moment is invisible to such a container - it answers
+  `NOT_FOUND` although the artifact is in the volume. The read-back of the
+  service itself is reported next to the artifact, so that the disagreement
+  is visible instead of hidden. The fix on the side of the service is one
+  line (`volume.reload()` before the read); it belongs to the branch of the
+  CPU audit service, not to this one.

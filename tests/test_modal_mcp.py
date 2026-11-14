@@ -114,6 +114,12 @@ class FakeAccess:
         self.calls.append(("list_volume", volume, path))
         return [{"path": "runs/run-0001", "type": "DIRECTORY", "size": 0}]
 
+    def read_volume_file(self, volume, path):
+        self.calls.append(("read_volume_file", volume, path))
+        if path.endswith("run-0001/result.json"):
+            return b'{"status": "COMPLETED", "reward": 1.0}'
+        return None
+
     def stop_app(self, app_id):
         self.calls.append(("stop_app", app_id))
         return {"app_id": app_id, "stopped": True}
@@ -297,6 +303,23 @@ def test_the_control_target_is_read_from_the_controls_directory(toolbox):
     assert result["status"] == "OK"
     call = [c for c in toolbox.access.calls if c[0] == "call_function"][-1]
     assert call[3]["target_name"] == "SecureVault"
+
+
+def test_the_evidence_is_read_from_the_committed_state_of_the_volume(toolbox):
+    result = toolbox.modal_read_evidence("run-0001")
+    assert result["status"] == "OK"
+    artifact = result["artifact"]
+    assert artifact["parsed"] is True
+    assert artifact["result"]["reward"] == 1.0
+    assert len(artifact["sha256"]) == 64
+    assert artifact["byte_length"] > 0
+    assert ("read_volume_file", "aegis-cpu-audit-results", "runs/run-0001/result.json") in toolbox.access.calls
+
+
+def test_the_evidence_of_an_unknown_run_is_refused(toolbox):
+    result = toolbox.modal_read_evidence("run-unknown")
+    assert result["status"] == "REFUSED"
+    assert result["error"]["code"] == "ARTIFACT_NOT_FOUND"
 
 
 def test_an_unknown_test_suite_is_refused(toolbox):

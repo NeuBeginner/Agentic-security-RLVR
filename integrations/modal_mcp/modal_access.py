@@ -40,8 +40,12 @@ _CLIENT_HOLDER: Dict[str, Any] = {}
 TOKEN_IN_REQUEST = frozenset({"audit_contract"})
 
 #: The functions of the CPU audit service that take the shared authorisation
-#: token as a second argument.
-TOKEN_AS_SECOND_ARGUMENT = frozenset({"read_saved_result", "probe_environment"})
+#: token as a second argument, after their own argument.
+TOKEN_AS_SECOND_ARGUMENT = frozenset({"read_saved_result"})
+
+#: The functions of the CPU audit service that take the shared authorisation
+#: token as their only argument.
+TOKEN_AS_ONLY_ARGUMENT = frozenset({"probe_environment"})
 
 
 class AccessError(Exception):
@@ -390,6 +394,9 @@ class ModalAccess:
         if function_name in TOKEN_AS_SECOND_ARGUMENT:
             token = self._require_cpu_token(function_name)
             return function.remote(payload, token)
+        if function_name in TOKEN_AS_ONLY_ARGUMENT:
+            token = self._require_cpu_token(function_name)
+            return function.remote(token)
         return function.remote(payload)
 
     def list_volume(self, volume_name: str, path: str) -> List[Dict[str, Any]]:
@@ -411,6 +418,34 @@ class ModalAccess:
                 }
             )
         return entries
+
+    def read_volume_file(self, volume_name: str, path: str) -> Optional[bytes]:
+        """
+        Read one file of a volume - the committed state of the volume.
+
+        The read goes through the API of the volume, not through a container:
+        a container that was started before a commit keeps the snapshot of
+        the volume it was started with, so a file that was committed after
+        that moment is invisible to it. The API of the volume always reports
+        the committed state, which is what an evidence read-back has to see.
+        """
+        import modal
+
+        volume = modal.Volume.from_name(
+            volume_name,
+            environment_name=self._environment,
+            client=self.client,
+        )
+        try:
+            chunks = volume.read_file(path)
+        except Exception:  # noqa: BLE001 - a missing file is a normal outcome
+            return None
+        if isinstance(chunks, bytes):
+            return chunks
+        try:
+            return b"".join(chunks)
+        except TypeError:
+            return None
 
     # -- write operations ----------------------------------------------------
 

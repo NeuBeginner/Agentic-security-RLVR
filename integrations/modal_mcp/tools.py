@@ -367,18 +367,58 @@ class ToolBox:
     def modal_read_evidence(self, run_id: str) -> Dict[str, Any]:
         """Read the stored result of one audit run.
 
-        The result is read back from the results volume by the audit service
-        itself, so that the answer is the evidence of the storage and not only
-        of the write buffer of the container that produced it.
+        The artifact is read from the committed state of the results volume
+        through the API of the volume, and the digest of the stored bytes is
+        reported next to the parsed result. The read-back of the audit
+        service itself is reported as well, so that a disagreement between
+        the two is visible instead of hidden.
         """
         started = time.time()
         app = self.settings.allowed_apps[0]
         try:
             self.policy.check_function(app, "read_saved_result")
             self.policy.check_run_id(run_id)
-            result = self.access.call_function(app, "read_saved_result", run_id)
-            payload = {"status": "OK", "run_id": run_id, "result": result}
-            return _ok(payload, "modal_read_evidence", started)
+
+            path = f"runs/{run_id}/result.json"
+            payload = self.access.read_volume_file(self.settings.results_volume, path)
+            if payload is None:
+                raise AccessError(
+                    "ARTIFACT_NOT_FOUND",
+                    "the results volume holds no artifact for this run",
+                    run_id=run_id,
+                    path=path,
+                )
+
+            import hashlib
+
+            digest = hashlib.sha256(payload).hexdigest()
+            parsed = None
+            parse_error = None
+            try:
+                parsed = json.loads(payload.decode("utf-8"))
+            except (UnicodeDecodeError, ValueError) as exc:
+                parse_error = f"{type(exc).__name__}: {exc}"
+
+            service_readback = None
+            try:
+                service_readback = self.access.call_function(app, "read_saved_result", run_id)
+            except (PolicyError, AccessError) as exc:
+                service_readback = {"status": "REFUSED", "error": exc.to_dict()["error"]}
+
+            payload_result = {
+                "status": "OK",
+                "run_id": run_id,
+                "artifact": {
+                    "path": path,
+                    "byte_length": len(payload),
+                    "sha256": digest,
+                    "parsed": parsed is not None,
+                    "parse_error": parse_error,
+                    "result": parsed,
+                },
+                "service_readback": service_readback,
+            }
+            return _ok(payload_result, "modal_read_evidence", started)
         except (PolicyError, AccessError) as error:
             return _refusal(error, "modal_read_evidence", started)
 
@@ -478,14 +518,16 @@ class ToolBox:
                     )
                 else:
                     run_id = runs[0]["path"].rstrip("/").split("/")[-1]
-                    read = self.access.call_function(app, "read_saved_result", run_id)
+                    payload = self.access.read_volume_file(
+                        self.settings.results_volume, f"runs/{run_id}/result.json"
+                    )
                     checks.append(
                         {
                             "check": "evidence_present",
-                            "passed": isinstance(read, dict) and read.get("status") == "READ_BACK",
+                            "passed": payload is not None,
                             "detail": {
                                 "run_id": run_id,
-                                "sha256": (read or {}).get("sha256") if isinstance(read, dict) else None,
+                                "byte_length": len(payload) if payload else 0,
                             },
                         }
                     )
