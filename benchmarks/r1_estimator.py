@@ -560,9 +560,9 @@ def storage_account(
     once to the cycle: inside the allowance the storage costs USD 0, and only the
     excess above the allowance is billed.
 
-    ``residuals`` are the sub-items of the capacity proof that are still open - the
-    proof itself is the sum of its parts, so a residual does not make the proof
-    unavailable, it is reported next to it.
+    ``residuals`` are required sub-items of the capacity proof that are still open.
+    A measured starting baseline is necessary but not sufficient: any unresolved
+    residual keeps the account-wide capacity proof UNAVAILABLE.
     """
     total_seconds = sum(float(segment["duration_sec"]) for segment in segments)
     weighted_gib_seconds = sum(
@@ -601,13 +601,22 @@ def storage_account(
             reason = str(segment.get("baseline_reason", "")).strip()
             if reason and reason not in capacity_reasons:
                 capacity_reasons.append(reason)
-    capacity_proof = "AVAILABLE" if segments and not capacity_reasons else "UNAVAILABLE"
+    open_residuals = list(residuals or [])
+    capacity_proof = (
+        "AVAILABLE"
+        if segments and not capacity_reasons and not open_residuals
+        else "UNAVAILABLE"
+    )
     if capacity_proof == "AVAILABLE" and billable_gib_months > 0.0:
         # A footprint above the allowance is not a proof that the cycle fits.
         capacity_proof = "UNAVAILABLE"
         capacity_reasons.append(
             f"the cycle's footprint ({gib_months:.2f} GiB-month) exceeds the free "
             f"allowance ({allowance_gib_months:.2f} GiB-month)"
+        )
+    if open_residuals:
+        capacity_reasons.append(
+            f"the account-wide storage capacity proof has {len(open_residuals)} unresolved required item(s)"
         )
     incremental_statuses = sorted(
         {str(segment.get("incremental_status", "CANDIDATE_ESTIMATE")) for segment in segments}
@@ -620,6 +629,9 @@ def storage_account(
             if missing_evidence
             else DEFAULT_CAPACITY_PROOF_MISSING_EVIDENCE
         )
+        for item in open_residuals:
+            if item not in missing_items:
+                missing_items.append(item)
 
     return {
         "segments": list(segments),
@@ -644,7 +656,7 @@ def storage_account(
         "capacity_proof": capacity_proof,
         "capacity_proof_reasons": capacity_reasons,
         "capacity_proof_missing_evidence": missing_items,
-        "capacity_proof_residuals": list(residuals or []),
+        "capacity_proof_residuals": open_residuals,
     }
 
 
