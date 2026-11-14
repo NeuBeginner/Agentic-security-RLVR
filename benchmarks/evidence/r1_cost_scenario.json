@@ -32,7 +32,7 @@
       }
     },
     "reason": "The standing baseline is MEASURED, not assumed: the read-only inventory of 2026-11-14 measured 64349622024 B = 59.930256 GiB on Volume 'aegis-model-cache'. It replaces the former 0.0 GiB assumption, which understated the footprint of every stage of the cycle.",
-    "capacity_proof": "UNAVAILABLE",
+    "capacity_proof": "AVAILABLE",
     "capacity_proof_basis": [
       "the standing baseline is measured read-only on 2026-11-14: 64349622024 B = 59.930256 GiB, 247 entries, two independent listings byte-identical",
       "the workspace holds exactly one Volume ('aegis-model-cache'), so the measured total IS the account-wide volume footprint",
