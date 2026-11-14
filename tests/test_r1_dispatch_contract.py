@@ -1410,3 +1410,33 @@ def test_signed_envelope_binds_cost_scenario_and_rate_card_bytes(filename, signe
         gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     assert excinfo.value.reason == "approval_envelope_mismatch"
     assert fake.calls == []
+
+def test_provider_dispatch_fails_closed_when_no_approval_key_is_pinned(monkeypatch):
+    """A syntactically present artifact cannot authorise a call without a pinned key.
+
+    This isolates the approval gate from the later resource/read-back gates:
+    even an otherwise permissive test world and a provider double must be
+    rejected before the provider is reached.
+    """
+    from core import r1_approval
+
+    monkeypatch.setattr(r1_approval, "PINNED_PUBLIC_KEY", None)
+    policy = _policy()
+    artifact = r1_approval.ApprovalArtifact(payload={}, signature=b"not-a-signature")
+    gate = r1_dispatch.DispatchGate(
+        policy=policy,
+        approval=artifact,
+        autoscaler_reader=_reader(),
+        **_approved_world(),
+    )
+    provider = FakeProviderCallable()
+
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", provider, {})
+
+    assert excinfo.value.reason == "approval_not_verified"
+    assert provider.calls == []
+    assert gate.used == {}
+    assert gate.records[-1].outcome == "refused"
+    assert gate.records[-1].reason == "approval_not_verified"
+
