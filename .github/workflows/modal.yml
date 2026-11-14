@@ -98,7 +98,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          # Python 3.11, not 3.10: the Modal SDK announces that it will not
+          # support 3.10 in version 1.7.0, and the SDK is installed from
+          # requirements.txt (modal>=1.5.0), so the client runs on whatever
+          # the newest SDK needs.
+          python-version: '3.11'
           cache: pip
 
       - name: Install the dependencies
@@ -140,7 +144,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          # Python 3.11, not 3.10: the Modal SDK announces that it will not
+          # support 3.10 in version 1.7.0, and the SDK is installed from
+          # requirements.txt (modal>=1.5.0), so the client runs on whatever
+          # the newest SDK needs.
+          python-version: '3.11'
           cache: pip
 
       - name: Install the dependencies
