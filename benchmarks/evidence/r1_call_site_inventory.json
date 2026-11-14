@@ -193,6 +193,18 @@
       ],
       "refused_by": "core.r1_bounds.assert_authorised_call_site / benchmarks.run_cpu_audit._assert_authorised",
       "test": "tests/test_r1_dispatch_contract.py::test_every_refused_call_site_is_in_the_refusal_registry"
+    },
+    "integrations/modal_mcp/modal_access.py::call_function::function": {
+      "count": 4,
+      "disposition": "refused",
+      "reason": "The Modal MCP server (integrations/modal_mcp) is a separate, CPU-only deployment that is not part of the authorised evidence-regeneration trace: it has no approved step policy, no declared bounds of the R1 plan and no egress declaration, so the call is refused at the call boundary. The three functions it calls - audit_contract, probe_environment and read_saved_result - are the functions of the CPU-only audit service (modal_cpu_audit_app.py) and they are named in core.r1_bounds.UNAUTHORISED_CALL_SITES, so the R1 gate refuses them at the call boundary as well. The server dispatches nothing in production: it declares gpu=None, it never touches the R1 registry, the approval key, the rate card or the production dispatch, and it reaches the audit service only through the allowlist (aegis-rlvr-cpu-audit with audit_contract, read_saved_result and probe_environment). What authorises the call is a separate maintainer approval, given out of band exactly as it is for the driver of the audit service: the MCP server requires a credential on every request (the static bearer token of the owner or an OAuth access token of its own authorization server), and the audit service checks the shared token of the Modal secret aegis-cpu-audit-auth on its own side before it does any work. A separate CPU-only application does not make an unauthorised remote workload authorised.",
+      "call_sites": [
+        "audit_contract",
+        "probe_environment",
+        "read_saved_result"
+      ],
+      "refused_by": "core.r1_bounds.assert_authorised_call_site / modal_cpu_audit_app.assert_authorised",
+      "test": "tests/test_modal_mcp.py::test_the_audit_service_is_called_with_the_shared_token"
     }
   },
   "guard_implementation": {
