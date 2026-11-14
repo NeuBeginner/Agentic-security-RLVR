@@ -161,55 +161,54 @@ def _read_target_source(relative_path: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-async def _call_deployed(function_name: str, *args: Any) -> Any:
-    """Call one function of the **deployed** application."""
-    import modal
-
-    function = modal.Function.from_name(APP_NAME, function_name)
-    return await function.remote.aio(*args)
-
-
 async def _run_deployed_suite(run_id: str) -> Dict[str, Any]:
     """Run the whole end-to-end test against the deployed application."""
+    import modal
+
+    # The three functions of the deployed application are resolved by name. The
+    # call sites are the refused surface of this deployment: they are registered in
+    # ``core.r1_bounds.UNAUTHORISED_CALL_SITES`` and classified in
+    # ``benchmarks/evidence/r1_call_site_inventory.json``.
+    audit_contract = modal.Function.from_name(APP_NAME, "audit_contract")
+    probe_environment = modal.Function.from_name(APP_NAME, "probe_environment")
+    read_saved_result = modal.Function.from_name(APP_NAME, "read_saved_result")
+
     vault_source = _read_target_source("benchmarks/targets/solidity/Vault.sol")
     control_source = _read_target_source("benchmarks/targets/solidity/controls/SecureVault.sol")
 
     results: Dict[str, Any] = {}
 
-    results["environment_probe"] = await _call_deployed("probe_environment")
+    results["environment_probe"] = await probe_environment.remote.aio()
 
-    results["vulnerable_target"] = await _call_deployed(
-        "audit_contract",
+    results["vulnerable_target"] = await audit_contract.remote.aio(
         {
             "target_name": "Vault",
             "source_code": vault_source,
             "run_id": f"{run_id}-vault",
             "run_replay": True,
-        },
+        }
     )
 
-    results["safe_control"] = await _call_deployed(
-        "audit_contract",
+    results["safe_control"] = await audit_contract.remote.aio(
         {
             "target_name": "SecureVault",
             "source_code": control_source,
             "run_id": f"{run_id}-control",
             "run_replay": True,
-        },
+        }
     )
 
-    results["invalid_contract"] = await _call_deployed(
-        "audit_contract",
+    results["invalid_contract"] = await audit_contract.remote.aio(
         {
             "target_name": "NotAllowlisted",
             "source_code": "contract Whatever { function f() public {} }",
             "run_id": f"{run_id}-invalid",
-        },
+        }
     )
 
     # The read-back happens in a separate invocation: a container that did not
     # produce the artifact reads it back from the volume.
-    results["read_back"] = await _call_deployed("read_saved_result", f"{run_id}-vault")
+    results["read_back"] = await read_saved_result.remote.aio(f"{run_id}-vault")
 
     return results
 

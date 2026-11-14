@@ -72,6 +72,7 @@ def test_the_application_declares_no_gpu_and_explicit_cpu_resources():
     assert resources["memory"] == 2048
     assert resources["timeout"] == 600
     assert resources["retries"] == 0
+    assert resources["block_network"] is True
 
 
 def test_the_application_name_is_separate_from_the_gpu_application():

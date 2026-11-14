@@ -138,6 +138,7 @@ DECLARED_RESOURCES: Dict[str, Any] = {
     "memory": 2048,
     "timeout": 600,
     "retries": 0,
+    "block_network": True,   # the egress of the container is closed by the provider
 }
 ```
 
@@ -148,7 +149,14 @@ DECLARED_RESOURCES: Dict[str, Any] = {
 | Memory | 2,048 MiB | the same value the repository's sandbox profile declares (`core/config.py:38`) |
 | Timeout | 600 s | one audit = Slither (≤30 s) + two EVM runs (≤60 s each) + overhead |
 | Retries | 0 | a failed audit is a result, not something to repeat silently |
+| Network | **blocked** | the whole pipeline is offline by construction; the provider closes the egress, so an unauthorised external call is impossible rather than merely unintended |
 | Min / buffer / max containers | 0 / 0 / 32 | no container is kept warm; nothing runs between the calls |
+
+The egress block was verified live: the end-to-end test with `block_network=True`
+reproduced the same result — Slither still reports the five real detectors
+(`reentrancy-eth`, `reentrancy-benign`, `reentrancy-events`, `solc-version`,
+`low-level-calls`), because the compiler and the libraries are baked into the image,
+and the Foundry run stays offline (`forge test --offline`).
 
 The toolchain inside the image is the repository's own: Foundry (`forge`, `cast`,
 `anvil`), the pinned solc releases 0.8.19–0.8.28 with SHA-256 validation
@@ -287,10 +295,10 @@ The end-to-end test performs five invocations and checks twelve expectations:
 | Item | Measured |
 |---|---|
 | Billed cost of the workspace | **$0.00** (free credits and the free storage allowance cover everything) |
-| Billed cost of this application alone | **$0.00945524** for the whole day of 2026-11-14 (the provider's own line item for `ap-dhWbTc7uufRgnidkOz0WDW`) — covered by the credits of the workspace |
+| Billed cost of this application alone | **$0.01996580** for the whole day of 2026-11-14 (the provider's own line item for `ap-dhWbTc7uufRgnidkOz0WDW`, three complete end-to-end runs) — covered by the credits of the workspace |
 | Storage used | 59.93 GiB of 1 TiB (5.85 %) |
 | Storage added by this workstream | < 1 MiB (the results volume) |
-| Wall-clock time of the end-to-end test | **40 s** (first run) and **55 s** (the repeated run) for five invocations on three containers each |
+| Wall-clock time of the end-to-end test | **40 s**, **55 s** and **52 s** for the three runs — five invocations on three containers each |
 | CPU | 2 cores per container, no warm container between the calls |
 
 The free allowance covers the workload: a CPU container that runs a Foundry test for a
@@ -299,6 +307,29 @@ magnitude below the allowance. A long-running campaign (thousands of audits) wou
 have to be re-estimated — the rate card of the repository
 (`benchmarks/evidence/r1_rate_card.json`) is the instrument for that, and it is
 **not** approved by the maintainer.
+
+---
+
+## 10.1 The governance of the new call sites
+
+The repository keeps an exhaustive inventory of every provider call site
+(`benchmarks/evidence/r1_call_site_inventory.json`), and
+`tests/test_r1_dispatch_contract.py` fails when a call site is not classified. The
+three call sites of this service are therefore registered as **refused**:
+
+| Call site | Registry |
+|---|---|
+| `audit_contract` | `core/r1_bounds.UNAUTHORISED_CALL_SITES` |
+| `probe_environment` | `core.r1_bounds.UNAUTHORISED_CALL_SITES` |
+| `read_saved_result` | `core.r1_bounds.UNAUTHORISED_CALL_SITES` |
+
+The reason is the same as for the Iteration 19 CPU smoke: this service is a separate
+deployment that is not part of the authorised evidence-regeneration trace, so the R1
+gate refuses it at the call boundary, and the service is only reachable through the
+driver, which refuses the live invocation without a separate maintainer approval. The
+refusal registry is a **deny-list**; adding to it strengthens the fail-closed posture
+and does not change the dispatch envelope of the R1 plan (the envelope does not read
+this registry).
 
 ---
 

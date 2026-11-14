@@ -120,12 +120,18 @@ POC_DIR_REMOTE = "/opt/aegis/cpu_audit_pocs"
 #: The declared resources of this application - one source of truth, so the driver and
 #: the documentation report exactly what the source declares. ``gpu`` is ``None``: the
 #: request is explicit, so no GPU can be allocated.
+#:
+#: ``block_network`` closes the egress of the container. The whole CPU pipeline is
+#: offline by construction: the compiler and the libraries are baked into the image,
+#: and Foundry runs with ``--offline``. The provider enforces the block, so an
+#: unauthorised external call is impossible rather than merely unintended.
 DECLARED_RESOURCES: Dict[str, Any] = {
     "gpu": None,
     "cpu": 2.0,
     "memory": 2048,
     "timeout": 600,
     "retries": 0,
+    "block_network": True,
 }
 
 #: The schema of the structured result of one audit run.

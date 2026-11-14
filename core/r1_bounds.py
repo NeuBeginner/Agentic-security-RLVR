@@ -849,6 +849,24 @@ UNAUTHORISED_CALL_SITES: Dict[str, str] = {
         "bounds and no egress declaration, so its live invocation is refused until "
         "a separate maintainer approval exists"
     ),
+    "audit_contract": (
+        "the audit entry point of the CPU-only audit service (modal_cpu_audit_app.py) "
+        "is a separate deployment that is not part of the authorised trace: it has no "
+        "approved step policy and no declared bounds of the R1 plan, so the R1 gate "
+        "refuses it at the call boundary and the service is only reachable through "
+        "its own driver, which refuses the live invocation without a separate "
+        "maintainer approval"
+    ),
+    "probe_environment": (
+        "the environment probe of the CPU-only audit service (modal_cpu_audit_app.py) "
+        "is a diagnostic of that separate deployment, not an authorised step of the "
+        "R1 trace, so it is refused at the call boundary"
+    ),
+    "read_saved_result": (
+        "the read-back of the CPU-only audit service (modal_cpu_audit_app.py) belongs "
+        "to that separate deployment and is not an authorised step of the R1 trace, "
+        "so it is refused at the call boundary"
+    ),
 }
 
 
