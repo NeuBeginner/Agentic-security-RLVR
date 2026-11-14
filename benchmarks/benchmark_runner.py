@@ -709,8 +709,13 @@ class AegisBenchmarkSuite:
         }
 
         if save_results:
-            # 1. Main benchmark_results.json
-            output_file = self.dataset_path.parent / "benchmark_results.json"
+            # 1. Main benchmark_results.json (written to artifacts_base_dir when a custom
+            #    artifacts directory is supplied so isolated test runs do not dirty the repo).
+            default_artifacts_dir = (self.dataset_path.parent / "artifacts").resolve()
+            if self.artifacts_base_dir == default_artifacts_dir:
+                output_file = self.dataset_path.parent / "benchmark_results.json"
+            else:
+                output_file = self.artifacts_base_dir / "benchmark_results.json"
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(report, f, indent=2)
 

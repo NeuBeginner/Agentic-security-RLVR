@@ -49,8 +49,14 @@ import dataclasses
 import json
 import math
 import os
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from core.r1_bounds import (
     Bound,

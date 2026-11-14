@@ -187,34 +187,63 @@ previous behaviour.
 ## 📁 Repository Structure
 
 ```
-D:\AI\agentic-security-rlvr/
+Agentic-security-RLVR/
 ├── core/
-│   ├── config.py           # Modal cloud settings, Gemini API, RLVR reward shaping
-│   ├── schemas.py          # Pydantic schemas (Target, Hypothesis, Result, Trajectory)
-│   ├── evidence.py         # Trusted evidence contract (harness verdicts, anti-forgery rules)
-│   ├── reward_shaping.py   # Reward Specification 2.0.0 (components, penalties, versions)
-│   ├── llm_generator.py    # Target-agnostic prompts, Solidity lexer, contract-name normalization
-│   ├── evaluator.py        # Multi-factor invariant evaluation & GRPO trajectory packager
-│   ├── grpo_trainer.py     # GRPO primitives, advantage computation, group spread diagnostics, LoRA setup
+│   ├── config.py              # Modal cloud settings, Gemini API, RLVR reward shaping
+│   ├── schemas.py             # Pydantic schemas (Target, Hypothesis, Result, Trajectory)
+│   ├── evidence.py            # Trusted evidence contract (harness verdicts, anti-forgery rules)
+│   ├── evm_oracle.py          # Trusted EVM State Oracle (ABI OracleSnapshot + SecurityInvariantBreached)
+│   ├── invariants.py          # Formal state invariants across all 12 vulnerable classes
+│   ├── reward_shaping.py      # Reward Specification 2.0.0 (components, penalties, versions)
+│   ├── r1_bounds.py           # R1 pre-dispatch bounds, pinned model/toolchain & GPU ceilings
+│   ├── r1_approval.py         # Cryptographic approval artifact verification for R1 dispatch
+│   ├── llm_generator.py       # Target-agnostic prompts, Solidity lexer, contract-name normalization
+│   ├── hypothesis_manager.py  # Findings-to-hypotheses deduplication & lifecycle management
+│   ├── evaluator.py           # Multi-factor invariant evaluation & GRPO trajectory packager
+│   ├── grpo_trainer.py        # GRPO primitives, advantage computation, group spread diagnostics, LoRA setup
 │   ├── candidate_lifecycle.py # Candidate ranking, replay selection, finalized trajectory construction
-│   ├── ab_evaluator.py     # Audit-grade A/B metric recomputation from raw candidate records
-│   └── dropbox_bridge.py   # Supervisor<->agent file bridge (Dropbox), env-driven workspace paths
+│   ├── ab_evaluator.py        # Audit-grade A/B metric recomputation from raw candidate records
+│   └── dropbox_bridge.py      # Supervisor<->agent file bridge (Dropbox), env-driven workspace paths
 ├── sandbox/
-│   ├── runner.py           # Foundry runner, Slither analysis, cheatcode barrier, replay verification
-│   └── prebake_solc.py     # Solc compiler prebaking script with SHA256 integrity validation
+│   ├── runner.py              # Foundry runner (16 allowlisted harnesses), Slither, cheatcode barrier, replay
+│   └── prebake_solc.py        # Solc compiler prebaking script with SHA256 integrity validation
 ├── benchmarks/
-│   ├── raw_ab_candidates.json   # Raw candidate records used for A/B metric recomputation
-│   └── targets/solidity/   # Benchmark targets with trusted Foundry harnesses
-│       ├── Vault.sol & VaultHarness.t.sol           (Reentrancy solvency invariant)
-│       └── ERC4626Vault.sol & ERC4626VaultHarness.t.sol (Share inflation dilution invariant)
-├── tests/                  # 196 unit tests (lexer, evaluator, lifecycle, GRPO integrity,
-│                            # provenance isolation, security gates, A/B recomputation,
-│                            # normalization v2 + real solc compile tests, reward shaping 2.0.0,
-│                            # trusted harness contract)
-├── modal_app.py            # Aegis-RLVR 2.0 distributed orchestrator on Modal Cloud
-├── audit_trajectories.bat  # Read-only trajectory audit helper for Windows
+│   ├── benchmark_dataset.json # 16-target dataset (12 vulnerable classes + 4 safe controls)
+│   ├── benchmark_runner.py    # 5-baseline benchmark runner (--mode smoke / --mode real)
+│   ├── adapters.py            # Baseline 1..5 adapters with stage-by-stage provenance capture
+│   ├── evaluator.py           # Confusion matrix & derived metrics evaluator
+│   ├── evidence_integrity.py  # Cryptographic evidence & provenance integrity validators
+│   ├── r1_dispatch.py         # Fail-closed DispatchGate enforcing r1_bounds + r1_approval
+│   ├── r1_estimator.py        # Deterministic R1 Modal cost & call-volume estimator
+│   └── targets/solidity/      # 16 Solidity targets paired with immutable *Harness.t.sol suites
+├── tests/                     # 800+ unit & integration tests (including 16-target real Foundry E2E)
+├── modal_app.py               # Aegis-RLVR 2.0 distributed orchestrator on Modal Cloud
 ├── requirements.txt
 └── README.md
+```
+
+---
+
+## 🧪 Reproducible Local Verification & Evidence Integrity
+
+### 1. Run the Complete Test Suite
+```bash
+python -m pytest -q
+```
+
+### 2. Verify All 16 Targets (12 Vulnerable + 4 Safe Controls) Against Real Local Foundry
+Executes every vulnerable target exploit and safe-control probe inside isolated ephemeral Foundry sandboxes (`forge test --offline --json -vvvv` with `forge 1.9.0` and `solc 0.8.20`), verifies independent replay reproducibility, validates ABI-encoded `OracleSnapshot(string,string,string)` decoding, and runs closed-loop RLVR + GRPO advantage/loss computation:
+```bash
+python -m pytest tests/test_real_foundry_e2e_all_targets.py -v
+python tests/test_real_foundry_e2e_all_targets.py
+```
+Writes the deterministic verification report to `benchmarks/evidence/real_foundry_16_target_verification.json`.
+
+### 3. Run Evidence Integrity & R1 Pre-Dispatch Validators
+```bash
+python -m benchmarks.r1_estimator --scenario benchmarks/evidence/r1_cost_scenario.json --provisional
+python -m pytest tests/test_r1_bounds_contract.py tests/test_r1_dispatch_boundary.py tests/test_r1_estimator.py -v
+python -m pytest tests/test_iteration19_evidence_integrity.py tests/test_iteration20_evidence_integrity.py tests/test_iteration21_evidence_integrity.py tests/test_iteration22_evidence_integrity.py tests/test_iteration23_evidence_integrity.py -v
 ```
 
 ---
