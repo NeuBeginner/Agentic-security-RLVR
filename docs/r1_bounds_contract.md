@@ -259,19 +259,25 @@ refusal, and the historical Iteration 19 evidence is untouched by any of this.
 
 The gate enforces, per step:
 
-1. the **authorisation of the call site** (`unauthorised_call_site`) — the refusal
-   registry of `core/r1_bounds.py` names every provider call site that is *not* part
-   of the authorised trace: the T4 dev agent, the Slither worker, the fault-injection
-   worker, the volume audit, the GRPO diagnostic and the GRPO training, and the
-   audit-role method of the GPU class. The check is the **first** one, so a refusal
-   names the call site instead of a downstream symptom;
+1. the **authorisation of the call site and its authoritative container class**
+   (`unauthorised_call_site`) — the refusal registry of `core/r1_bounds.py` names
+   every provider call site that is *not* part of the authorised trace: the T4 dev
+   agent, the Slither worker, the fault-injection worker, the volume audit, the GRPO
+   diagnostic and the GRPO training, and the audit-role method of the GPU class. The
+   gate also checks that the caller-supplied `container_class` equals the
+   authoritative class mapped in `core/r1_bounds.FUNCTION_CLASS`, so a call site
+   cannot be mislabelled to borrow another class's bounds or allowance. The check is
+   the **first** one, so a refusal names the call site instead of a downstream
+   symptom;
 2. an **approved step policy** — a provider dispatch without one is refused
    (`no_approved_step_policy`), and the policy itself must declare the wall-clock
    budget, the post-execution deadline, the monetary ceiling and an estimate at or
    below that ceiling;
-3. a **signed approval** of the step (`approval_not_verified`,
-   `approval_policy_mismatch`, `call_site_not_approved`) — the gate verifies the
-   artifact itself, at dispatch time; see *The approval is external* below;
+3. a **signed approval of both the `StepPolicy` and the complete D26–D29 dispatch
+   envelope** (`approval_not_verified`, `approval_policy_mismatch`,
+   `call_site_not_approved`, `approval_envelope_unavailable`,
+   `approval_envelope_mismatch`) — the gate verifies the artifact itself at the gate
+   and again immediately before provider entry; see *The approval is external* below;
 4. the **completeness of the declared bounds** of the class (`bounds_not_approved`);
 5. the **egress declaration** of the function (`no_egress_declaration`,
    `egress_bound_not_approved`);
@@ -288,17 +294,45 @@ The gate enforces, per step:
 
 Every refusal is recorded with its machine-readable reason.
 
-**The approval is external.** The gate is a mechanism, not an authorisation: a step
-policy that a caller constructs in-process — with an `approved_by` of its own choosing
-— authorises nothing. The authorisation is the **approval artifact** of the step: a
-JSON document that names the step, the approver, the moment of the approval, the call
-sites it covers and the exact policy it approves, and that carries an **RSA
-signature** (RSASSA-PKCS1-v1_5 over SHA-256) over its canonical form. The signature
-is verified against the **public** key of the approval authority, which the repository
-pins in the source (`core/r1_approval.py::PINNED_PUBLIC_KEY`) and mirrors for the
-audit trail in `benchmarks/evidence/r1_approval_key.json`; the private half of that
-key never enters this repository and never enters the process, so a caller that can
-only run code here cannot mint an approval.
+**The approval is external — and binds the complete D26–D29 dispatch envelope, not
+`StepPolicy` alone.** The gate is a mechanism, not an authorisation: a step policy
+that a caller constructs in-process — with an `approved_by` of its own choosing —
+authorises nothing. The contract distinguishes two levels:
+
+* **(a) Signature verification of `StepPolicy` alone (`policy_digest`)** binds only the
+  per-step invocation budgets, concurrency caps, wall-clock and post-execution
+  deadlines, estimate and monetary ceiling. That check is necessary (`approval_policy_mismatch`),
+  but by itself it is **insufficient**, because resource profiles, autoscaler lifetimes,
+  network/egress policies, persistence caps, model/cache identities and cost inputs live
+  outside `StepPolicy`. A policy-only artifact is therefore rejected outright
+  (`approval_not_verified`).
+* **(b) Approval of the complete D26–D29 dispatch envelope (`dispatch_envelope_digest`)**
+  is required before any stage could become dispatchable. The signed JSON artifact must
+  include a canonical `dispatch_envelope` (`schema: "r1-dispatch-envelope/1"`) binding
+  every effective input that can alter the safety, resource or cost envelope: the
+  `StepPolicy`, the deployment and volume configuration (including `/vol/models` mount
+  path and free-allowance parameters), the `solc`/`foundry` toolchain versions, the
+  authoritative `function_class_map`, both declared (`core.r1_bounds.PROFILES`) and
+  effective per-class `ResourceProfile`s (CPU/memory request/limit, GPU type,
+  startup/execution/scaledown lifetimes, min/buffer/max containers, volume mounts and
+  provenance), declared and effective egress/ingress/network-blocking policies,
+  `MAX_TRAJECTORY_PAYLOAD_BYTES`, `PINNED_MODEL` (enforced via `revision=` in
+  `modal_app.py` and SHA-256 checks in `verify_model_cache_manifest`), the live
+  model-cache manifest state and SHA-256 digest, and the SHA-256 digests of
+  `benchmarks/evidence/r1_cost_scenario.json` and `benchmarks/evidence/r1_rate_card.json`.
+
+The gate recomputes `dispatch_envelope_payload()` from the live authoritative
+declarations and the gate's effective configuration (including any caller-injected
+`profiles` or `egress_policies`) at dispatch time — and re-verifies it immediately
+before provider entry — comparing its canonical SHA-256 digest against the signed
+`claims.dispatch_envelope_digest`. Any missing, extra, non-finite, malformed or altered
+bound, profile, network policy, model/cache identity or cost-input byte fails closed
+with `approval_envelope_unavailable` or `approval_envelope_mismatch` before any
+provider call is made. The RSA signature (RSASSA-PKCS1-v1_5 over SHA-256) is verified
+against the **public** key of the approval authority pinned in
+`core/r1_approval.py::PINNED_PUBLIC_KEY` and mirrored in
+`benchmarks/evidence/r1_approval_key.json`; the private half never enters this
+repository or process.
 
 **The gate verifies the artifact itself.** The dispatch gate takes the **signed
 artifact** — the payload and its signature — and verifies the signature itself, at
@@ -402,9 +436,13 @@ is a property of the language and of the process, not of this guard. What the gu
   in a registry, not in an attribute (a test invokes every callable the module holds,
   including the contents of their closures, against a fake provider and requires zero
   recorded calls);
-* **no provider dispatch is possible without a signed approval** — the gate verifies
-  the artifact itself against the pinned key, and R1 pins no approval key, so no live
-  provider dispatch is possible at all;
+* **no provider dispatch is possible without a signed approval of the complete
+  D26–D29 dispatch envelope** — the gate verifies the artifact itself against the
+  pinned key and compares both `policy_digest` and the live `dispatch_envelope_digest`
+  (covering resource profiles, autoscaler lifetimes, network/egress/ingress bounds,
+  payload caps, volume/toolchain settings, pinned model/cache digests and cost/rate-card
+  SHA-256 digests). R1 pins no approval key, so no live provider dispatch is possible at
+  all;
 * **no value whose construction conveys authority exists** — there is no issuance
   token, no unforgeable-in-practice marker and no "verified approval" object the
   gate accepts; the only way through the boundary is a signature of the approval
