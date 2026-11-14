@@ -76,8 +76,31 @@ An unauthenticated public endpoint that compiles and executes untrusted Solidity
 abuse and denial-of-service surface. The acceptance criteria of this workstream ask
 for a reachable entry point, not for a public web route, so the service is a Modal
 **function** that is reachable from any client holding the credentials of the
-workspace. The application therefore declares **no** `web_endpoint`, no secret and no
-authentication surface.
+workspace. The application therefore declares **no** `web_endpoint`.
+
+### 1.4 The authorisation is enforced on the server side
+
+A function is reachable by **every** client that holds the credentials of the
+workspace. An authorisation that lives in the caller is therefore no authorisation at
+all: the local environment variable of the driver was never the gate, and the service
+has to refuse a direct call on its own.
+
+The service therefore keeps a shared token in a Modal **secret** and every public
+function checks it **before it does any work**:
+
+| | |
+|---|---|
+| The secret | `aegis-cpu-audit-auth` (key `AEGIS_CPU_AUDIT_TOKEN`) |
+| The check | `assert_authorised(call, presented_token)` — `hmac.compare_digest`, constant time |
+| The refusal | `{"status": "UNAUTHORIZED", "error": {"code": "NOT_AUTHORISED", …}}` |
+| The order | the check is the **first** statement of `audit_contract`, `probe_environment` and `read_saved_result` — before the validation, before the static analysis, before the EVM and before any access to a volume |
+| The failure mode | a container **without** the secret has no expected token, so it refuses every call — a missing secret closes the service, it never opens it |
+
+The token of the caller is compared, never echoed: it never travels into a result, an
+artifact or a log record.
+
+The end-to-end test proves the refusal by calling all three functions **without** the
+token and recording the refusals as part of the evidence (§8).
 
 ---
 
@@ -95,10 +118,15 @@ modal app list     --profile neubeginner
 modal volume list --profile neubeginner
 modal billing summary --profile neubeginner
 
-# 3. the deployment
+# 3. the authorisation secret of the service (control plane, free of charge)
+$token = python -c "import secrets; print(secrets.token_urlsafe(32))"
+modal secret create aegis-cpu-audit-auth "AEGIS_CPU_AUDIT_TOKEN=$token" --profile neubeginner
+"AEGIS_CPU_AUDIT_TOKEN=$token" | Out-File -FilePath .env -Encoding utf8   # .env is excluded from git
+
+# 4. the deployment
 modal deploy modal_cpu_audit_app.py --profile neubeginner
 
-# 4. the end-to-end test
+# 5. the end-to-end test
 $env:AEGIS_APPROVE_CPU_AUDIT = '1'
 python -m benchmarks.run_cpu_audit --profile neubeginner --mode deployed
 ```
@@ -107,22 +135,29 @@ The CLI profile flag and `MODAL_PROFILE` must agree: the SDK reads the profile f
 the environment, the CLI from its own flag. Mixing them sends the SDK to a **different
 workspace** that happens to own a volume of the same name (see the inventory, §0).
 
+The token of the service is read by the driver from the environment variable
+`AEGIS_CPU_AUDIT_TOKEN` or from the local `.env` file (which is excluded from git).
+The driver refuses to start without it — a call without the token would be refused by
+the service anyway, and a refused call still starts a container.
+
 ---
 
 ## 3. Commands
 
 | Purpose | Command |
 |---|---|
+| Create/rotate the authorisation secret | `modal secret create aegis-cpu-audit-auth "AEGIS_CPU_AUDIT_TOKEN=<token>" --profile neubeginner` |
 | Deploy | `modal deploy modal_cpu_audit_app.py --profile neubeginner` |
 | Run ephemerally (no deployment) | `python -m benchmarks.run_cpu_audit --profile neubeginner --mode ephemeral` |
 | Run against the deployment | `python -m benchmarks.run_cpu_audit --profile neubeginner --mode deployed` |
-| Call one function directly | `python -c "import modal; print(modal.Function.from_name('aegis-rlvr-cpu-audit','probe_environment').remote())"` |
+| Call one function directly | `python -c "import modal; print(modal.Function.from_name('aegis-rlvr-cpu-audit','probe_environment').remote('<token>'))"` |
+| Call one function directly **without** the token | `python -c "import modal; print(modal.Function.from_name('aegis-rlvr-cpu-audit','probe_environment').remote())"` — the answer is `UNAUTHORIZED` |
 | Logs of the app | `modal app logs aegis-rlvr-cpu-audit --profile neubeginner` |
 | Containers of the app | `modal container list --app-id ap-dhWbTc7uufRgnidkOz0WDW --profile neubeginner` |
 | Stop the app (the deployment stays) | `modal app stop aegis-rlvr-cpu-audit --profile neubeginner` |
 | Remove the deployment | `modal app remove aegis-rlvr-cpu-audit --profile neubeginner` |
 | Billed usage of the workspace | `modal billing report --for today --json --profile neubeginner` |
-| Local contract tests | `python -m pytest tests/test_cpu_audit_contract.py -q` |
+| Local contract tests | `python -m pytest tests/test_cpu_audit_contract.py tests/test_cpu_audit_evidence_consistency.py -q` |
 
 ---
 
@@ -201,22 +236,23 @@ is the only modification of the shared production code of this workstream.
 
 ---
 
-## 6. Environment variables
+## 6. Environment variables and secrets
 
-Only these variables are read by the service or its driver. **No secret is read at
-all** — the service declares no `modal.Secret` and the container receives no
-credential.
+Only these variables are read by the service or its driver.
 
 | Variable | Where | Meaning | Value in the repository |
 |---|---|---|---|
 | `MODAL_PROFILE` | client | the Modal workspace | `neubeginner` — **not** committed, set by the operator |
 | `AEGIS_APPROVE_CPU_AUDIT` | driver | the explicit authorisation of the live invocation | **not committed** — set by the operator (`1`, `true` or `yes`) |
+| `AEGIS_CPU_AUDIT_TOKEN` | driver **and** container | the shared authorisation token of the service | **not committed** — the operator reads it from the Modal secret `aegis-cpu-audit-auth`; the driver also accepts it from the local `.env` file, which is excluded from git |
 | `GEMINI_API_KEY` | `core/config.py:14` | the frontier API key of the *production* pipeline | never read by the CPU service; never logged |
 
-The service logs the **names** of the `MODAL_*` environment variables of the container
-and never their values. The driver scans the whole result for secret-shaped strings
-(`AIza…`, `sk-…`, `ghp_…`, private key headers, `api_key=…`) — the measured result of
-the end-to-end test is a clean scan.
+The service reads **exactly one** secret: the authorisation token of
+`aegis-cpu-audit-auth`. It is compared, never echoed — the token of the caller never
+travels into a result, an artifact or a log record. The service logs the **names** of
+the `MODAL_*` environment variables of the container and never their values. The driver
+scans the whole result for secret-shaped strings (`AIza…`, `sk-…`, `ghp_…`, private key
+headers, `api_key=…`) — the measured result of the end-to-end test is a clean scan.
 
 ---
 
@@ -242,7 +278,7 @@ page is <https://modal.com/apps/neubeginner/main/deployed/aegis-rlvr-cpu-audit>.
 
 ```powershell
 # the offline contract suite (no provider call)
-python -m pytest tests/test_cpu_audit_contract.py -q
+python -m pytest tests/test_cpu_audit_contract.py tests/test_cpu_audit_evidence_consistency.py -q
 
 # the live end-to-end test against the deployment
 $env:AEGIS_APPROVE_CPU_AUDIT = '1'
@@ -250,18 +286,98 @@ python -m benchmarks.run_cpu_audit --profile neubeginner --mode deployed
 
 # the evidence of the run
 python -c "import json;d=json.load(open('benchmarks/evidence/cpu_audit/<run_id>_evidence.json',encoding='utf-8'));print(json.dumps(d['expectations'],indent=2))"
+
+# a direct call WITHOUT the token - the answer is UNAUTHORIZED
+python -c "import modal;print(modal.Function.from_name('aegis-rlvr-cpu-audit','probe_environment').remote())"
 ```
 
-The end-to-end test performs five invocations and checks twelve expectations:
+The end-to-end test performs **eight** invocations and checks **29** expectations:
 
-1. `probe_environment` — the volumes, the toolchain and the GPU state;
-2. `audit_contract` on the vulnerable target `Vault`;
-3. `audit_contract` on the safe control `SecureVault` with the **same** candidate —
-   the trusted harness must not report a breach;
-4. `audit_contract` with a target that has no trusted harness — the service must
-   refuse it in a structured way;
-5. `read_saved_result` in a **separate invocation** — the artifact is read back by a
-   container that did not produce it.
+| # | Invocation | What it proves |
+|---|---|---|
+| 1 | `probe_environment` (with the token) | the volumes, the toolchain, the pinned compiler and the GPU state |
+| 2 | `audit_contract` on the vulnerable target `Vault` | the whole pipeline: static analysis, hypothesis, verification in a real Foundry EVM, independent replay, verdict, artifact |
+| 3 | `audit_contract` on the safe control `SecureVault` with the **same** candidate | the trusted harness must not report a breach — no false confirmation |
+| 4 | `audit_contract` with a target that has no trusted harness | the service refuses it in a structured way |
+| 5 | `read_saved_result` in a **separate invocation** | the artifact is read back by a container that did not produce it |
+| 6 | `audit_contract` **without** the token | the service refuses the call |
+| 7 | `probe_environment` **without** the token | the service refuses the call |
+| 8 | `read_saved_result` **with a wrong token** | the service refuses the call |
+
+The expectations are read from the evidence itself, never from a summary flag:
+
+* the **first** Foundry run really ran — `return_code == 0`, `test_status == "Success"`,
+  a trusted harness suite and its verdict;
+* the **replay** was a second, independent execution — the identity of the two
+  executions (`first_execution_id` / `replay_execution_id`) is different and the
+  service states the basis of that statement;
+* the trusted verdict of the first run, of the replay and of the service agree;
+* the safe control is **not** confirmed — and its own replay reports `NO_BREACH`;
+* the reward is **the sum of its own components** and the replay credit is there
+  exactly when the replay was confirmed;
+* every field of the verdict tells the same story (`is_verified`, `reproducible`,
+  `replay_status`, `replay_confirmed`, `verification_result.replay_confirmed`,
+  `verification_result.confidence_status`);
+* the `state_delta_verified` claim matches the state delta it describes, and the
+  basis of the breach is named (`trusted_harness_event`);
+* the static analysis states its provenance — `analysis_mode` is `slither` for the
+  real detector and `fallback_heuristics` for the fallback, and the run is only
+  accepted with the real detector;
+* the service's own self-check (`consistency.all_consistent`) is true;
+* the three unauthorised calls are refused with `UNAUTHORIZED` / `NOT_AUTHORISED`.
+
+A run is **not** accepted because `reproducible=True`: the reproducibility alone is
+never a criterion — the independent replay, the trusted verdict, the reward and the
+field consistency are.
+
+---
+
+## 8.1 The consistency of the evidence
+
+A result is one statement about one execution, and every field of that statement has
+to agree with the others. The service therefore writes a **self-check** into every
+result (`consistency`), and the verdict carries the fields that make the statement
+checkable:
+
+| Field | Meaning |
+|---|---|
+| `replay_status` | `CONFIRMED` / `FAILED` / `INFRA_ERROR` / `NOT_ELIGIBLE` — the state of the independent replay |
+| `replay_confirmed` | the same statement as a boolean |
+| `is_verified` | true only for a confirmed exploit |
+| `reproducible` | true only when an **independent** replay confirmed the verdict — the same meaning as in the GPU path (`modal_app.py`) and in `core/candidate_lifecycle.py` |
+| `verification_result.replay_confirmed` | the oracle result is **aligned** with the replay, so a verdict never claims a confirmed exploit while its own embedded oracle result still calls the breach provisional |
+| `verification_result.confidence_status` | `CONFIRMED` after a confirmed replay, `PROVISIONAL_BREACH` before it |
+| `state_delta_verified` | true **only** when a real state snapshot exists and the state changed |
+| `breach_evidence_basis` | how the breach was established: `trusted_harness_event` or `verified_state_snapshot` |
+| `reward_components` / `reward_penalty` / `reward_score` | the score is always the sum of its own components and its penalty |
+
+The repair that this workstream made in `core/evaluator.py` (the shared evaluator of
+the repository, so the GPU path inherits it):
+
+1. **The verdict carries its own replay status.** Before the repair the verdict always
+   said `NOT_ELIGIBLE`, even when the replay had confirmed the exploit — while the
+   trajectory validator of `core/schemas.py` demands `CONFIRMED` for an
+   `EXPLOIT_CONFIRMED` trajectory. The vocabulary of the verdict is now the vocabulary
+   of `core/candidate_lifecycle.py`.
+2. **The embedded oracle result agrees with the verdict.** It is built from the first
+   execution, before the replay is known, so it said `replay_confirmed: false` and
+   `PROVISIONAL_BREACH` next to a verdict of `EXPLOIT_CONFIRMED` and a reward of
+   `+1.0`. It is now aligned (as a copy — the evidence of the execution is never
+   mutated).
+3. **`state_delta_verified` is no longer a claim without evidence.** The trusted
+   harness proves a breach through a verified event, so there is no state delta to
+   verify: the flag is `false` and the basis of the breach is named.
+4. **A replay that could not run is an infrastructure failure.** It is reported as
+   `INFRA_ERROR` with a reward of `0.0` — not as an unreplayed breach with `+0.5`,
+   which would have claimed that the exploit was observed while nothing was observed.
+5. **`reproducible` means the same thing everywhere.** A safe run reproduces no
+   exploit, so the flag is `false` for it.
+
+The three historical runs of `benchmarks/evidence/cpu_audit/` are **kept**: they are
+the evidence of the defect. `tests/test_cpu_audit_evidence_consistency.py` asserts
+that a run of the fixed service contradicts itself nowhere, and that the historical
+runs do carry the contradiction — so the defect cannot be quietly forgotten, and the
+repair cannot silently regress.
 
 ---
 
@@ -276,17 +392,28 @@ The end-to-end test performs five invocations and checks twelve expectations:
 3. **The static analysis depends on the toolchain of the image.** Slither runs against
    the pre-baked solc 0.8.20; when Slither cannot run, the repository's own
    deterministic fallback heuristics produce the findings. The result states which
-   engine produced them, and the fallback is part of the repository's static analysis
-   stage — it is not a stand-in for the EVM verification, which always runs.
+   engine produced them (`analysis_mode`: `slither` or `fallback_heuristics`), and the
+   end-to-end test **rejects** a run whose analysis fell back — the fallback is part of
+   the repository's static analysis stage, but it is never passed off as an analysis
+   result. The fallback is not a stand-in for the EVM verification, which always runs.
 4. **The service verifies targets of the repository's allowlist only.** A contract
    without an immutable repository-owned harness is refused, because there is no
    verdict that could be trusted for it.
-5. **The entry point is not a web service.** There is no HTTP route, no
-   authentication and no rate limiting to configure — and therefore no public
-   abuse surface either.
+5. **The entry point is not a web service.** There is no HTTP route and no rate
+   limiting to configure — and therefore no public abuse surface either. The
+   authorisation is a **shared token** (§1.4): it closes the service, it does not
+   implement a user management, a quota or a rotation schedule. A production use of
+   the service would need at least a rotation of the token and a per-caller
+   identification; that is beyond this workstream.
 6. **The result of one audit is stored, not a training trajectory.** The service
    writes the structured audit result; it does not write RLVR trajectories into the
    model cache. The trajectory stage of the production pipeline is untouched.
+7. **The trusted harness proves the breach with an event, not with a state snapshot.**
+   The verdict therefore reports `state_delta_verified: false` together with
+   `breach_evidence_basis: "trusted_harness_event"`: there is no state delta to
+   verify, and the claim is made about the event that the immutable harness emitted
+   (emitter, topic and deficit). The field is `true` only when a real snapshot exists
+   and the state actually changed.
 
 ---
 
@@ -295,11 +422,13 @@ The end-to-end test performs five invocations and checks twelve expectations:
 | Item | Measured |
 |---|---|
 | Billed cost of the workspace | **$0.00** (free credits and the free storage allowance cover everything) |
-| Billed cost of this application alone | **$0.01996580** for the whole day of 2026-11-14 (the provider's own line item for `ap-dhWbTc7uufRgnidkOz0WDW`, three complete end-to-end runs) — covered by the credits of the workspace |
+| Metered cost of the workspace today | $6.09 — credits −$4.11, free storage −$1.98, network egress allowance −$0.00 → **billed $0.00** |
+| Billed cost of this application alone | **$0.04866051** for the whole day of 2026-11-14 (the provider's own line item for `ap-dhWbTc7uufRgnidkOz0WDW`: the three historical runs, the two runs of the fix and the unauthorised-call checks) — covered by the credits of the workspace |
 | Storage used | 59.93 GiB of 1 TiB (5.85 %) |
 | Storage added by this workstream | < 1 MiB (the results volume) |
-| Wall-clock time of the end-to-end test | **40 s**, **55 s** and **52 s** for the three runs — five invocations on three containers each |
+| Wall-clock time of the end-to-end test | **40 s**, **55 s** and **52 s** for the three historical runs; **60 s** and **66 s** for the two runs of the fix — eight invocations each |
 | CPU | 2 cores per container, no warm container between the calls |
+| GPU | **none** — `gpu: None` in the declaration, `gpu_device_exposed: false` and no `nvidia*` device node in the container |
 
 The free allowance covers the workload: a CPU container that runs a Foundry test for a
 few seconds is far below the included credits, and the storage stays two orders of
