@@ -950,6 +950,149 @@ def test_the_provider_read_back_is_opt_in():
         r1_dispatch.provider_autoscaler_reader(None, "verify_exploit_remote")
 
 
+def test_object_tag_matches_modal_sdk_1_5_5_registration_tags():
+    """Module functions use their name; @app.cls service functions use 'ClassName.*'."""
+    import modal_app
+    from modal._utils.async_utils import synchronizer
+
+    raw_app = synchronizer._translate_in(modal_app.app)
+    registered_tags = set(raw_app._local_state.functions.keys())
+    assert "verify_exploit_remote" in registered_tags
+    assert "verify_replay_remote" in registered_tags
+    assert "record_trajectory_remote" in registered_tags
+    assert "ProductionAuditAgent.*" in registered_tags
+    assert "ProductionAuditAgent" not in registered_tags
+
+    assert r1_dispatch._object_tag("verify_exploit_remote") == "verify_exploit_remote"
+    assert (
+        r1_dispatch._object_tag("ProductionAuditAgent.generate_solidity_exploit")
+        == "ProductionAuditAgent.*"
+    )
+    assert (
+        r1_dispatch._object_tag("ProductionAuditAgent.refine_solidity_exploit")
+        == "ProductionAuditAgent.*"
+    )
+
+
+def test_provider_autoscaler_reader_enforces_protobuf_has_field_presence(monkeypatch):
+    """Unset protobuf fields in FunctionGetResponse must fail closed, never read as 0."""
+    from modal.client import Client
+    from modal_proto import api_pb2
+
+    monkeypatch.setenv("R1_ENABLE_PROVIDER_READBACK", "1")
+    captured_requests = []
+    next_response = [api_pb2.FunctionGetResponse()]
+
+    class FakeStub:
+        async def FunctionGet(self, request):
+            captured_requests.append(request)
+            return next_response[0]
+
+    class FakeClient:
+        stub = FakeStub()
+
+    async def fake_from_env():
+        return FakeClient()
+
+    monkeypatch.setattr(Client, "from_env", staticmethod(fake_from_env))
+
+    # 1. Empty FunctionGetResponse (unset 'function' submessage) -> unavailable
+    next_response[0] = api_pb2.FunctionGetResponse()
+    with pytest.raises(r1_dispatch.AutoscalerReadbackUnavailable, match="no FunctionData"):
+        r1_dispatch.provider_autoscaler_reader(
+            None, "ProductionAuditAgent.generate_solidity_exploit"
+        )
+    assert captured_requests[-1].object_tag == "ProductionAuditAgent.*"
+
+    # 2. FunctionData with unset 'autoscaler_settings' submessage -> unavailable
+    next_response[0] = api_pb2.FunctionGetResponse(function=api_pb2.FunctionData())
+    with pytest.raises(
+        r1_dispatch.AutoscalerReadbackUnavailable, match="no autoscaler settings"
+    ):
+        r1_dispatch.provider_autoscaler_reader(None, "verify_exploit_remote")
+    assert captured_requests[-1].object_tag == "verify_exploit_remote"
+
+    # 3. Partial AutoscalerSettings (scaledown_window unset) -> None, refused by read_back_autoscaler
+    next_response[0] = api_pb2.FunctionGetResponse(
+        function=api_pb2.FunctionData(
+            autoscaler_settings=api_pb2.AutoscalerSettings(
+                min_containers=0,
+                max_containers=32,
+                buffer_containers=0,
+            )
+        )
+    )
+    partial = r1_dispatch.provider_autoscaler_reader(
+        None, "ProductionAuditAgent.generate_solidity_exploit"
+    )
+    assert partial == {
+        "min_containers": 0,
+        "max_containers": 32,
+        "buffer_containers": 0,
+        "scaledown_window": None,
+    }
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        r1_dispatch.read_back_autoscaler(
+            None,
+            function_name="ProductionAuditAgent.generate_solidity_exploit",
+            reader=r1_dispatch.provider_autoscaler_reader,
+        )
+    assert excinfo.value.reason == "autoscaler_readback_missing_field"
+    assert "scaledown_window" in excinfo.value.detail
+
+    # 4. Complete AutoscalerSettings -> all four integers returned
+    next_response[0] = api_pb2.FunctionGetResponse(
+        function=api_pb2.FunctionData(
+            autoscaler_settings=api_pb2.AutoscalerSettings(
+                min_containers=0,
+                max_containers=32,
+                buffer_containers=0,
+                scaledown_window=60,
+            )
+        )
+    )
+    complete = r1_dispatch.read_back_autoscaler(
+        None,
+        function_name="ProductionAuditAgent.generate_solidity_exploit",
+        reader=r1_dispatch.provider_autoscaler_reader,
+    )
+    assert complete == {
+        "min_containers": 0,
+        "max_containers": 32,
+        "buffer_containers": 0,
+        "scaledown_window": 60,
+    }
+
+
+def test_the_gpu_class_service_function_carries_the_exact_modal_sdk_deployment_kwargs():
+    """Verify the actual Modal SDK 1.5.5 _Function closure formed for ProductionAuditAgent.*."""
+    import modal_app
+    from modal._utils.async_utils import synchronizer
+
+    raw_app = synchronizer._translate_in(modal_app.app)
+    gpu_service_fn = raw_app._local_state.functions["ProductionAuditAgent.*"]
+    assert gpu_service_fn._tag_ == "ProductionAuditAgent.*"
+
+    load_fn = gpu_service_fn._load
+    cells = {
+        name: cell.cell_contents
+        for name, cell in zip(load_fn.__code__.co_freevars, load_fn.__closure__)
+    }
+    assert cells["block_network"] is True
+    assert cells["gpu"] == "H100"
+    assert cells["timeout"] == 1200
+    assert cells["min_containers"] == 0
+    assert cells["buffer_containers"] == 0
+    assert cells["max_containers"] == 32
+    # Unapproved bounds are absent (None), never replaced by permissive defaults.
+    assert cells["cpu"] is None
+    assert cells["memory"] is None
+    assert cells["scaledown_window"] is None
+    volumes = dict(cells["validated_volumes_no_cloud_buckets"])
+    assert "/vol/models" in volumes
+    assert cells["secrets"] and len(cells["secrets"]) == 1
+
+
 def test_an_unavailable_read_back_refuses_the_dispatch(signed_approval):
     world = _approved_world()
 

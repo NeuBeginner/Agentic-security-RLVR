@@ -261,12 +261,18 @@ def _run_coroutine_blocking(coro: Any) -> Any:
 
 
 def _object_tag(function_name: str) -> str:
-    """The provider object tag of a call site.
+    """The provider object tag of a call site in Modal SDK 1.5.5.
 
-    A module-level function is tagged with its own name; a class method is a
-    method of the class's service function, which carries the class's tag.
+    A module-level function is tagged with its own name; a class method belongs
+    to the class's service function, which Modal SDK 1.5.5 tags as
+    ``f"{cls_name}.*"`` (``modal/cls.py:730``, ``modal/_functions.py:175``).
     """
-    return function_name.split(".", 1)[0]
+    if not function_name:
+        return ""
+    if "." in function_name:
+        cls_name = function_name.split(".", 1)[0]
+        return f"{cls_name}.*" if cls_name else ""
+    return function_name
 
 
 def provider_autoscaler_reader(target: Any, function_name: str = "") -> Dict[str, Any]:
@@ -282,6 +288,14 @@ def provider_autoscaler_reader(target: Any, function_name: str = "") -> Dict[str
     (``modal/_functions.py:1315-1322``) - and reads
     ``FunctionData.autoscaler_settings`` from its response. The SDK drops that field
     when it builds its own ``FunctionInfo``, which is why the read happens here.
+
+    In ``modal_proto.api_pb2``, ``FunctionGetResponse.function`` (field 5),
+    ``FunctionData.autoscaler_settings`` (field 31) and all four scalar fields of
+    ``AutoscalerSettings`` carry explicit protobuf field presence
+    (``has_presence=True``). Because Python protobuf returns a default submessage or
+    ``0`` on ``getattr(...)`` when an optional field is unset, this reader checks
+    ``HasField(...)`` at every level so an unset message or field fails closed
+    instead of silently reading ``0``.
 
     Every failure - no credentials, no deployed object, an unexpected SDK shape -
     is an *unavailable* read and never a partial one: the step is refused. This
@@ -315,7 +329,11 @@ def provider_autoscaler_reader(target: Any, function_name: str = "") -> Dict[str
         from core.config import config
 
         app_name = config.APP_NAME
-    tag = _object_tag(function_name) if function_name else getattr(target, "_tag", None)
+    tag = (
+        _object_tag(function_name)
+        if function_name
+        else (getattr(target, "_tag_", None) or getattr(target, "_tag", None))
+    )
     if not tag:
         raise AutoscalerReadbackUnavailable(
             "the provider object tag of the dispatched function is unknown"
@@ -339,12 +357,29 @@ def provider_autoscaler_reader(target: Any, function_name: str = "") -> Dict[str
             f"the read-only FunctionGet of '{tag}' failed: {type(exc).__name__}: {exc}"
         ) from exc
 
-    settings = getattr(getattr(response, "function", None), "autoscaler_settings", None)
+    if hasattr(response, "HasField") and not response.HasField("function"):
+        raise AutoscalerReadbackUnavailable(
+            f"the provider response of '{tag}' carries no FunctionData submessage"
+        )
+    fn_data = getattr(response, "function", None)
+    if fn_data is None or (
+        hasattr(fn_data, "HasField") and not fn_data.HasField("autoscaler_settings")
+    ):
+        raise AutoscalerReadbackUnavailable(
+            f"the provider response of '{tag}' carries no autoscaler settings"
+        )
+    settings = getattr(fn_data, "autoscaler_settings", None)
     if settings is None:
         raise AutoscalerReadbackUnavailable(
             f"the provider response of '{tag}' carries no autoscaler settings"
         )
-    return {name: getattr(settings, name, None) for name in AUTOSCALER_FIELDS}
+    result: Dict[str, Any] = {}
+    for name in AUTOSCALER_FIELDS:
+        if hasattr(settings, "HasField") and not settings.HasField(name):
+            result[name] = None
+        else:
+            result[name] = getattr(settings, name, None)
+    return result
 
 
 def read_back_autoscaler(

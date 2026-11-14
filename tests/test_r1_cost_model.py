@@ -84,11 +84,27 @@ def test_the_storage_footprint_is_labelled_and_never_presented_as_measured():
     assert storage["incremental_status"] == "CANDIDATE_ESTIMATE"
     assert storage["capacity_proof"] == "UNAVAILABLE"
     assert storage["capacity_proof_reasons"]
+    assert len(storage["capacity_proof_missing_evidence"]) == 4
     # The cost assumption of USD 0 is kept, but the proof is not claimed.
     assert storage["storage_usd"] == 0.0
     assert result["aggregate"]["storage_capacity_proof"] == "UNAVAILABLE"
+    assert len(result["aggregate"]["storage_capacity_proof_missing_evidence"]) == 4
     assert result["aggregate"]["storage_baseline_status"] == "UNKNOWN"
     assert result["aggregate"]["storage_incremental_status"] == "CANDIDATE_ESTIMATE"
+
+
+def test_the_missing_storage_capacity_evidence_items_are_explicitly_enumerated():
+    """Without live provider read-back, the exact missing evidence items are listed."""
+    scenario = _scenario()
+    missing = scenario["storage_baseline"]["capacity_proof_missing_evidence"]
+    assert isinstance(missing, list) and len(missing) == 4
+    joined = " ".join(missing)
+    assert "aegis-model-cache" in joined
+    assert "1 TiB/month" in joined
+    assert "61077997602" in joined
+    assert "30-day retention" in joined
+    result = _run()
+    assert result["aggregate"]["storage_capacity_proof_missing_evidence"] == missing
 
 
 def test_the_scenario_separates_the_measured_local_bytes_from_the_candidates():

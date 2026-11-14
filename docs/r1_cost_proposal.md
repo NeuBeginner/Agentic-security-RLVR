@@ -152,8 +152,25 @@ The arithmetic below therefore rests on the **assumption** of an empty baseline.
 *cost* of the storage is USD 0.00 (inside the allowance), and the **capacity proof**
 — that the cycle fits this account — is **UNAVAILABLE** until a read-only baseline
 measurement or a defensible conservative bound exists. The estimator says so in
-`storage_capacity_proof` and `storage_capacity_proof_reasons`; it does not present the
-footprint as a measured value.
+`storage_capacity_proof`, `storage_capacity_proof_reasons` and
+`storage_capacity_proof_missing_evidence`; it does not present the
+footprint as a measured value. Because R1 prohibits Volume operations and live provider
+read-back, closing the `< 1 TiB/month` (`1 024 GiB/month`) capacity proof requires four
+specific evidence artefacts outside R1:
+
+1. **Pre-R2p baseline of `aegis-model-cache`:** read-only provider byte inventory of
+   Volume `aegis-model-cache` before R2p starts (`baseline_gib`, currently assumed `0.0 GiB`).
+2. **Account-wide concurrent Modal Volume inventory / bound:** read-only inventory of
+   all other Volumes in the Modal workspace over the same billing month (or an operator
+   attestation bounding concurrent non-workflow Volume usage), since the `1 TiB/month`
+   free allowance is applied at the account level.
+3. **Post-R2p model-cache manifest and Volume byte read-back:** confirmation that the
+   materialised revision `655425b794ae4a19f2ea16fa480c6b39102721ee` of
+   `qtum/Qwen3-Coder-30B-A3B-Audit` on `aegis-model-cache` equals the pinned
+   `61 077 997 602 bytes` (`56.888 GiB`) with no leftover staging files.
+4. **Post-R3b/R4 trajectory footprint and post-retention deletion verification:**
+   confirmation that incremental trajectory bytes stay within the `0.021 GiB` candidate
+   bound and are deleted after the 30-day retention window.
 
 * The volume's baseline at the start of the cycle is **assumed** 0 GiB; R2p writes the
   model cache (**56.888 GiB** = 61 077 997 602 bytes); the trajectories add a

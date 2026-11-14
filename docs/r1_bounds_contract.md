@@ -90,7 +90,35 @@ The read-back therefore uses the provider's **read-only** `FunctionGet` RPC — 
 one the SDK itself uses to load a function (`modal/_functions.py:1315-1322`) — and
 reads `FunctionData.autoscaler_settings` from its response. The SDK drops that field
 when it builds its own `FunctionInfo`, which is why the read happens in
-`benchmarks/r1_dispatch.py:provider_autoscaler_reader`. The reader is additionally
+`benchmarks/r1_dispatch.py:provider_autoscaler_reader`. Static inspection against
+installed Modal SDK `1.5.5` (`modal/cls.py`, `modal/_functions.py`,
+`modal_proto/api_pb2.py`) pins two wire-level requirements in
+`provider_autoscaler_reader`:
+
+1. **Class service-function `object_tag` resolution.** A module-level `@app.function`
+   is registered in `app._local_state.functions` under its own function name
+   (`_tag_ = "verify_exploit_remote"`), whereas `@app.cls` registers a class service
+   function under `f"{cls_name}.*"` (`modal/cls.py:730`: `class_service_name = f"{name}.*"`
+   and `modal/_functions.py:175`: `self.implementation_name = f"{user_cls.__name__}.*"`).
+   `_object_tag("ProductionAuditAgent.generate_solidity_exploit")` therefore resolves
+   to `"ProductionAuditAgent.*"` so `FunctionGetRequest.object_tag` addresses the actual
+   deployed class service function.
+2. **Protobuf `HasField` presence enforcement.** In `modal_proto/api_pb2.py`,
+   `FunctionGetResponse.function` (`FunctionData`, field 5),
+   `FunctionData.autoscaler_settings` (`AutoscalerSettings`, field 31), and all four
+   scalar fields of `AutoscalerSettings` (`min_containers`, `max_containers`,
+   `buffer_containers`, `scaledown_window`) declare `has_presence=True`. Because Python
+   protobuf returns a default submessage or `0` on `getattr(...)` when an optional
+   field is unset — and because `modal/_functions.py:1334` only consumes
+   `response.function_id` and `response.handle_metadata` without guaranteeing that the
+   server populates `response.function.autoscaler_settings` on `FunctionGet` —
+   `provider_autoscaler_reader` explicitly checks `HasField("function")`,
+   `HasField("autoscaler_settings")`, and per-field `HasField(name)`. Any unset
+   submessage raises `AutoscalerReadbackUnavailable`, and any unset scalar field is
+   mapped to `None` (refused with `autoscaler_readback_missing_field`), never silently
+   coerced to `0`.
+
+The reader is additionally
 **opt-in**: it needs `R1_ENABLE_PROVIDER_READBACK=1` in the environment, so that no
 test and no accidental code path can reach the provider. Without the opt-in the read
 is *unavailable* and the step is refused (`autoscaler_readback_unavailable`).
@@ -152,8 +180,30 @@ is a different question, and it is **UNAVAILABLE**:
 | the **capacity proof** | **UNAVAILABLE** | it needs the volume's existing baseline. It stays unavailable until a **read-only baseline measurement** or a **defensible conservative bound** exists |
 
 The estimator reports these states in every run (`baseline_status`,
-`incremental_status`, `capacity_proof`, `capacity_proof_reasons`), so a reader never
+`incremental_status`, `capacity_proof`, `capacity_proof_reasons`,
+`capacity_proof_missing_evidence`), so a reader never
 has to guess whether a number was measured or assumed.
+
+**Exact missing evidence required to close the `< 1 TiB/month` (`1 024 GiB/month`) capacity proof**
+(none of which may be collected in R1 because Volume and live provider operations are prohibited):
+
+1. **Pre-R2p read-only baseline of `aegis-model-cache`:** a read-only provider listing of
+   existing bytes on Volume `aegis-model-cache` prior to R2p (`baseline_gib`, currently
+   assumed `0.0 GiB`).
+2. **Account-wide concurrent Modal Volume inventory / bound:** a read-only inventory of
+   all other Modal Volumes in the workspace over the same billing month (or an operator
+   attestation bounding concurrent non-workflow Volume usage), because Modal's
+   `1 TiB/month` (`1 024 GiB/month`) free allowance is an **account-level** monthly
+   allowance shared across the entire workspace.
+3. **Post-R2p model-cache manifest and Volume footprint read-back:** verification that
+   the materialised revision `655425b794ae4a19f2ea16fa480c6b39102721ee` of
+   `qtum/Qwen3-Coder-30B-A3B-Audit` on `aegis-model-cache` equals the pinned
+   `61 077 997 602 bytes` (`56.888 GiB`) with no residual staging or partial-download
+   artefacts.
+4. **Post-R3b/R4 trajectory footprint and retention-deletion verification:** measurement
+   of the written trajectory bytes after R3b and R4 (confirming they remain within the
+   `0.021 GiB` candidate bound) and verification of their deletion at the end of the
+   30-day retention window.
 
 ## D29 — the egress
 
@@ -190,9 +240,20 @@ counted as zero.
 
 The GPU class declares `block_network=r1.class_network_policy(r1.GPU_CLASS)`, which is
 **True**. The semantics are proven by the SDK itself: the parameter exists for
-`app.cls` (`modal/app.py:1102`), it is transmitted to the provider as
-`api_pb2.Function.block_network` (`modal/_functions.py:1044`) and it is the provider's
-documented outbound-traffic switch. The declaration is **not** a workload-level
+`app.cls` (`modal/app.py:1102`), is forwarded at `modal/app.py:1288` into
+`_Function._from_local` for the class service function `ProductionAuditAgent.*`, and is
+transmitted to the provider as `api_pb2.Function.block_network`
+(`modal/_functions.py:1044`) — the provider's documented outbound-traffic switch.
+Static inspection of `modal_app.app._local_state.functions["ProductionAuditAgent.*"]`
+confirms the exact closure state formed by `modal_app.py`:
+
+* `_tag_ == "ProductionAuditAgent.*"`
+* `block_network is True`
+* `gpu == "H100"`, `timeout == 1200`, `min_containers == 0`, `buffer_containers == 0`, `max_containers == 32`
+* `cpu is None`, `memory is None`, `scaledown_window is None` (unapproved bounds remain absent from `r1.GPU_PROFILE.modal_kwargs()`, never replaced by permissive defaults; `modal/app.py:1282` internally sets `startup_timeout = startup_timeout or timeout` on `_Function`, while `r1.GPU_PROFILE.startup_timeout_sec` remains `Unset` so the R1 gate blocks dispatch)
+* `/vol/models` is mounted to the `aegis-model-cache` Volume (`validated_volumes_no_cloud_buckets`), and `secrets` includes `r1.OFFLINE_ENV` (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`).
+
+The declaration is **not** a workload-level
 convention: the offline environment and the verified cache manifest are the second,
 independent layer.
 

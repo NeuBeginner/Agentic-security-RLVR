@@ -12,7 +12,13 @@
     "candidate_future_run_gib": 56.888,
     "candidate_future_run_note": "The model cache of the pinned revision (61077997602 bytes = 56.888 GiB) is the size of the artefact the prefetch would write. It is a CANDIDATE of a future run, not a measured footprint of the remote Volume.",
     "capacity_proof": "UNAVAILABLE",
-    "capacity_proof_reason": "The capacity proof needs the volume's existing baseline: it stays unavailable until a read-only baseline measurement or a defensible conservative bound exists."
+    "capacity_proof_reason": "The capacity proof needs the volume's existing baseline: it stays unavailable until a read-only baseline measurement or a defensible conservative bound exists.",
+    "capacity_proof_missing_evidence": [
+      "1. Read-only provider inventory of existing bytes on Volume 'aegis-model-cache' before R2p starts (baseline_gib, currently assumed 0.0 GiB because R1 prohibits Volume operations).",
+      "2. Read-only workspace-wide inventory of all other Modal Volumes in the account over the same billing month, or an operator attestation bounding concurrent non-workflow Volume usage (since the 1 TiB/month = 1024 GiB/month free tier is an account-level monthly allowance, not per-Volume).",
+      "3. Post-R2p read-back of the written model-cache manifest and Volume byte footprint confirming that the materialised revision 655425b794ae4a19f2ea16fa480c6b39102721ee of qtum/Qwen3-Coder-30B-A3B-Audit equals the pinned 61077997602 bytes (56.888 GiB) with no residual staging/temp files.",
+      "4. Post-R3b/R4 trajectory byte measurement and post-retention deletion verification confirming that incremental trajectory storage stays within the 0.021 GiB candidate bound and is purged at the end of the 30-day retention window."
+    ]
   },
   "rate_card": "benchmarks/evidence/r1_rate_card.json",
   "notes": [

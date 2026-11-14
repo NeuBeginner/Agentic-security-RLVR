@@ -78,6 +78,16 @@ GIB = 1024.0 ** 3
 #: the bounds, the rate card and the stages.
 PROVISIONAL_STATUS = "PROVISIONAL_ONLY / NOT_DISPATCHABLE"
 
+#: The exact evidence items that cannot be obtained in R1 (where Volume and live
+#: provider operations are prohibited) and are required to close the 1 TiB/month
+#: account-level storage capacity proof.
+DEFAULT_CAPACITY_PROOF_MISSING_EVIDENCE: Sequence[str] = (
+    "1. Read-only provider inventory of existing bytes on Volume 'aegis-model-cache' before R2p starts (baseline_gib, currently assumed 0.0 GiB because R1 prohibits Volume operations).",
+    "2. Read-only workspace-wide inventory of all other Modal Volumes in the account over the same billing month, or an operator attestation bounding concurrent non-workflow Volume usage (since the 1 TiB/month = 1024 GiB/month free tier is an account-level monthly allowance, not per-Volume).",
+    "3. Post-R2p read-back of the written model-cache manifest and Volume byte footprint confirming that the materialised revision 655425b794ae4a19f2ea16fa480c6b39102721ee of qtum/Qwen3-Coder-30B-A3B-Audit equals the pinned 61077997602 bytes (56.888 GiB) with no residual staging/temp files.",
+    "4. Post-R3b/R4 trajectory byte measurement and post-retention deletion verification confirming that incremental trajectory storage stays within the 0.021 GiB candidate bound and is purged at the end of the 30-day retention window.",
+)
+
 #: The verdict of a cycle that fits the cap, and of one that does not.
 VERDICT_WITHIN_BUDGET = "WITHIN_BUDGET"
 VERDICT_INFEASIBLE = "BUDGET_INFEASIBLE"
@@ -501,6 +511,7 @@ def storage_account(
     segments: Sequence[Dict[str, Any]],
     rate_card: Optional[RateCard],
     t_retention_sec: float = DEFAULT_RETENTION_SEC,
+    missing_evidence: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """Price the storage of the cycle **once**, on its footprint.
 
@@ -549,6 +560,14 @@ def storage_account(
     incremental_statuses = sorted(
         {str(segment.get("incremental_status", "CANDIDATE_ESTIMATE")) for segment in segments}
     )
+    if capacity_proof == "AVAILABLE":
+        missing_items: List[str] = []
+    else:
+        missing_items = list(
+            missing_evidence
+            if missing_evidence is not None
+            else DEFAULT_CAPACITY_PROOF_MISSING_EVIDENCE
+        )
 
     return {
         "segments": list(segments),
@@ -571,6 +590,7 @@ def storage_account(
         "incremental_statuses": incremental_statuses,
         "capacity_proof": capacity_proof,
         "capacity_proof_reasons": capacity_reasons,
+        "capacity_proof_missing_evidence": missing_items,
     }
 
 
@@ -579,6 +599,7 @@ def aggregate_cycle(
     rate_card: Optional[RateCard],
     t_retention_sec: float = DEFAULT_RETENTION_SEC,
     cycle_cap_usd: float = 20.0,
+    missing_evidence: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """The worst case of the whole cycle, in one accounting model.
 
@@ -598,7 +619,12 @@ def aggregate_cycle(
         direct_total += float(estimate.total_usd or 0.0)
 
     segments = storage_timeline(estimates, t_retention_sec=t_retention_sec)
-    storage = storage_account(segments, rate_card, t_retention_sec=t_retention_sec)
+    storage = storage_account(
+        segments,
+        rate_card,
+        t_retention_sec=t_retention_sec,
+        missing_evidence=missing_evidence,
+    )
     storage_usd = float(storage["storage_usd"])
 
     weighted_total = sum(
@@ -652,6 +678,7 @@ def aggregate_cycle(
         "cycle_storage_usd": storage_usd,
         "storage_capacity_proof": storage["capacity_proof"],
         "storage_capacity_proof_reasons": storage["capacity_proof_reasons"],
+        "storage_capacity_proof_missing_evidence": storage["capacity_proof_missing_evidence"],
         "storage_baseline_status": storage["baseline_status"],
         "storage_incremental_status": storage["incremental_status"],
         "steps": steps,
@@ -752,6 +779,7 @@ def run_scenario(
         rate_card,
         t_retention_sec=float(scenario.get("t_retention_sec", DEFAULT_RETENTION_SEC)),
         cycle_cap_usd=float(scenario.get("cycle_cap_usd", 20.0)),
+        missing_evidence=storage_baseline.get("capacity_proof_missing_evidence"),
     )
     return {
         "status": PROVISIONAL_STATUS,

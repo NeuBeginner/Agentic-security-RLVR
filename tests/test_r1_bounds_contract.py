@@ -731,3 +731,52 @@ def test_verify_model_cache_manifest_checks_repo_revision_and_sha256(tmp_path):
     assert failed_sha["status"] == "FAILED"
     assert failed_sha["mismatched"] == ["model.safetensors"]
 
+
+def test_all_11_windows_crlf_baseline_digest_failures_are_exclusively_line_ending_normalization():
+    """Prove non-mutatingly that all files behind the 11 Windows CRLF test failures match LF digests."""
+    import hashlib
+    import subprocess
+    import sys
+
+    if str(REPO_ROOT / "tests") not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT / "tests"))
+
+    import test_iteration14_evidence_integrity as t14
+    import test_iteration19_evidence_integrity as t19
+    import test_iteration20_evidence_integrity as t20
+    import test_iteration21_evidence_integrity as t21
+
+    def sha256_hex(data: bytes) -> str:
+        return hashlib.sha256(data).hexdigest()
+
+    def git_blob_sha256(rel_path: str) -> str:
+        blob = subprocess.check_output(["git", "show", f"HEAD:{rel_path}"], cwd=str(REPO_ROOT))
+        return sha256_hex(blob)
+
+    # 1. Failure #1 (test_stored_stdout_digests_match_the_stored_bytes): 16 target stdout/stderr pairs
+    checked_pairs = 0
+    for artifact_path in sorted(t14.SAFE_RUN_DIR.glob("*.json")):
+        artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+        for key, digest_key in (("stdout_path", "stdout_sha256"), ("stderr_path", "stderr_sha256")):
+            rel_path = artifact.get(key)
+            declared = artifact.get(digest_key)
+            if not rel_path or not declared:
+                continue
+            raw = (REPO_ROOT / rel_path).read_bytes()
+            lf = raw.replace(b"\r\n", b"\n")
+            assert sha256_hex(lf) == declared, rel_path
+            assert git_blob_sha256(rel_path) == declared, rel_path
+            checked_pairs += 1
+    assert checked_pairs == 32
+
+    # 2. Failures #2-#11: Iteration 19, 20 and 21 stage evidence artifacts
+    for mod in (t19, t20, t21):
+        rec = json.loads(mod.RECORD_PATH.read_text(encoding="utf-8"))
+        declared = rec["evidence_artifact"]["sha256"]
+        rel_path = mod.ARTIFACT_PATH.relative_to(REPO_ROOT).as_posix()
+        raw = mod.ARTIFACT_PATH.read_bytes()
+        lf = raw.replace(b"\r\n", b"\n")
+        assert sha256_hex(lf) == declared, rel_path
+        assert git_blob_sha256(rel_path) == declared, rel_path
+
+
