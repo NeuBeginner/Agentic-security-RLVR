@@ -522,3 +522,56 @@ def test_an_unsafe_target_is_refused_without_any_analysis(monkeypatch):
     assert record["analysis_status"] == STATUS_UNAVAILABLE
     assert record["exit_code_disposition"] == DISPOSITION_NOT_RUN
     assert fake.calls == []
+
+
+# ---------------------------------------------------------------------------
+# 4. Strict validation of the Slither JSON contract
+# ---------------------------------------------------------------------------
+
+
+def test_a_report_without_the_required_success_field_is_rejected():
+    report = _report()
+    del report["success"]
+    outcome = classify_slither_outcome(
+        exit_code=0, report=report, report_present=True, report_parsable=True
+    )
+    assert outcome["report_valid"] is False
+    assert outcome["report_success"] is None
+    assert outcome["analysis_status"] == STATUS_PARTIAL
+    assert outcome["analysis_mode"] == MODE_FALLBACK
+
+
+def test_a_report_with_non_boolean_success_is_rejected():
+    report = _report()
+    report["success"] = "true"
+    outcome = classify_slither_outcome(
+        exit_code=0, report=report, report_present=True, report_parsable=True
+    )
+    assert outcome["report_valid"] is False
+    assert outcome["analysis_status"] == STATUS_PARTIAL
+
+
+def test_a_report_with_missing_detectors_is_rejected():
+    report = _report()
+    del report["results"]["detectors"]
+    outcome = classify_slither_outcome(
+        exit_code=0, report=report, report_present=True, report_parsable=True
+    )
+    assert outcome["report_valid"] is False
+    assert outcome["analysis_status"] == STATUS_PARTIAL
+
+
+@pytest.mark.parametrize("detectors", [None, {}, ["not-an-object"], [None]])
+def test_a_report_with_malformed_detectors_is_rejected(detectors):
+    report = _report()
+    report["results"]["detectors"] = detectors
+    outcome = classify_slither_outcome(
+        exit_code=0, report=report, report_present=True, report_parsable=True
+    )
+    assert outcome["report_valid"] is False
+    assert outcome["analysis_status"] == STATUS_PARTIAL
+
+
+def test_evidence_gate_rejects_completed_analysis_without_success_true():
+    record = _record(slither_report_success=None)
+    assert static_analysis_evidence_is_consistent(record) is False
