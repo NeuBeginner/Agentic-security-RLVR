@@ -7,9 +7,24 @@ import shutil
 import subprocess
 import tempfile
 import time
+from typing import Any, Dict, Optional
+
 import modal
 from core.schemas import ExploitPayload, ExecutionResult, TargetProgram, ResultCategory
 from core.config import config
+from core.slither_status import (
+    DISPOSITION_NO_REPORT,
+    DISPOSITION_NOT_RUN,
+    MODE_FALLBACK,
+    MODE_REFUSED,
+    MODE_SLITHER,
+    MODE_UNAVAILABLE,
+    STATUS_COMPLETED,
+    STATUS_FALLBACK,
+    STATUS_PARTIAL,
+    STATUS_UNAVAILABLE,
+    classify_slither_outcome,
+)
 from core.evidence import (
     HarnessVerdict,
     HARNESS_NO_BREACH_REASON_PREFIX,
@@ -65,7 +80,14 @@ sandbox_image = (
     .env({"PATH": "/root/.foundry/bin:$PATH"})
     .pip_install("pydantic>=2.0.0", "slither-analyzer", "solc-select")
     .add_local_dir(LOCAL_TRUSTED_HARNESSES_DIR, remote_path=TRUSTED_HARNESSES_DIR, copy=True)
-    .add_local_python_source("core", "sandbox")
+    # The Python packages of the repository are **copied** into the image instead of
+    # being mounted on container start. A deferred mount may not be followed by any
+    # further image layer, so an image that ends in a mount cannot be extended -
+    # which is exactly what the separate CPU-only audit application
+    # (`modal_cpu_audit_app.py`) needs: it adds the `benchmarks` package and its
+    # candidate registry on top of this image. The content of the container is the
+    # same either way; only the moment at which the files arrive changes.
+    .add_local_python_source("core", "sandbox", copy=True)
 )
 
 FOUNDRY_TOML_CONTENT = """[profile.default]
@@ -585,45 +607,40 @@ def parse_forge_output(output_text: str):
     return structured_data, test_status, revert_reason, decoded_logs
 
 
-def run_slither_analysis(target: TargetProgram) -> list:
+def resolve_pinned_solc(version: str = None) -> Optional[str]:
     """
-    Executes Slither AST / taint analysis on the target contract.
-    Returns structured list of static vulnerability warnings to prime reasoning models.
+    Resolve the pinned Solidity compiler of the image.
+
+    The compiler is NOT on the PATH of the container: the image pre-bakes the
+    verified binaries into the Foundry (svm) and the solc-select locations. A
+    probe that asks a bare ``solc`` therefore reports a false negative, so the
+    real binary is looked up in the places where it is actually installed.
+
+    Returns the absolute path of the binary, or ``None`` when the pinned
+    compiler is not installed.
     """
-    if not is_safe_target_name(target.name):
-        return []
-    with tempfile.TemporaryDirectory() as tmpdir:
-        src_dir = os.path.join(tmpdir, "src")
-        os.makedirs(src_dir, exist_ok=True)
-        
-        target_path = os.path.join(src_dir, f"{target.name}.sol")
-        with open(target_path, "w", encoding="utf-8") as f:
-            f.write(target.source_code)
-            
-        json_out = os.path.join(tmpdir, "slither.json")
-        cmd = ["slither", target_path, "--json", json_out, "--solc-solcs-select", config.SOLC_VERSION]
-        
-        try:
-            run_subprocess_capped(cmd, cwd=tmpdir, env=os.environ.copy(), timeout=30)
-            if os.path.exists(json_out):
-                with open(json_out, "r", encoding="utf-8") as jf:
-                    data = json.load(jf)
-                    results = data.get("results", {}).get("detectors", [])
-                    extracted = []
-                    for det in results[:5]:  # Top 5 most critical detectors
-                        extracted.append({
-                            "check": det.get("check"),
-                            "impact": det.get("impact"),
-                            "confidence": det.get("confidence"),
-                            "description": det.get("description", "")[:200]
-                        })
-                    return extracted
-        except Exception:
-            pass
-            
-    # Fallback AST heuristic detection if Slither binary is offline
+    wanted = version or config.SOLC_VERSION
+    home = os.path.expanduser("~")
+    candidates = [
+        os.path.join(home, ".svm", wanted, f"solc-{wanted}"),
+        os.path.join(home, ".solc-select", "artifacts", f"solc-{wanted}", f"solc-{wanted}"),
+        shutil.which("solc"),
+    ]
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _slither_fallback_findings(source_code: str) -> list:
+    """
+    The deterministic fallback heuristics of this repository.
+
+    These are NOT the output of the Slither detectors. They are used only when
+    Slither cannot run, and every caller that reports them says so explicitly.
+    """
     fallback_detectors = []
-    src_lower = target.source_code.lower()
+    src_lower = source_code.lower()
     if ".call{value:" in src_lower and "balances[" in src_lower:
         fallback_detectors.append({
             "check": "reentrancy-eth",
@@ -639,6 +656,300 @@ def run_slither_analysis(target: TargetProgram) -> list:
             "description": "Exchange rate share division susceptible to first-depositor inflation attack."
         })
     return fallback_detectors
+
+
+#: The flag that disables the findings policy of the Slither CLI. With the default
+#: ``--fail-on pedantic`` the CLI leaves with ``sys.exit(-1)`` (the shell code 255)
+#: as soon as it found anything - although the analysis itself succeeded and the
+#: JSON report was written before that exit. The flag makes the exit code of a
+#: successful run unambiguous.
+SLITHER_FAIL_NONE_FLAG = "--fail-none"
+
+#: How many characters of the output of Slither are kept in the evidence.
+SLITHER_LOG_TAIL_CHARS = 2000
+
+
+def _log_tail(text: Optional[str], limit: int = SLITHER_LOG_TAIL_CHARS) -> str:
+    """The tail of a stream of a subprocess - the place where the reason lives."""
+    if not text:
+        return ""
+    tail = text.strip()
+    if len(tail) > limit:
+        tail = "..." + tail[-limit:]
+    return tail
+
+
+def _is_unsupported_flag_failure(completed: CappedProcessResult, flag: str) -> bool:
+    """
+    Did the Slither build of the image refuse the flag because it does not know it?
+
+    The image installs ``slither-analyzer`` without a version pin, so a future
+    build may not know ``--fail-none`` any more. That is a usage error of the CLI
+    (the exit code 2 of argparse) and it is detected here, so that the run can be
+    repeated without the flag instead of losing the whole static analysis.
+    """
+    if completed.returncode != 2:
+        return False
+    stderr = (completed.stderr or "") + (completed.stdout or "")
+    return flag in stderr and "unrecognized argument" in stderr
+
+
+def run_slither_analysis_detailed(target: TargetProgram, include_version: bool = True) -> dict:
+    """
+    Run the static analysis and report WHERE the findings come from.
+
+    The result states whether the findings are the output of a **completed** run of
+    the real Slither detectors (``mode == "slither"``) or of the deterministic
+    fallback heuristics of this repository (``mode == "fallback_heuristics"``). A
+    fallback is never presented as an analysis result, and the reason for the
+    fallback is part of the result.
+
+    The presence of a JSON report with findings is **not** proof of a successful
+    analysis. The Slither CLI writes that report before it leaves with a non-zero
+    code, and it uses the same code for its findings policy and for an aborted
+    analysis. The status of the run is therefore derived from the exit code, the
+    validity of the report and the statement of the report itself - see
+    ``core.slither_status``.
+
+    The shape of the result::
+
+        {
+            "mode": "slither" | "fallback_heuristics" | "unavailable" | "refused",
+            "analysis_status": "completed" | "partial" | "fallback" | "unavailable",
+            "exit_code_disposition": "clean_exit" | "...",
+            "engine": "slither (sandbox.runner.run_slither_analysis)",
+            "findings": [...],
+            "finding_count": int,
+            "partial_findings": [...],
+            "partial_finding_count": int,
+            "detector_count": int | None,
+            "slither_available": bool,
+            "slither_version": str | None,
+            "slither_exit_code": int | None,
+            "slither_argv": [...],
+            "slither_stdout_tail": str,
+            "slither_stderr_tail": str,
+            "slither_timed_out": bool,
+            "slither_report_present": bool,
+            "slither_report_valid": bool,
+            "slither_report_success": bool | None,
+            "slither_report_error": str | None,
+            "error": str | None,
+            "fallback_reason": str | None,
+            "solc_version_requested": str,
+        }
+    """
+    record: Dict[str, Any] = {
+        "mode": MODE_UNAVAILABLE,
+        "analysis_status": STATUS_UNAVAILABLE,
+        "exit_code_disposition": DISPOSITION_NOT_RUN,
+        "engine": "slither (sandbox.runner.run_slither_analysis)",
+        "findings": [],
+        "finding_count": 0,
+        "partial_findings": [],
+        "partial_finding_count": 0,
+        "detector_count": None,
+        "slither_available": False,
+        "slither_version": None,
+        "slither_exit_code": None,
+        "slither_argv": [],
+        "slither_stdout_tail": "",
+        "slither_stderr_tail": "",
+        "slither_timed_out": False,
+        "slither_report_present": False,
+        "slither_report_valid": False,
+        "slither_report_success": None,
+        "slither_report_error": None,
+        "error": None,
+        "fallback_reason": None,
+        "solc_version_requested": config.SOLC_VERSION,
+    }
+
+    if not is_safe_target_name(target.name):
+        record["mode"] = MODE_REFUSED
+        record["error"] = "the target name is not a safe Solidity identifier"
+        return record
+
+    if include_version:
+        try:
+            version_proc = run_subprocess_capped(
+                ["slither", "--version"],
+                cwd=os.getcwd(),
+                env=os.environ.copy(),
+                timeout=30,
+            )
+            version_text = (version_proc.stdout or version_proc.stderr or "").strip()
+            record["slither_version"] = version_text.splitlines()[0][:200] if version_text else None
+            record["slither_available"] = version_proc.returncode == 0
+        except Exception as exc:  # noqa: BLE001 - the failure is the evidence
+            record["error"] = f"{type(exc).__name__}: {exc}"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        src_dir = os.path.join(tmpdir, "src")
+        os.makedirs(src_dir, exist_ok=True)
+
+        target_path = os.path.join(src_dir, f"{target.name}.sol")
+        with open(target_path, "w", encoding="utf-8") as f:
+            f.write(target.source_code)
+
+        json_out = os.path.join(tmpdir, "slither.json")
+        base_cmd = [
+            "slither",
+            target_path,
+            "--json",
+            json_out,
+            "--solc-solcs-select",
+            config.SOLC_VERSION,
+        ]
+        cmd = base_cmd + [SLITHER_FAIL_NONE_FLAG]
+        findings_policy_disabled = True
+
+        try:
+            completed = run_subprocess_capped(cmd, cwd=tmpdir, env=os.environ.copy(), timeout=30)
+
+            if _is_unsupported_flag_failure(completed, SLITHER_FAIL_NONE_FLAG):
+                # The Slither build of the image does not know the flag. The run is
+                # repeated without it - from then on the findings policy of the CLI
+                # is in effect and the code 255 has to be classified by it.
+                # A report of the first attempt is removed first: the Slither CLI
+                # refuses to overwrite an existing report file.
+                if os.path.exists(json_out):
+                    os.remove(json_out)
+                cmd = base_cmd
+                findings_policy_disabled = False
+                completed = run_subprocess_capped(cmd, cwd=tmpdir, env=os.environ.copy(), timeout=30)
+
+            report_present = os.path.exists(json_out)
+            report: Optional[Dict[str, Any]] = None
+            report_parsable = False
+            if report_present:
+                try:
+                    with open(json_out, "r", encoding="utf-8") as jf:
+                        loaded = json.load(jf)
+                    report_parsable = isinstance(loaded, dict)
+                    report = loaded if report_parsable else None
+                except (OSError, ValueError):
+                    report = None
+                    report_parsable = False
+
+            outcome = classify_slither_outcome(
+                exit_code=completed.returncode,
+                report=report,
+                report_present=report_present,
+                report_parsable=report_parsable,
+                timed_out=bool(completed.timed_out),
+                findings_policy_disabled=findings_policy_disabled,
+            )
+
+            record["slither_exit_code"] = completed.returncode
+            record["slither_argv"] = list(cmd)
+            record["slither_stdout_tail"] = _log_tail(completed.stdout)
+            record["slither_stderr_tail"] = _log_tail(completed.stderr)
+            record["slither_timed_out"] = bool(completed.timed_out)
+            record["slither_report_present"] = report_present
+            record["slither_report_valid"] = outcome["report_valid"]
+            record["slither_report_success"] = outcome["report_success"]
+            record["slither_report_error"] = outcome["report_error"]
+            record["analysis_status"] = outcome["analysis_status"]
+            record["exit_code_disposition"] = outcome["exit_code_disposition"]
+            record["detector_count"] = outcome["detector_count"]
+
+            if outcome["analysis_status"] == STATUS_COMPLETED:
+                extracted = []
+                for det in outcome["detectors"][:5]:  # Top 5 most critical detectors
+                    extracted.append({
+                        "check": det.get("check"),
+                        "impact": det.get("impact"),
+                        "confidence": det.get("confidence"),
+                        "description": det.get("description", "")[:200]
+                    })
+                record["mode"] = MODE_SLITHER
+                record["findings"] = extracted
+                record["finding_count"] = len(extracted)
+                record["slither_available"] = True
+                return record
+
+            # The run did not complete. The findings of an incomplete report are
+            # kept as evidence of the partial run, but they are never the findings
+            # of the analysis: the deterministic heuristics take over below.
+            if outcome["analysis_status"] == STATUS_PARTIAL:
+                partial = []
+                for det in outcome["detectors"][:5]:
+                    partial.append({
+                        "check": det.get("check"),
+                        "impact": det.get("impact"),
+                        "confidence": det.get("confidence"),
+                        "description": det.get("description", "")[:200]
+                    })
+                record["partial_findings"] = partial
+                record["partial_finding_count"] = len(partial)
+
+            record["error"] = _describe_incomplete_run(outcome, completed, report)
+        except Exception as exc:  # noqa: BLE001 - the failure is the evidence
+            record["error"] = f"{type(exc).__name__}: {exc}"
+            record["analysis_status"] = STATUS_FALLBACK
+            record["exit_code_disposition"] = DISPOSITION_NO_REPORT
+
+    # Fallback AST heuristic detection if Slither cannot run, or if it did not
+    # finish the analysis. The mode says so explicitly - a fallback is never
+    # passed off as an analysis.
+    record["mode"] = MODE_FALLBACK
+    record["fallback_reason"] = record["error"] or "slither produced no usable report"
+    record["findings"] = _slither_fallback_findings(target.source_code)
+    record["finding_count"] = len(record["findings"])
+    return record
+
+
+def _describe_incomplete_run(
+    outcome: Dict[str, Any],
+    completed: CappedProcessResult,
+    report: Optional[Dict[str, Any]],
+) -> str:
+    """The reason why the run of Slither was not a completed analysis."""
+    exit_code = completed.returncode
+    stderr = _log_tail(completed.stderr, 800)
+    stdout = _log_tail(completed.stdout, 800)
+    disposition = outcome["exit_code_disposition"]
+    report_error = outcome.get("report_error")
+
+    if disposition == "timed_out":
+        return (
+            f"slither did not finish within the timeout and was killed "
+            f"(exit code {exit_code}): {stderr or stdout}"
+        )
+    if disposition == "no_valid_report":
+        return (
+            f"slither produced no report (exit code {exit_code}): "
+            f"{stderr or stdout or 'no output'}"
+        )
+    if disposition == "unparsable_report":
+        return (
+            f"slither wrote a report that could not be parsed (exit code {exit_code}): "
+            f"{stderr or stdout or 'no output'}"
+        )
+    if disposition == "analysis_error":
+        return (
+            f"slither reported a failed analysis (exit code {exit_code}): "
+            f"{report_error or stderr or stdout}"
+        )
+    return (
+        f"slither left with the code {exit_code} and the disposition of that code is "
+        f"unknown: {stderr or stdout or 'no output'}"
+    )
+
+
+
+def run_slither_analysis(target: TargetProgram) -> list:
+    """
+    Executes Slither AST / taint analysis on the target contract.
+    Returns structured list of static vulnerability warnings to prime reasoning models.
+
+    The findings are the output of the real Slither detectors when Slither can
+    run, and the deterministic fallback heuristics of this repository otherwise.
+    Callers that report the findings use ``run_slither_analysis_detailed`` so
+    that the provenance of the findings is part of the evidence.
+    """
+    return run_slither_analysis_detailed(target, include_version=False)["findings"]
 
 
 def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> ExecutionResult:

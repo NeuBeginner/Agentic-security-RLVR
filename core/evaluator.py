@@ -20,6 +20,27 @@ and the trajectory (see core/reward_shaping.py).
 TRUSTED EVIDENCE: a breach is confirmed ONLY by the structured verdict of the
 immutable, repository-owned harness. Log text is model-controllable and is
 therefore never a source of evidence (see core/evidence.py).
+
+CONSISTENCY OF THE VERDICT
+---------------------------
+A verdict is a single, self-consistent statement about one execution. The
+fields that describe the independent replay therefore always agree with each
+other and with the reward:
+
+* ``replay_status``   - ``CONFIRMED`` when the independent replay reproduced
+  the breach, ``FAILED`` when it did not, ``INFRA_ERROR`` when the replay
+  itself failed for infrastructure reasons, ``NOT_ELIGIBLE`` when no breach
+  was ever eligible for a replay confirmation;
+* ``replay_confirmed`` - the same statement as a boolean;
+* ``is_verified`` / ``reproducible`` - true only for a confirmed exploit;
+* ``verification_result`` - the oracle result of the execution, aligned with
+  the replay, so a verdict never claims a confirmed exploit while its own
+  embedded oracle result still calls the breach provisional;
+* ``state_delta_verified`` - true only when a real state snapshot exists AND
+  the state actually changed. The trusted harness of this repository proves a
+  breach through a verified event (emitter, topic and deficit), not through a
+  state snapshot; in that case there is no state delta to verify and the
+  verdict says so explicitly through ``breach_evidence_basis``.
 """
 
 from __future__ import annotations
@@ -44,6 +65,81 @@ from core.reward_shaping import (
     REWARD_SPEC_VERSION,
 )
 
+#: The replay status vocabulary of a verdict. It mirrors the vocabulary of
+#: ``core.candidate_lifecycle.finalize_candidate_replay``, so a verdict that
+#: is produced by the evaluator and a verdict that is produced by the
+#: candidate lifecycle speak the same language.
+REPLAY_STATUS_CONFIRMED = "CONFIRMED"
+REPLAY_STATUS_FAILED = "FAILED"
+REPLAY_STATUS_INFRA_ERROR = "INFRA_ERROR"
+REPLAY_STATUS_NOT_ELIGIBLE = "NOT_ELIGIBLE"
+
+#: How the breach of the trusted harness was established.
+BREACH_BASIS_NONE = "none"
+BREACH_BASIS_STATE_SNAPSHOT = "verified_state_snapshot"
+BREACH_BASIS_TRUSTED_EVENT = "trusted_harness_event"
+
+#: The confidence of an oracle result whose breach was reproduced by an
+#: independent replay.
+CONFIDENCE_CONFIRMED = "CONFIRMED"
+#: The confidence of an oracle result whose breach was not reproduced yet.
+CONFIDENCE_PROVISIONAL_BREACH = "PROVISIONAL_BREACH"
+
+
+def _aligned_verification_result(result: ExecutionResult):
+    """
+    The oracle result that travels with the verdict, aligned with the replay.
+
+    The oracle builds its result from the FIRST execution, before the replay is
+    known, so it carries ``replay_confirmed=False``. A verdict that claims a
+    confirmed exploit while its own embedded oracle result still calls the
+    breach provisional is a contradiction, so the result is aligned here. The
+    alignment is a COPY: the evidence of the execution is never mutated.
+    """
+    verification = result.verification_result
+    if verification is None:
+        return None
+    if result.reproducibility_confirmed:
+        return verification.model_copy(
+            update={
+                "replay_confirmed": True,
+                "confidence_status": CONFIDENCE_CONFIRMED,
+            }
+        )
+    if verification.invariant_breach:
+        return verification.model_copy(
+            update={
+                "replay_confirmed": False,
+                "confidence_status": CONFIDENCE_PROVISIONAL_BREACH,
+            }
+        )
+    return verification
+
+
+def _state_delta_assessment(result: ExecutionResult):
+    """
+    The honest answer to the question "was a state delta verified?".
+
+    A state delta is verified only when a real state snapshot exists AND the
+    state actually changed. The trusted harness proves a breach through a
+    verified event, so in that case there is no state delta to verify and
+    claiming otherwise would contradict ``state_delta.has_real_snapshot=false``.
+
+    Returns the pair ``(state_delta_verified, breach_evidence_basis)``.
+    """
+    evidence = result.evidence
+    if evidence is None:
+        return False, BREACH_BASIS_NONE
+    state_delta = evidence.state_delta or {}
+    has_real_snapshot = bool(state_delta.get("has_real_snapshot"))
+    state_changed = bool(state_delta.get("state_changed"))
+    if has_real_snapshot and state_changed:
+        return True, BREACH_BASIS_STATE_SNAPSHOT
+    trace_context = state_delta.get("trace_context") or {}
+    if trace_context.get("verified_event"):
+        return False, BREACH_BASIS_TRUSTED_EVENT
+    return False, BREACH_BASIS_NONE
+
 
 def _build_verdict(
     payload: ExploitPayload,
@@ -56,6 +152,9 @@ def _build_verdict(
     execution_evidence=None,
     oracle_invariant_results=None,
     oracle_verification_result=None,
+    replay_status: str = REPLAY_STATUS_NOT_ELIGIBLE,
+    replay_confirmed: bool = False,
+    breach_evidence_basis: str = BREACH_BASIS_NONE,
 ) -> VerificationVerdict:
     """
     Assembles a verdict from a category and the proven evidence.
@@ -76,6 +175,11 @@ def _build_verdict(
         state_delta_verified=state_delta_verified,
         reproducible=reproducible,
         refinement_iteration=payload.attempt_number,
+        candidate_id=payload.candidate_id or "",
+        run_id=payload.run_id or "run-default",
+        replay_status=replay_status,
+        replay_confirmed=replay_confirmed,
+        breach_evidence_basis=breach_evidence_basis,
         reward_components=dict(breakdown.components),
         reward_penalty=breakdown.penalty,
         reward_spec_version=breakdown.spec_version,
@@ -95,7 +199,10 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
         """Carry Oracle evidence forward without changing the trusted reward decision."""
         kwargs.setdefault("execution_evidence", result.evidence)
         kwargs.setdefault("oracle_invariant_results", result.invariant_results)
-        kwargs.setdefault("oracle_verification_result", result.verification_result)
+        kwargs.setdefault("oracle_verification_result", _aligned_verification_result(result))
+        kwargs.setdefault("replay_status", REPLAY_STATUS_NOT_ELIGIBLE)
+        kwargs.setdefault("replay_confirmed", bool(result.reproducibility_confirmed))
+        kwargs.setdefault("breach_evidence_basis", BREACH_BASIS_NONE)
         return _build_verdict(*args, **kwargs)
 
     # 0. Check for structural/format failure in model output (Format validation)
@@ -152,13 +259,19 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
     # The harness intentionally reverts when the invariant held. That Forge
     # Failure status is a trusted no-breach result, not a candidate runtime crash.
     if result.harness_verdict == HarnessVerdict.NO_BREACH.value:
+        # `reproducible` means, throughout this repository, that an INDEPENDENT
+        # replay confirmed the verdict (see core.candidate_lifecycle and the GPU
+        # path in modal_app.py). A safe run reproduces no exploit, so the flag
+        # stays false and the replay was never eligible for a confirmation.
         return build_verdict_from_result(
             payload,
             ResultCategory.SAFE_RUN,
             RewardEvidence(format_valid=True, compiled=True, executed=True),
             "Safe Execution: trusted harness completed its no-breach assertion.",
             is_verified=False,
-            reproducible=True,
+            reproducible=False,
+            replay_status=REPLAY_STATUS_NOT_ELIGIBLE,
+            replay_confirmed=False,
         )
 
     if result.harness_verdict == HarnessVerdict.EXEC_REVERT.value:
@@ -169,6 +282,25 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
             f"Execution Reverted: {result.revert_reason or 'trusted harness reported an exploit revert.'}",
             is_verified=False,
             reproducible=False,
+        )
+
+    # A replay that failed for infrastructure reasons is NOT an unreplayed
+    # breach: it is an infrastructure failure with no reward at all. Reporting
+    # it as an unreplayed breach would claim that the exploit was observed and
+    # merely not reproduced, while in fact nothing was observed at all.
+    if result.replay_error:
+        return build_verdict_from_result(
+            payload,
+            ResultCategory.INFRA_ERROR,
+            RewardEvidence(),
+            (
+                "INFRA_ERROR: the independent replay failed for infrastructure "
+                f"reasons: {result.replay_error[:300].strip()}"
+            ),
+            is_verified=False,
+            reproducible=False,
+            replay_status=REPLAY_STATUS_INFRA_ERROR,
+            replay_confirmed=False,
         )
 
     # 4. Multi-Factor Invariant Verification (TRUSTED EVIDENCE ONLY)
@@ -188,6 +320,11 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
         logs_detail = f" Logs: {result.decoded_logs}" if result.decoded_logs else ""
         verdict_source = result.harness_suite or "trusted_harness"
 
+        # The state delta is reported the way it actually is: a verified state
+        # snapshot only when one exists and changed, and the trusted harness
+        # event otherwise.
+        state_delta_verified, breach_evidence_basis = _state_delta_assessment(result)
+
         # Award full reward (+1.0) and is_verified=True ONLY if reproducibility was confirmed in independent replay
         if result.reproducibility_confirmed:
             return build_verdict_from_result(
@@ -203,7 +340,10 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
                 f"SUCCESS: Multi-factor verification passed and independently reproduced in clean EVM!{logs_detail}",
                 is_verified=True,
                 reproducible=True,
-                state_delta_verified=True,
+                state_delta_verified=state_delta_verified,
+                replay_status=REPLAY_STATUS_CONFIRMED,
+                replay_confirmed=True,
+                breach_evidence_basis=breach_evidence_basis,
             )
 
         return build_verdict_from_result(
@@ -219,7 +359,10 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
             f"PARTIAL SUCCESS: Invariant breached in initial run (trusted verdict: {verdict_source}), but independent replay unconfirmed.{logs_detail}",
             is_verified=False,  # NOT marked as verified exploit until replay confirmation!
             reproducible=False,
-            state_delta_verified=True,
+            state_delta_verified=state_delta_verified,
+            replay_status=REPLAY_STATUS_FAILED,
+            replay_confirmed=False,
+            breach_evidence_basis=breach_evidence_basis,
         )
 
     # 5. Check for compilation or EVM runtime revert failures
@@ -258,7 +401,9 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
         ),
         "Safe Execution: Test completed cleanly, but target contract maintained all security invariants.",
         is_verified=False,
-        reproducible=True,
+        reproducible=False,
+        replay_status=REPLAY_STATUS_NOT_ELIGIBLE,
+        replay_confirmed=False,
     )
 
 

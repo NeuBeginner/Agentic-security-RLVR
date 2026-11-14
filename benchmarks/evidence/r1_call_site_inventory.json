@@ -133,6 +133,66 @@
       ],
       "refused_by": "benchmarks.run_iteration19_cpu_smoke._assert_authorised",
       "test": "tests/test_r1_dispatch_contract.py::test_the_iteration19_cpu_smoke_invocation_is_refused_before_the_provider_is_reached"
+    },
+    "benchmarks/run_cpu_audit.py::_run_deployed_suite::audit_contract": {
+      "count": 4,
+      "disposition": "refused",
+      "reason": "The CPU-only audit service (modal_cpu_audit_app.py) is a separate deployment that is not part of the authorised evidence-regeneration trace: it has no approved step policy and no declared bounds of the R1 plan, so the R1 gate refuses this call site at the call boundary (core.r1_bounds.UNAUTHORISED_CALL_SITES). The service is only reachable through benchmarks/run_cpu_audit.py, whose _assert_authorised raises AuditNotAuthorised before the deployment is touched and before the provider is reached, unless a separate maintainer approval is given out of band. A separate CPU-only application does not make an unauthorised remote workload authorised. The service itself is authorised on the server side: every public function of modal_cpu_audit_app.py checks the shared token of the Modal secret aegis-cpu-audit-auth before it does any work, so a direct call without that token is refused. The direct calls that the end-to-end test makes without the token are the evidence of that refusal.",
+      "call_sites": [
+        "audit_contract"
+      ],
+      "refused_by": "core.r1_bounds.assert_authorised_call_site / benchmarks.run_cpu_audit._assert_authorised",
+      "test": "tests/test_r1_dispatch_contract.py::test_every_refused_call_site_is_in_the_refusal_registry"
+    },
+    "benchmarks/run_cpu_audit.py::_run_deployed_suite::probe_environment": {
+      "count": 2,
+      "disposition": "refused",
+      "reason": "The CPU-only audit service (modal_cpu_audit_app.py) is a separate deployment that is not part of the authorised evidence-regeneration trace: it has no approved step policy and no declared bounds of the R1 plan, so the R1 gate refuses this call site at the call boundary (core.r1_bounds.UNAUTHORISED_CALL_SITES). The service is only reachable through benchmarks/run_cpu_audit.py, whose _assert_authorised raises AuditNotAuthorised before the deployment is touched and before the provider is reached, unless a separate maintainer approval is given out of band. A separate CPU-only application does not make an unauthorised remote workload authorised. The service itself is authorised on the server side: every public function of modal_cpu_audit_app.py checks the shared token of the Modal secret aegis-cpu-audit-auth before it does any work, so a direct call without that token is refused. The direct calls that the end-to-end test makes without the token are the evidence of that refusal.",
+      "call_sites": [
+        "probe_environment"
+      ],
+      "refused_by": "core.r1_bounds.assert_authorised_call_site / benchmarks.run_cpu_audit._assert_authorised",
+      "test": "tests/test_r1_dispatch_contract.py::test_every_refused_call_site_is_in_the_refusal_registry"
+    },
+    "benchmarks/run_cpu_audit.py::_run_deployed_suite::read_saved_result": {
+      "count": 2,
+      "disposition": "refused",
+      "reason": "The CPU-only audit service (modal_cpu_audit_app.py) is a separate deployment that is not part of the authorised evidence-regeneration trace: it has no approved step policy and no declared bounds of the R1 plan, so the R1 gate refuses this call site at the call boundary (core.r1_bounds.UNAUTHORISED_CALL_SITES). The service is only reachable through benchmarks/run_cpu_audit.py, whose _assert_authorised raises AuditNotAuthorised before the deployment is touched and before the provider is reached, unless a separate maintainer approval is given out of band. A separate CPU-only application does not make an unauthorised remote workload authorised. The service itself is authorised on the server side: every public function of modal_cpu_audit_app.py checks the shared token of the Modal secret aegis-cpu-audit-auth before it does any work, so a direct call without that token is refused. The direct calls that the end-to-end test makes without the token are the evidence of that refusal.",
+      "call_sites": [
+        "read_saved_result"
+      ],
+      "refused_by": "core.r1_bounds.assert_authorised_call_site / benchmarks.run_cpu_audit._assert_authorised",
+      "test": "tests/test_r1_dispatch_contract.py::test_every_refused_call_site_is_in_the_refusal_registry"
+    },
+    "benchmarks/run_cpu_audit.py::_run_ephemeral_suite::audit_contract": {
+      "count": 4,
+      "disposition": "refused",
+      "reason": "The CPU-only audit service (modal_cpu_audit_app.py) is a separate deployment that is not part of the authorised evidence-regeneration trace: it has no approved step policy and no declared bounds of the R1 plan, so the R1 gate refuses this call site at the call boundary (core.r1_bounds.UNAUTHORISED_CALL_SITES). The service is only reachable through benchmarks/run_cpu_audit.py, whose _assert_authorised raises AuditNotAuthorised before the deployment is touched and before the provider is reached, unless a separate maintainer approval is given out of band. A separate CPU-only application does not make an unauthorised remote workload authorised. The service itself is authorised on the server side: every public function of modal_cpu_audit_app.py checks the shared token of the Modal secret aegis-cpu-audit-auth before it does any work, so a direct call without that token is refused. The direct calls that the end-to-end test makes without the token are the evidence of that refusal.",
+      "call_sites": [
+        "audit_contract"
+      ],
+      "refused_by": "core.r1_bounds.assert_authorised_call_site / benchmarks.run_cpu_audit._assert_authorised",
+      "test": "tests/test_r1_dispatch_contract.py::test_every_refused_call_site_is_in_the_refusal_registry"
+    },
+    "benchmarks/run_cpu_audit.py::_run_ephemeral_suite::probe_environment": {
+      "count": 2,
+      "disposition": "refused",
+      "reason": "The CPU-only audit service (modal_cpu_audit_app.py) is a separate deployment that is not part of the authorised evidence-regeneration trace: it has no approved step policy and no declared bounds of the R1 plan, so the R1 gate refuses this call site at the call boundary (core.r1_bounds.UNAUTHORISED_CALL_SITES). The service is only reachable through benchmarks/run_cpu_audit.py, whose _assert_authorised raises AuditNotAuthorised before the deployment is touched and before the provider is reached, unless a separate maintainer approval is given out of band. A separate CPU-only application does not make an unauthorised remote workload authorised. The service itself is authorised on the server side: every public function of modal_cpu_audit_app.py checks the shared token of the Modal secret aegis-cpu-audit-auth before it does any work, so a direct call without that token is refused. The direct calls that the end-to-end test makes without the token are the evidence of that refusal.",
+      "call_sites": [
+        "probe_environment"
+      ],
+      "refused_by": "core.r1_bounds.assert_authorised_call_site / benchmarks.run_cpu_audit._assert_authorised",
+      "test": "tests/test_r1_dispatch_contract.py::test_every_refused_call_site_is_in_the_refusal_registry"
+    },
+    "benchmarks/run_cpu_audit.py::_run_ephemeral_suite::read_saved_result": {
+      "count": 2,
+      "disposition": "refused",
+      "reason": "The CPU-only audit service (modal_cpu_audit_app.py) is a separate deployment that is not part of the authorised evidence-regeneration trace: it has no approved step policy and no declared bounds of the R1 plan, so the R1 gate refuses this call site at the call boundary (core.r1_bounds.UNAUTHORISED_CALL_SITES). The service is only reachable through benchmarks/run_cpu_audit.py, whose _assert_authorised raises AuditNotAuthorised before the deployment is touched and before the provider is reached, unless a separate maintainer approval is given out of band. A separate CPU-only application does not make an unauthorised remote workload authorised. The service itself is authorised on the server side: every public function of modal_cpu_audit_app.py checks the shared token of the Modal secret aegis-cpu-audit-auth before it does any work, so a direct call without that token is refused. The direct calls that the end-to-end test makes without the token are the evidence of that refusal.",
+      "call_sites": [
+        "read_saved_result"
+      ],
+      "refused_by": "core.r1_bounds.assert_authorised_call_site / benchmarks.run_cpu_audit._assert_authorised",
+      "test": "tests/test_r1_dispatch_contract.py::test_every_refused_call_site_is_in_the_refusal_registry"
     }
   },
   "guard_implementation": {
