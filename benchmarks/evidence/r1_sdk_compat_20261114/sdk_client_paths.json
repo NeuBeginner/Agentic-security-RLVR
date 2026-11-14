@@ -1,0 +1,94 @@
+{
+  "collected_at_utc": "2026-11-14T10:44:36.923431+00:00",
+  "collector": "probe_client_paths.py (read-only Modal SDK 1.5.5 client probe)",
+  "modal_client_version": "1.5.5",
+  "read_only": true,
+  "rpcs_issued": [
+    "FunctionGet (read-only control-plane read)"
+  ],
+  "app_name": "aegis-rlvr-security",
+  "object_tag": "ProductionAuditAgent.*",
+  "timeout_sec": 40,
+  "note": "the app does not exist, so every path that reaches the control plane is answered with NotFoundError; a path that blocks instead never reaches the server",
+  "paths": [
+    {
+      "path": "1",
+      "description": "the defective repository code: await Client.from_env()",
+      "outcome": "error",
+      "detail": "-> TypeError: object Client can't be used in 'await' expression",
+      "exit_code": 2,
+      "stdout": "-> TypeError: object Client can't be used in 'await' expression",
+      "stderr": "C:\\TMP\\tmpov80kcok\\_child_probe.py:41: AsyncUsageWarning: A blocking Modal interface is being used in an async context.\n\nThis may cause performance issues or bugs. Consider rewriting to use Modal's async interfaces:\nhttps://modal.com/docs/guide/async\n\nSuggested rewrite:\n  client = await await Client.from_env.aio()\n\nOriginal line:\n  client = await Client.from_env()"
+    },
+    {
+      "path": "2",
+      "description": "the asynchronous client _Client inside one event loop",
+      "outcome": "error",
+      "detail": "-> NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'",
+      "exit_code": 2,
+      "stdout": "-> NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'",
+      "stderr": ""
+    },
+    {
+      "path": "3",
+      "description": "the asynchronous client twice, each in its own event loop",
+      "outcome": "completed",
+      "detail": "  -> completed",
+      "exit_code": 0,
+      "stdout": "call 1: NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'\n  call 2: NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'\n  -> completed",
+      "stderr": ""
+    },
+    {
+      "path": "4",
+      "description": "the public synchronous client, the stub coroutine awaited in a fresh loop",
+      "outcome": "timeout",
+      "detail": "no answer within 40s - the path blocks",
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "path": "5",
+      "description": "the public synchronous client first, then the asynchronous read",
+      "outcome": "timeout",
+      "detail": "no answer within 40s - the path blocks",
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "path": "6",
+      "description": "the public synchronous client, the stub coroutine on the synchronizer loop",
+      "outcome": "error",
+      "detail": "-> NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'",
+      "exit_code": 2,
+      "stdout": "-> NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'",
+      "stderr": ""
+    },
+    {
+      "path": "7",
+      "description": "the asynchronous client through synchronize_api (the shipped fix)",
+      "outcome": "error",
+      "detail": "-> NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'",
+      "exit_code": 2,
+      "stdout": "-> NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'",
+      "stderr": ""
+    },
+    {
+      "path": "8",
+      "description": "the asynchronous client through synchronize_api, after the public client exists",
+      "outcome": "completed",
+      "detail": "  -> completed",
+      "exit_code": 0,
+      "stdout": "public sync client: Client\n  sync_api read: NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'\n  -> completed",
+      "stderr": ""
+    },
+    {
+      "path": "9",
+      "description": "the asynchronous client through synchronize_api, called twice",
+      "outcome": "completed",
+      "detail": "  -> completed",
+      "exit_code": 0,
+      "stdout": "call 1: NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'\n  call 2: NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'\n  -> completed",
+      "stderr": ""
+    }
+  ]
+}

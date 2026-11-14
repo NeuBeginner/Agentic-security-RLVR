@@ -7,6 +7,7 @@ on:
       - 'feature/**'
       - 'integration/**'
       - 'feat/**'
+      - 'codex/**'
   pull_request:
     branches:
       - main
@@ -14,6 +15,7 @@ on:
       - 'audit/**'
       - 'integration/**'
       - 'feat/**'
+      - 'docs/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

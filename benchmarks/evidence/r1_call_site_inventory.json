@@ -1,0 +1,141 @@
+{
+  "schema": "r1-call-site-inventory/1.0.0",
+  "status": "PROVISIONAL_ONLY / NOT_DISPATCHABLE",
+  "generated_for": "PR #14, R1 (maintainer comment 6805770433, task A)",
+  "note": "The inventory is exhaustive: tests/test_r1_dispatch_contract.py parses every Python file of the repository, finds every call chain that reaches a provider's 'remote', and compares the result with this file. A new provider call site that is not classified here fails the test until it is classified - the inventory cannot silently go stale.",
+  "dispositions": {
+    "modal_app.py::run_control_foundry_tests::verify_exploit_remote": {
+      "count": 5,
+      "disposition": "gated",
+      "reason": "The module-level name is a core.r1_bounds.GuardedRemote installed by the guard of modal_app.py; the guard routes the call through the single R1 gate, so the invocation budget, the concurrency gate, the ceiling assertion, the payload cap and the autoscaler read-back apply to it.",
+      "call_sites": [
+        "verify_exploit_remote"
+      ]
+    },
+    "modal_app.py::run_control_foundry_tests::verify_replay_remote": {
+      "count": 1,
+      "disposition": "gated",
+      "reason": "The module-level name is a core.r1_bounds.GuardedRemote; the guard routes the call through the single R1 gate.",
+      "call_sites": [
+        "verify_replay_remote"
+      ]
+    },
+    "modal_app.py::run_control_foundry_tests::record_trajectory_remote": {
+      "count": 1,
+      "disposition": "gated",
+      "reason": "The module-level name is a core.r1_bounds.GuardedRemote; the guard routes the call through the single R1 gate, and the producer-enforced payload cap of the volume-writing function applies.",
+      "call_sites": [
+        "record_trajectory_remote"
+      ]
+    },
+    "modal_app.py::run_modal_replay_infra_error_integration_test::verify_replay_fault_injection_remote": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The fault-injection worker is not part of the authorised trace (core.r1_bounds.UNAUTHORISED_CALL_SITES): the guard refuses the call site before any budget, bound or egress question is asked.",
+      "call_sites": [
+        "verify_replay_fault_injection_remote"
+      ]
+    },
+    "modal_app.py::run_modal_replay_infra_error_integration_test::record_trajectory_remote": {
+      "count": 1,
+      "disposition": "gated",
+      "reason": "The module-level name is a core.r1_bounds.GuardedRemote; the guard routes the call through the single R1 gate.",
+      "call_sites": [
+        "record_trajectory_remote"
+      ]
+    },
+    "modal_app.py::main::verify_exploit_remote": {
+      "count": 1,
+      "disposition": "gated",
+      "reason": "The module-level name is a core.r1_bounds.GuardedRemote; the guard routes the call through the single R1 gate.",
+      "call_sites": [
+        "verify_exploit_remote"
+      ]
+    },
+    "modal_app.py::main::verify_replay_remote": {
+      "count": 1,
+      "disposition": "gated",
+      "reason": "The module-level name is a core.r1_bounds.GuardedRemote; the guard routes the call through the single R1 gate.",
+      "call_sites": [
+        "verify_replay_remote"
+      ]
+    },
+    "modal_app.py::main::record_trajectory_remote": {
+      "count": 1,
+      "disposition": "gated",
+      "reason": "The module-level name is a core.r1_bounds.GuardedRemote; the guard routes the call through the single R1 gate, and the producer-enforced payload cap applies.",
+      "call_sites": [
+        "record_trajectory_remote"
+      ]
+    },
+    "modal_app.py::main::run_slither_remote": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The Slither worker is not one of the plan's stages (core.r1_bounds.UNAUTHORISED_CALL_SITES); the guard refuses the call site.",
+      "call_sites": [
+        "run_slither_remote"
+      ]
+    },
+    "modal_app.py::main::audit_volume_trajectories_remote": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The read-only volume audit is a diagnostic, not an authorised step (core.r1_bounds.UNAUTHORISED_CALL_SITES); the guard refuses the call site.",
+      "call_sites": [
+        "audit_volume_trajectories_remote"
+      ]
+    },
+    "modal_app.py::main::diagnostic_grpo_forward_remote": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The GRPO diagnostic forward pass is a diagnostic, not an authorised step (core.r1_bounds.UNAUTHORISED_CALL_SITES); the guard refuses the call site.",
+      "call_sites": [
+        "diagnostic_grpo_forward_remote"
+      ]
+    },
+    "modal_app.py::main::auditor_agent.audit_target_contract": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "A class method of the GPU class. The class guard of core.r1_bounds.GuardedClass resolves the call site 'ProductionAuditAgent.audit_target_contract', which is not part of the authorised trace (core.r1_bounds.UNAUTHORISED_CALL_SITES); the call is refused.",
+      "call_sites": [
+        "ProductionAuditAgent.audit_target_contract"
+      ]
+    },
+    "modal_app.py::main::llm_agent.generate_solidity_exploit": {
+      "count": 1,
+      "disposition": "guarded_class_method",
+      "reason": "A class method. The class guard resolves the call site at runtime: 'ProductionAuditAgent.generate_solidity_exploit' is authorised and is routed through the single R1 gate, while 'DevReasoningAgent.generate_solidity_exploit' is refused as a call site of the unauthorised T4 dev agent.",
+      "call_sites": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "DevReasoningAgent.generate_solidity_exploit"
+      ]
+    },
+    "modal_app.py::main::llm_agent.refine_solidity_exploit": {
+      "count": 1,
+      "disposition": "guarded_class_method",
+      "reason": "A class method. The class guard resolves the call site at runtime: 'ProductionAuditAgent.refine_solidity_exploit' is authorised and is routed through the single R1 gate, while 'DevReasoningAgent.refine_solidity_exploit' is refused as a call site of the unauthorised T4 dev agent.",
+      "call_sites": [
+        "ProductionAuditAgent.refine_solidity_exploit",
+        "DevReasoningAgent.refine_solidity_exploit"
+      ]
+    },
+    "core/r1_bounds.py::_perform_provider_call::fn": {
+      "count": 1,
+      "disposition": "gate",
+      "reason": "The innermost provider call of the single dispatch path: the only place in the repository that calls a provider. Every guarded call and every producer dispatch ends up here, through benchmarks/r1_dispatch.py::DispatchGate.dispatch. The helper is private and it refuses a call that does not come from that dispatch method - the check is against the code object of the dispatch. The provider entry point is not captured: it is resolved from the provider object's own class at the moment of the call (core.r1_bounds._call_provider_entry_point), so the repository holds no provider callable at all - not in a closure, not in a registry and not in an attribute of a guard.",
+      "call_sites": []
+    },
+    "benchmarks/run_iteration19_cpu_smoke.py::_invoke::cpu_smoke": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The Iteration 19 runtime smoke app is a separate deployment that is not part of the evidence-regeneration workflow: it has no approved step policy, no declared resource bounds and no egress declaration. The invocation is REFUSED, not classified out of scope: benchmarks/run_iteration19_cpu_smoke.py::_assert_authorised raises SmokeNotAuthorised before the ephemeral app is started and before the provider's 'remote' is touched (the approval variable R1_APPROVE_ITERATION19_CPU_SMOKE is not set). A separate CPU-only app does not make an unauthorised remote workload authorised.",
+      "call_sites": [
+        "cpu_smoke"
+      ],
+      "refused_by": "benchmarks.run_iteration19_cpu_smoke._assert_authorised",
+      "test": "tests/test_r1_dispatch_contract.py::test_the_iteration19_cpu_smoke_invocation_is_refused_before_the_provider_is_reached"
+    }
+  },
+  "guard_implementation": {
+    "core/r1_bounds.py": "The guard itself: GuardedRemote (module-level functions), GuardedClass / GuardedClassInstance / GuardedClassMethod (the class methods, the bypass the review named) and GuardedProviderRemote (the guard installed on the provider object's own 'remote'). The guard holds no provider object: the raw objects live in the module-private registry of core.r1_bounds and the guard objects hold only an opaque token and the call-site name, so no attribute of a guard yields a raw provider callable. The guard holds no direct provider call - it delegates to the gate - so the repository has exactly one place that calls a provider: _perform_provider_call, the innermost step of the gate's dispatch, through _call_provider_entry_point. The provider entry point is not captured and not stored: it is resolved from the provider object's own class at the moment of the call, so no closure cell and no registry of the module holds an invocable provider callable. The class methods are guarded at their production boundary: the instance is moved to a subclass whose attribute resolution hands out the guard, so the method of the raw instance is guarded as well. The gate is not self-authorising: a provider dispatch additionally needs a signed approval artifact that the gate verifies itself, at dispatch time and again immediately before provider entry, against the pinned key (core/r1_approval.py) - binding not only the StepPolicy but the complete effective D26-D29 dispatch envelope (dispatch_envelope_digest) and enforcing the authoritative container_class mapping - and R1 pins no approval key, so no provider dispatch is possible in R1."
+  }
+}

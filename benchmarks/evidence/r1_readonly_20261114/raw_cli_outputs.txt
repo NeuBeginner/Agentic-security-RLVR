@@ -1,0 +1,59 @@
+=== modal profile current ===
+neubeginner
+
+=== modal volume list ===
+┌───────────────────┬───────────────────────────────────────────┬─────────────┐
+│ Name              │ Created at                                │ Created by  │
+├───────────────────┼───────────────────────────────────────────┼─────────────┤
+│ aegis-model-cache │ 2026-10-31 09:42 Central Europe Standard  │ neubeginner │
+│                   │ Time                                      │             │
+└───────────────────┴───────────────────────────────────────────┴─────────────┘
+
+=== modal volume ls aegis-model-cache --json (root) ===
+[
+  {
+    "filename": "checkpoints",
+    "type": "dir",
+    "created_modified": "2026-10-31 16:35 Central Europe Standard Time",
+    "size": "34 B"
+  },
+  {
+    "filename": "huggingface",
+    "type": "dir",
+    "created_modified": "2026-10-31 09:51 Central Europe Standard Time",
+    "size": "103 B"
+  },
+  {
+    "filename": "trajectories",
+    "type": "dir",
+    "created_modified": "2026-11-08 22:58 Central Europe Standard Time",
+    "size": "1.3 KiB"
+  }
+]
+
+=== modal app list --json ===
+[]
+
+=== modal app history aegis-rlvr-security ===
+modal : ┌─ Error ─────────────────────────────────────────────────────────────────────┐
+At line:11 char:10
++ $out += (modal app history aegis-rlvr-security 2>&1 | Out-String)
++          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (┌─ Error ──────...──────────────┐:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+│ No App with name 'aegis-rlvr-security' found in the 'main' environment.     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+=== modal billing summary (this month) ===
+                                     
+  Metered Cost:                6.02  
+    Ephemeral Apps:            4.04  
+    Volumes:                   1.98  
+    Deployed Apps:             0.00  
+    Network Egress:            0.00  
+  Credits:                    -4.04  
+  Free Storage:               -1.98  
+  Network Egress Allowance:   -0.00  
+  Billed Cost:                $0.00  
+                                     

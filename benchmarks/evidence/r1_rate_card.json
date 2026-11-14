@@ -1,0 +1,27 @@
+{
+  "schema": "r1-rate-card/1.0.0",
+  "status": "PROPOSED - not maintainer-approved",
+  "approved_by": null,
+  "approved_at": null,
+  "source": "https://modal.com/pricing (per-second view), read 2026-11-11; corroborated by the provider's FAQ on the same page: \"Modal bills you during application load time and during the time your container is processing inputs. By default, we keep containers alive for 60 seconds after the last inputs before we shut them down, which we also bill for.\"",
+  "read_at": "2026-11-11",
+  "notes": [
+    "The rates are an approval input, never a repository constant (plan section 8.2.5, inputs 1-9).",
+    "The rate card has to be re-read at dispatch time; the estimate is computed from the rates of the dispatch, not from this file's history.",
+    "The provider's published free allowance of volume storage (1 TiB/month = 1024 GiB/month) is applied ONCE to the cycle's time-weighted footprint: inside the allowance the storage of the run costs USD 0. The footprint itself (peak and time-weighted) is computed and reported in every run, and the part above the allowance is billed and flagged.",
+    "The storage footprint of this proposal is a CANDIDATE estimate: R1 performed no Volume operation, so the existing remote Volume baseline of the workspace is not measured by this evidence. The cost assumption of USD 0 is kept; the capacity proof (that the cycle fits the account) stays UNAVAILABLE until a read-only baseline measurement or a defensible conservative bound exists.",
+    "CPU is billed per physical core (2 vCPU equivalent) and memory per GiB; the provider's published minimum request is 0.125 cores and 128 MiB per container.",
+    "Sandboxes are priced at the rate of non-preemptible Functions (a 3x multiplier on the CPU and memory list price). This workflow uses Modal Functions, so the list price below applies.",
+    "EGRESS is outbound traffic. The model download of the prefetch step is INGRESS: the provider does not bill a download into the container at the egress rate, and a read or a write of a Modal Volume is not egress either. The inbound bytes are therefore declared and bounded separately (core/r1_bounds.INGRESS_POLICIES) and are priced at the ingress rate below, which is 0."
+  ],
+  "cpu_per_core_sec": 0.0000131,
+  "memory_per_gib_sec": 0.00000222,
+  "gpu_per_sec": 0.001097,
+  "volume_per_gib_month": 0.09,
+  "egress_per_gib": 0.04,
+  "ingress_per_gib": 0.0,
+  "ingress_source": "https://modal.com/docs/guide/network-egress-billing (read 2026-11-12): the provider bills outbound traffic as egress; a download into the container is ingress and is not billed at the egress rate, and reads/writes of Modal Volumes are not egress.",
+  "storage_free_allowance_gib_per_month": 1024,
+  "storage_free_allowance_source": "modal.com/pricing: 'Volumes $0.09 / GiB / mo *includes 1 TiB / mo free' (read 2026-11-11)",
+  "gpu_type": "H100"
+}

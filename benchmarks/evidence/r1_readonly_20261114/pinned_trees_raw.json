@@ -1,0 +1,159 @@
+{
+ "format_version": 1,
+ "files": {
+  ".gitattributes": {
+   "size": 1570,
+   "blob_id": "52373fe24473b1aa44333d318f578ae6bf04b49b"
+  },
+  "README.md": {
+   "size": 13570,
+   "blob_id": "6038eaa7ea4c91a0ceb8ea1bd17a728447dbce5a"
+  },
+  "chat_template.jinja": {
+   "size": 6211,
+   "blob_id": "49b0e8d0ee7e655434942233b4b0ab2104d5247e"
+  },
+  "config.json": {
+   "size": 1021,
+   "blob_id": "8053661e97711fb54a7a1214a1329bc93ee7c5ac"
+  },
+  "generation_config.json": {
+   "size": 180,
+   "blob_id": "ba3e8d9206508daab666e1aaa9dcc9c435bfa541"
+  },
+  "model-00001-of-00017.safetensors": {
+   "size": 3737243592,
+   "blob_id": "74993abe5b1addae75aa919f530d81ac07b79223",
+   "lfs_sha256": "58785404794066e45f044896991b86fd24aede7b764583ada8d09da96a5601b7",
+   "lfs_size": 3737243592,
+   "xet_hash": "fddfcf6e24fc1bcd8d3d0202bf979a987b072e0fa91778c4966764d078896f5a"
+  },
+  "model-00002-of-00017.safetensors": {
+   "size": 3738868496,
+   "blob_id": "07bf55cd3bdff6bc5da43685a378fe2ff76b47d8",
+   "lfs_sha256": "895540a2d8ccc9c494edbe733dba1128a0f586d6102d314f9dcbede74ee148b4",
+   "lfs_size": 3738868496,
+   "xet_hash": "cd9d17f3ac069b9fb4e2df2c6bcbaaecec9dd289bd59fd52cffbc91a105f4743"
+  },
+  "model-00003-of-00017.safetensors": {
+   "size": 3738868496,
+   "blob_id": "85dcbd6baaf42562b8e6cab9f244d36b2412d629",
+   "lfs_sha256": "32417846218ce256a537e3f8e5e27dc50b5edb0690fa190590b50a0f38bb24ac",
+   "lfs_size": 3738868496,
+   "xet_hash": "0afe362461cd1c442e8163b2f4e1c4d537dc4c29386a040594fed62aaedc3d52"
+  },
+  "model-00004-of-00017.safetensors": {
+   "size": 3738868880,
+   "blob_id": "37033654df664e0e305429426532de835ba67216",
+   "lfs_sha256": "198a84755de5e9d7137c0c6de12d722d103d0ecc740a9647be6c683a9f30a872",
+   "lfs_size": 3738868880,
+   "xet_hash": "6adfa4390e0bc428f4c6e028faba7a4261e6ec0cfd62eeb76b2afd9a37d0672d"
+  },
+  "model-00005-of-00017.safetensors": {
+   "size": 3738869672,
+   "blob_id": "595179b53ec8b77a4ab5636135a070ab6387610d",
+   "lfs_sha256": "93a91fe744b0e181af609cded047363ac7a5c9a14b5a3757949bf07ee7135a6a",
+   "lfs_size": 3738869672,
+   "xet_hash": "2daedaf90ee4485247cdf28209bf4a09f8bed34ed69beeedf2bd2f910b446d6c"
+  },
+  "model-00006-of-00017.safetensors": {
+   "size": 3738869672,
+   "blob_id": "592fe9260e56bc6af2a020b165395620ee479f86",
+   "lfs_sha256": "5c17a71546d7d103435ef250af2db5430005da915c53cda0f4f3aa8c303af290",
+   "lfs_size": 3738869672,
+   "xet_hash": "da866b7e2a184f47550b99dc89cf224aff71ff0fdd476483e0735ff67ff4ab32"
+  },
+  "model-00007-of-00017.safetensors": {
+   "size": 3738869672,
+   "blob_id": "4bc296e37874e165b7d5babf20215d7138690224",
+   "lfs_sha256": "4efb9bbe73eabae6e8fdf284aa7e041dc6c673f9135e667bcd3c51d158ec8c21",
+   "lfs_size": 3738869672,
+   "xet_hash": "340ec97c1f9241fb92c97af8f5dbf5995d87a3849758939ebaa806b13252ab84"
+  },
+  "model-00008-of-00017.safetensors": {
+   "size": 3738869672,
+   "blob_id": "4523ec7e77882d4f9d1a5a9aaadf6b36792fdad3",
+   "lfs_sha256": "d73f8749dea2bf34e262db3baf93edea742f417782844021aefce783efb52fea",
+   "lfs_size": 3738869672,
+   "xet_hash": "159b096f0b32645e7dd5d509fd3ec3ee4e4a5c9446e963dac59bd952bc5fb7b8"
+  },
+  "model-00009-of-00017.safetensors": {
+   "size": 3738869672,
+   "blob_id": "5e29f64d28fcc5f80dc734d52eb2d6637e12647a",
+   "lfs_sha256": "02b5506e3519ff4c4c7f1984139e759eb54be8db5edcf10281566b249e483904",
+   "lfs_size": 3738869672,
+   "xet_hash": "3958df8453712473fc651a124d8c5c80fd037fe85d4b0cb6b315f46de2140596"
+  },
+  "model-00010-of-00017.safetensors": {
+   "size": 3738869672,
+   "blob_id": "6458e0294934023c062afe6c7e257b7d5deae544",
+   "lfs_sha256": "0d3db8539da9ac40a07683222111247854acda99773043ffacc5b8523061f520",
+   "lfs_size": 3738869672,
+   "xet_hash": "bf1be4e5d37eacbecd2cb62bcf667deda17b444f627a7e6a609464706ebe770d"
+  },
+  "model-00011-of-00017.safetensors": {
+   "size": 3738869672,
+   "blob_id": "41d97af2b61a7107ef800740107e526672dc0dc3",
+   "lfs_sha256": "8ffcdddc1ac6c541efca637e79f8ce4261ffa96313559f9c83fb8142d4cb5afc",
+   "lfs_size": 3738869672,
+   "xet_hash": "9ec30ca7b54d864425a67755fee0d2f1c9064c82ba23e9d681a9f80455033258"
+  },
+  "model-00012-of-00017.safetensors": {
+   "size": 3738869672,
+   "blob_id": "ab94c3630e418ffea6fc4147373d0571be09956b",
+   "lfs_sha256": "16b2f250831b693008e3432d7a0b2006d2a9fc33464c79e8294ea8fa63899af3",
+   "lfs_size": 3738869672,
+   "xet_hash": "f19c194a895292314cd5dd1d2e91e0023771ca8d9c57a866337bdf109649b4a5"
+  },
+  "model-00013-of-00017.safetensors": {
+   "size": 3738869672,
+   "blob_id": "4d26084c685f377bf5a34805e2b742e01144b258",
+   "lfs_sha256": "d845ec981590cbb34a2c5491c8ac7b0250f56e4274c01e20bdf0b4a86ba9cab4",
+   "lfs_size": 3738869672,
+   "xet_hash": "86b16642b5c0c2e352501bac4fd5ec425e6b42dd2a4fba7e0d4f11473f5e4aef"
+  },
+  "model-00014-of-00017.safetensors": {
+   "size": 3738869672,
+   "blob_id": "775c5ebedd45e898a47c1a6217f85edb293e7774",
+   "lfs_sha256": "d1edde5b9bb7e38b9a2285de16ded9f8944976c468c3ab270ec1b130c2a39570",
+   "lfs_size": 3738869672,
+   "xet_hash": "0e6079d572d9e8c2787b66ec384e9df5b023a961ad1b5f7ec4acc36ea74ae0bc"
+  },
+  "model-00015-of-00017.safetensors": {
+   "size": 3738869672,
+   "blob_id": "80e74b6a71e83e340deea7bab50e5002abc7d9e3",
+   "lfs_sha256": "27ca7ab4bb0349bfa630c9fefc6193157299cea985360a76672ce598905189ec",
+   "lfs_size": 3738869672,
+   "xet_hash": "739ef76266abd04838fd67f30c22fc82824258a3da7b33a88d8290d856f074e2"
+  },
+  "model-00016-of-00017.safetensors": {
+   "size": 3738869672,
+   "blob_id": "7146f4b1b0de5a08dea23dde4ebdf757ecc74e02",
+   "lfs_sha256": "88ff4a53f1e75a1e9505712851754284548237236b8b96a00ec6b4d71f6264a9",
+   "lfs_size": 3738869672,
+   "xet_hash": "bafb449c9010559efa24a71fda4d0570691be7c89bbf1aa384741fc6ee7169f2"
+  },
+  "model-00017-of-00017.safetensors": {
+   "size": 1246289424,
+   "blob_id": "8cb52d92c4b1c860920a4d236c224e1ed784b3d3",
+   "lfs_sha256": "122ac1a57dc6f8ed0bdb604453eb2e1027eb8096a58020bca1abf6dec9d73c43",
+   "lfs_size": 1246289424,
+   "xet_hash": "73717fcd008f5b9ef9c0c2c0ffa092bf118093f4a5b2b8ed6860f3ce6bcb3cd3"
+  },
+  "model.safetensors.index.json": {
+   "size": 1699795,
+   "blob_id": "a2f7d77f3ce93a3bd7fa078522bb0aa776db2572"
+  },
+  "tokenizer.json": {
+   "size": 11422650,
+   "blob_id": "c7afbed2efcdf019f88ab0572ec29d3bf595dfe2",
+   "lfs_sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506",
+   "lfs_size": 11422650,
+   "xet_hash": "dde3c5a4d468da6fe61f11ffa8f04af2d101f8f4a0fe118c37bd31bb8c3017b6"
+  },
+  "tokenizer_config.json": {
+   "size": 694,
+   "blob_id": "e6f3a82c69f4735fd65b222bc6af006d4bd23dcd"
+  }
+ }
+}

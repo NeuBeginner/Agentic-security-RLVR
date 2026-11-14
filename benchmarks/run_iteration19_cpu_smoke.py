@@ -18,8 +18,21 @@ secret, no production worker. The driver then does exactly three things:
 
 A failed invocation is recorded as a failure: the stage is written in the
 honest state ``ATTEMPT_FAILED_NO_RESPONSE`` and the validator reports
-``FAILED``. The driver never falls back to a local execution - a local run is
-a rehearsal, and a rehearsal is never reported as a live pass.
+``FAILED``. The driver never falls back to a local execution - a rehearsal is
+never reported as a live pass.
+
+**The invocation is refused by default.** The smoke app is a separate
+deployment that is not part of the evidence-regeneration workflow: it has no
+approved step policy, no declared resource bounds and no egress declaration, so
+the R1 dispatch contract cannot authorise it. A *separate, CPU-only* app does
+not make it authorised - an unauthorised remote workload is refused, not
+classified out of scope. The refusal happens **before** the ephemeral app is
+started and before the provider's entry point is touched: it reaches neither
+the control plane nor a container. Only an explicit maintainer approval
+(``R1_APPROVE_ITERATION19_CPU_SMOKE=1``) lifts the refusal, and the approval
+is a separate decision of the maintainer.
+
+The historical Iteration 19 evidence is not touched by any of this.
 
 Usage::
 
@@ -62,6 +75,43 @@ STAGE = "cpu_smoke"
 
 #: The synthetic target id of the smoke test.
 TARGET_ID = "CPU-SMOKE-01"
+
+#: The environment variable that carries the maintainer's explicit approval for
+#: the live CPU-only smoke invocation. Without it the invocation is refused.
+APPROVAL_ENV_VAR = "R1_APPROVE_ITERATION19_CPU_SMOKE"
+
+#: The values the approval variable may carry.
+APPROVAL_VALUES = ("1", "true", "yes")
+
+
+class SmokeNotAuthorised(RuntimeError):
+    """The live CPU-only smoke invocation was refused: it is not authorised.
+
+    The refusal is explicit and fail-closed. It is raised **before** the
+    ephemeral app is started and before the provider's entry point is touched,
+    so a refused invocation reaches neither the control plane nor a container.
+    """
+
+
+def _assert_authorised() -> None:
+    """Refuse the live invocation unless the maintainer approved it explicitly.
+
+    The smoke app is a separate deployment that is not part of the
+    evidence-regeneration workflow: it has no approved step policy, no declared
+    resource bounds and no egress declaration. The R1 dispatch contract cannot
+    authorise it, so the only way to run it is an explicit approval of the
+    maintainer - a decision that is separate from this workflow.
+    """
+    value = os.environ.get(APPROVAL_ENV_VAR, "").strip().lower()
+    if value in APPROVAL_VALUES:
+        return
+    raise SmokeNotAuthorised(
+        "the live CPU-only Modal invocation of the Iteration 19 smoke is refused: "
+        "it is not part of the evidence-regeneration workflow, it has no approved "
+        "step policy, no declared resource bounds and no egress declaration, and "
+        "no maintainer approval exists for it. Set "
+        f"{APPROVAL_ENV_VAR}=1 only with such an approval."
+    )
 
 #: The key at which the worker returns the runtime-identity envelope. The
 #: captured response carries the envelope at exactly this source.
@@ -393,8 +443,39 @@ def _identity_fact(envelope: Any, field_name: str) -> Dict[str, Any]:
 # The run
 # ---------------------------------------------------------------------------
 
+
+async def _invoke(
+    cpu_smoke: Any,
+    app: Any,
+    seed: str,
+    profile: Optional[str],
+) -> Dict[str, Any]:
+    """Invoke the CPU-only smoke function once - refused without the approval.
+
+    The authorisation is checked **first**: a refused invocation never starts
+    the ephemeral app and never reaches the provider's ``remote``. The call
+    itself is the only provider entry point of this script.
+    """
+    _assert_authorised()
+
+    async with app.run():
+        result = await cpu_smoke.remote.aio(seed)
+        running_app_id = app.app_id
+        listed = await asyncio.to_thread(_list_containers, profile, running_app_id)
+    return {
+        "response": result,
+        "app_id": running_app_id,
+        "containers": listed,
+    }
+
+
 def run(args: argparse.Namespace) -> Dict[str, Any]:
     """Invoke the CPU-only smoke function once and write the evidence."""
+    # The authorisation is checked before the app module is imported and before
+    # anything of this run touches the provider: a refused run is not an
+    # attempted invocation and writes no evidence.
+    _assert_authorised()
+
     # The Modal SDK reads the active profile from the environment when it is
     # imported, so the profile is set before the app module is imported.
     if args.profile:
@@ -426,25 +507,15 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
         "reason": "the run did not reach the invocation of the function",
     }
     try:
-        # The function of an app can only run inside the context of that app:
-        # ``app.run()`` starts the ephemeral app and hydrates the function.
-        async def _invoke() -> Dict[str, Any]:
-            async with app.run():
-                result = await cpu_smoke.remote.aio(args.seed)
-                running_app_id = app.app_id
-                listed = await asyncio.to_thread(
-                    _list_containers, args.profile, running_app_id
-                )
-                return {
-                    "response": result,
-                    "app_id": running_app_id,
-                    "containers": listed,
-                }
-
-        outcome = asyncio.run(_invoke())
+        outcome = asyncio.run(
+            _invoke(cpu_smoke, app, args.seed, args.profile)
+        )
         response = outcome["response"]
         client_app_id = outcome["app_id"]
         containers = outcome["containers"]
+    except SmokeNotAuthorised:
+        # The refusal is not a failed invocation: it is the absence of one.
+        raise
     except Exception as exc:  # noqa: BLE001 - the failure is the evidence
         invocation_error = f"{type(exc).__name__}: {exc}"
 
@@ -661,7 +732,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--evidence-dir", default=DEFAULT_EVIDENCE_DIR)
     args = parser.parse_args(argv)
 
-    outcome = run(args)
+    try:
+        outcome = run(args)
+    except SmokeNotAuthorised as exc:
+        # A refused invocation is not a failed invocation: nothing was attempted,
+        # no evidence was written and no container was started.
+        print(f"the live invocation was refused: {exc}", file=sys.stderr)
+        return 2
     record = outcome["record"]
 
     print(f"invocation status      : {record['invocation']['status']}")

@@ -1,0 +1,319 @@
+{
+  "schema": "r1-cost-scenario/1.2.0",
+  "status": "PROPOSED - not maintainer-approved",
+  "cycle_cap_usd": 20,
+  "baseline_gib": 59.930256,
+  "storage_baseline": {
+    "status": "MEASURED",
+    "measured_bytes": 64349622024,
+    "measured_gib": 59.930256,
+    "entries": 247,
+    "volume": "aegis-model-cache",
+    "measured_at": "2026-11-14T08:43:23Z/2026-11-14T08:50:44Z",
+    "measured_by": "read-only Volume inventory: one recursive listing from the root and one breadth-first walk agree byte-for-byte (listing_agreement: IDENTICAL), 247 entries = 156 files + 42 directories + 49 symlinks",
+    "evidence_file": "benchmarks/evidence/r1_readonly_evidence_20261114.json",
+    "evidence_totals_path": "deliverable_1_storage_baseline_and_capacity.totals",
+    "provenance": "benchmarks/evidence/r1_readonly_evidence_20261114.json (deliverable_1_storage_baseline_and_capacity) and docs/r1_readonly_evidence_report_20261114.md, section 1",
+    "breakdown": {
+      "huggingface": {
+        "files": 113,
+        "bytes": 64178670067,
+        "gib": 59.771044
+      },
+      "checkpoints": {
+        "files": 12,
+        "bytes": 170685319,
+        "gib": 0.158963
+      },
+      "trajectories": {
+        "files": 31,
+        "bytes": 266638,
+        "gib": 0.000248
+      }
+    },
+    "reason": "The standing baseline is MEASURED, not assumed: the read-only inventory of 2026-11-14 measured 64349622024 B = 59.930256 GiB on Volume 'aegis-model-cache'. It replaces the former 0.0 GiB assumption, which understated the footprint of every stage of the cycle.",
+    "capacity_proof": "AVAILABLE",
+    "capacity_proof_basis": [
+      "the standing baseline is measured read-only on 2026-11-14: 64349622024 B = 59.930256 GiB, 247 entries, two independent listings byte-identical",
+      "the workspace holds exactly one Volume ('aegis-model-cache'), so the measured total IS the account-wide volume footprint",
+      "against the published 1024 GiB/month free allowance: 5.85 % used, 964.07 GiB headroom",
+      "the billing summary of the same month corroborates it: volumes metered 1.98 USD, fully covered by the free storage allowance, billed cost 0.00 USD"
+    ],
+    "capacity_proof_residuals": [
+      "the account-wide concurrent storage peak has no API gauge: the measured total is an instantaneous inventory and the monthly billing confirms the account stays inside the allowance (an explicit operator attestation may substitute for this sub-item)",
+      "post-R2p read-back of the written model-cache manifest and of the Volume byte footprint: R2p has not run, so the materialisation of the pinned revision and the absence of residual staging files are not yet read back",
+      "post-R3b/R4 trajectory byte measurement and post-retention deletion verification: the incremental trajectory storage is still a candidate bound, not a measurement"
+    ],
+    "capacity_proof_missing_evidence": [],
+    "measured_local_repository_bytes": 5034779,
+    "measured_local_repository_note": "The tracked artifacts tree of this repository (159 files) measured on 2026-11-12 with git cat-file -s: 5034779 bytes = 0.004689 GiB. These are the local evidence bytes; they are NOT the volume's baseline.",
+    "candidate_future_run_gib": 56.888,
+    "candidate_future_run_note": "The model cache of the pinned revision (61077997602 bytes = 56.888 GiB) is the size of the artefact the prefetch would write. It is a CANDIDATE of a future run, not a measured footprint of the remote Volume - and the measured baseline above already CONTAINS these bytes: the pinned revision is materialised on the volume (23/23 files, byte-exact)."
+  },
+  "rate_card": "benchmarks/evidence/r1_rate_card.json",
+  "notes": [
+    "Every value in this file is a CANDIDATE for the maintainer's approval. The declared values in core/r1_bounds.py stay required-but-unset until they are approved; this file never changes a declaration.",
+    "The candidate bounds are the input of the cost proposal (docs/r1_cost_proposal.md). The numbers of that document are produced by: python -m benchmarks.r1_estimator --scenario benchmarks/evidence/r1_cost_scenario.json",
+    "The volume baseline is MEASURED (64349622024 B = 59.930256 GiB, read-only inventory of 2026-11-14) and is not substituted by a zero placeholder. Every step starts from the footprint the previous step left behind; a step that declares a different baseline fails closed.",
+    "pinned_bytes = 61077997602 (the pinned revision 655425b794ae4a19f2ea16fa480c6b39102721ee of qtum/Qwen3-Coder-30B-A3B-Audit, measured 2026-11-11) = 56.888 GiB.",
+    "The prefetch's INBOUND cap is pinned_bytes x (1 + R_download) with R_download = 1: 122155995204 bytes. The model download is INGRESS: the provider bills outbound traffic as egress, and a download into the container is not billed at the egress rate (https://modal.com/docs/guide/network-egress-billing, read 2026-11-12). The inbound cap is therefore declared separately (candidate_ingress) and is never charged at the egress rate; the write of the cache to the Volume is not egress either.",
+    "The protocol allowance is 1 MiB per container: the workspace's own published billing export shows 0.00013117 USD of network egress (3.35 MB) for a whole app session on 2026-11-09, i.e. the measured order of magnitude of the control-plane and volume data-path traffic. This is the whole OUTBOUND traffic of a container.",
+    "The storage is NOT priced per stage: the provider's published 1 TiB/month allowance (1024 GiB/month) is applied once to the cycle's time-weighted footprint, so the storage of this cycle costs USD 0.00 while the footprint stays inside it. The footprint now starts from the MEASURED baseline instead of an assumed zero; the capacity proof rests on that measurement and on the billing corroboration of the same month.",
+    "The GPU payload cap is 0 because the GPU class declares the provider-enforced block_network; the alternative (a conservative non-zero cap) is priced in docs/r1_cost_proposal.md and is BUDGET_INFEASIBLE."
+  ],
+  "steps": [
+    {
+      "step_id": "R2p",
+      "description": "model-cache prefetch - exactly 1 CPU container, exactly 1 attempt",
+      "invocations": {
+        "sandbox_cpu": 1
+      },
+      "concurrency_caps": {
+        "sandbox_cpu": 1
+      },
+      "egress_functions": {
+        "sandbox_cpu": [
+          "prefetch_model_cache_remote"
+        ]
+      },
+      "ingress_functions": {
+        "sandbox_cpu": [
+          "prefetch_model_cache_remote"
+        ]
+      },
+      "candidate_bounds": {
+        "sandbox_cpu": {
+          "cpu_request_cores": 2,
+          "cpu_limit_cores": 4,
+          "memory_request_mb": 2048,
+          "memory_limit_mb": 4096,
+          "timeout_sec": 3600,
+          "startup_timeout_sec": 120,
+          "scaledown_window_sec": 60
+        }
+      },
+      "candidate_egress": {
+        "prefetch_model_cache_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        }
+      },
+      "candidate_ingress": {
+        "prefetch_model_cache_remote": {
+          "ingress_cap_bytes": 122155995204
+        }
+      },
+      "baseline_gib": 59.930256,
+      "incremental_gib": 56.888,
+      "incremental_status": "CANDIDATE_ESTIMATE",
+      "incremental_reason": "The pinned revision is ALREADY materialised on the measured volume (23/23 files, byte-exact, 61077997602 B), so in the measured state this prefetch writes only the manifest and the symlink layer. The candidate keeps the COLD-CACHE worst case - the full pinned cache - because the prefetch function is not implemented yet and its behaviour on an already materialised cache is not verified. The resulting footprint therefore counts the pinned bytes twice: it is an upper bound of the cycle, not a prediction of it.",
+      "t_exec_sec": 3600,
+      "t_post_exec_to_publication_sec": 86400,
+      "proposed_ceiling_usd": 5
+    },
+    {
+      "step_id": "R3",
+      "description": "CPU plumbing smoke - exactly 1 sandbox-CPU invocation",
+      "invocations": {
+        "sandbox_cpu": 1
+      },
+      "concurrency_caps": {
+        "sandbox_cpu": 1
+      },
+      "egress_functions": {
+        "sandbox_cpu": [
+          "verify_exploit_remote"
+        ]
+      },
+      "candidate_bounds": {
+        "sandbox_cpu": {
+          "cpu_request_cores": 2,
+          "cpu_limit_cores": 4,
+          "memory_request_mb": 2048,
+          "memory_limit_mb": 4096,
+          "timeout_sec": 60,
+          "startup_timeout_sec": 120,
+          "scaledown_window_sec": 60
+        }
+      },
+      "candidate_egress": {
+        "verify_exploit_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        }
+      },
+      "baseline_gib": 116.818256,
+      "incremental_gib": 0,
+      "incremental_status": "NO_INCREMENT",
+      "incremental_reason": "The CPU plumbing smoke writes nothing to the volume: the increment of this stage is zero by construction, not an estimate.",
+      "t_exec_sec": 1200,
+      "t_post_exec_to_publication_sec": 86400,
+      "proposed_ceiling_usd": 0.1
+    },
+    {
+      "step_id": "R3b",
+      "description": "inference-plumbing smoke - worst case 4 invocations, refinement switched off",
+      "invocations": {
+        "gpu": 1,
+        "sandbox_cpu": 2,
+        "persistence": 1
+      },
+      "concurrency_caps": {
+        "gpu": 1,
+        "sandbox_cpu": 1,
+        "persistence": 1
+      },
+      "egress_functions": {
+        "gpu": [
+          "ProductionAuditAgent.generate_solidity_exploit"
+        ],
+        "sandbox_cpu": [
+          "verify_exploit_remote",
+          "verify_replay_remote"
+        ],
+        "persistence": [
+          "record_trajectory_remote"
+        ]
+      },
+      "candidate_bounds": {
+        "gpu": {
+          "cpu_request_cores": 4,
+          "cpu_limit_cores": 8,
+          "memory_request_mb": 16384,
+          "memory_limit_mb": 32768,
+          "timeout_sec": 120,
+          "startup_timeout_sec": 120,
+          "scaledown_window_sec": 60
+        },
+        "sandbox_cpu": {
+          "cpu_request_cores": 2,
+          "cpu_limit_cores": 4,
+          "memory_request_mb": 2048,
+          "memory_limit_mb": 4096,
+          "timeout_sec": 60,
+          "startup_timeout_sec": 120,
+          "scaledown_window_sec": 60
+        },
+        "persistence": {
+          "cpu_request_cores": 0.5,
+          "cpu_limit_cores": 1,
+          "memory_request_mb": 512,
+          "memory_limit_mb": 1024,
+          "timeout_sec": 60,
+          "startup_timeout_sec": 120,
+          "scaledown_window_sec": 60
+        }
+      },
+      "candidate_egress": {
+        "ProductionAuditAgent.generate_solidity_exploit": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "verify_exploit_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "verify_replay_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "record_trajectory_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        }
+      },
+      "baseline_gib": 116.818256,
+      "incremental_gib": 0.001,
+      "incremental_status": "CANDIDATE_ESTIMATE",
+      "incremental_reason": "A candidate estimate of the evidence, log and temporary bytes of one inference smoke; the published run's tracked artifacts tree measured 0.004689 GiB, so the order of magnitude is anchored, the value itself is not measured.",
+      "t_exec_sec": 1200,
+      "t_post_exec_to_publication_sec": 86400,
+      "proposed_ceiling_usd": 0.75
+    },
+    {
+      "step_id": "R4",
+      "description": "the 16-target run - worst case 96 invocations (32 GPU + 48 sandbox-CPU + 16 persistence)",
+      "invocations": {
+        "gpu": 32,
+        "sandbox_cpu": 48,
+        "persistence": 16
+      },
+      "concurrency_caps": {
+        "gpu": 32,
+        "sandbox_cpu": 48,
+        "persistence": 16
+      },
+      "egress_functions": {
+        "gpu": [
+          "ProductionAuditAgent.generate_solidity_exploit",
+          "ProductionAuditAgent.refine_solidity_exploit"
+        ],
+        "sandbox_cpu": [
+          "verify_exploit_remote",
+          "verify_replay_remote"
+        ],
+        "persistence": [
+          "record_trajectory_remote"
+        ]
+      },
+      "candidate_bounds": {
+        "gpu": {
+          "cpu_request_cores": 4,
+          "cpu_limit_cores": 8,
+          "memory_request_mb": 16384,
+          "memory_limit_mb": 32768,
+          "timeout_sec": 120,
+          "startup_timeout_sec": 120,
+          "scaledown_window_sec": 60
+        },
+        "sandbox_cpu": {
+          "cpu_request_cores": 2,
+          "cpu_limit_cores": 4,
+          "memory_request_mb": 2048,
+          "memory_limit_mb": 4096,
+          "timeout_sec": 60,
+          "startup_timeout_sec": 120,
+          "scaledown_window_sec": 60
+        },
+        "persistence": {
+          "cpu_request_cores": 0.5,
+          "cpu_limit_cores": 1,
+          "memory_request_mb": 512,
+          "memory_limit_mb": 1024,
+          "timeout_sec": 60,
+          "startup_timeout_sec": 120,
+          "scaledown_window_sec": 60
+        }
+      },
+      "candidate_egress": {
+        "ProductionAuditAgent.generate_solidity_exploit": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "ProductionAuditAgent.refine_solidity_exploit": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "verify_exploit_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "verify_replay_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        },
+        "record_trajectory_remote": {
+          "payload_cap_bytes": 0,
+          "protocol_allowance_bytes": 1048576
+        }
+      },
+      "baseline_gib": 116.819256,
+      "incremental_gib": 0.02,
+      "incremental_status": "CANDIDATE_ESTIMATE",
+      "incremental_reason": "A candidate estimate of the evidence, log and temporary bytes of the 16-target run; the published run's tracked artifacts tree measured 0.004689 GiB, so the order of magnitude is anchored, the value itself is not measured.",
+      "t_exec_sec": 14400,
+      "t_post_exec_to_publication_sec": 86400,
+      "proposed_ceiling_usd": 13.5
+    }
+  ]
+}

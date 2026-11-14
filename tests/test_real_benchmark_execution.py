@@ -3332,3 +3332,31 @@ def test_modal_billing_reconciliation_integrity():
     )
     assert is_valid is False
     assert "references unknown line item" in err
+
+
+def test_baseline5_api_hypothesis_builder_uses_canonical_manager():
+    """The API-backed Baseline 5 branch uses the real hypothesis manager API."""
+    from benchmarks.adapters import build_api_hypothesis
+    from core.schemas import TargetProgram
+
+    target = TargetProgram(
+        name="AccessControlVault",
+        source_code="contract AccessControlVault { function setOwner(address) external {} }",
+        invariants=["Only the current owner may change ownership"],
+        slither_findings=[{
+            "check": "unprotected-setowner",
+            "impact": "High",
+            "description": "Access control is missing from setOwner",
+            "function": "setOwner",
+        }],
+    )
+    converted = build_api_hypothesis(target)
+    assert converted.vulnerability_type == "AccessControl"
+    assert "setOwner" in converted.affected_functions
+
+    # No Slither findings is a valid input: the model still receives a generic,
+    # invariant-focused analysis hypothesis rather than crashing or skipping.
+    target.slither_findings = []
+    fallback = build_api_hypothesis(target)
+    assert fallback.vulnerability_type == "SecurityAudit"
+    assert "invariants" in fallback.reasoning_trace
