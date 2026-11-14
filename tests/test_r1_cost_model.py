@@ -82,19 +82,20 @@ def test_the_storage_baseline_is_the_measured_one_and_is_labelled_as_measured():
     storage = result["aggregate"]["storage"]
     assert storage["baseline_status"] == "MEASURED"
     assert storage["incremental_status"] == "CANDIDATE_ESTIMATE"
-    assert storage["capacity_proof"] == "AVAILABLE"
-    assert storage["capacity_proof_reasons"] == []
+    assert storage["capacity_proof"] == "UNAVAILABLE"
+    assert storage["capacity_proof_reasons"]
+    assert len(storage["capacity_proof_missing_evidence"]) == 3
     # The cost of the storage is still USD 0 - the footprint stays inside the
     # allowance - and the proof that the cycle fits the account is now claimed.
     assert storage["storage_usd"] == 0.0
-    assert result["aggregate"]["storage_capacity_proof"] == "AVAILABLE"
-    assert result["aggregate"]["storage_capacity_proof_missing_evidence"] == []
+    assert result["aggregate"]["storage_capacity_proof"] == "UNAVAILABLE"
+    assert len(result["aggregate"]["storage_capacity_proof_missing_evidence"]) == 3
     assert result["aggregate"]["storage_baseline_status"] == "MEASURED"
     assert result["aggregate"]["storage_incremental_status"] == "CANDIDATE_ESTIMATE"
 
 
 def test_the_open_sub_items_of_the_capacity_proof_are_explicitly_enumerated():
-    """The proof is available; its open sub-items are listed next to it."""
+    """Open sub-items keep the capacity proof unavailable and are enumerated."""
     scenario = _scenario()
     residuals = scenario["storage_baseline"]["capacity_proof_residuals"]
     assert isinstance(residuals, list) and len(residuals) == 3
@@ -104,14 +105,15 @@ def test_the_open_sub_items_of_the_capacity_proof_are_explicitly_enumerated():
     assert "trajectory" in joined
     result = _run()
     assert result["aggregate"]["storage_capacity_proof_residuals"] == residuals
-    assert result["aggregate"]["storage"]["capacity_proof_missing_evidence"] == []
+    assert result["aggregate"]["storage"]["capacity_proof"] == "UNAVAILABLE"
+    assert result["aggregate"]["storage"]["capacity_proof_missing_evidence"] == residuals
 
 
 def test_the_scenario_separates_the_measured_baseline_from_the_candidates():
     scenario = _scenario()
     baseline = scenario["storage_baseline"]
     assert baseline["status"] == "MEASURED"
-    assert baseline["capacity_proof"] == "AVAILABLE"
+    assert baseline["capacity_proof"] == "UNAVAILABLE"
     # The volume baseline is the byte-exact measurement of 2026-11-14 ...
     assert baseline["measured_bytes"] == 64349622024
     assert baseline["measured_gib"] == pytest.approx(59.930256)
