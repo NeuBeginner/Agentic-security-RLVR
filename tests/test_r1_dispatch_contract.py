@@ -1387,9 +1387,18 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
 
 
 
-@pytest.mark.parametrize("filename", ["r1_rate_card.json", "r1_cost_scenario.json"])
-def test_signed_envelope_binds_cost_scenario_and_rate_card_bytes(filename, signed_approval, monkeypatch):
-    """A rate-card or scenario edit invalidates the signature even if Python objects stay unchanged."""
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "r1_rate_card.json",
+        "r1_cost_scenario.json",
+        "r1_readonly_evidence_20261114.json",
+    ],
+)
+def test_signed_envelope_binds_cost_scenario_rate_card_and_readonly_evidence_bytes(
+    filename, signed_approval, monkeypatch
+):
+    """Any approved cost or measured-evidence input edit invalidates the signature."""
     policy = _policy()
     world = _approved_world()
     gate = r1_dispatch.DispatchGate(policy=policy, **world)
