@@ -46,12 +46,12 @@ allowance would be billed and flagged. The allowance is an **account-level month
 allowance, so it belongs to the account and not to a stage — pricing it per stage
 would credit the same free gigabytes four times.
 
-**The footprint of §4 is a candidate estimate, and the capacity proof is unavailable.**
-R1 performed **no Volume operation**, so the existing baseline of this workspace's
-remote Volume is **not measured** by this evidence: the `0.0 GiB` baseline of the
-scenario is an **assumption**. The cost assumption of USD 0 is kept; the proof that
-the cycle fits the account is **not** claimed and stays unavailable until a read-only
-baseline measurement or a defensible conservative bound exists.
+**The baseline of §4 is measured; the capacity proof is available, with open sub-items.**
+The read-only inventory of 2026-11-14 measured the existing baseline of this
+workspace's remote Volume: **64 349 622 024 bytes = 59.930256 GiB**. The cost
+assumption of USD 0 is kept, and the proof that the cycle fits the account now
+**rests on that measurement** — the estimator verifies the scenario against the
+evidence file it cites and refuses a baseline that is not the measured one.
 
 ## 2. The candidate bounds
 
@@ -144,52 +144,63 @@ the estimator reports the state of each one in every run:
 
 | quantity | state | value |
 |---|---|---|
-| the **baseline** of the remote Volume | **UNKNOWN** — R1 performed no Volume operation (it is prohibited in this task), so the existing baseline of this workspace is not measured by this evidence. The `0.0 GiB` of the scenario is an **assumption** | 0.0 GiB (assumed) |
+| the **baseline** of the remote Volume | **MEASURED** — the read-only inventory of 2026-11-14: two independent listings (one recursive, one breadth-first) agree byte-for-byte, 247 entries. Evidence: `benchmarks/evidence/r1_readonly_evidence_20261114.json` and `docs/r1_readonly_evidence_report_20261114.md`, §1 | 64 349 622 024 bytes = 59.930256 GiB |
 | the **measured local bytes** | **measured** — the tracked artifacts tree of this repository (159 files) on 2026-11-12, `git cat-file -s` | 5 034 779 bytes = 0.004689 GiB |
 | the **increment of a future run** | **CANDIDATE ESTIMATE** — the artefacts a future run would write; the published run's tracked artifacts (0.004689 GiB) anchor the order of magnitude, the values are not measured | 56.888 GiB (model cache) + 0.001 GiB (R3b) + 0.02 GiB (R4) |
 
-The arithmetic below therefore rests on the **assumption** of an empty baseline. The
-*cost* of the storage is USD 0.00 (inside the allowance), and the **capacity proof**
-— that the cycle fits this account — is **UNAVAILABLE** until a read-only baseline
-measurement or a defensible conservative bound exists. The estimator says so in
-`storage_capacity_proof`, `storage_capacity_proof_reasons` and
-`storage_capacity_proof_missing_evidence`; it does not present the
-footprint as a measured value. Because R1 prohibits Volume operations and live provider
-read-back, closing the `< 1 TiB/month` (`1 024 GiB/month`) capacity proof requires four
-specific evidence artefacts outside R1:
+The arithmetic below therefore rests on a **measured** baseline, and every step starts
+from the footprint the previous step left behind — a step that declares a different
+baseline fails closed. The *cost* of the storage is USD 0.00 (inside the allowance),
+and the **capacity proof** — that the cycle fits this account — is **AVAILABLE**: the
+workspace holds exactly **one** Volume, so the measured total *is* the account-wide
+footprint, and against the published `< 1 TiB/month` (`1 024 GiB/month`) allowance the
+account uses 5.85 % with 964.07 GiB of headroom; the billing summary of the same
+month corroborates it (volumes metered 1.98 USD, fully covered by the free storage
+allowance, billed 0.00 USD). The estimator says so in `storage_capacity_proof`,
+`storage_capacity_proof_reasons` and `storage_capacity_proof_residuals`; it does not
+present the footprint as a measurement.
 
-1. **Pre-R2p baseline of `aegis-model-cache`:** read-only provider byte inventory of
-   Volume `aegis-model-cache` before R2p starts (`baseline_gib`, currently assumed `0.0 GiB`).
-2. **Account-wide concurrent Modal Volume inventory / bound:** read-only inventory of
-   all other Volumes in the Modal workspace over the same billing month (or an operator
-   attestation bounding concurrent non-workflow Volume usage), since the `1 TiB/month`
-   free allowance is applied at the account level.
-3. **Post-R2p model-cache manifest and Volume byte read-back:** confirmation that the
+**The open sub-items of the proof** — they do not make it unavailable, and they are
+reported next to it in every run:
+
+1. **The account-wide concurrent storage peak has no API gauge.** The measured total
+   is an instantaneous inventory; the monthly billing confirms that the account stays
+   inside the allowance. An explicit operator attestation may substitute for this
+   sub-item.
+2. **Post-R2p model-cache manifest and Volume byte read-back:** confirmation that the
    materialised revision `655425b794ae4a19f2ea16fa480c6b39102721ee` of
    `qtum/Qwen3-Coder-30B-A3B-Audit` on `aegis-model-cache` equals the pinned
    `61 077 997 602 bytes` (`56.888 GiB`) with no leftover staging files.
-4. **Post-R3b/R4 trajectory footprint and post-retention deletion verification:**
+3. **Post-R3b/R4 trajectory footprint and post-retention deletion verification:**
    confirmation that incremental trajectory bytes stay within the `0.021 GiB` candidate
    bound and are deleted after the 30-day retention window.
 
-* The volume's baseline at the start of the cycle is **assumed** 0 GiB; R2p writes the
-  model cache (**56.888 GiB** = 61 077 997 602 bytes); the trajectories add a
-  **candidate** 0.021 GiB across the cycle. The cycle's **candidate peak footprint is
-  therefore 56.908 GiB** and its candidate time-weighted footprint is **56.906 GiB**.
+* The volume's baseline at the start of the cycle is **measured**: 59.930256 GiB; R2p
+  writes the model cache (**56.888 GiB** = 61 077 997 602 bytes) as the conservative
+  **cold-cache worst case**; the trajectories add a **candidate** 0.021 GiB across the
+  cycle. The cycle's **candidate peak footprint is therefore 116.839 GiB** and its
+  candidate time-weighted footprint is **116.837 GiB**.
+
+  The pinned bytes are counted **twice** here, on purpose: the measured baseline
+  already contains the pinned revision (23/23 files, byte-exact), so in the measured
+  state the prefetch would write only the manifest. The cold-cache worst case is kept
+  because the prefetch function is not implemented yet and its behaviour on an
+  already materialised cache is not verified. The peak is an **upper bound** of the
+  cycle, not a prediction of it.
 * The cycle's storage window is the **sum**: `T_exec` (20 400 s over the four
   stages) + the post-execution interval before the publication (86 400 s) + the
   retention (2 592 000 s = 30 days) = **34.236 days** → `months = 1 + ceil(34.236/28)
   = **3**` calendar months.
 * The **footprint quantity** over that window is `Σ footprint × Δt / 28 days` =
-  **69.58 GiB-month**; the free allowance is `1 024 GiB/month × 1.2227 month units`
+  **142.86 GiB-month**; the free allowance is `1 024 GiB/month × 1.2227 month units`
   = **1 252.06 GiB-month**.
-* The **billable** part is therefore `max(0, 69.58 − 1 252.06)` = **0.00 GiB-month**
+* The **billable** part is therefore `max(0, 142.86 − 1 252.06)` = **0.00 GiB-month**
   and the storage of the whole cycle costs **$0.0000**.
 
 The bytes are priced **once**, over the cycle's window, and the allowance is offset
 once. Pricing them in every stage's own window — the plan's per-stage formula applied
-literally — would charge the same standing bytes four times: $61.4447 instead of
-$15.3654. That is an over-count of the same bytes, not additional spend, and it is
+literally — would charge the same standing bytes four times: $115.6597 instead of
+$31.5465. That is an over-count of the same bytes, not additional spend, and it is
 why the per-stage ceilings above are built on the stages' *worst-case* terms, which
 carry the **allocated** storage share.
 
@@ -199,7 +210,8 @@ The footprint is reported in every run, not only its cost: `peak_footprint_gib`,
 `within_free_allowance`. A cycle that exceeds the allowance is billed for the excess
 and its verdict becomes `BUDGET_INFEASIBLE` — the model never hides the excess. The
 **state** of the footprint is reported next to it: `baseline_status`,
-`incremental_status`, `capacity_proof` and `capacity_proof_reasons`.
+`incremental_status`, `capacity_proof`, `capacity_proof_reasons` and
+`capacity_proof_residuals`.
 
 ## 5. The worst-case aggregate
 
@@ -211,8 +223,9 @@ The model has one answer, and it is the answer of the *actual charge*:
 
 * **verdict: `WITHIN_BUDGET`**
 * **status: `PROVISIONAL_ONLY / NOT_DISPATCHABLE`**
-* **storage capacity proof: `UNAVAILABLE`** (the baseline of the remote Volume is not
-  measured by this evidence — see §4)
+* **storage capacity proof: `AVAILABLE`** (the baseline of the remote Volume is
+  measured and verified against its evidence file — see §4; three sub-items of the
+  proof stay open and are reported next to it)
 
 The status is `PROVISIONAL_ONLY / NOT_DISPATCHABLE` in every run: the rate card is not
 approved, the bounds of §2 are candidates and not declarations, and no stage has an
@@ -221,10 +234,13 @@ the arithmetic of the candidate bounds. A cycle that does not fit the cap is rep
 as exactly **`BUDGET_INFEASIBLE`**, never as a number with a caveat.
 
 For reference only — **not** the model of this proposal — the gross treatment that
-ignores the published allowance would give `56.909 GiB × 3 months × $0.09/GiB·mo` =
-$15.3654 of storage and a total of **$29.0147**. The difference is entirely the
-storage term; the compute, the egress and the ingress — the terms that actually scale
-with the run — are $13.65 in both treatments. R1 does **not** weaken any control to
+ignores the published allowance would give `116.839 GiB × 3 months × $0.09/GiB·mo` =
+$31.5465 of storage and a total of **$45.1958**. Pricing the same standing bytes in
+every stage's own window instead of once over the cycle charges them four times over
+— $115.6597 with the same month treatment per stage (2 months for R2p/R3/R3b/R4,
+3 months for the 30-day retention). The difference is entirely the storage term; the
+compute, the egress and the ingress — the terms that actually scale with the run —
+are $13.65 in both treatments. R1 does **not** weaken any control to
 make the number fit: the controls (the explicit limits, the container-count bound, the
 byte cap, the ingress and egress caps, the ceilings) are proposed as they are.
 
@@ -281,17 +297,20 @@ what a worst case is for.
    compatibility of a volume mount with `block_network=True` is not documented by
    Modal and has to be confirmed before R3b/R4 are dispatched; the alternative — a
    conservative non-zero cap — is priced in §5 and is `BUDGET_INFEASIBLE`.
-5. **The capacity preflight of the storage.** The cost assumption of USD 0 is kept,
-   but the proof that the cycle fits this account needs the volume's existing
-   baseline: R1 performed no Volume operation, so the baseline is **UNKNOWN** and the
-   capacity proof is **UNAVAILABLE**. It needs either a read-only baseline
-   measurement or a defensible conservative bound.
+5. **The capacity preflight of the storage.** The cost assumption of USD 0 is kept, and
+   the proof that the cycle fits this account now rests on the **measured** baseline
+   (64 349 622 024 B = 59.930256 GiB, read-only inventory of 2026-11-14, verified by
+   the estimator against the evidence file it cites). The proof is **AVAILABLE**; what
+   is still open is its three sub-items: the account-wide concurrent peak gauge (no
+   API), the post-R2p manifest and footprint read-back, and the post-R3b/R4 trajectory
+   measurement. They are reported next to the proof in every run.
 
 The **storage treatment is settled**: the provider's published 1 TiB/month allowance
 is applied once to the cycle's footprint, so the storage of the run costs USD 0 while
-the footprint stays inside it. The footprint is a **candidate estimate** and is
-reported as such (`baseline_status`, `incremental_status`, `capacity_proof`) in every
-run, and an excess above the allowance is billed and flagged.
+the footprint stays inside it. The footprint is computed from a **measured** baseline
+and reported with its state (`baseline_status`, `incremental_status`,
+`capacity_proof`, `capacity_proof_residuals`) in every run, and an excess above the
+allowance is billed and flagged.
 
 Until 1–5 are approved, the declared state stays fail-closed: the estimate is
 unavailable and no step is dispatchable.

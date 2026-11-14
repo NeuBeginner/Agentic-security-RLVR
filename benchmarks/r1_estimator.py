@@ -50,7 +50,8 @@ import json
 import math
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.r1_bounds import (
     Bound,
@@ -74,15 +75,23 @@ DEFAULT_RETENTION_SEC = 30 * SECONDS_PER_DAY
 
 GIB = 1024.0 ** 3
 
+#: The root of the repository - the evidence files are cited relative to it.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 #: The status of every estimate of this repository until the maintainer approves
 #: the bounds, the rate card and the stages.
 PROVISIONAL_STATUS = "PROVISIONAL_ONLY / NOT_DISPATCHABLE"
 
-#: The exact evidence items that cannot be obtained in R1 (where Volume and live
-#: provider operations are prohibited) and are required to close the 1 TiB/month
-#: account-level storage capacity proof.
+#: The tolerance of the carry-forward check of the volume baseline. The baseline of
+#: a step is the footprint the previous step left behind; a declared baseline that
+#: differs by more than this is a contradiction of the timeline, not a rounding.
+BASELINE_TOLERANCE_GIB = 1e-9
+
+#: The exact evidence items that a scenario without a **measured** baseline still
+#: needs before the 1 TiB/month account-level storage capacity proof can be closed.
+#: A scenario that carries a measured baseline declares its own list instead.
 DEFAULT_CAPACITY_PROOF_MISSING_EVIDENCE: Sequence[str] = (
-    "1. Read-only provider inventory of existing bytes on Volume 'aegis-model-cache' before R2p starts (baseline_gib, currently assumed 0.0 GiB because R1 prohibits Volume operations).",
+    "1. Read-only provider inventory of the existing bytes on the Volume of this workspace before the cycle starts (the volume baseline of the scenario).",
     "2. Read-only workspace-wide inventory of all other Modal Volumes in the account over the same billing month, or an operator attestation bounding concurrent non-workflow Volume usage (since the 1 TiB/month = 1024 GiB/month free tier is an account-level monthly allowance, not per-Volume).",
     "3. Post-R2p read-back of the written model-cache manifest and Volume byte footprint confirming that the materialised revision 655425b794ae4a19f2ea16fa480c6b39102721ee of qtum/Qwen3-Coder-30B-A3B-Audit equals the pinned 61077997602 bytes (56.888 GiB) with no residual staging/temp files.",
     "4. Post-R3b/R4 trajectory byte measurement and post-retention deletion verification confirming that incremental trajectory storage stays within the 0.021 GiB candidate bound and is purged at the end of the 30-day retention window.",
@@ -187,6 +196,17 @@ class StepInputs:
     #: baseline of the remote Volume is **not** measured by this evidence.
     baseline_status: str = "UNKNOWN"
     baseline_reason: str = ""
+    #: The footprint that is carried over into this step: the footprint the previous
+    #: step left behind, or - for the first step - the measured standing baseline of
+    #: the Volume. A declared baseline that does not match it is a contradiction of
+    #: the timeline and makes the step **unavailable**.
+    expected_baseline_gib: Optional[float] = None
+    #: Why the carry-forward could not be established at all (an unavailable previous
+    #: step). Empty when it could.
+    baseline_carry_reason: str = ""
+    #: Why the measured baseline could not be verified against its evidence file.
+    #: Empty when it could.
+    baseline_evidence_reason: str = ""
     #: How the volume increment of this step was established.
     incremental_status: str = "CANDIDATE_ESTIMATE"
     incremental_reason: str = ""
@@ -389,6 +409,25 @@ def estimate_step(
         reasons.append("the wall-clock budget of the step is not declared")
     if is_unset(step.t_post_exec_to_publication_sec):
         reasons.append("the post-execution deadline before the publication is not declared")
+    # The baseline of a step is the footprint the previous step left behind. A
+    # declared baseline that contradicts the timeline is not a rounding: it is a
+    # scenario that counts bytes twice or drops them, and it fails closed.
+    if step.baseline_carry_reason:
+        reasons.append(step.baseline_carry_reason)
+    if step.baseline_evidence_reason:
+        reasons.append(step.baseline_evidence_reason)
+    if (
+        not step.baseline_carry_reason
+        and step.expected_baseline_gib is not None
+        and not is_unset(step.baseline_gib)
+    ):
+        declared = float(step.baseline_gib)
+        expected = float(step.expected_baseline_gib)
+        if abs(declared - expected) > BASELINE_TOLERANCE_GIB:
+            reasons.append(
+                f"the declared volume baseline ({declared:.6f} GiB) does not match the "
+                f"footprint carried over into this step ({expected:.6f} GiB)"
+            )
 
     if not reasons and rate_card is not None:
         t_store = float(step.t_exec_sec) + float(step.t_post_exec_to_publication_sec)  # type: ignore[arg-type]
@@ -512,12 +551,18 @@ def storage_account(
     rate_card: Optional[RateCard],
     t_retention_sec: float = DEFAULT_RETENTION_SEC,
     missing_evidence: Optional[Sequence[str]] = None,
+    residuals: Optional[Sequence[str]] = None,
+    baseline_evidence: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Price the storage of the cycle **once**, on its footprint.
 
     The provider's allowance is an account-level monthly allowance, so it is applied
     once to the cycle: inside the allowance the storage costs USD 0, and only the
     excess above the allowance is billed.
+
+    ``residuals`` are the sub-items of the capacity proof that are still open - the
+    proof itself is the sum of its parts, so a residual does not make the proof
+    unavailable, it is reported next to it.
     """
     total_seconds = sum(float(segment["duration_sec"]) for segment in segments)
     weighted_gib_seconds = sum(
@@ -545,10 +590,10 @@ def storage_account(
     # The **capacity proof** is a separate question from the cost of the storage.
     # The cost of the cycle is USD 0 while the footprint stays inside the
     # provider's allowance - but that arithmetic rests on the baseline of the
-    # remote Volume, and R1 performed no Volume operation: the baseline is not
-    # measured by this evidence. The proof that the cycle fits the account is
-    # therefore UNAVAILABLE until a read-only baseline measurement or a
-    # defensible conservative bound exists.
+    # remote Volume. The proof that the cycle fits the account therefore needs a
+    # **measured** baseline: the read-only inventory of 2026-11-14 measured it
+    # (64 349 622 024 B = 59.930256 GiB), and a scenario that does not carry such a
+    # measurement keeps the proof UNAVAILABLE.
     baseline_statuses = sorted({str(segment.get("baseline_status", "UNKNOWN")) for segment in segments})
     capacity_reasons: List[str] = []
     for segment in segments:
@@ -557,6 +602,13 @@ def storage_account(
             if reason and reason not in capacity_reasons:
                 capacity_reasons.append(reason)
     capacity_proof = "AVAILABLE" if segments and not capacity_reasons else "UNAVAILABLE"
+    if capacity_proof == "AVAILABLE" and billable_gib_months > 0.0:
+        # A footprint above the allowance is not a proof that the cycle fits.
+        capacity_proof = "UNAVAILABLE"
+        capacity_reasons.append(
+            f"the cycle's footprint ({gib_months:.2f} GiB-month) exceeds the free "
+            f"allowance ({allowance_gib_months:.2f} GiB-month)"
+        )
     incremental_statuses = sorted(
         {str(segment.get("incremental_status", "CANDIDATE_ESTIMATE")) for segment in segments}
     )
@@ -565,7 +617,7 @@ def storage_account(
     else:
         missing_items = list(
             missing_evidence
-            if missing_evidence is not None
+            if missing_evidence
             else DEFAULT_CAPACITY_PROOF_MISSING_EVIDENCE
         )
 
@@ -586,12 +638,92 @@ def storage_account(
         "allowance_source": STORAGE_FREE_ALLOWANCE_SOURCE,
         "baseline_status": baseline_statuses[0] if baseline_statuses else "UNKNOWN",
         "baseline_statuses": baseline_statuses,
+        "baseline_evidence": dict(baseline_evidence or {}),
         "incremental_status": incremental_statuses[0] if incremental_statuses else "UNKNOWN",
         "incremental_statuses": incremental_statuses,
         "capacity_proof": capacity_proof,
         "capacity_proof_reasons": capacity_reasons,
         "capacity_proof_missing_evidence": missing_items,
+        "capacity_proof_residuals": list(residuals or []),
     }
+
+
+def _resolve_pointer(data: Any, pointer: str) -> Any:
+    """Walk a dotted path into a JSON document (``a.b.c``)."""
+    current = data
+    for part in str(pointer).split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def verify_measured_baseline(
+    scenario: Dict[str, Any], storage_baseline: Dict[str, Any]
+) -> Tuple[bool, str]:
+    """Check the measured baseline of the cycle against the evidence it cites.
+
+    The baseline of the cycle is a **measurement**, so it is verified against the
+    read-only inventory it cites: the byte total and the GiB total of the scenario
+    have to be the ones of the evidence file, and the starting footprint of the
+    cycle has to be that same measurement.
+
+    A scenario that declares a baseline which is not the measured one - a zero
+    placeholder, a stale number, a value without an evidence file - fails closed
+    here instead of being estimated from a placeholder. The check is a static one:
+    it reads a file of this repository and contacts nothing.
+    """
+    if str(storage_baseline.get("status", "UNKNOWN")) != "MEASURED":
+        # An unmeasured baseline is not a contradiction: the estimate stays
+        # available and the capacity proof stays unavailable.
+        return True, ""
+
+    declared_bytes = storage_baseline.get("measured_bytes")
+    declared_gib = storage_baseline.get("measured_gib")
+    if not isinstance(declared_bytes, int) or isinstance(declared_bytes, bool):
+        return False, "the measured baseline declares no byte total"
+    if not isinstance(declared_gib, (int, float)) or isinstance(declared_gib, bool):
+        return False, "the measured baseline declares no GiB total"
+
+    evidence_file = str(storage_baseline.get("evidence_file", "") or "")
+    pointer = str(storage_baseline.get("evidence_totals_path", "") or "")
+    if not evidence_file or not pointer:
+        return False, "the measured baseline cites no evidence file"
+    path = REPO_ROOT / evidence_file
+    if not path.is_file():
+        return False, f"the evidence file of the measured baseline is missing: {evidence_file}"
+    try:
+        evidence = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return False, f"the evidence file of the measured baseline is unreadable: {exc}"
+    totals = _resolve_pointer(evidence, pointer)
+    if not isinstance(totals, dict):
+        return False, f"the evidence file does not carry the declared totals: {pointer}"
+
+    evidence_bytes = totals.get("total_bytes")
+    evidence_gib = totals.get("total_gib")
+    if evidence_bytes != declared_bytes:
+        return False, (
+            f"the measured baseline ({declared_bytes} bytes) does not match its "
+            f"evidence file ({evidence_bytes} bytes)"
+        )
+    if not isinstance(evidence_gib, (int, float)) or abs(
+        float(evidence_gib) - float(declared_gib)
+    ) > 1e-6:
+        return False, (
+            f"the measured baseline ({declared_gib} GiB) does not match its "
+            f"evidence file ({evidence_gib} GiB)"
+        )
+
+    standing = scenario.get("baseline_gib")
+    if not isinstance(standing, (int, float)) or isinstance(standing, bool):
+        return False, "the cycle declares no starting footprint"
+    if abs(float(standing) - float(declared_gib)) > BASELINE_TOLERANCE_GIB:
+        return False, (
+            f"the starting footprint of the cycle ({float(standing):.6f} GiB) does "
+            f"not match the measured baseline ({float(declared_gib):.6f} GiB)"
+        )
+    return True, ""
 
 
 def aggregate_cycle(
@@ -600,6 +732,8 @@ def aggregate_cycle(
     t_retention_sec: float = DEFAULT_RETENTION_SEC,
     cycle_cap_usd: float = 20.0,
     missing_evidence: Optional[Sequence[str]] = None,
+    residuals: Optional[Sequence[str]] = None,
+    baseline_evidence: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """The worst case of the whole cycle, in one accounting model.
 
@@ -624,6 +758,8 @@ def aggregate_cycle(
         rate_card,
         t_retention_sec=t_retention_sec,
         missing_evidence=missing_evidence,
+        residuals=residuals,
+        baseline_evidence=baseline_evidence,
     )
     storage_usd = float(storage["storage_usd"])
 
@@ -679,7 +815,9 @@ def aggregate_cycle(
         "storage_capacity_proof": storage["capacity_proof"],
         "storage_capacity_proof_reasons": storage["capacity_proof_reasons"],
         "storage_capacity_proof_missing_evidence": storage["capacity_proof_missing_evidence"],
+        "storage_capacity_proof_residuals": storage["capacity_proof_residuals"],
         "storage_baseline_status": storage["baseline_status"],
+        "storage_baseline_evidence": storage["baseline_evidence"],
         "storage_incremental_status": storage["incremental_status"],
         "steps": steps,
         "total_usd": total,
@@ -712,6 +850,20 @@ def run_scenario(
     ingress_policies: Dict[str, Any] = {}
     storage_baseline = scenario.get("storage_baseline", {})
 
+    # The standing baseline of the Volume: the footprint the cycle starts from. It
+    # is the **measured** one - the read-only inventory of 2026-11-14 - and never a
+    # zero placeholder. Every step starts from the footprint the previous step left
+    # behind, and a step that declares a different baseline fails closed.
+    standing_baseline = float(scenario.get("baseline_gib", 0.0))
+    carried: Optional[float] = standing_baseline
+    carry_reason = ""
+
+    # The measured baseline is verified against the evidence file it cites before
+    # a single stage is estimated: a baseline that is not the measured one makes
+    # every stage unavailable.
+    baseline_ok, baseline_reason = verify_measured_baseline(scenario, storage_baseline)
+    baseline_evidence_reason = "" if baseline_ok else baseline_reason
+
     for step_data in scenario.get("steps", []):
         overrides_by_class = step_data.get("candidate_bounds", {})
         step_profiles: Dict[str, Any] = {}
@@ -732,11 +884,14 @@ def run_scenario(
             ingress_policies[function_name] = dataclasses.replace(policy, **overrides)
 
         ceiling = step_data.get("proposed_ceiling_usd")
+        declared_baseline = step_data.get("baseline_gib", carried)
+        if declared_baseline is None:
+            declared_baseline = standing_baseline
         step = StepInputs(
             step_id=step_data["step_id"],
             invocations={k: int(v) for k, v in step_data.get("invocations", {}).items()},
             concurrency_caps={k: int(v) for k, v in step_data.get("concurrency_caps", {}).items()},
-            baseline_gib=step_data.get("baseline_gib", scenario.get("baseline_gib", 0.0)),
+            baseline_gib=declared_baseline,
             incremental_gib=step_data.get("incremental_gib", 0.0),
             t_exec_sec=step_data.get("t_exec_sec"),
             t_post_exec_to_publication_sec=step_data.get("t_post_exec_to_publication_sec"),
@@ -762,24 +917,50 @@ def run_scenario(
                 step_data.get("incremental_status", "CANDIDATE_ESTIMATE")
             ),
             incremental_reason=str(step_data.get("incremental_reason", "")),
+            expected_baseline_gib=carried,
+            baseline_carry_reason=carry_reason,
+            baseline_evidence_reason=baseline_evidence_reason,
         )
-        estimates.append(
-            estimate_step(
-                step,
-                rate_card,
-                step_profiles or profiles,
-                egress_policies,
-                allow_unapproved_rate_card=allow_unapproved_rate_card,
-                ingress_policies=ingress_policies or None,
-            )
+        estimate = estimate_step(
+            step,
+            rate_card,
+            step_profiles or profiles,
+            egress_policies,
+            allow_unapproved_rate_card=allow_unapproved_rate_card,
+            ingress_policies=ingress_policies or None,
         )
+        estimates.append(estimate)
 
+        # The footprint this step leaves behind is the baseline of the next one.
+        volume = estimate.quantities.get("volume")
+        if estimate.available and volume:
+            carried = float(volume["volume_gib"])
+            carry_reason = ""
+        else:
+            carried = None
+            carry_reason = (
+                "the volume baseline of this step cannot be verified: the footprint "
+                "carried over from the previous step is unknown"
+            )
+
+    baseline_evidence = {
+        "status": str(storage_baseline.get("status", "UNKNOWN")),
+        "measured_bytes": storage_baseline.get("measured_bytes"),
+        "measured_gib": storage_baseline.get("measured_gib"),
+        "measured_at": storage_baseline.get("measured_at", ""),
+        "provenance": storage_baseline.get("provenance", ""),
+        "measured_by": storage_baseline.get("measured_by", ""),
+        "entries": storage_baseline.get("entries"),
+        "volume": storage_baseline.get("volume"),
+    }
     aggregate = aggregate_cycle(
         estimates,
         rate_card,
         t_retention_sec=float(scenario.get("t_retention_sec", DEFAULT_RETENTION_SEC)),
         cycle_cap_usd=float(scenario.get("cycle_cap_usd", 20.0)),
         missing_evidence=storage_baseline.get("capacity_proof_missing_evidence"),
+        residuals=storage_baseline.get("capacity_proof_residuals"),
+        baseline_evidence=baseline_evidence,
     )
     return {
         "status": PROVISIONAL_STATUS,
@@ -831,8 +1012,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"    {name:<28} ${value:.6f}")
     aggregate = result["aggregate"]
     storage = aggregate["storage"]
+    baseline = storage.get("baseline_evidence", {})
+    measured_gib = baseline.get("measured_gib")
+    baseline_text = (
+        f"baseline={float(measured_gib):.6f} GiB ({storage['baseline_status']}) "
+        if isinstance(measured_gib, (int, float))
+        else f"baseline={storage['baseline_status']} "
+    )
     print(
-        f"storage: peak={storage['peak_footprint_gib']:.3f} GiB "
+        f"storage: {baseline_text}"
+        f"peak={storage['peak_footprint_gib']:.3f} GiB "
         f"time_weighted={storage['time_weighted_footprint_gib']:.3f} GiB "
         f"footprint={storage['footprint_gib_months']:.2f} GiB-month "
         f"allowance={storage['free_allowance_gib_months']:.2f} GiB-month "
@@ -846,6 +1035,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     for reason in storage["capacity_proof_reasons"]:
         print(f"    ! {reason}")
+    residuals = storage["capacity_proof_residuals"]
+    if residuals:
+        print(f"storage residuals: {len(residuals)} open item(s)")
+        for residual in residuals:
+            print(f"    ~ {residual}")
     print(
         f"cycle  worst_case=${aggregate['total_usd']:.4f} cap=${aggregate['cycle_cap_usd']:.2f} "
         f"headroom=${aggregate['headroom_usd']:.4f} within_cap={aggregate['within_cap']}"

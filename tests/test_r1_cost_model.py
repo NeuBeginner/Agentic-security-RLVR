@@ -76,43 +76,46 @@ def test_the_storage_inside_the_free_allowance_costs_nothing():
     assert storage["footprint_gib_months"] > 0
 
 
-def test_the_storage_footprint_is_labelled_and_never_presented_as_measured():
-    """The baseline is not measured: the proof of the capacity is unavailable."""
+def test_the_storage_baseline_is_the_measured_one_and_is_labelled_as_measured():
+    """The baseline is measured: the proof of the capacity is available."""
     result = _run()
     storage = result["aggregate"]["storage"]
-    assert storage["baseline_status"] == "UNKNOWN"
+    assert storage["baseline_status"] == "MEASURED"
     assert storage["incremental_status"] == "CANDIDATE_ESTIMATE"
-    assert storage["capacity_proof"] == "UNAVAILABLE"
-    assert storage["capacity_proof_reasons"]
-    assert len(storage["capacity_proof_missing_evidence"]) == 4
-    # The cost assumption of USD 0 is kept, but the proof is not claimed.
+    assert storage["capacity_proof"] == "AVAILABLE"
+    assert storage["capacity_proof_reasons"] == []
+    # The cost of the storage is still USD 0 - the footprint stays inside the
+    # allowance - and the proof that the cycle fits the account is now claimed.
     assert storage["storage_usd"] == 0.0
-    assert result["aggregate"]["storage_capacity_proof"] == "UNAVAILABLE"
-    assert len(result["aggregate"]["storage_capacity_proof_missing_evidence"]) == 4
-    assert result["aggregate"]["storage_baseline_status"] == "UNKNOWN"
+    assert result["aggregate"]["storage_capacity_proof"] == "AVAILABLE"
+    assert result["aggregate"]["storage_capacity_proof_missing_evidence"] == []
+    assert result["aggregate"]["storage_baseline_status"] == "MEASURED"
     assert result["aggregate"]["storage_incremental_status"] == "CANDIDATE_ESTIMATE"
 
 
-def test_the_missing_storage_capacity_evidence_items_are_explicitly_enumerated():
-    """Without live provider read-back, the exact missing evidence items are listed."""
+def test_the_open_sub_items_of_the_capacity_proof_are_explicitly_enumerated():
+    """The proof is available; its open sub-items are listed next to it."""
     scenario = _scenario()
-    missing = scenario["storage_baseline"]["capacity_proof_missing_evidence"]
-    assert isinstance(missing, list) and len(missing) == 4
-    joined = " ".join(missing)
-    assert "aegis-model-cache" in joined
-    assert "1 TiB/month" in joined
-    assert "61077997602" in joined
-    assert "30-day retention" in joined
+    residuals = scenario["storage_baseline"]["capacity_proof_residuals"]
+    assert isinstance(residuals, list) and len(residuals) == 3
+    joined = " ".join(residuals)
+    assert "concurrent storage peak" in joined
+    assert "model-cache manifest" in joined
+    assert "trajectory" in joined
     result = _run()
-    assert result["aggregate"]["storage_capacity_proof_missing_evidence"] == missing
+    assert result["aggregate"]["storage_capacity_proof_residuals"] == residuals
+    assert result["aggregate"]["storage"]["capacity_proof_missing_evidence"] == []
 
 
-def test_the_scenario_separates_the_measured_local_bytes_from_the_candidates():
+def test_the_scenario_separates_the_measured_baseline_from_the_candidates():
     scenario = _scenario()
     baseline = scenario["storage_baseline"]
-    assert baseline["status"] == "UNKNOWN"
-    assert baseline["capacity_proof"] == "UNAVAILABLE"
-    # The measured local bytes are a measurement of this repository ...
+    assert baseline["status"] == "MEASURED"
+    assert baseline["capacity_proof"] == "AVAILABLE"
+    # The volume baseline is the byte-exact measurement of 2026-11-14 ...
+    assert baseline["measured_bytes"] == 64349622024
+    assert baseline["measured_gib"] == pytest.approx(59.930256)
+    # ... the measured local bytes are a separate measurement ...
     assert baseline["measured_local_repository_bytes"] > 0
     # ... and the future run's bytes are a candidate.
     assert baseline["candidate_future_run_gib"] > 0
@@ -122,13 +125,17 @@ def test_the_scenario_separates_the_measured_local_bytes_from_the_candidates():
         assert step.get("incremental_reason", "").strip()
 
 
-def test_the_footprint_of_the_cycle_is_the_model_cache_plus_the_trajectories():
+def test_the_footprint_of_the_cycle_starts_at_the_measured_baseline():
     result = _run()
     storage = result["aggregate"]["storage"]
-    # The pinned model is 56.888 GiB; the trajectories of the whole cycle add
-    # 0.021 GiB. The peak is the footprint at the end of the cycle.
-    assert storage["peak_footprint_gib"] == pytest.approx(56.909, abs=0.01)
-    assert storage["time_weighted_footprint_gib"] == pytest.approx(56.90, abs=0.05)
+    # The cycle starts from the MEASURED baseline of the Volume (59.930256 GiB),
+    # not from an assumed zero; the conservative prefetch worst case (the pinned
+    # cache) is added on top of it.
+    assert storage["peak_footprint_gib"] == pytest.approx(116.839, abs=0.001)
+    assert storage["time_weighted_footprint_gib"] == pytest.approx(116.837, abs=0.01)
+    # The footprint still stays inside the free allowance, so the money did not move.
+    assert storage["within_free_allowance"] is True
+    assert storage["storage_usd"] == 0.0
 
 
 def test_the_storage_above_the_allowance_is_billed_and_flagged():
@@ -179,6 +186,171 @@ def test_the_rate_card_no_longer_deliberately_nets_the_allowance_out():
     assert "NOT netted out" not in notes
     assert card["storage_free_allowance_gib_per_month"] == 1024
     assert card["approved_by"] is None
+
+
+# --------------------------------------------------------------------------------------
+# the measured baseline (the read-only inventory of 2026-11-14)
+# --------------------------------------------------------------------------------------
+
+
+def test_the_baseline_of_the_cycle_is_the_measured_inventory_of_2026_11_14():
+    """The baseline is the measurement - not a zero placeholder."""
+    evidence = json.loads(
+        (
+            REPO_ROOT
+            / "benchmarks"
+            / "evidence"
+            / "r1_readonly_evidence_20261114.json"
+        ).read_text(encoding="utf-8")
+    )
+    totals = evidence["deliverable_1_storage_baseline_and_capacity"]["totals"]
+    assert totals["total_bytes"] == 64349622024
+
+    scenario = _scenario()
+    assert scenario["storage_baseline"]["measured_bytes"] == totals["total_bytes"]
+    assert scenario["storage_baseline"]["measured_gib"] == pytest.approx(totals["total_gib"])
+    # The cycle starts from that measurement.
+    assert scenario["baseline_gib"] == pytest.approx(totals["total_gib"])
+    assert scenario["baseline_gib"] > 0
+
+    result = _run()
+    first = next(step for step in result["steps"] if step["step_id"] == "R2p")
+    volume = first["quantities"]["volume"]
+    assert volume["baseline_gib"] == pytest.approx(totals["total_gib"])
+    assert volume["baseline_status"] == "MEASURED"
+
+
+def test_every_step_starts_from_the_footprint_the_previous_step_left_behind():
+    """The baseline of a step is the footprint of the step before it."""
+    result = _run()
+    carried = _scenario()["baseline_gib"]
+    for step in result["steps"]:
+        volume = step["quantities"]["volume"]
+        assert volume["baseline_gib"] == pytest.approx(carried, abs=1e-9)
+        carried = volume["volume_gib"]
+
+
+def test_a_declared_baseline_that_contradicts_the_timeline_fails_closed():
+    """A step that declares a baseline which is not the carried-over one is refused."""
+    scenario = _scenario()
+    scenario["steps"][1]["baseline_gib"] = 1.0
+    result = r1_estimator.run_scenario(
+        scenario, _rate_card(), allow_unapproved_rate_card=True
+    )
+    r3 = next(step for step in result["steps"] if step["step_id"] == "R3")
+    assert r3["available"] is False
+    assert any(
+        "does not match the footprint carried over" in reason
+        for reason in r3["unavailable_reasons"]
+    )
+    assert result["verdict"] == r1_estimator.VERDICT_UNAVAILABLE
+
+
+def test_the_measured_baseline_is_verified_against_its_evidence_file():
+    """A baseline that is not the measured one never becomes an estimate."""
+    # 1. a byte total that the inventory does not carry
+    scenario = _scenario()
+    scenario["storage_baseline"]["measured_bytes"] = 1
+    result = r1_estimator.run_scenario(
+        scenario, _rate_card(), allow_unapproved_rate_card=True
+    )
+    first = result["steps"][0]
+    assert first["available"] is False
+    assert any(
+        "does not match its evidence file" in reason
+        for reason in first["unavailable_reasons"]
+    )
+
+    # 2. an evidence file that does not exist
+    scenario = _scenario()
+    scenario["storage_baseline"]["evidence_file"] = (
+        "benchmarks/evidence/r1_no_such_evidence.json"
+    )
+    result = r1_estimator.run_scenario(
+        scenario, _rate_card(), allow_unapproved_rate_card=True
+    )
+    first = result["steps"][0]
+    assert first["available"] is False
+    assert any(
+        "evidence file of the measured baseline is missing" in reason
+        for reason in first["unavailable_reasons"]
+    )
+
+    # 3. a zero placeholder instead of the measurement
+    scenario = _scenario()
+    scenario["storage_baseline"]["measured_bytes"] = 0
+    scenario["storage_baseline"]["measured_gib"] = 0.0
+    scenario["baseline_gib"] = 0.0
+    for step in scenario["steps"]:
+        step["baseline_gib"] = 0.0
+    result = r1_estimator.run_scenario(
+        scenario, _rate_card(), allow_unapproved_rate_card=True
+    )
+    first = result["steps"][0]
+    assert first["available"] is False
+    assert any(
+        "does not match its evidence file" in reason
+        for reason in first["unavailable_reasons"]
+    )
+
+
+def test_a_cycle_without_a_starting_footprint_is_not_estimated_from_zero():
+    scenario = _scenario()
+    scenario.pop("baseline_gib")
+    result = r1_estimator.run_scenario(
+        scenario, _rate_card(), allow_unapproved_rate_card=True
+    )
+    first = result["steps"][0]
+    assert first["available"] is False
+    assert any(
+        "starting footprint" in reason for reason in first["unavailable_reasons"]
+    )
+
+
+def test_the_measured_baseline_evidence_is_reported_with_its_provenance():
+    result = _run()
+    evidence = result["aggregate"]["storage"]["baseline_evidence"]
+    assert evidence["status"] == "MEASURED"
+    assert evidence["measured_bytes"] == 64349622024
+    assert evidence["measured_gib"] == pytest.approx(59.930256)
+    assert evidence["volume"] == "aegis-model-cache"
+    assert "r1_readonly_evidence_20261114.json" in evidence["provenance"]
+    assert evidence["measured_at"]
+
+
+def test_a_scenario_without_a_measured_baseline_keeps_the_capacity_proof_unavailable():
+    """The proof follows the state of the baseline - it is not a constant."""
+    scenario = _scenario()
+    scenario["storage_baseline"]["status"] = "UNKNOWN"
+    scenario["storage_baseline"]["capacity_proof_missing_evidence"] = []
+    result = r1_estimator.run_scenario(
+        scenario, _rate_card(), allow_unapproved_rate_card=True
+    )
+    storage = result["aggregate"]["storage"]
+    assert storage["capacity_proof"] == "UNAVAILABLE"
+    assert storage["capacity_proof_reasons"]
+    # Without a measured baseline the default list of missing evidence is used.
+    assert len(storage["capacity_proof_missing_evidence"]) == 4
+
+
+def test_the_capacity_proof_is_unavailable_when_the_footprint_exceeds_the_allowance():
+    """A footprint above the allowance is not a proof that the cycle fits."""
+    segment = {
+        "step_id": "BIG",
+        "kind": "stage",
+        "duration_sec": 3600.0,
+        "footprint_gib": 2048.0,
+        "baseline_status": "MEASURED",
+        "baseline_reason": "",
+        "incremental_status": "CANDIDATE_ESTIMATE",
+        "incremental_reason": "",
+    }
+    storage = r1_estimator.storage_account([segment], _approved_rate_card())
+    assert storage["capacity_proof"] == "UNAVAILABLE"
+    assert any(
+        "exceeds the free allowance" in reason
+        for reason in storage["capacity_proof_reasons"]
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -326,12 +498,15 @@ def test_the_authoritative_command_reproduces_the_numbers():
     assert "cap=$20.00" in output
     assert "headroom=$6.3507" in output
     # The storage of the cycle is free - inside the 1 TiB/month allowance - and
-    # its footprint is reported.
-    assert "storage: peak=56.908 GiB" in output
+    # its footprint is reported on top of the MEASURED baseline.
+    assert "storage: baseline=59.930256 GiB (MEASURED)" in output
+    assert "peak=116.839 GiB" in output
     assert "billable=0.00 GiB-month" in output
-    # The footprint is a candidate estimate: the capacity proof is unavailable.
-    assert "storage status: baseline=UNKNOWN" in output
-    assert "capacity_proof=UNAVAILABLE" in output
+    # The baseline is measured, the proof of the capacity is available, and its
+    # open sub-items are printed next to it.
+    assert "storage status: baseline=MEASURED" in output
+    assert "capacity_proof=AVAILABLE" in output
+    assert "storage residuals: 3 open item(s)" in output
     for step_id in ("R2p", "R3", "R3b", "R4"):
         assert step_id in output
 

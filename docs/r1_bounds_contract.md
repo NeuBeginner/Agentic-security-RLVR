@@ -181,48 +181,54 @@ The model has three parts and no fourth:
    the sum of the per-stage totals is **exactly** the cycle total: the standing
    baseline is never priced twice.
 
-The current cycle: peak **56.908 GiB**, time-weighted **56.906 GiB**,
-**69.58 GiB-month** of footprint against an allowance of **1 252 GiB-month** ⇒ the
-storage of the whole cycle costs **USD 0**.00.
+The current cycle: peak **116.839 GiB**, time-weighted **116.837 GiB**,
+**142.86 GiB-month** of footprint against an allowance of **1 252 GiB-month** ⇒ the
+storage of the whole cycle costs **USD 0**.00. The peak starts at the **measured**
+baseline of the Volume (59.930256 GiB) and adds the conservative prefetch worst case
+(the pinned cache, 56.888 GiB) on top of it.
 
-### The footprint is a candidate estimate, and the capacity proof is unavailable
+### The baseline is measured; the capacity proof is available, with open sub-items
 
 The **cost** of the storage above is USD 0 while the footprint stays inside the
 allowance — that arithmetic is kept. The **proof** that the cycle fits the account
-is a different question, and it is **UNAVAILABLE**:
+is a different question, and it is now **AVAILABLE**:
 
 | what | state | why |
 |---|---|---|
-| the **baseline** of the remote Volume | **UNKNOWN** | R1 performed **no Volume operation** (it is prohibited in this task), so the existing baseline of this workspace is **not measured** by this evidence. The `0.0 GiB` of the scenario is an **assumption**, not a measurement |
+| the **baseline** of the remote Volume | **MEASURED** — **64 349 622 024 bytes** (59.930256 GiB) | the read-only inventory of 2026-11-14: two independent listings (one recursive, one breadth-first) agree byte-for-byte, 247 entries = 156 files + 42 directories + 49 symlinks. Evidence: `benchmarks/evidence/r1_readonly_evidence_20261114.json` and `docs/r1_readonly_evidence_report_20261114.md`, §1. The estimator **verifies the scenario against that file** and refuses a baseline that is not the measured one |
 | the **measured local bytes** | **5 034 779 bytes** (0.004689 GiB, 159 tracked files) | the tracked artifacts tree of this repository, measured on 2026-11-12 with `git cat-file -s`. These are the *local* evidence bytes — they are **not** the volume's baseline |
 | the **increment of a future run** | **CANDIDATE ESTIMATE** (56.888 GiB of model cache + 0.001/0.02 GiB of evidence) | the size of the artefacts a future run *would* write; the published run's tracked artifacts (0.004689 GiB) anchor the order of magnitude, the values themselves are not measured |
-| the **capacity proof** | **UNAVAILABLE** | it needs the volume's existing baseline. It stays unavailable until a **read-only baseline measurement** or a **defensible conservative bound** exists |
+| the **capacity proof** | **AVAILABLE** | the baseline is measured, the workspace holds exactly **one** Volume (so the measured total *is* the account-wide footprint), and against the published 1 024 GiB/month allowance the account uses 5.85 % with 964.07 GiB of headroom; the billing summary of the same month corroborates it (volumes metered 1.98 USD, fully covered by the free allowance, billed 0.00 USD) |
 
 The estimator reports these states in every run (`baseline_status`,
 `incremental_status`, `capacity_proof`, `capacity_proof_reasons`,
-`capacity_proof_missing_evidence`), so a reader never
+`capacity_proof_missing_evidence`, `capacity_proof_residuals`), so a reader never
 has to guess whether a number was measured or assumed.
 
-**Exact missing evidence required to close the `< 1 TiB/month` (`1 024 GiB/month`) capacity proof**
-(none of which may be collected in R1 because Volume and live provider operations are prohibited):
+**Open sub-items of the capacity proof** — they do not make the proof unavailable,
+but they are reported next to it in every run:
 
-1. **Pre-R2p read-only baseline of `aegis-model-cache`:** a read-only provider listing of
-   existing bytes on Volume `aegis-model-cache` prior to R2p (`baseline_gib`, currently
-   assumed `0.0 GiB`).
-2. **Account-wide concurrent Modal Volume inventory / bound:** a read-only inventory of
-   all other Modal Volumes in the workspace over the same billing month (or an operator
-   attestation bounding concurrent non-workflow Volume usage), because Modal's
-   `1 TiB/month` (`1 024 GiB/month`) free allowance is an **account-level** monthly
-   allowance shared across the entire workspace.
-3. **Post-R2p model-cache manifest and Volume footprint read-back:** verification that
+1. **The account-wide concurrent storage peak has no API gauge.** The measured total
+   is an instantaneous inventory; the monthly billing confirms that the account stays
+   inside the allowance. An explicit operator attestation may substitute for this
+   sub-item.
+2. **Post-R2p model-cache manifest and Volume footprint read-back:** verification that
    the materialised revision `655425b794ae4a19f2ea16fa480c6b39102721ee` of
    `qtum/Qwen3-Coder-30B-A3B-Audit` on `aegis-model-cache` equals the pinned
    `61 077 997 602 bytes` (`56.888 GiB`) with no residual staging or partial-download
    artefacts.
-4. **Post-R3b/R4 trajectory footprint and retention-deletion verification:** measurement
+3. **Post-R3b/R4 trajectory footprint and retention-deletion verification:** measurement
    of the written trajectory bytes after R3b and R4 (confirming they remain within the
    `0.021 GiB` candidate bound) and verification of their deletion at the end of the
    30-day retention window.
+
+**The footprint of R2p counts the pinned bytes twice, on purpose.** The measured
+baseline already contains the pinned revision (23/23 files, byte-exact), so a
+prefetch of the same revision would in the measured state write only the manifest.
+The candidate keeps the **cold-cache worst case** — the full pinned cache — because
+the prefetch function is not implemented yet and its behaviour on an already
+materialised cache is not verified. The resulting peak is an **upper bound** of the
+cycle, not a prediction of it.
 
 ## D29 — the egress
 
@@ -545,7 +551,7 @@ authorisation of the operator, not by code.
 | `MAX_TRAJECTORY_PAYLOAD_BYTES` | required-but-unset | the persistence function therefore refuses every payload (fail closed) |
 | the **prefetch function** (R2p) | not implemented in R1 | it is a separately authorised step and its download timeout is an approval input; its per-container **ingress** bound **is** declared, so the estimator can price R2p |
 | the **Iteration 19 CPU smoke** (a separate deployment) | **refused** | it is not part of the authorised trace: no approved step policy, no declared bounds, no egress declaration. The live invocation refuses before the ephemeral app starts; only an explicit maintainer approval lifts it |
-| the **capacity proof** of the storage | **unavailable** | the baseline of the remote Volume is not measured by this evidence (no Volume operation); it needs a read-only baseline measurement or a defensible conservative bound |
+| the **capacity proof** of the storage | **available**, with open sub-items | the baseline of the remote Volume is measured (64 349 622 024 B = 59.930256 GiB, read-only inventory of 2026-11-14) and verified against its evidence file; the account-wide concurrent peak has no API gauge and the post-R2p/post-R3b-R4 read-backs are still open |
 | the **per-stage ceilings** | not approved | they are proposed in `docs/r1_cost_proposal.md` and await the maintainer's review |
 | every compute step | **not dispatchable** | the estimate is unavailable while the bounds above are unset, and an unavailable estimate means no dispatch |
 | every **provider dispatch** of R1 | **refused** | no step of the workflow is approved: the repository pins no approval key, so no approval artifact can be verified and the gate refuses with `approval_not_verified` — the refusal is structural, not a side effect of the unset bounds |
