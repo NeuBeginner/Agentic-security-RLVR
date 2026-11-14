@@ -1831,13 +1831,21 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     inference_response = p_dict
                     payload = ExploitPayload(**p_dict)
                 else:
-                    from core.hypothesis import HypothesisManager
-                    hyp_mgr = HypothesisManager()
-                    hypotheses = hyp_mgr.generate_hypotheses(target_prog)
-                    selected_hyp = hypotheses[0] if hypotheses else AttackHypothesis(
-                        vulnerability_type="SecurityAudit",
-                        reasoning_trace="Automated hypothesis generation",
-                        attack_vector="direct",
+                    # Use the repository's actual hypothesis manager API.  The old
+                    # import pointed at a nonexistent module and the old constructor /
+                    # method names did not exist, so every API-backed Baseline 5 run
+                    # failed before candidate generation.
+                    from core.hypothesis_manager import HypothesisManager
+                    hyp_mgr = HypothesisManager(target_prog)
+                    hypotheses = hyp_mgr.ingest_slither_findings()
+                    selected_hyp = (
+                        hyp_mgr.to_attack_hypothesis(hypotheses[0])
+                        if hypotheses
+                        else AttackHypothesis(
+                            vulnerability_type="SecurityAudit",
+                            reasoning_trace="No Slither finding supplied; inspect the target source and stated invariants.",
+                            attack_vector="Analyze externally callable state-changing functions and attempt to violate a stated invariant.",
+                        )
                     )
                     prompt = (
                         f"Synthesize an ExploitModule for target {target_prog.name}.\n"
