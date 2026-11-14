@@ -199,6 +199,13 @@ be re-attempted after a deployment exists. This is **reported, not fixed**: this
 iteration is documentation/evidence only, and the R1 contract forbids changing the
 dispatch gate.
 
+> **Status update (a later iteration, 2026-11-14, after this report).** The defect
+> above was fixed in the same day: the reader now uses the **asynchronous** client of
+> Modal SDK 1.5.5 and runs the read on the SDK's own synchronizer loop. The
+> measurement, the fix and the proofs are in `docs/r1_sdk_compat_report_20261114.md`
+> and `benchmarks/evidence/r1_sdk_compat_20261114/`. Nothing above is changed: the
+> live read-back is still `UNAVAILABLE`, because the app does not exist.
+
 ---
 
 ## 4. Evidence integrity — `VERIFIED`

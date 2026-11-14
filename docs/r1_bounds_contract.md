@@ -37,6 +37,7 @@ production value and never hardcodes a price.
 | `tests/test_r1_dispatch_boundary.py` | the boundary proofs: no provider callable in the repository, the class-method boundary, and the gate that is not self-authorising |
 | `tests/conftest.py` | the shared fixtures, including the **out-of-band act of the approval authority** (the test key that signs an approval artifact) |
 | `tests/test_r1_cost_model.py` | the proofs of the cost model and of the one authoritative command |
+| `tests/test_r1_readback_sdk_compat.py` | the proofs of the Modal SDK 1.5.5 compatibility of the read-back: the asynchronous client, the synchronizer's loop, the fail-closed behaviour and the absence of the mutating autoscaler RPC |
 
 ## D26 — explicit request/limit pairs and an explicit lifecycle
 
@@ -122,6 +123,24 @@ The reader is additionally
 **opt-in**: it needs `R1_ENABLE_PROVIDER_READBACK=1` in the environment, so that no
 test and no accidental code path can reach the provider. Without the opt-in the read
 is *unavailable* and the step is refused (`autoscaler_readback_unavailable`).
+
+**The client of the read (Modal SDK 1.5.5).** The SDK exposes two clients and they
+are not interchangeable: `modal.client.Client` is the **synchronous** wrapper
+(`Client = synchronize_api(_Client)`, `modal/client.py:532`), so `Client.from_env()`
+returns the client and is not awaitable, while `modal.client._Client` is the
+**asynchronous** client (`async def from_env`, `modal/client.py:238`). The RPC itself
+is asynchronous in both cases — the generated stub is
+`modal._grpc_client.UnaryUnaryWrapper` and its `__call__` is `async def` — so the read
+has to run on an event loop that owns the gRPC channel of the client. The reader
+therefore builds the call through `synchronize_api`, the SDK's own synchronisation
+machinery: the coroutine runs on the **Modal synchronizer's loop**, the same loop the
+public synchronous client uses. Awaiting the public client raises `TypeError: object
+Client can't be used in 'await' expression`, and running the read on a *private* loop
+blocks forever as soon as the public synchronous client has been created in the
+process — which the provider does when it resolves a Modal object. Both were measured
+across nine client paths; see `docs/r1_sdk_compat_report_20261114.md` and
+`benchmarks/evidence/r1_sdk_compat_20261114/`. The proofs are in
+`tests/test_r1_readback_sdk_compat.py`.
 
 The comparison is against the **declaration** of the class
 (`core.r1_bounds.declared_autoscaler_settings`). A field that is required-but-unset in

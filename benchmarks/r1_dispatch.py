@@ -247,17 +247,49 @@ class StepPolicy:
 # --------------------------------------------------------------------------------------
 
 
-def _run_coroutine_blocking(coro: Any) -> Any:
-    """Run a coroutine from synchronous code, even inside a running loop."""
-    try:
-        from modal._utils.async_utils import run_coro_blocking
-    except Exception:  # pragma: no cover - the SDK always ships it in 1.5.5
-        run_coro_blocking = None
-    if run_coro_blocking is not None:
-        return run_coro_blocking(coro)
-    import asyncio
+#: The read-only ``FunctionGet`` call, built once per process.
+_FUNCTION_GET: Optional[Callable[[Any], Any]] = None
 
-    return asyncio.run(coro)
+
+def _function_get_on_the_sdk_loop() -> Callable[[Any], Any]:
+    """Build the read-only ``FunctionGet`` call on the Modal SDK's own loop.
+
+    Modal SDK 1.5.5 exposes two clients, and they are not interchangeable:
+
+    * ``modal.client.Client`` is the **synchronous** wrapper - the SDK builds it
+      with ``Client = synchronize_api(_Client)`` (``modal/client.py:532``), so
+      ``Client.from_env()`` returns the client itself and is not awaitable.
+      Awaiting it raises ``TypeError: object Client can't be used in 'await'
+      expression``, which is the defect that made the D27 read-back fail closed
+      against every deployment, independently of the deployment state.
+    * ``modal.client._Client`` is the **asynchronous** client: ``_Client.from_env()``
+      is a coroutine function.
+
+    The RPC itself is asynchronous in both cases: the generated stub is
+    ``modal._grpc_client.UnaryUnaryWrapper`` and its ``__call__`` is ``async
+    def``, so the read has to run on an event loop that owns the gRPC channel
+    of the client.
+
+    The read therefore goes through ``synchronize_api``, the SDK's own
+    synchronisation machinery: the coroutine runs on the synchronizer's loop,
+    which is the loop the public synchronous client uses as well. Running it on
+    a private loop instead deadlocks as soon as the public synchronous client
+    has already been created in the process - which the provider does when it
+    resolves a Modal object - because the client singleton then belongs to the
+    synchronizer's loop while the RPC would be awaited on another one.
+    """
+    global _FUNCTION_GET
+    if _FUNCTION_GET is None:
+        from modal._utils.async_utils import synchronize_api
+        from modal.client import _Client
+
+        @synchronize_api
+        async def _function_get(request: Any) -> Any:
+            client = await _Client.from_env()
+            return await client.stub.FunctionGet(request)
+
+        _FUNCTION_GET = _function_get
+    return _FUNCTION_GET
 
 
 def _object_tag(function_name: str) -> str:
@@ -297,10 +329,12 @@ def provider_autoscaler_reader(target: Any, function_name: str = "") -> Dict[str
     ``HasField(...)`` at every level so an unset message or field fails closed
     instead of silently reading ``0``.
 
-    Every failure - no credentials, no deployed object, an unexpected SDK shape -
-    is an *unavailable* read and never a partial one: the step is refused. This
-    reader has never been executed against the provider in this repository: no live
-    provider call is part of the R1 evidence.
+    Every failure - no credentials, no deployed object, an unexpected SDK shape - 
+    is an *unavailable* read and never a partial one: the step is refused.
+
+    The client is the **asynchronous** one of Modal SDK 1.5.5 and the RPC runs on
+    the SDK's own synchronizer loop; see ``_function_get_on_the_sdk_loop`` for
+    the measured reasons. The reader itself is synchronous.
 
     The read is additionally **opt-in**: it needs ``R1_ENABLE_PROVIDER_READBACK=1``
     in the environment. Without it the read is unavailable and the step is refused,
@@ -316,8 +350,9 @@ def provider_autoscaler_reader(target: Any, function_name: str = "") -> Dict[str
             "set, so the effective autoscaler settings cannot be read"
         )
     try:
-        from modal.client import Client
         from modal_proto import api_pb2
+
+        function_get = _function_get_on_the_sdk_loop()
     except Exception as exc:  # pragma: no cover - the SDK always ships both
         raise AutoscalerReadbackUnavailable(
             f"the Modal client is not importable: {exc}"
@@ -346,12 +381,8 @@ def provider_autoscaler_reader(target: Any, function_name: str = "") -> Dict[str
         app_version=0,
     )
 
-    async def _read() -> Any:
-        client = await Client.from_env()
-        return await client.stub.FunctionGet(request)
-
     try:
-        response = _run_coroutine_blocking(_read())
+        response = function_get(request)
     except Exception as exc:
         raise AutoscalerReadbackUnavailable(
             f"the read-only FunctionGet of '{tag}' failed: {type(exc).__name__}: {exc}"

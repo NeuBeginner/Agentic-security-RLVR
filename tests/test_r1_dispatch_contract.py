@@ -976,7 +976,7 @@ def test_object_tag_matches_modal_sdk_1_5_5_registration_tags():
 
 def test_provider_autoscaler_reader_enforces_protobuf_has_field_presence(monkeypatch):
     """Unset protobuf fields in FunctionGetResponse must fail closed, never read as 0."""
-    from modal.client import Client
+    from modal.client import _Client
     from modal_proto import api_pb2
 
     monkeypatch.setenv("R1_ENABLE_PROVIDER_READBACK", "1")
@@ -994,7 +994,9 @@ def test_provider_autoscaler_reader_enforces_protobuf_has_field_presence(monkeyp
     async def fake_from_env():
         return FakeClient()
 
-    monkeypatch.setattr(Client, "from_env", staticmethod(fake_from_env))
+    # The read-back uses the *asynchronous* client of Modal SDK 1.5.5; the public
+    # synchronous client is never used (see tests/test_r1_readback_sdk_compat.py).
+    monkeypatch.setattr(_Client, "from_env", fake_from_env)
 
     # 1. Empty FunctionGetResponse (unset 'function' submessage) -> unavailable
     next_response[0] = api_pb2.FunctionGetResponse()

@@ -1,0 +1,67 @@
+======================================================================
+PATH 1: the defective repository code: await Client.from_env()
+  outcome: error
+  detail : -> TypeError: object Client can't be used in 'await' expression
+  stdout :
+    -> TypeError: object Client can't be used in 'await' expression
+  stderr :
+    C:\TMP\tmpov80kcok\_child_probe.py:41: AsyncUsageWarning: A blocking Modal interface is being used in an async context.
+    
+    This may cause performance issues or bugs. Consider rewriting to use Modal's async interfaces:
+    https://modal.com/docs/guide/async
+    
+    Suggested rewrite:
+      client = await await Client.from_env.aio()
+    
+    Original line:
+      client = await Client.from_env()
+======================================================================
+PATH 2: the asynchronous client _Client inside one event loop
+  outcome: error
+  detail : -> NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'
+  stdout :
+    -> NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'
+======================================================================
+PATH 3: the asynchronous client twice, each in its own event loop
+  outcome: completed
+  detail :   -> completed
+  stdout :
+    call 1: NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'
+      call 2: NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'
+      -> completed
+======================================================================
+PATH 4: the public synchronous client, the stub coroutine awaited in a fresh loop
+  outcome: timeout
+  detail : no answer within 40s - the path blocks
+======================================================================
+PATH 5: the public synchronous client first, then the asynchronous read
+  outcome: timeout
+  detail : no answer within 40s - the path blocks
+======================================================================
+PATH 6: the public synchronous client, the stub coroutine on the synchronizer loop
+  outcome: error
+  detail : -> NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'
+  stdout :
+    -> NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'
+======================================================================
+PATH 7: the asynchronous client through synchronize_api (the shipped fix)
+  outcome: error
+  detail : -> NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'
+  stdout :
+    -> NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'
+======================================================================
+PATH 8: the asynchronous client through synchronize_api, after the public client exists
+  outcome: completed
+  detail :   -> completed
+  stdout :
+    public sync client: Client
+      sync_api read: NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'
+      -> completed
+======================================================================
+PATH 9: the asynchronous client through synchronize_api, called twice
+  outcome: completed
+  detail :   -> completed
+  stdout :
+    call 1: NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'
+      call 2: NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'
+      -> completed
