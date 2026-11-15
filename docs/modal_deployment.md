@@ -274,6 +274,45 @@ page is <https://modal.com/apps/neubeginner/main/deployed/aegis-rlvr-cpu-audit>.
 
 ---
 
+## 7.1 The SHA-attested deployment (GitHub Actions)
+
+`.github/workflows/modal-cpu-deploy.yml` deploys the service from **one exact commit**
+and proves that the deployed image carries it.
+
+| Step | What it does | Why it fails closed |
+|---|---|---|
+| checkout | checks out `github.sha` and asserts `git rev-parse HEAD == AEGIS_SOURCE_COMMIT` | the job can only deploy the commit it was started for |
+| validate source | parses `modal_cpu_audit_app.py` and asserts that it exposes `SOURCE_COMMIT`, the provenance probe **and** bakes the commit into the image | a deployment of a source that cannot prove its own commit never starts |
+| confirm workspace | `modal token info` and a comparison against `MODAL_EXPECTED_WORKSPACE` | credentials of another workspace stop the run instead of silently addressing a different account |
+| deploy | `modal deploy --env main modal_cpu_audit_app.py` | CPU only: the application declares no GPU class at all |
+| verify | calls the deployed `probe_deployment_provenance()` and compares the reported commit, the commit state and the declared resources with the expectations | a deployment that cannot prove its commit, its `gpu=None`, its `cpu=2` and its `memory=2048` fails the job |
+
+Two properties of the provider shape this design:
+
+1. **The environment of the client does not reach the container.** The provider
+   forwards neither the environment variables of the client nor an arbitrary
+   environment variable into the container — only the secrets of the function and
+   the `ENV` directives of the image do. A commit that is only read from
+   `os.environ` at import time is therefore `"unknown"` in every deployed
+   container, which is why `SOURCE_COMMIT` is **baked into the image**
+   (`Image.env({SOURCE_COMMIT_ENV_VAR: SOURCE_COMMIT})`) instead of being read
+   from the environment of the container.
+2. **`workflow_dispatch` is resolved against the default branch.** A workflow
+   file that exists only on a feature branch cannot be dispatched at all
+   (`HTTP 404: workflow … not found on the default branch`). The deployment
+   therefore runs on a **push** to `feat/modal-cpu-audit` — the event that
+   executes the branch-local workflow file — and the manual dispatch remains
+   available for the day the file is merged into the default branch.
+
+The provenance probe itself (`probe_deployment_provenance`) is protected by the
+**Modal workspace credentials**, not by the shared audit token: it mounts no
+volume, needs no secret and exposes nothing but the commit the image carries and
+the resources the source declares. The three calls that do the work —
+`audit_contract`, `probe_environment` and `read_saved_result` — all require the
+shared audit token and refuse a call without it before any work is done.
+
+---
+
 ## 8. The verification commands
 
 ```powershell

@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import pytest
+import yaml
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -881,3 +882,138 @@ def test_the_secret_scan_reports_a_leaked_key():
 def test_the_secret_scan_is_quiet_on_ordinary_payloads():
     findings = _scan_for_secrets(json.dumps({"category": "SAFE_RUN", "reward": -0.1}))
     assert not findings
+
+
+# ---------------------------------------------------------------------------
+# 9. The provenance of the deployment
+# ---------------------------------------------------------------------------
+
+
+def test_the_source_commit_is_baked_into_the_image():
+    """
+    The commit has to travel into the container.
+
+    The provider forwards neither the environment of the client nor an arbitrary
+    environment variable into the container, so a commit that is only read from
+    ``os.environ`` at import time is ``"unknown"`` in every deployed container.
+    The image itself has to carry it.
+    """
+    image_chain = re.search(
+        r"^image\s*=\s*\((.*?)^\)\s*$", APP_SOURCE, re.DOTALL | re.MULTILINE
+    )
+    assert image_chain is not None, "the image declaration of the service was not found"
+    declaration = image_chain.group(1)
+    assert ".env(" in declaration, "the image does not bake an environment"
+    assert "SOURCE_COMMIT_ENV_VAR" in declaration
+    assert "SOURCE_COMMIT" in declaration
+
+
+def test_the_provenance_reports_the_commit_and_the_declared_resources():
+    """The probe states the commit the image carries and the declared resources."""
+    provenance = app_module.deployment_provenance()
+    assert provenance["status"] == "COMPLETED"
+    assert provenance["source_commit"] == app_module.SOURCE_COMMIT
+    assert provenance["source_commit_state"] in {"known", "unknown", "malformed"}
+    resources = provenance["declared_resources"]
+    assert resources["gpu"] is None
+    assert resources["cpu"] == 2.0
+    assert resources["memory"] == 2048
+
+
+def test_the_provenance_carries_no_secret():
+    """The provenance is readable by anyone who holds the workspace credentials."""
+    serialised = json.dumps(app_module.deployment_provenance())
+    assert app_module.AUTH_TOKEN_ENV_VAR not in serialised
+    assert "auth_token" not in serialised
+
+
+def test_the_commit_state_does_not_claim_a_commit_that_is_not_there(monkeypatch):
+    """A deployment without a commit must not claim one."""
+    monkeypatch.setattr(app_module, "SOURCE_COMMIT", "unknown")
+    assert app_module.source_commit_state() == "unknown"
+    monkeypatch.setattr(app_module, "SOURCE_COMMIT", "not-a-commit-sha")
+    assert app_module.source_commit_state() == "malformed"
+    monkeypatch.setattr(app_module, "SOURCE_COMMIT", "a" * 40)
+    assert app_module.source_commit_state() == "known"
+
+
+def test_the_read_back_refreshes_the_volume_snapshot_before_it_reads(tmp_path, monkeypatch):
+    """
+    A warm container can hold a snapshot that predates the committed artifact.
+
+    The read-back has to see the committed state of the volume, so the snapshot
+    is refreshed before the file is read - otherwise the read-back of a fresh
+    artifact fails with ``ARTIFACT_NOT_FOUND``.
+    """
+    calls = []
+
+    class _Volume:
+        def commit(self):
+            return None
+
+        def reload(self):
+            calls.append("reload")
+
+    run_id = "read-back-reload-01"
+    run_dir = tmp_path / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    (run_dir / "result.json").write_bytes(b'{"verdict": "stored"}')
+
+    monkeypatch.setattr(app_module, "RESULTS_VOLUME_MOUNT_PATH", str(tmp_path))
+    monkeypatch.setattr(app_module, "results_volume", _Volume())
+    monkeypatch.setenv(app_module.AUTH_TOKEN_ENV_VAR, "t" * 40)
+
+    read_back = app_module.read_saved_result.local(run_id=run_id, auth_token="t" * 40)
+
+    assert calls == ["reload"], "the read-back did not refresh the volume snapshot"
+    assert read_back["status"] == "READ_BACK"
+    assert read_back["parsed"] is True
+    assert read_back["volume_reload_error"] is None
+
+
+def test_a_failing_reload_is_reported_and_not_hidden(tmp_path, monkeypatch):
+    """A failing reload must not be silently swallowed."""
+    class _Volume:
+        def commit(self):
+            return None
+
+        def reload(self):
+            raise RuntimeError("simulated reload failure")
+
+    monkeypatch.setattr(app_module, "RESULTS_VOLUME_MOUNT_PATH", str(tmp_path))
+    monkeypatch.setattr(app_module, "results_volume", _Volume())
+    monkeypatch.setenv(app_module.AUTH_TOKEN_ENV_VAR, "t" * 40)
+
+    read_back = app_module.read_saved_result.local(run_id="read-back-missing-01", auth_token="t" * 40)
+
+    assert read_back["status"] == "NOT_FOUND"
+    assert read_back["volume_reload_error"] == "RuntimeError: simulated reload failure"
+
+
+def test_the_deployment_workflow_can_actually_be_triggered():
+    """
+    A workflow that exists only on a feature branch cannot be dispatched.
+
+    GitHub resolves ``workflow_dispatch`` against the default branch, so the
+    deployment workflow needs a push trigger on the branch: that is the event
+    that runs the branch-local workflow file. Without it the deployment is
+    unreachable and the job can never prove the commit of the image.
+    """
+    workflow = yaml.safe_load(
+        (_ROOT / ".github" / "workflows" / "modal-cpu-deploy.yml").read_text(encoding="utf-8")
+    )
+    # PyYAML resolves the bare key ``on`` as the boolean ``True``.
+    triggers = workflow.get(True, workflow.get("on"))
+    assert isinstance(triggers, dict), "the deployment workflow has no trigger"
+    assert "push" in triggers, "the deployment workflow cannot be triggered on the branch"
+    assert "feat/modal-cpu-audit" in triggers["push"]["branches"]
+
+    job = workflow["jobs"]["deploy"]
+    assert job["env"]["AEGIS_SOURCE_COMMIT"] == "${{ github.sha }}"
+    assert workflow["permissions"] == {"contents": "read"}
+
+    steps = "\n".join(step.get("run", "") for step in job["steps"])
+    assert "probe_deployment_provenance" in steps
+    assert "source_commit_state" in steps
+    assert 'resources.get("gpu") is None' in steps
+

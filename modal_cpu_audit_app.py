@@ -107,8 +107,35 @@ from sandbox.runner import (  # noqa: E402
 #: (``aegis-rlvr-security``), which belongs to the GPU production application.
 APP_NAME = "aegis-rlvr-cpu-audit"
 
+#: The environment variable that carries the Git commit of the deployment.
+SOURCE_COMMIT_ENV_VAR = "AEGIS_SOURCE_COMMIT"
+
 #: Git commit checked out by the deployment job; embedded in the deployed function.
-SOURCE_COMMIT = os.environ.get("AEGIS_SOURCE_COMMIT", "unknown")
+#:
+#: The value is baked into the **image** (see :data:`image`), not merely read from
+#: the environment of the container: the provider does not forward the environment
+#: of the client into the container, so a value that is only read from
+#: ``os.environ`` at import time would be ``"unknown"`` in every deployed
+#: container. The image layer carries it, so the container really runs the commit
+#: the deployment job checked out.
+SOURCE_COMMIT = os.environ.get(SOURCE_COMMIT_ENV_VAR, "unknown")
+
+
+def source_commit_state() -> str:
+    """
+    The state of the commit the deployed image carries.
+
+    ``known`` only when the image carries a full Git commit SHA. ``unknown`` means
+    that the deployment did not provide one, and ``malformed`` means that the
+    value is not a commit SHA at all. The state travels with the provenance probe,
+    so a deployment cannot claim a commit it does not carry.
+    """
+    commit = (SOURCE_COMMIT or "").strip()
+    if not commit or commit == "unknown":
+        return "unknown"
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return "malformed"
+    return "known"
 
 #: The existing model cache. It is mounted read-only and never written into.
 MODEL_VOLUME_NAME = config.MODEL_VOLUME_NAME
@@ -219,6 +246,10 @@ image = (
     sandbox_image_of_repository()
     .add_local_python_source("benchmarks", copy=True)
     .add_local_dir(str(POC_DIR_LOCAL), remote_path=POC_DIR_REMOTE, copy=True)
+    # The commit of the deployment is baked into the image, so the container
+    # really carries it (the provider forwards neither the environment of the
+    # client nor an arbitrary environment variable into the container).
+    .env({SOURCE_COMMIT_ENV_VAR: SOURCE_COMMIT})
 )
 
 
@@ -1141,6 +1172,19 @@ def read_saved_result(run_id: str, auth_token: str = "") -> Dict[str, Any]:
     result_path = os.path.join(
         RESULTS_VOLUME_MOUNT_PATH, RESULTS_RUNS_SUBDIR, run_id, "result.json"
     )
+
+    # A warm container can hold a snapshot of the volume that predates the
+    # commit of the artifact. The read-back has to see the *committed* state of
+    # the volume, not the state the container happened to start with, so the
+    # snapshot is refreshed before the file is read. A failing reload is
+    # reported, never hidden: the read then continues against the snapshot the
+    # container has.
+    volume_reload_error = None
+    try:
+        results_volume.reload()
+    except Exception as exc:  # noqa: BLE001 - the failure is reported, not hidden
+        volume_reload_error = f"{type(exc).__name__}: {exc}"
+
     try:
         with open(result_path, "rb") as handle:
             payload = handle.read()
@@ -1150,6 +1194,7 @@ def read_saved_result(run_id: str, auth_token: str = "") -> Dict[str, Any]:
             "status": "NOT_FOUND",
             "run_id": run_id,
             "result_path": result_path,
+            "volume_reload_error": volume_reload_error,
             "error": {"code": "ARTIFACT_NOT_FOUND", "reason": f"{type(exc).__name__}: {exc}"},
         }
 
@@ -1173,7 +1218,23 @@ def read_saved_result(run_id: str, auth_token: str = "") -> Dict[str, Any]:
         "sha256": digest,
         "parsed": stored is not None,
         "parse_error": parse_error,
+        "volume_reload_error": volume_reload_error,
         "result": stored,
+    }
+
+
+def deployment_provenance() -> Dict[str, Any]:
+    """
+    The provenance of the deployment, as the running container sees it.
+
+    The values are non-sensitive: the commit the image carries and the resources
+    the source declares. No secret, no token and no artifact is part of it.
+    """
+    return {
+        "status": "COMPLETED",
+        "source_commit": SOURCE_COMMIT,
+        "source_commit_state": source_commit_state(),
+        "declared_resources": DECLARED_RESOURCES,
     }
 
 
@@ -1184,11 +1245,7 @@ def probe_deployment_provenance() -> Dict[str, Any]:
     This deliberately does not mount volumes or require the service's shared
     audit token. Access is controlled by Modal workspace credentials.
     """
-    return {
-        "status": "COMPLETED",
-        "source_commit": SOURCE_COMMIT,
-        "declared_resources": DECLARED_RESOURCES,
-    }
+    return deployment_provenance()
 
 
 @app.function(
