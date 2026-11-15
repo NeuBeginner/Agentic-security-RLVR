@@ -206,7 +206,7 @@ class VerificationVerdict(BaseModel):
     run_id: str = Field(default="run-default")
     generation_iteration: int = Field(default=0)
     candidate_index: int = Field(default=0)
-    replay_status: str = Field(default="NOT_ELIGIBLE", description="CONFIRMED, FAILED, or NOT_ELIGIBLE")
+    replay_status: str = Field(default="NOT_ELIGIBLE", description="CONFIRMED, FAILED, PENDING, or NOT_ELIGIBLE")
     # The same statement as `replay_status`, as a boolean: the independent replay
     # reproduced the breach of the trusted harness.
     replay_confirmed: bool = False
