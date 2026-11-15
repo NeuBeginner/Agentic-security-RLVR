@@ -75,7 +75,7 @@ Output your findings as a valid JSON array of objects.
 """
 
 
-def build_analysis_prompt(target: TargetProgram, hypothesis: Optional[AttackHypothesis] = None) -> str:
+def build_analysis_prompt(target: TargetProgram, hypothesis: Optional[Any] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> str:
     """
     Target-agnostic prompt for exploit synthesis.
     Integrates Slither static analysis findings and formal invariants without hardcoded contract names.
@@ -92,12 +92,40 @@ def build_analysis_prompt(target: TargetProgram, hypothesis: Optional[AttackHypo
 
     hypothesis_context = ""
     if hypothesis:
+        vulnerability_type = getattr(hypothesis, "vulnerability_type", None) or getattr(hypothesis, "vulnerability_class", "Unknown")
+        severity = getattr(hypothesis, "severity", None) or "Unspecified"
+        attack_vector = getattr(hypothesis, "attack_vector", None)
+        if not attack_vector:
+            attack_vector = " -> ".join(getattr(hypothesis, "attack_sequence", []) or [])
+        reasoning_trace = getattr(hypothesis, "reasoning_trace", None)
+        if not reasoning_trace:
+            reasoning_trace = f"Preconditions: {getattr(hypothesis, 'attack_preconditions', [])}"
         hypothesis_context = f"""
-Auditor Finding Hypothesis:
-- Vulnerability Type: {hypothesis.vulnerability_type}
-- Attack Vector     : {hypothesis.attack_vector}
-- Analysis Trace    : {hypothesis.reasoning_trace}
+Auditor Finding Hypothesis ({vulnerability_type} - {severity} Severity):
+- Vulnerability Type: {vulnerability_type}
+- Attack Vector     : {attack_vector}
+- Analysis Trace    : {reasoning_trace}
 """
+
+    failure_context = ""
+    if previous_failures:
+        failure_lines = []
+        for failure in previous_failures[:10]:
+            if not isinstance(failure, dict):
+                continue
+            candidate_id = failure.get("candidate_id", "unknown")
+            category = failure.get("category", "unknown")
+            feedback = failure.get("feedback", failure.get("error", ""))
+            failure_lines.append(f"- {candidate_id} [{category}]: {str(feedback)[:500]}")
+        if failure_lines:
+            failure_context = "\nPREVIOUS FAILED CANDIDATES:\n" + "\n".join(failure_lines) + "\n"
+
+    if target.name == "SignatureReplayWallet":
+        entrypoint_doc = "6. Entrypoint signature: For SignatureReplayWallet, you MUST implement `function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external` that replays the given signature against `targetContract.executeWithSignature(...)` to drain wallet funds."
+        entrypoint_code = "    function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external {\n        // Replay signature against targetContract.executeWithSignature(...)\n    }"
+    else:
+        entrypoint_doc = "6. Implement `function runExploit() external payable` that executes transactions with the target to breach the invariant."
+        entrypoint_code = "    function runExploit() external payable {\n        // Exploit transactions here\n    }"
 
     return f"""Target Contract File: src/{target.name}.sol
 Target Contract Name: {target.name}
@@ -105,7 +133,7 @@ Language: Solidity 0.8.20
 
 Security Invariants Being Tested:
 {invariants_text}
-{slither_context}{hypothesis_context}
+{slither_context}{hypothesis_context}{failure_context}
 Target Contract Source Code:
 ```solidity
 {target.source_code}
@@ -116,21 +144,62 @@ Instructions:
 2. Synthesize the complete `ExploitModule` contract.
 3. CRITICAL: The contract declaration MUST be `contract ExploitModule` (do not use any other name).
 4. Import the target: `import {{{target.name}}} from "../src/{target.name}.sol";` (do not redefine it).
-5. Store the target contract reference: `{target.name} public targetContract = {target.name}(payable(_target));`.
-6. Implement `function runExploit() external payable` that executes transactions with the target to breach the invariant.
-7. If necessary for callbacks or reentrancy, implement `receive() external payable` or other fallback handlers.
+5. Declare the target variable `{target.name} public targetContract;` and initialize it in the constructor:
+   `constructor(address _target) payable {{ targetContract = {target.name}(payable(_target)); }}`
+{entrypoint_doc}
+7. If attacking via callbacks or reentrancy, implement `receive() external payable` or other fallback handlers.
 8. Strictly unprivileged: Do NOT use Foundry cheatcodes (vm.*) or test harnesses.
 9. Return clean, compilable Solidity code in a single ```solidity ... ``` block.
+
+Standard structure:
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {{{target.name}}} from "../src/{target.name}.sol";
+
+contract ExploitModule {{
+    {target.name} public targetContract;
+
+    constructor(address _target) payable {{
+        targetContract = {target.name}(payable(_target));
+    }}
+
+{entrypoint_code}
+
+    receive() external payable {{
+        // Reentrancy / callback handling if applicable
+    }}
+}}
+```
 """
 
 
-def build_refinement_prompt(target: TargetProgram, failed_code: str, error_feedback: str) -> str:
+def build_refinement_prompt(target: TargetProgram, failed_code: str, error_feedback: str, hypothesis: Optional[Any] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> str:
     """
     Constructs a closed-loop refinement prompt guided by structured Foundry EVM trace.
     Target-agnostic and focused on compiler feedback and revert reasons.
     """
     invariants_text = "\n".join(f"- {inv}" for inv in target.invariants) if target.invariants else "- Security invariants"
+    hypothesis_context = ""
+    if hypothesis:
+        vulnerability_type = getattr(hypothesis, "vulnerability_type", None) or getattr(hypothesis, "vulnerability_class", "Unknown")
+        severity = getattr(hypothesis, "severity", None) or "Unspecified"
+        attack_vector = getattr(hypothesis, "attack_vector", None) or " -> ".join(getattr(hypothesis, "attack_sequence", []) or [])
+        reasoning_trace = getattr(hypothesis, "reasoning_trace", None) or f"Preconditions: {getattr(hypothesis, 'attack_preconditions', [])}"
+        hypothesis_context = f"\nPrioritized hypothesis ({vulnerability_type}, {severity}): {attack_vector}\nReasoning: {reasoning_trace}\n"
+
+    failure_context = ""
+    if previous_failures:
+        failure_lines = [
+            f"- {item.get('candidate_id', 'unknown')} [{item.get('category', 'unknown')}]: {str(item.get('feedback', item.get('error', '')))[:500]}"
+            for item in previous_failures[:10] if isinstance(item, dict)
+        ]
+        if failure_lines:
+            failure_context = "\nPREVIOUS FAILED CANDIDATES:\n" + "\n".join(failure_lines) + "\n"
+
     return f"""Your previous candidate ExploitModule failed to compile or failed to breach the security invariant in the EVM.
+{hypothesis_context}{failure_context}
 
 --- FOUNDRY EVM EXECUTION FEEDBACK ---
 {error_feedback}
@@ -382,6 +451,320 @@ def extract_contract_body(clean_code: str, contract_name: str = "ExploitModule")
         body_tokens = tokens[target_start_idx + 1 : target_end_idx]
         return " ".join(t.value for t in body_tokens)
     return None
+
+
+@dataclass
+class ContractNormalizationOutcome:
+    """Full, auditable result of the mechanical contract-name repair."""
+
+    code: str
+    renamed: bool = False
+    original_name: str = ""
+    reason: str = ""
+    renamed_declarations: int = 0
+    renamed_references: int = 0
+
+
+# Keywords that introduce a NEW declaration. An identifier in such a position is
+# a declaration name, NOT a reference to the contract type - rewriting it would
+# silently rename an unrelated declaration.
+_DECLARATION_KEYWORDS = {
+    "contract", "interface", "library", "struct", "enum", "event", "error",
+    "modifier", "function", "constructor", "type",
+}
+
+# Keywords after which the identifier denotes the contract TYPE.
+_TYPE_CONTEXT_KEYWORDS = {"new", "is", "using"}
+
+# Keywords that make the preceding identifier a type followed by a modifier
+# (`VaultAttack payable x;` -> the identifier is the type).
+_MODIFIER_KEYWORDS = {
+    "public", "private", "internal", "memory", "storage", "calldata",
+    "immutable", "constant", "payable", "indexed", "override", "virtual",
+}
+
+# Keywords after which an identifier denotes an event or a custom error.
+_EVENT_ERROR_KEYWORDS = {"emit", "revert"}
+
+# Tokens that can precede a type inside a declaration head.
+_TYPE_TOKENS = {
+    "address", "uint", "uint256", "int", "bool", "string", "bytes", "mapping",
+}
+
+# Tokens that terminate a declared NAME (`uint256 VaultAttack = 1;`).
+_NAME_TERMINATORS = {"=", ";", ",", ")", "["}
+
+
+def _is_type_ish_token(tok: Optional[SolidityToken]) -> bool:
+    """True when the token can be the type part of a declaration head."""
+    if tok is None:
+        return False
+    if tok.type == SolidityTokenType.IDENT:
+        return True
+    if tok.type == SolidityTokenType.KEYWORD and tok.value in _TYPE_TOKENS:
+        return True
+    if tok.type == SolidityTokenType.RPAREN:
+        return True
+    if tok.value == "]":
+        return True
+    return False
+
+
+def analyze_contract_normalization(
+    code: str,
+    contract_name: str = "ExploitModule"
+) -> ContractNormalizationOutcome:
+    """
+    Analyzes whether the exploit contract can be renamed mechanically and, if so,
+    performs the rename.
+
+    RENAME POLICY (proof based, fail-closed)
+    ----------------------------------------
+    Only TWO kinds of tokens are rewritten:
+
+    1. the declaration itself (`contract <OldName>` -> `contract ExploitModule`);
+    2. PROVEN references to that very contract - an identifier that cannot be
+       anything else than a reference to the top-level contract type.
+
+    Everything else is either left untouched or causes the whole repair to be
+    declined:
+
+    * identifiers inside `import` statements are NEVER rewritten (an imported
+      symbol must not be aliased into the target contract);
+    * member names (`x.OldName`) are NEVER rewritten (different namespace);
+    * an identifier that DECLARES another symbol with the same name (an
+      `interface`, `library`, `struct`, `enum`, `event`, `error`, `modifier`,
+      `function`, state variable or parameter of that name) makes the name
+      ambiguous - the repair is declined instead of corrupting the file;
+    * an identifier that shadows the contract in an inner scope is likewise
+      ambiguous and declines the repair.
+
+    Comments and string literals are never touched: the lexer does not emit
+    tokens for them at all.
+    """
+    outcome = ContractNormalizationOutcome(code=code)
+
+    if not code or not code.strip():
+        outcome.reason = "empty_code"
+        return outcome
+
+    tokens, lex_err = tokenize_solidity(code)
+    if lex_err:
+        outcome.reason = f"lexer_error: {lex_err}"
+        return outcome
+    if not tokens:
+        outcome.reason = "no_tokens"
+        return outcome
+
+    # ------------------------------------------------------------------
+    # 1. Import statements: their identifiers are never rewritten.
+    # ------------------------------------------------------------------
+    import_ranges: List[Tuple[int, int]] = []
+    imported_symbols: List[str] = []
+    idx = 0
+    n = len(tokens)
+    while idx < n:
+        tok = tokens[idx]
+        if tok.type == SolidityTokenType.KEYWORD and tok.value == "import":
+            start = idx
+            cursor = idx + 1
+            paren_depth = 0
+            while cursor < n:
+                t = tokens[cursor]
+                if t.type == SolidityTokenType.LPAREN:
+                    paren_depth += 1
+                elif t.type == SolidityTokenType.RPAREN:
+                    paren_depth -= 1
+                elif t.type == SolidityTokenType.SEMICOLON and paren_depth == 0:
+                    break
+                cursor += 1
+            if cursor < n:
+                import_ranges.append((start, cursor + 1))
+                for k in range(start, cursor + 1):
+                    t = tokens[k]
+                    if t.type == SolidityTokenType.IDENT and t.value not in ("from", "as"):
+                        imported_symbols.append(t.value)
+                idx = cursor + 1
+                continue
+        idx += 1
+
+    def _in_import(token_index: int) -> bool:
+        for start, end in import_ranges:
+            if start <= token_index < end:
+                return True
+        return False
+
+    # ------------------------------------------------------------------
+    # 2. Top-level contract declarations.
+    # ------------------------------------------------------------------
+    top_level_contracts: List[Tuple[str, int]] = []
+    brace_depth = 0
+    idx = 0
+    while idx < n:
+        tok = tokens[idx]
+        if tok.type == SolidityTokenType.LBRACE:
+            brace_depth += 1
+        elif tok.type == SolidityTokenType.RBRACE:
+            brace_depth -= 1
+        elif (
+            brace_depth == 0
+            and tok.type == SolidityTokenType.KEYWORD
+            and tok.value == "contract"
+            and idx + 1 < n
+            and tokens[idx + 1].type == SolidityTokenType.IDENT
+        ):
+            top_level_contracts.append((tokens[idx + 1].value, idx + 1))
+        idx += 1
+
+    if not top_level_contracts:
+        outcome.reason = "no_top_level_contract"
+        return outcome
+    if len(top_level_contracts) > 1:
+        outcome.reason = "ambiguous_multiple_top_level_contracts"
+        return outcome
+
+    old_name, declaration_index = top_level_contracts[0]
+
+    if old_name == contract_name:
+        outcome.reason = "already_canonical"
+        return outcome
+
+    if old_name in imported_symbols:
+        # An imported symbol shares the name: the reference cannot be resolved.
+        outcome.reason = "ambiguous_import_name_collision"
+        outcome.original_name = old_name
+        return outcome
+
+    # ------------------------------------------------------------------
+    # 3. Classify every occurrence of the old name.
+    # ------------------------------------------------------------------
+    rename_positions: List[int] = []
+    for i, tok in enumerate(tokens):
+        if tok.type != SolidityTokenType.IDENT or tok.value != old_name:
+            continue
+
+        if i == declaration_index:
+            rename_positions.append(i)
+            continue
+
+        if _in_import(i):
+            # Import statements are never rewritten.
+            continue
+
+        prev = tokens[i - 1] if i > 0 else None
+        nxt = tokens[i + 1] if i + 1 < n else None
+
+        if prev is None:
+            outcome.reason = "ambiguous_bare_identifier"
+            outcome.original_name = old_name
+            return outcome
+
+        # Member access target: `x.OldName` is a member, not the type.
+        if prev.value == ".":
+            continue
+
+        if prev.type == SolidityTokenType.KEYWORD:
+            if prev.value in _DECLARATION_KEYWORDS:
+                # Another declaration with the same name: the identifier is a
+                # declaration name, not a reference to the contract type.
+                outcome.reason = "ambiguous_declaration_collision"
+                outcome.original_name = old_name
+                return outcome
+            if prev.value in _EVENT_ERROR_KEYWORDS:
+                outcome.reason = "ambiguous_event_or_error_reference"
+                outcome.original_name = old_name
+                return outcome
+            if prev.value in _TYPE_CONTEXT_KEYWORDS:
+                # `new OldName(...)`, `contract X is OldName`, `using OldName for Y`
+                rename_positions.append(i)
+                continue
+
+        # `<type> OldName <modifier>` -> the identifier is the TYPE.
+        if (
+            nxt is not None
+            and nxt.type == SolidityTokenType.KEYWORD
+            and nxt.value in _MODIFIER_KEYWORDS
+        ):
+            rename_positions.append(i)
+            continue
+
+        # `OldName.member` -> static access on the type.
+        if nxt is not None and nxt.value == ".":
+            rename_positions.append(i)
+            continue
+
+        # `<type> OldName ...` where the identifier DECLARES a name -> the
+        # contract type is shadowed in this scope, the rename is ambiguous.
+        if _is_type_ish_token(prev) and nxt is not None and nxt.value in _NAME_TERMINATORS:
+            outcome.reason = "ambiguous_shadowed_declaration"
+            outcome.original_name = old_name
+            return outcome
+
+        # Everything else is a proven reference to the contract type.
+        rename_positions.append(i)
+
+    if not rename_positions:
+        outcome.reason = "no_reference_to_rename"
+        outcome.original_name = old_name
+        return outcome
+
+    # ------------------------------------------------------------------
+    # 4. Apply the rename (identifiers only - comments/strings untouched).
+    # ------------------------------------------------------------------
+    pieces: List[str] = []
+    cursor = 0
+    for i in rename_positions:
+        tok = tokens[i]
+        pieces.append(code[cursor:tok.pos])
+        pieces.append(contract_name)
+        cursor = tok.pos + len(old_name)
+
+    pieces.append(code[cursor:])
+    outcome.code = "".join(pieces)
+    outcome.renamed = True
+    outcome.original_name = old_name
+    outcome.reason = "normalized"
+    outcome.renamed_declarations = 1
+    outcome.renamed_references = max(0, len(rename_positions) - 1)
+    return outcome
+
+
+def normalize_exploit_contract_name(
+    code: str,
+    contract_name: str = "ExploitModule"
+) -> Tuple[str, bool, str]:
+    """
+    Renames a single top-level `contract <OtherName>` declaration to the mandatory
+    `contract ExploitModule` name required by the verification harness.
+
+    This is a purely mechanical, semantics-preserving repair: it fixes the single
+    most common failure mode where the model emits a descriptively named contract
+    (`VaultAttack`, `ReentrancyDrain`, ...) instead of the harness-mandated name.
+    Without it, such candidates are rejected before Foundry ever runs and can never
+    produce a verifiable reward signal.
+
+    Safety rules (fail-closed, never rewrite when uncertain):
+    - Only the declaration and PROVEN references to it are rewritten; same-named
+      interfaces, libraries, structs, events, functions, state variables and
+      parameters are never touched - the repair is declined instead.
+    - String literals and comments are untouched (the lexer emits no tokens for
+      them).
+    - Identifiers inside `import` statements are NEVER rewritten, so an imported
+      symbol can never be silently aliased into the target contract.
+    - The rename is applied ONLY when exactly ONE top-level contract is declared.
+      Multiple contracts mean the intent is ambiguous, so the code is left
+      untouched.
+    - If `contract ExploitModule` is already present, the code is left untouched.
+    - The operation is idempotent: running it on already normalized code is a
+      no-op.
+
+    Returns:
+        (normalized_code, was_renamed, original_contract_name)
+    """
+    outcome = analyze_contract_normalization(code, contract_name)
+    if outcome.renamed:
+        return outcome.code, True, outcome.original_name
+    return code, False, ""
 
 
 def validate_exploit_format(code: str) -> Tuple[bool, str]:
@@ -659,7 +1042,9 @@ def parse_model_response(
     raw_text: str,
     attempt_idx: int = 1,
     generated_token_ids: Optional[List[int]] = None,
-    prompt_text: str = ""
+    prompt_text: str = "",
+    hypothesis: Optional[Any] = None,
+    candidate_id: Optional[str] = None,
 ) -> ExploitPayload:
     """
     Parses raw LLM text into a structured ExploitPayload.
@@ -668,7 +1053,28 @@ def parse_model_response(
     Preserves exact generated token IDs and prompt text for training lineage.
     """
     code = extract_solidity_code(raw_text)
+
+    # Mechanical repair: rename a single descriptively-named top-level contract to the
+    # harness-mandated `ExploitModule`. Without this, candidates that are otherwise
+    # valid never reach Foundry and can never yield a verifiable reward.
+    normalization_reason = ""
+    if config.ENABLE_CONTRACT_NAME_NORMALIZATION:
+        outcome = analyze_contract_normalization(code)
+        code = outcome.code
+        was_renamed = outcome.renamed
+        original_name = outcome.original_name if outcome.renamed else ""
+        normalization_reason = outcome.reason
+    else:
+        was_renamed, original_name = False, ""
+        normalization_reason = "disabled_by_configuration"
+
     is_valid, format_reason = validate_exploit_format(code)
+    if was_renamed:
+        # The rename is a mechanical repair, not a validation failure: after it the
+        # candidate satisfies the harness contract. The format error reason stays
+        # reserved for genuine validation failures; the repair event is recorded
+        # separately on the payload so it remains auditable.
+        format_reason = "" if is_valid else format_reason
 
     parts = raw_text.split("```")
     reasoning = parts[0].strip() if parts else raw_text[:300]
@@ -688,24 +1094,65 @@ def parse_model_response(
     elif "logic" in lower_r or "invariant" in lower_r:
         vuln_type = "LogicFlawInvariantBreach"
 
-    hypothesis = AttackHypothesis(
-        vulnerability_type=vuln_type,
-        reasoning_trace=reasoning,
-        attack_vector="Synthesized EVM interaction sequence against trusted verification harness."
-    )
+    # Resolve and preserve hypothesis provenance
+    from core.schemas import VulnerabilityHypothesis
+    hypothesis_id = None
+    if hypothesis is not None:
+        hypothesis_id = getattr(hypothesis, "hypothesis_id", None)
+        if isinstance(hypothesis, dict):
+            hypothesis_id = hypothesis.get("hypothesis_id")
+        if not hypothesis_id and hasattr(hypothesis, "source_finding_id"):
+            hypothesis_id = hypothesis.source_finding_id
 
-    return ExploitPayload(
-        target_name=target.name,
-        hypothesis=hypothesis,
-        test_code=code if code else "// Error: No valid Solidity code generated\n",
-        test_filename="ExploitModule.sol",
-        attempt_number=attempt_idx,
-        raw_model_response=raw_text,
-        format_valid=is_valid,
-        format_error_reason=format_reason,
-        prompt_text=prompt_text,
-        generated_token_ids=generated_token_ids
-    )
+    if isinstance(hypothesis, AttackHypothesis):
+        attack_hyp = hypothesis
+        if hypothesis_id and not attack_hyp.hypothesis_id:
+            attack_hyp.hypothesis_id = hypothesis_id
+    elif isinstance(hypothesis, VulnerabilityHypothesis):
+        attack_hyp = AttackHypothesis(
+            vulnerability_type=hypothesis.vulnerability_class,
+            reasoning_trace=f"Target: {hypothesis.affected_contract}.{hypothesis.affected_function or 'target'}. Preconditions: {hypothesis.attack_preconditions}",
+            attack_vector=" -> ".join(hypothesis.attack_sequence) if hypothesis.attack_sequence else "Synthesized EVM interaction sequence against trusted verification harness.",
+            affected_functions=[hypothesis.affected_function] if hypothesis.affected_function else [],
+            confidence_score=hypothesis.confidence,
+            hypothesis_id=hypothesis.hypothesis_id,
+        )
+    elif isinstance(hypothesis, dict):
+        attack_hyp = AttackHypothesis(
+            vulnerability_type=hypothesis.get("vulnerability_class") or hypothesis.get("vulnerability_type") or vuln_type,
+            reasoning_trace=str(hypothesis.get("reasoning_trace", reasoning)),
+            attack_vector=str(hypothesis.get("attack_vector", "Synthesized EVM interaction sequence against trusted verification harness.")),
+            confidence_score=float(hypothesis.get("confidence", 1.0)),
+            hypothesis_id=hypothesis.get("hypothesis_id"),
+        )
+    else:
+        attack_hyp = AttackHypothesis(
+            vulnerability_type=vuln_type,
+            reasoning_trace=reasoning,
+            attack_vector="Synthesized EVM interaction sequence against trusted verification harness.",
+            hypothesis_id=hypothesis_id
+        )
+
+    payload_kwargs = {
+        "target_name": target.name,
+        "hypothesis": attack_hyp,
+        "test_code": code if code else "// Error: No valid Solidity code generated\n",
+        "test_filename": "ExploitModule.sol",
+        "attempt_number": attempt_idx,
+        "raw_model_response": raw_text,
+        "format_valid": is_valid,
+        "format_error_reason": format_reason,
+        "contract_name_normalized": was_renamed,
+        "original_contract_name": original_name if was_renamed else "",
+        "contract_normalization_reason": normalization_reason,
+        "prompt_text": prompt_text,
+        "generated_token_ids": generated_token_ids,
+        "hypothesis_id": hypothesis_id,
+    }
+    if candidate_id:
+        payload_kwargs["candidate_id"] = candidate_id
+
+    return ExploitPayload(**payload_kwargs)
 
 
 def synthesize_exploit_gemini(
@@ -728,6 +1175,6 @@ def synthesize_exploit_gemini(
         contents=prompt,
         config={"system_instruction": EXPLOIT_ENGINEER_SYSTEM_PROMPT, "temperature": 0.3}
     )
-    payload = parse_model_response(target, response.text or "", prompt_text=prompt)
+    payload = parse_model_response(target, response.text or "", prompt_text=prompt, hypothesis=hypothesis)
     payload.generator_engine = "gemini-flash"
     return payload

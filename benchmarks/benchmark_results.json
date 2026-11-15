@@ -1,0 +1,2295 @@
+{
+  "run_id": "run_1794216677_744a687",
+  "benchmark_version": "1.0.0",
+  "execution_mode": "SYNTHETIC_SMOKE_TEST",
+  "is_synthetic_smoke": true,
+  "model_id": null,
+  "provider": "synthetic_smoke",
+  "baseline5_provider": "synthetic_smoke",
+  "baseline5_model_id": "synthetic_smoke",
+  "git_commit_sha": "744a687a64f24d6518865a9e25590e58afb0f6d0",
+  "evaluated_at": "2026-11-09 09:31:17Z",
+  "total_targets_evaluated": 16,
+  "vulnerable_targets": 12,
+  "synthetic_controls": 4,
+  "artifacts_directory": "C:/TMP/pytest-of-Telekom/pytest-243/test_target_artifact_preserves0/run_1794216677_744a687",
+  "reproducibility_manifest": "C:/TMP/pytest-of-Telekom/pytest-243/test_target_artifact_preserves0/run_1794216677_744a687/reproducibility_manifest.json",
+  "reproducibility_manifest_summary": {
+    "manifest_version": "1.0.0",
+    "run_id": "run_1794216677_744a687",
+    "timestamp_utc": "2026-11-09 09:31:17Z",
+    "execution_mode": "SYNTHETIC_SMOKE_TEST",
+    "is_synthetic_smoke": true,
+    "git": {
+      "commit_sha": "744a687a64f24d6518865a9e25590e58afb0f6d0",
+      "is_dirty": true,
+      "branch": "feat/empirical-benchmark-runner"
+    },
+    "environment": {
+      "python_version": "3.10.11",
+      "os_platform": "win32",
+      "slither_version": null,
+      "forge_version": null,
+      "solc_version": null,
+      "modal_version": "1.5.5",
+      "modal_authenticated": true,
+      "package_versions": {
+        "pydantic": "2.13.4",
+        "torch": "2.5.1+cu121",
+        "pytest": "9.1.1",
+        "google-genai": "2.11.0",
+        "openai": "2.46.0"
+      },
+      "provider_configs": {
+        "gemini": {
+          "available": false
+        },
+        "openai": {
+          "available": false
+        }
+      },
+      "remote_evm_environment": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      }
+    },
+    "dataset": {
+      "version": "1.0.0",
+      "dataset_sha256": "919fe6774a90b719c3be37f0f578323f526e1d4d95e7479f8b5f51b6ab811c89",
+      "target_count": 16,
+      "target_ids": [
+        "REENT-01",
+        "ERC4626-01",
+        "AC-01",
+        "ORACLE-01",
+        "FLASH-01",
+        "SIG-01",
+        "STATE-01",
+        "BIZ-01",
+        "LIQ-01",
+        "BRIDGE-01",
+        "DOS-01",
+        "PREC-01",
+        "SAFE-01",
+        "SAFE-02",
+        "SAFE-03",
+        "SAFE-04"
+      ]
+    },
+    "adapters": {
+      "baseline_1": {
+        "baseline_id": "baseline_1",
+        "baseline_name": "Static Analysis Only (Slither)",
+        "availability_status": "AVAILABLE",
+        "availability_reason": null,
+        "command": null,
+        "argv": null,
+        "planned_command": "synthetic_smoke_runner --baseline baseline_1",
+        "planned_argv": [
+          "synthetic_smoke_runner",
+          "--baseline",
+          "baseline_1"
+        ],
+        "timeout_sec": 5,
+        "resource_budget": {
+          "timeout_sec": 5,
+          "mode": "synthetic_smoke"
+        },
+        "config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+        "planned_timeout_sec": 5,
+        "planned_resource_budget": {
+          "timeout_sec": 5,
+          "mode": "synthetic_smoke"
+        },
+        "planned_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+        "duration_seconds": 0.023,
+        "target_count": 16,
+        "completed_targets": 16,
+        "cost_status": "unmeasured",
+        "cost_usd": null,
+        "remote_evm_environment": {
+          "remote_os": "Debian GNU/Linux 12 (bookworm)",
+          "remote_platform": "linux",
+          "image_tag": "debian:12-slim-foundry",
+          "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+          "solc_versions": [
+            "0.8.20",
+            "0.8.24"
+          ],
+          "exact_forge_argv": [
+            "forge",
+            "test",
+            "--offline",
+            "--json",
+            "-vvvv"
+          ],
+          "working_directory": "/tmp/aegis_sandbox",
+          "compiler_settings": {
+            "evm_version": "paris",
+            "optimizer": true,
+            "optimizer_runs": 200,
+            "via_ir": false
+          }
+        },
+        "artifact_files": [
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/REENT-01.json",
+            "size_bytes": 2272,
+            "sha256": "f9e0b9aa41fef1dd5099561c9c04420da95960b5a5aa09b703c30614cd61907f"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/ERC4626-01.json",
+            "size_bytes": 2269,
+            "sha256": "436d7c145a4af1a60f60c9db13926812ade1949c22c1cd3fc6346de50566032e"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/AC-01.json",
+            "size_bytes": 2267,
+            "sha256": "95fc826f85fc80f48821d981d7069049226292b225792940ad18095399db954c"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/ORACLE-01.json",
+            "size_bytes": 2268,
+            "sha256": "719908ffa537478941d7ba0b4240345f37c1b24befb5636eaef4134c306cb0c6"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/FLASH-01.json",
+            "size_bytes": 2264,
+            "sha256": "462827b199ea2b5bb2f2543cd37358ee43154c6bea4af9653e4aa9041049cc03"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/SIG-01.json",
+            "size_bytes": 2254,
+            "sha256": "09626c2b4e599d621605775d26304a60c154ac0307e7ab07af151c339f8df04a"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/STATE-01.json",
+            "size_bytes": 2267,
+            "sha256": "53fb51fd65512d2c259cffddc69e876aa6a6c757a600e6f8e4072d86a0b9a3f7"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/BIZ-01.json",
+            "size_bytes": 2251,
+            "sha256": "50d5e1f8f89190f1a5608d9a273a351ba2d8639c87df8972d5dd95f53fc32e1a"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/LIQ-01.json",
+            "size_bytes": 2251,
+            "sha256": "c27b1ed596b2e06ab35512b10ba7ecd8b7aa132d144c7f8b06e8b6e638aa6bca"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/BRIDGE-01.json",
+            "size_bytes": 2270,
+            "sha256": "42b1a5e973a406e8f308a9f9199e5e1d8e1d20d9dc17f313d14b2414ce6ab524"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/DOS-01.json",
+            "size_bytes": 2265,
+            "sha256": "09ae9f0e9766bf10fc48c105a6022d0decc7fe3eb6f79dc94befaaf5295146a3"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/PREC-01.json",
+            "size_bytes": 2259,
+            "sha256": "dcab7d28ad2fc6697bfee5fab78b07bd712d174faeba2b59d5d96c8ada463c4b"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/SAFE-01.json",
+            "size_bytes": 2272,
+            "sha256": "bf8d90894f22f21186e5754c9b8373a2131613fe861afb205252d696cdc84dab"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/SAFE-02.json",
+            "size_bytes": 2285,
+            "sha256": "fa44a5794ccfbff3c456369164a0baedd8ec18bc51f2c1d4d40414994f605d01"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/SAFE-03.json",
+            "size_bytes": 2257,
+            "sha256": "cb2461d20c35cbbd56ce1c0257d546f2d745f612c4ad926f2937cb42934f5dda"
+          },
+          {
+            "relative_path": "run_1794216677_744a687/baseline_1/SAFE-04.json",
+            "size_bytes": 2255,
+            "sha256": "78d2f26d39a5b95a2395ece6d531c14214272ef7f833a58f4090aa763db04bd6"
+          }
+        ],
+        "per_target_provenance": {
+          "REENT-01": {
+            "target_name": "Vault",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "REENT-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target REENT-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "ERC4626-01": {
+            "target_name": "ERC4626Vault",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "ERC4626-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target ERC4626-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "NO_BREACH",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "AC-01": {
+            "target_name": "AccessControlVault",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "AC-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target AC-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "ORACLE-01": {
+            "target_name": "OracleLendingPool",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "ORACLE-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target ORACLE-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "NO_BREACH",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "FLASH-01": {
+            "target_name": "FlashLoanRewardPool",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "FLASH-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target FLASH-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "NO_BREACH",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "SIG-01": {
+            "target_name": "SignatureReplayWallet",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "SIG-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target SIG-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "NO_BREACH",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "STATE-01": {
+            "target_name": "RewardDistributorLogic",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "STATE-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target STATE-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "NO_BREACH",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "BIZ-01": {
+            "target_name": "FeeShareYieldVault",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "BIZ-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target BIZ-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "NO_BREACH",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "LIQ-01": {
+            "target_name": "LendingLiquidation",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "LIQ-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target LIQ-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "NO_BREACH",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "BRIDGE-01": {
+            "target_name": "CrossContractBridge",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "BRIDGE-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target BRIDGE-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "NO_BREACH",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "DOS-01": {
+            "target_name": "AuctionDoS",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "DOS-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target DOS-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "PREC-01": {
+            "target_name": "PrecisionStakingPool",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "PREC-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target PREC-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "NO_BREACH",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "SAFE-01": {
+            "target_name": "SecureVault",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "SAFE-01"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target SAFE-01",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "SAFE-02": {
+            "target_name": "SecureAccessControlVault",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "SAFE-02"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target SAFE-02",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "SAFE-03": {
+            "target_name": "SecureERC4626Vault",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "SAFE-03"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target SAFE-03",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "NO_BREACH",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          },
+          "SAFE-04": {
+            "target_name": "SecureOraclePool",
+            "status": "SUCCESS",
+            "unavailable_reason": null,
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "SAFE-04"
+            ],
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target SAFE-04",
+            "provider": null,
+            "model_id": null,
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+            "prompt_hash": null,
+            "correlation_id": null,
+            "duration_seconds": 0.01,
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "orchestration_status": "COMPLETED",
+            "generation_outcome": "NOT_RUN",
+            "evm_outcome": "NOT_RUN",
+            "security_verdict": "NO_BREACH",
+            "replay_status": "NOT_ELIGIBLE",
+            "persistence_status": "NOT_ELIGIBLE",
+            "replay_evidence": null,
+            "remote_evm_provenance": null,
+            "modal_invocation_provenance": null
+          }
+        }
+      }
+    },
+    "remote_evm_environment": {
+      "remote_os": "Debian GNU/Linux 12 (bookworm)",
+      "remote_platform": "linux",
+      "image_tag": "debian:12-slim-foundry",
+      "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+      "solc_versions": [
+        "0.8.20",
+        "0.8.24"
+      ],
+      "exact_forge_argv": [
+        "forge",
+        "test",
+        "--offline",
+        "--json",
+        "-vvvv"
+      ],
+      "working_directory": "/tmp/aegis_sandbox",
+      "compiler_settings": {
+        "evm_version": "paris",
+        "optimizer": true,
+        "optimizer_runs": 200,
+        "via_ir": false
+      }
+    },
+    "total_duration_seconds": 0.06
+  },
+  "baselines": {
+    "baseline_1": {
+      "baseline_id": "baseline_1",
+      "baseline_name": "Static Analysis Only (Slither)",
+      "status": "SUCCESS",
+      "status_reason": null,
+      "total_targets": 16,
+      "completed_targets": 16,
+      "true_positives": 3,
+      "false_positives": 2,
+      "true_negatives": 2,
+      "false_negatives": 9,
+      "precision": 0.6,
+      "recall": 0.25,
+      "f1_score": 0.3529,
+      "false_positive_rate": 0.5,
+      "false_negative_rate": 0.75,
+      "exploit_success_rate": 0.0,
+      "verified_finding_rate": 0.0,
+      "replay_reproducibility_rate": 0.0,
+      "candidates_per_verified_finding": Infinity,
+      "average_duration_seconds": 0.01,
+      "estimated_cost_usd_per_target": null,
+      "target_artifacts": [
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "REENT-01",
+          "target_name": "Vault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": true,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/REENT-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/REENT-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target REENT-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "REENT-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "REENT-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "ERC4626-01",
+          "target_name": "ERC4626Vault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": false,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/ERC4626-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/ERC4626-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target ERC4626-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "ERC4626-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "ERC4626-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "AC-01",
+          "target_name": "AccessControlVault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": true,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/AC-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/AC-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target AC-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "AC-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "AC-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "ORACLE-01",
+          "target_name": "OracleLendingPool",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": false,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/ORACLE-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/ORACLE-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target ORACLE-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "ORACLE-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "ORACLE-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "FLASH-01",
+          "target_name": "FlashLoanRewardPool",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": false,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/FLASH-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/FLASH-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target FLASH-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "FLASH-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "FLASH-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "SIG-01",
+          "target_name": "SignatureReplayWallet",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": false,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/SIG-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/SIG-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target SIG-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "SIG-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "SIG-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "STATE-01",
+          "target_name": "RewardDistributorLogic",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": false,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/STATE-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/STATE-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target STATE-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "STATE-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "STATE-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "BIZ-01",
+          "target_name": "FeeShareYieldVault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": false,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/BIZ-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/BIZ-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target BIZ-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "BIZ-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "BIZ-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "LIQ-01",
+          "target_name": "LendingLiquidation",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": false,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/LIQ-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/LIQ-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target LIQ-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "LIQ-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "LIQ-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "BRIDGE-01",
+          "target_name": "CrossContractBridge",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": false,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/BRIDGE-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/BRIDGE-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target BRIDGE-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "BRIDGE-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "BRIDGE-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "DOS-01",
+          "target_name": "AuctionDoS",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": true,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/DOS-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/DOS-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target DOS-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "DOS-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "DOS-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "PREC-01",
+          "target_name": "PrecisionStakingPool",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": false,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/PREC-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/PREC-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target PREC-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "PREC-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "PREC-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "SAFE-01",
+          "target_name": "SecureVault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": true,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/SAFE-01_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/SAFE-01_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target SAFE-01",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "SAFE-01"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "SAFE-01"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "SAFE-02",
+          "target_name": "SecureAccessControlVault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": true,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/SAFE-02_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/SAFE-02_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target SAFE-02",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "SAFE-02"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "SAFE-02"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "SAFE-03",
+          "target_name": "SecureERC4626Vault",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": false,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/SAFE-03_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/SAFE-03_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target SAFE-03",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "SAFE-03"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "SAFE-03"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        },
+        {
+          "baseline_id": "baseline_1",
+          "target_id": "SAFE-04",
+          "target_name": "SecureOraclePool",
+          "status": "SUCCESS",
+          "unavailable_reason": null,
+          "detected": false,
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "stdout_path": "run_1794216677_744a687/baseline_1/SAFE-04_stdout.txt",
+          "stderr_path": "run_1794216677_744a687/baseline_1/SAFE-04_stderr.txt",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "input_sha256": null,
+          "output_sha256": null,
+          "process_exit_code": null,
+          "utc_start_time": null,
+          "utc_end_time": null,
+          "tool_metadata": {
+            "is_synthetic_smoke": true,
+            "command": "synthetic_smoke_runner --baseline baseline_1 --target SAFE-04",
+            "argv": [
+              "synthetic_smoke_runner",
+              "--baseline",
+              "baseline_1",
+              "--target",
+              "SAFE-04"
+            ],
+            "exit_code": 0,
+            "stdout_sha256": "04ead9062679b1fd387437ca1661e5bd957a7446fc341a2aaebca502a0591c3d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "timeout_sec": 5,
+            "resource_budget": {
+              "timeout_sec": 5,
+              "mode": "synthetic_smoke"
+            },
+            "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306"
+          },
+          "raw_output": {
+            "mock_run": true
+          },
+          "logs": [
+            "[SYNTHETIC_SMOKE_FIXTURE]"
+          ],
+          "argv": [
+            "synthetic_smoke_runner",
+            "--baseline",
+            "baseline_1",
+            "--target",
+            "SAFE-04"
+          ],
+          "timeout_sec": 5,
+          "resource_budget": {
+            "timeout_sec": 5,
+            "mode": "synthetic_smoke"
+          },
+          "effective_config_hash": "b84e8bff2efdfd9b79b0c87b624669472c1c46289b9950fc92d9391862483306",
+          "prompt_hash": null,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "replay_evidence": null,
+          "remote_evm_provenance": null,
+          "modal_invocation_provenance": null,
+          "execution_status": "SUCCESS"
+        }
+      ],
+      "details": [
+        {
+          "target_id": "REENT-01",
+          "is_vulnerable": true,
+          "detected": true,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "ERC4626-01",
+          "is_vulnerable": true,
+          "detected": false,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "AC-01",
+          "is_vulnerable": true,
+          "detected": true,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "ORACLE-01",
+          "is_vulnerable": true,
+          "detected": false,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "FLASH-01",
+          "is_vulnerable": true,
+          "detected": false,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "SIG-01",
+          "is_vulnerable": true,
+          "detected": false,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "STATE-01",
+          "is_vulnerable": true,
+          "detected": false,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "BIZ-01",
+          "is_vulnerable": true,
+          "detected": false,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "LIQ-01",
+          "is_vulnerable": true,
+          "detected": false,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "BRIDGE-01",
+          "is_vulnerable": true,
+          "detected": false,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "DOS-01",
+          "is_vulnerable": true,
+          "detected": true,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "PREC-01",
+          "is_vulnerable": true,
+          "detected": false,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "SAFE-01",
+          "is_vulnerable": false,
+          "detected": true,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "SAFE-02",
+          "is_vulnerable": false,
+          "detected": true,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "DETECTED_POTENTIAL_VULNERABILITY",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "SAFE-03",
+          "is_vulnerable": false,
+          "detected": false,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        },
+        {
+          "target_id": "SAFE-04",
+          "is_vulnerable": false,
+          "detected": false,
+          "orchestration_status": "COMPLETED",
+          "generation_outcome": "NOT_RUN",
+          "evm_outcome": "NOT_RUN",
+          "security_verdict": "NO_BREACH",
+          "replay_status": "NOT_ELIGIBLE",
+          "persistence_status": "NOT_ELIGIBLE",
+          "candidates_generated": 0,
+          "verified_breaches": 0,
+          "replayed_breaches": 0,
+          "duration_seconds": 0.01,
+          "cost_usd": null,
+          "status": "SUCCESS"
+        }
+      ]
+    }
+  }
+}

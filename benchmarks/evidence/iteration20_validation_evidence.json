@@ -1,0 +1,163 @@
+{
+  "schema_version": "1.0.0",
+  "generator": "benchmarks/validate_iteration20_evidence.py",
+  "code_sha": "64392a7bc4d4eba45a0fc15aacd4b32e3761dd98",
+  "generated_at_utc": "2026-11-10T09:22:46Z",
+  "scope": {
+    "iteration": 20,
+    "purpose": "validate the fixed production runtime-identity producer and the evidence of the fix",
+    "evidence_dir": "benchmarks/evidence/iteration20_producer_capture",
+    "stage": "evm_sandbox",
+    "target_id": "ITER20-01",
+    "runtime": "local producer capture - no Modal invocation, no deployment, no GPU, no change to a deployed worker",
+    "benchmark_run": "not touched - the 16-target run on disk still fails the Iteration 16-18 validators and this iteration does not change that"
+  },
+  "git": {
+    "head": "64392a7bc4d4eba45a0fc15aacd4b32e3761dd98",
+    "branch": "minimax/iteration-14-evidence-integrity",
+    "dirty": false,
+    "tracked_changes": [],
+    "untracked_paths": [
+      "benchmarks/evidence/iteration20_producer_capture/",
+      "benchmarks/evidence/iteration20_validation_evidence.json",
+      "test-results-iteration18-local.xml",
+      "test-results-iteration19-local.xml"
+    ]
+  },
+  "checks": [
+    {
+      "check": "P2.1.producer_source_has_no_running_app_call",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the source of the production producer contains no call of modal.running_app, which is a module and not a callable in Modal SDK 1.5.5",
+      "attempted": true,
+      "executed": true,
+      "producer_source": "modal_app.py",
+      "calls": []
+    },
+    {
+      "check": "P2.2.no_live_invocation_and_no_deployment",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the capture was made locally: no Modal invocation, no deployment, no GPU and no change to a deployed worker",
+      "attempted": true,
+      "executed": true,
+      "live_modal_invocation": false,
+      "deployment": "none",
+      "gpu": "none"
+    },
+    {
+      "check": "P2.3.sentinel_never_touched",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the sentinel that stood in for modal.running_app while the producer ran was never touched",
+      "attempted": true,
+      "executed": true,
+      "accesses": []
+    },
+    {
+      "check": "P2.4.envelope_is_typed_and_worker_side",
+      "status": "PASSED",
+      "error": null,
+      "planned": "every identity fact of the envelope is a typed fact that names the worker side, and the envelope satisfies the unchanged Iteration 18 schema",
+      "attempted": true,
+      "executed": true,
+      "envelope_fields": [
+        "app_id",
+        "container_id",
+        "function_call_id"
+      ]
+    },
+    {
+      "check": "P2.5.app_id_is_an_explicit_absence",
+      "status": "PASSED",
+      "error": null,
+      "planned": "'app_id' is an explicit NOT_AVAILABLE with the exact reason of the producer and holds no value",
+      "attempted": true,
+      "executed": true,
+      "field": "app_id"
+    },
+    {
+      "check": "P2.6.app_page_url_is_an_explicit_absence",
+      "status": "PASSED",
+      "error": null,
+      "planned": "'app_page_url' is an explicit NOT_AVAILABLE with the exact reason of the producer and holds no value",
+      "attempted": true,
+      "executed": true,
+      "field": "app_page_url"
+    },
+    {
+      "check": "P2.7.container_id_is_an_explicit_absence",
+      "status": "PASSED",
+      "error": null,
+      "planned": "'container_id' is an explicit NOT_AVAILABLE with the exact reason of the producer and holds no value",
+      "attempted": true,
+      "executed": true,
+      "field": "container_id"
+    },
+    {
+      "check": "P2.8.client_observation_is_client_side",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the application id and the app page URL are client-side facts with the provider's shape, and the worker envelope holds no client-side fact",
+      "attempted": true,
+      "executed": true,
+      "client_observed": {
+        "app_id": "NOT_AVAILABLE",
+        "app_page_url": "NOT_AVAILABLE"
+      }
+    },
+    {
+      "check": "P2.9.artifact_digest_matches_the_bytes_on_disk",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the SHA-256 of the stage evidence artifact on disk equals the digest the capture record claims",
+      "attempted": true,
+      "executed": true,
+      "recorded_sha256": "cdf0653f5f16a6e8174da65ac37073f7e5f8cf69dffdbffa3a742175f3934820",
+      "actual_sha256": "cdf0653f5f16a6e8174da65ac37073f7e5f8cf69dffdbffa3a742175f3934820"
+    },
+    {
+      "check": "P2.10.stage_evidence_artifact_satisfies_the_contract",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the stage evidence artifact satisfies the unchanged Iteration 18 artifact contract and carries exactly the envelope of the captured response",
+      "attempted": true,
+      "executed": true,
+      "stage": "evm_sandbox",
+      "target_id": "ITER20-01"
+    },
+    {
+      "check": "P2.11.stage_facts_keep_the_side_of_the_envelope",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the facts derived from the envelope keep the side the envelope declared",
+      "attempted": true,
+      "executed": true
+    },
+    {
+      "check": "P2.12.capture_is_bound_to_its_code_sha",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the capture names the commit it was made from, and that commit is the one the report is bound to",
+      "attempted": true,
+      "executed": true,
+      "capture_code_sha": "64392a7bc4d4eba45a0fc15aacd4b32e3761dd98",
+      "reported_code_sha": "64392a7bc4d4eba45a0fc15aacd4b32e3761dd98"
+    }
+  ],
+  "summary": {
+    "checks_total": 12,
+    "checks_passed": 12,
+    "checks_failed": 0,
+    "failed_checks": [],
+    "overall_status": "PASSED"
+  },
+  "interpretation": {
+    "planned": "validate the source of the fixed production producer, the capture of the real producer, the unchanged Iteration 18 artifact and envelope contracts, the worker/client distinction of every fact and the binding of the report to the code SHA it was produced from",
+    "attempted": "the producer source, the sentinel on modal.running_app, the envelope of the capture, the client-side observation, the stage evidence artifact and its digest, and the source binding",
+    "executed": "the checks were executed against the artifacts stored on disk",
+    "observed": "the report states exactly what the capture record and the stage evidence artifact contain; a fact the worker cannot observe is reported as NOT_AVAILABLE with its reason and is never filled in",
+    "reported": "PASSED means every check of the fixed production producer passed; FAILED means at least one did not. The capture is a LOCAL capture of the producer: no Modal invocation was made, no worker was deployed and no live validation is claimed. The deployed workers still need a new deployment to carry the fix, and that is outside this iteration"
+  }
+}

@@ -1,0 +1,8 @@
+Warning: dynamic test linking disabled for 2 files: error: file ./FeeShareYieldVault.sol not found
+Error: Compiler run failed:
+Error (6275): Source "test/FeeShareYieldVault.sol" not found: File not found. Searched the following locations: "/tmp/tmphjy_o1xs".
+ParserError: Source "test/FeeShareYieldVault.sol" not found: File not found. Searched the following locations: "/tmp/tmphjy_o1xs".
+ --> test/FeeShareYieldVaultHarness.t.sol:5:1:
+  |
+5 | import {FeeShareYieldVault} from "./FeeShareYieldVault.sol";
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

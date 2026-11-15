@@ -1,0 +1,7 @@
+Warning: dynamic test linking disabled for 2 files: error: unresolved symbol `_target`
+Error: Compiler run failed:
+Error (7576): Undeclared identifier.
+ --> src/ExploitModule.sol:7:63:
+  |
+7 |     ERC4626Vault public targetContract = ERC4626Vault(payable(_target));
+  |                                                               ^^^^^^^

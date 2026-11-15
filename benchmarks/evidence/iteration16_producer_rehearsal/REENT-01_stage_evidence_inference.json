@@ -1,0 +1,42 @@
+{
+  "absence_records": [
+    {
+      "field": "app_id",
+      "kind": "STAGE_NOT_ATTEMPTED",
+      "reason": "the inference stage was not attempted for this target, so no response was ever requested for 'app_id'"
+    },
+    {
+      "field": "function_call_id",
+      "kind": "STAGE_NOT_ATTEMPTED",
+      "reason": "the inference stage was not attempted for this target, so no response was ever requested for 'function_call_id'"
+    },
+    {
+      "field": "container_id",
+      "kind": "STAGE_NOT_ATTEMPTED",
+      "reason": "the inference stage was not attempted for this target, so no response was ever requested for 'container_id'"
+    }
+  ],
+  "attempted": false,
+  "correlation_id": "corr-REENT-01-1794251219-e893fa46",
+  "executed": false,
+  "provider_response": null,
+  "provider_response_metadata": {
+    "response_byte_length": 4,
+    "response_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+    "response_source": "the response of the inference worker this client invoked",
+    "runtime_identity_byte_length": null,
+    "runtime_identity_sha256": null
+  },
+  "requested_fields": [
+    "app_id",
+    "function_call_id",
+    "container_id"
+  ],
+  "response_received": false,
+  "runtime_envelope_received": false,
+  "runtime_identity": null,
+  "runtime_identity_source": "modal_runtime",
+  "schema_version": "1.0.0",
+  "stage": "inference",
+  "target_id": "REENT-01"
+}

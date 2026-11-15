@@ -4,13 +4,17 @@ import json
 import time
 import uuid
 import modal
+from typing import Optional, List, Dict, Any
 
 # Ensure local core and sandbox packages are in Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.config import config
+from core import r1_bounds as r1
+from core.hypothesis_manager import HypothesisManager
 from core.schemas import (
     TargetProgram,
+    VulnerabilityHypothesis,
     ExploitPayload,
     ExecutionResult,
     VerificationVerdict,
@@ -27,6 +31,7 @@ from core.candidate_lifecycle import (
     compute_prompt_hash
 )
 from core.evaluator import evaluate_execution_trace, create_trajectory_record
+from core.reward_shaping import RewardEvidence, compute_reward_breakdown
 from sandbox.runner import (
     sandbox_image,
     run_payload_in_sandbox,
@@ -63,6 +68,13 @@ gpu_image = (
     .add_local_python_source("core", "sandbox")
 )
 
+# The model-cache prefetch (R2p) is deliberately NOT declared here: it is a
+# separately authorised step, its download timeout is an approval input, and the
+# dispatch path refuses it until its bounds are approved. Its per-container egress
+# bound (pinned_bytes x (1 + R_download)) is declared in core/r1_bounds.py, so the
+# estimator can price R2p (D29).
+
+
 
 # =============================================================================
 # 1. PRODUCTION AUDIT AGENT (H100 - 30B Qtum Web3 Security Model)
@@ -71,7 +83,15 @@ gpu_image = (
     gpu=config.AUDIT_GPU_TYPE,
     image=gpu_image,
     volumes={"/vol/models": model_volume},
-    timeout=1200,
+    timeout=r1.declared_timeout(r1.GPU_PROFILE),
+    # D29: the GPU container of R3b/R4 is offline. Two independent layers:
+    # the provider-enforced network blocking of the class (the parameter exists
+    # for app.cls in modal/app.py:1102 and reaches the provider as
+    # api_pb2.Function.block_network, modal/_functions.py:1044) and the offline
+    # environment plus the verified cache manifest of the model cache.
+    block_network=r1.class_network_policy(r1.GPU_CLASS),
+    env=r1.OFFLINE_ENV,
+    **r1.GPU_PROFILE.modal_kwargs(),
 )
 class ProductionAuditAgent:
     """
@@ -80,33 +100,65 @@ class ProductionAuditAgent:
     1. Native security auditor: detects vulnerabilities and outputs JSON finding arrays.
     2. Exploit synthesizer: generates executable unprivileged ExploitModule.
     """
+    def _load_cache_manifest(self) -> dict:
+        """The manifest of the pinned revision, recorded by the prefetch step (R2p)."""
+        import json
+        try:
+            with open(r1.MODEL_CACHE_MANIFEST_PATH, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(
+                "[!] The model cache manifest is missing or unreadable "
+                f"({r1.MODEL_CACHE_MANIFEST_PATH}): {exc}. The prefetch step (R2p) has "
+                "to complete before any GPU step is dispatchable (D29)."
+            ) from exc
+
     @modal.enter()
     def load_model(self):
         import os
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
-        
+
         cache_dir = config.MODEL_CACHE_DIR
         os.makedirs(cache_dir, exist_ok=True)
-        
-        print(f"[*] Initializing Production 30B Model on Modal {config.AUDIT_GPU_TYPE}: {config.AUDIT_GPU_MODEL}")
+
+        # D29: the GPU container downloads nothing. The cache is verified against the
+        # manifest recorded by R2p and the container fails CLOSED when the cache is
+        # incomplete - with local_files_only=True the hub client raises instead of
+        # downloading, so a wrong cache must fail the container rather than quietly
+        # fetch the model again (a per-container cost of up to 61 GB).
+        manifest = self._load_cache_manifest()
+        check = r1.verify_model_cache_manifest(cache_dir, manifest)
+        if check["status"] != "PASSED":
+            raise RuntimeError(
+                "[!] The model cache does not match the recorded manifest: "
+                f"{check['reason']}; missing={check['missing'][:5]} "
+                f"mismatched={check['mismatched'][:5]}"
+            )
+
+        print(
+            f"[*] Initializing Production 30B Model on Modal {config.AUDIT_GPU_TYPE}: "
+            f"{config.AUDIT_GPU_MODEL}@{r1.PINNED_MODEL.revision}"
+        )
         self.tokenizer = AutoTokenizer.from_pretrained(
             config.AUDIT_GPU_MODEL,
+            revision=r1.PINNED_MODEL.revision,
             cache_dir=cache_dir,
-            trust_remote_code=True
+            trust_remote_code=True,
+            local_files_only=True,
         )
         self.model = AutoModelForCausalLM.from_pretrained(
             config.AUDIT_GPU_MODEL,
+            revision=r1.PINNED_MODEL.revision,
             torch_dtype=torch.bfloat16,
             device_map="auto",
             cache_dir=cache_dir,
-            trust_remote_code=True
+            trust_remote_code=True,
+            local_files_only=True,
         )
-        try:
-            model_volume.commit()
-            print("[✓] Model weights committed to persistent Modal Volume.")
-        except Exception as e:
-            print(f"[!] Volume commit notice: {e}")
+        # The cache is committed by the prefetch step (R2p). An offline container has
+        # nothing new to write, so it does not commit the volume itself.
+        print("[✓] Model loaded from the local cache (offline).")
 
     @modal.method()
     def audit_target_contract(self, target_dict: dict) -> list:
@@ -146,13 +198,16 @@ class ProductionAuditAgent:
         return [{"title": "Detected Vulnerability", "category": "LogicFlaw", "description": response_text[:300]}]
 
     @modal.method()
-    def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3) -> dict:
+    def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3, hypothesis_dict: Optional[dict] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> dict:
         import torch
-        from core.schemas import TargetProgram
+        from core.schemas import TargetProgram, VulnerabilityHypothesis
         from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_analysis_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
-        user_prompt = build_analysis_prompt(target)
+        hypothesis = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
+        user_prompt = build_analysis_prompt(
+            target, hypothesis=hypothesis, previous_failures=previous_failures
+        )
         messages = [
             {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
@@ -176,17 +231,22 @@ class ProductionAuditAgent:
             response_text,
             attempt_idx=1,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
     @modal.method()
-    def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str) -> dict:
+    def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str, hypothesis_dict: Optional[dict] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> dict:
         import torch
-        from core.schemas import TargetProgram
+        from core.schemas import TargetProgram, VulnerabilityHypothesis
         from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_refinement_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
-        prompt = build_refinement_prompt(target, failed_code, error_trace)
+        hypothesis = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
+        prompt = build_refinement_prompt(
+            target, failed_code, error_trace,
+            hypothesis=hypothesis, previous_failures=previous_failures
+        )
         messages = [
             {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
@@ -210,7 +270,8 @@ class ProductionAuditAgent:
             response_text,
             attempt_idx=99,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
 
@@ -269,13 +330,16 @@ class DevReasoningAgent:
             pass
 
     @modal.method()
-    def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3) -> dict:
+    def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3, hypothesis_dict: Optional[dict] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> dict:
         import torch
-        from core.schemas import TargetProgram
+        from core.schemas import TargetProgram, VulnerabilityHypothesis
         from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_analysis_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
-        user_prompt = build_analysis_prompt(target)
+        hypothesis = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
+        user_prompt = build_analysis_prompt(
+            target, hypothesis=hypothesis, previous_failures=previous_failures
+        )
         messages = [
             {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
@@ -299,17 +363,22 @@ class DevReasoningAgent:
             response_text,
             attempt_idx=1,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
     @modal.method()
-    def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str) -> dict:
+    def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str, hypothesis_dict: Optional[dict] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> dict:
         import torch
-        from core.schemas import TargetProgram
+        from core.schemas import TargetProgram, VulnerabilityHypothesis
         from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_refinement_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
-        prompt = build_refinement_prompt(target, failed_code, error_trace)
+        hypothesis = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
+        prompt = build_refinement_prompt(
+            target, failed_code, error_trace,
+            hypothesis=hypothesis, previous_failures=previous_failures
+        )
         messages = [
             {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
@@ -333,18 +402,191 @@ class DevReasoningAgent:
             response_text,
             attempt_idx=99,
             generated_token_ids=token_ids_list,
-            prompt_text=text
+            prompt_text=text,
+            hypothesis=hypothesis
         ).model_dump()
 
 
 # =============================================================================
 # 3. EPHEMERAL CPU WORKERS (Foundry / Slither / Replay Sandbox)
 # =============================================================================
+
+#: The exact reason a worker cannot attest the application id of its own run.
+#:
+#: Modal SDK 1.5.5 offers a function container **no** running-app accessor:
+#: ``modal.running_app`` is a *module* (``modal/running_app.py``) that holds the
+#: ``RunningApp`` dataclass and the client-side helper ``running_app_from_layout``
+#: - it is not callable, so ``modal.running_app()`` raises
+#: ``TypeError: 'module' object is not callable``. The runtime-context API the
+#: container does have (``modal.current_function_call_id``,
+#: ``modal.current_input_id``, ``modal.interact``, ``modal.is_local``) carries no
+#: application id either. The application id of a run is a fact of the
+#: **client**, which reads it from the provider-issued ``App.app_id``.
+MODAL_APP_ID_UNAVAILABLE_REASON = (
+    "Modal SDK 1.5.5 exposes no running-app accessor to a function container: "
+    "modal.running_app is a module and not a callable, and the runtime-context API "
+    "(modal.current_function_call_id, modal.current_input_id, modal.interact, "
+    "modal.is_local) carries no application id. The application id of this run is a "
+    "client-side fact of the provider-issued App.app_id of the running app."
+)
+
+#: The exact reason a worker cannot attest its own container identity
+#: (Iteration 21).
+#:
+#: The review of Iteration 20 established that a function container has **no**
+#: supported source of a provider-issued container id, so the producer no longer
+#: reads any environment variable for it:
+#:
+#: * ``MODAL_WORKER_ID`` is the SDK's ``worker_id`` **configuration setting**
+#:   (``modal/config.py``: ``"worker_id": _Setting(),  # For internal debugging
+#:   use.``) - a value of the configuration, not a provider-issued identifier;
+#: * ``HOSTNAME`` is a generic container hostname that nothing in the SDK ties
+#:   to a Modal container id;
+#: * ``MODAL_TASK_ID`` is read by ``modal/experimental/flash.py`` only - an
+#:   internal, experimental module that is not part of the public API.
+#:
+#: The public runtime surface of Modal SDK 1.5.5 (``modal.__all__``) holds
+#: ``current_function_call_id``, ``current_input_id``, ``interact`` and
+#: ``is_local`` - none of them reports a container id. The provider-issued
+#: container id of an invocation is a **client-side** fact: the client resolves
+#: the function-call id the worker observed to the container of the provider's
+#: own call graph and container listing.
+MODAL_CONTAINER_ID_NOT_ATTESTABLE_REASON = (
+    "a Modal function container has no supported source of a provider-issued container id: "
+    "the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, "
+    "modal.current_input_id, modal.interact, modal.is_local) reports no container id, "
+    "MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK "
+    "source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a "
+    "generic container hostname, and MODAL_TASK_ID is read only by the internal, "
+    "experimental module modal/experimental/flash.py. The provider-issued container id of "
+    "this invocation is a client-side fact: the client resolves the function-call id this "
+    "worker observed through the provider's own call graph and container listing."
+)
+
+#: The reason of Iteration 20, kept **unchanged** because the committed
+#: Iteration 20 capture and the Iteration 20 validator refer to exactly this
+#: wording. The producer no longer emits it (see
+#: :data:`MODAL_CONTAINER_ID_NOT_ATTESTABLE_REASON`).
+MODAL_CONTAINER_ID_UNAVAILABLE_REASON = (
+    "the running container exposed neither MODAL_WORKER_ID (the Modal SDK reads the "
+    "worker id from the 'worker_id' configuration setting, which the runtime sets only "
+    "for internal debugging) nor HOSTNAME (a Modal function container sets no "
+    "hostname), so the worker itself could not attest its container identity; the "
+    "provider-issued container id of this run is a client-side fact of the provider's "
+    "container list"
+)
+
+#: The exact reason a worker cannot report the app page URL of its own run.
+#:
+#: The only candidate inside the container was the unsupported
+#: ``modal.running_app``; the supported ``App.get_dashboard_url()`` is a
+#: client-side API of the SDK.
+MODAL_APP_PAGE_URL_UNAVAILABLE_REASON = (
+    "the Modal runtime exposes no app page URL to a function container: the only "
+    "candidate inside the container was modal.running_app, which is a module and not a "
+    "callable in Modal SDK 1.5.5, while the supported App.get_dashboard_url() is a "
+    "client-side API of the SDK. The app page URL of this run is a client-side fact of "
+    "the provider."
+)
+
+
+def capture_modal_runtime_identity() -> dict:
+    """
+    Capture the provider-issued identity of the running Modal container.
+
+    Every value here comes from the Modal runtime itself. A fact that the
+    runtime does not expose is reported as NOT_AVAILABLE with the exact
+    reason - never as a constant and never as a fabricated URI
+    (Iteration 14 P0.1).
+
+    Only the APIs the installed Modal SDK really offers to a function
+    container are used (Iteration 20 P0):
+
+    * ``modal.current_function_call_id()`` - the id of the current call;
+    * ``modal.current_input_id()`` - the id of the current input.
+
+    There is **no** call of ``modal.running_app``: in Modal SDK 1.5.5 that
+    name is a module, so calling it raises and the exception would only be
+    swallowed - the deployed worker would silently report an app identity it
+    never observed.
+
+    There is also **no** environment variable for the container identity
+    (Iteration 21 P0). ``MODAL_WORKER_ID`` is the SDK's ``worker_id``
+    configuration setting - the SDK source itself documents it as internal
+    debugging use - and ``HOSTNAME`` is a generic container hostname. Neither
+    is a provider-issued container identifier, so the worker does not read
+    them at all: it reports the container id as NOT_AVAILABLE with the exact
+    reason and lets the **client** resolve the provider-issued container id
+    from the function-call id it observed here.
+
+    Every fact of this envelope is observed **inside the container** and says
+    so; the facts the provider only issues to the client (the application id,
+    the app page URL, the container id) are client-side facts and live in the
+    client's own block.
+    """
+    from benchmarks.evidence_integrity import (
+        OBSERVATION_SIDE_WORKER,
+        not_available,
+        observed,
+    )
+
+    identity: dict = {}
+
+    # The application id of the running app. Modal SDK 1.5.5 gives a function
+    # container no way to read it - the reason states that, and names the
+    # client-side fact that holds it.
+    identity["app_id"] = not_available(
+        MODAL_APP_ID_UNAVAILABLE_REASON,
+        observed_by=OBSERVATION_SIDE_WORKER,
+    )
+
+    # Function-call id of the invocation that is currently executing.
+    function_call_id = None
+    try:
+        function_call_id = modal.current_function_call_id()
+    except Exception:
+        function_call_id = None
+    identity["function_call_id"] = (
+        observed(
+            str(function_call_id),
+            source="modal.current_function_call_id()",
+            observed_by=OBSERVATION_SIDE_WORKER,
+        )
+        if function_call_id
+        else not_available(
+            "the Modal runtime did not expose a function-call id to this process "
+            "(modal.current_function_call_id() returns no id outside a Modal function "
+            "container)",
+            observed_by=OBSERVATION_SIDE_WORKER,
+        )
+    )
+
+    # Container identity. A function container has no supported source of a
+    # provider-issued container id, so the worker does not attest one - it
+    # never reads an environment variable for it (Iteration 21 P0). The
+    # provider-issued container id of this invocation is a client-side fact:
+    # the client resolves the function-call id observed above through the
+    # provider's own call graph and container listing.
+    identity["container_id"] = not_available(
+        MODAL_CONTAINER_ID_NOT_ATTESTABLE_REASON,
+        observed_by=OBSERVATION_SIDE_WORKER,
+    )
+    identity["container_id_value"] = None
+
+    # The provider-issued dashboard reference for the running app. A function
+    # container cannot obtain it from a supported API.
+    identity["app_page_url"] = not_available(
+        MODAL_APP_PAGE_URL_UNAVAILABLE_REASON,
+        observed_by=OBSERVATION_SIDE_WORKER,
+    )
+
+    return identity
+
+
 @app.function(
     image=sandbox_image,
     timeout=60,
-    cpu=config.SANDBOX_CPU_CORES,
-    memory=config.SANDBOX_MEMORY_MB,
+    **r1.SANDBOX_CPU_PROFILE.modal_kwargs(),
 )
 def run_slither_remote(target_dict: dict) -> list:
     """Executes Slither AST static analysis on Modal CPU worker."""
@@ -354,39 +596,135 @@ def run_slither_remote(target_dict: dict) -> list:
 
 @app.function(
     image=sandbox_image,
-    timeout=config.SANDBOX_TIMEOUT_SEC,
-    cpu=config.SANDBOX_CPU_CORES,
-    memory=config.SANDBOX_MEMORY_MB,
+    timeout=r1.declared_timeout(r1.SANDBOX_CPU_PROFILE),
+    # D26/D27/D29: the explicit request/limit pair and the lifecycle bounds of the
+    # sandbox class, the autoscaler policy of the deployment, and the
+    # provider-enforced network blocking declaration of this exact function.
+    **r1.modal_function_kwargs(r1.SANDBOX_CPU, "verify_exploit_remote"),
 )
 def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     """Compiles Solidity exploit and executes forge test --offline --json -vvvv in ephemeral EVM."""
     target = TargetProgram(**target_dict)
     payload = ExploitPayload(**payload_dict)
-    
+
     # 1. Execute in Foundry EVM sandbox
     raw_result = run_payload_in_sandbox(target, payload)
-    
+
     # 2. Evaluate multi-factor verdict
     verdict = evaluate_execution_trace(payload, raw_result)
-    return verdict.model_dump()
+    res_dict = verdict.model_dump()
+    res_dict["sandbox_stdout"] = raw_result.stdout or ""
+    res_dict["sandbox_stderr"] = raw_result.stderr or ""
+    res_dict["sandbox_returncode"] = raw_result.return_code
+    # Byte-exact streams observed by the worker (Iteration 14 P0.2/P0.3).
+    res_dict["sandbox_stdout_sha256"] = raw_result.stdout_sha256
+    res_dict["sandbox_stderr_sha256"] = raw_result.stderr_sha256
+    res_dict["sandbox_stdout_byte_length"] = raw_result.stdout_byte_length
+    res_dict["sandbox_stderr_byte_length"] = raw_result.stderr_byte_length
+    res_dict["sandbox_stdout_bytes_b64"] = raw_result.stdout_bytes_b64
+    res_dict["sandbox_stderr_bytes_b64"] = raw_result.stderr_bytes_b64
+    res_dict["observed_environment"] = raw_result.observed_environment
+    res_dict["modal_runtime"] = capture_modal_runtime_identity()
+    return res_dict
 
 
 @app.function(
     image=sandbox_image,
-    timeout=config.SANDBOX_TIMEOUT_SEC,
-    cpu=config.SANDBOX_CPU_CORES,
-    memory=config.SANDBOX_MEMORY_MB,
+    timeout=r1.declared_timeout(r1.SANDBOX_CPU_PROFILE),
+    **r1.modal_function_kwargs(r1.SANDBOX_CPU, "verify_replay_remote"),
 )
-def verify_replay_remote(target_dict: dict, payload_dict: dict) -> bool:
-    """Independent second run in a fresh ephemeral EVM container to guarantee reproducibility."""
+def verify_replay_remote(target_dict: dict, payload_dict: dict) -> dict:
+    """Runs the candidate independently in a fresh EVM worker and returns structured replay evidence."""
+    import base64
+    import hashlib
+    import time
+    from core.schemas import TargetProgram, ExploitPayload
+    from sandbox.runner import verify_independent_replay_result, HARNESS_VERDICT_BREACH
+
     target = TargetProgram(**target_dict)
     payload = ExploitPayload(**payload_dict)
-    return verify_independent_replay(target, payload)
+
+    # Replay-specific timestamps: measured inside the replay worker, never
+    # inherited from the initial run (Iteration 14 P0.2).
+    replay_started_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    raw_result = verify_independent_replay_result(target, payload)
+
+    replay_finished_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    is_confirmed = (
+        raw_result.harness_verdict == HARNESS_VERDICT_BREACH
+        and raw_result.invariant_violated
+        and raw_result.return_code == 0
+        and not raw_result.cheatcode_detected
+        and raw_result.category == ResultCategory.EXPLOIT_CONFIRMED
+    )
+
+    stdout_bytes = base64.b64decode(raw_result.stdout_bytes_b64 or "")
+    stderr_bytes = base64.b64decode(raw_result.stderr_bytes_b64 or "")
+    stdout_sha = hashlib.sha256(stdout_bytes).hexdigest()
+    stderr_sha = hashlib.sha256(stderr_bytes).hexdigest()
+
+    # The exact bytes the replay consumed: the candidate source and the
+    # immutable harness source that were compiled in this container.
+    candidate_bytes = (payload.test_code or "").encode("utf-8")
+    harness_source = ""
+    try:
+        from sandbox.runner import load_trusted_harness_code
+        harness_source = load_trusted_harness_code(target.name)
+    except Exception:
+        harness_source = ""
+    harness_bytes = harness_source.encode("utf-8")
+
+    runtime_identity = capture_modal_runtime_identity()
+
+    # The exact command line is the one the worker observed while running the
+    # replay - never a constant that merely looks like it (Iteration 14 P0.2).
+    observed_env = raw_result.observed_environment if isinstance(raw_result.observed_environment, dict) else {}
+    argv_fact = observed_env.get("exact_forge_argv")
+    replay_argv = argv_fact.get("value") if isinstance(argv_fact, dict) and argv_fact.get("status") == "OBSERVED" else None
+    if not isinstance(replay_argv, list) or not replay_argv:
+        replay_argv = None
+    replay_command = " ".join(replay_argv) if replay_argv else None
+
+    return {
+        "reproduced": bool(is_confirmed),
+        "container_id": runtime_identity.get("container_id_value"),
+        "modal_runtime": runtime_identity,
+        "command": replay_command,
+        "argv": replay_argv,
+        "command_observed": bool(replay_command),
+        "return_code": raw_result.return_code,
+        "exit_code": raw_result.return_code,
+        "harness_verdict": raw_result.harness_verdict,
+        "harness_suite": raw_result.harness_suite,
+        "invariant_violated": raw_result.invariant_violated,
+        "category": raw_result.category.value if hasattr(raw_result.category, "value") else str(raw_result.category),
+        "stdout": raw_result.stdout or "",
+        "stderr": raw_result.stderr or "",
+        "stdout_b64": base64.b64encode(stdout_bytes).decode("ascii"),
+        "stderr_b64": base64.b64encode(stderr_bytes).decode("ascii"),
+        "stdout_sha256": stdout_sha,
+        "stderr_sha256": stderr_sha,
+        "stdout_byte_length": len(stdout_bytes),
+        "stderr_byte_length": len(stderr_bytes),
+        "candidate_b64": base64.b64encode(candidate_bytes).decode("ascii"),
+        "candidate_sha256": hashlib.sha256(candidate_bytes).hexdigest(),
+        "candidate_byte_length": len(candidate_bytes),
+        "harness_b64": base64.b64encode(harness_bytes).decode("ascii"),
+        "harness_sha256": hashlib.sha256(harness_bytes).hexdigest(),
+        "harness_byte_length": len(harness_bytes),
+        "execution_time_sec": raw_result.execution_time_sec,
+        "utc_start_time": replay_started_utc,
+        "utc_end_time": replay_finished_utc,
+        "observed_environment": raw_result.observed_environment,
+    }
 
 
 @app.function(
     image=sandbox_image,
     timeout=60,
+    **r1.SANDBOX_CPU_PROFILE.modal_kwargs(),
 )
 def verify_replay_fault_injection_remote(target_dict: dict, payload_dict: dict, fault_type: str = "timeout") -> bool:
     """
@@ -406,10 +744,17 @@ def verify_replay_fault_injection_remote(target_dict: dict, payload_dict: dict, 
 @app.function(
     image=sandbox_image,
     volumes={"/vol/models": model_volume},
-    timeout=60,
+    timeout=r1.declared_timeout(r1.PERSISTENCE_PROFILE),
+    **r1.modal_function_kwargs(r1.PERSISTENCE, "record_trajectory_remote"),
 )
 def record_trajectory_remote(trajectory_dict: dict) -> str:
     """Saves verified execution trajectory pair to persistent volume for GRPO training."""
+    # D28: the producer-enforced byte cap. The persistence function refuses a larger
+    # payload instead of writing it, so the container is never billed for an
+    # oversized write and the volume's increment stays bounded by construction.
+    payload_bytes = len(json.dumps(trajectory_dict, default=str).encode("utf-8"))
+    r1.assert_payload_within_cap(payload_bytes, "record_trajectory_remote")
+
     traj_dir = config.TRAJECTORY_DIR
     os.makedirs(traj_dir, exist_ok=True)
     traj_id = trajectory_dict.get("trajectory_id", "unknown")
@@ -652,7 +997,8 @@ def run_control_foundry_tests(target_name: str = "Vault"):
     Executes mandatory control verification tests for the Foundry Harness and Category Reward logic:
     1. Minimal benign ExploitModule (no-op) -> Compiles, links, reverts in harness (reward -0.25, RUNTIME_REVERT)
     2. Working Reentrancy ExploitModule -> Drains vault, breaches invariant, confirmed replay (reward +1.0, EXPLOIT_CONFIRMED)
-    3. Malformed contract name -> Rejected upfront before Foundry (reward -0.50, GENERATION_FORMAT_ERROR)
+    3. Structurally broken contract -> Rejected upfront before Foundry (GENERATION_FORMAT_ERROR)
+    4. Wrongly-named contract -> Mechanically renamed to ExploitModule, reaches Foundry, real EVM verdict
     """
     print("\n" + "=" * 78)
     print("🧪 EXECUTING MANDATORY FOUNDRY HARNESS CONTROL TEST SUITE (ROUND 5)")
@@ -684,39 +1030,40 @@ def run_control_foundry_tests(target_name: str = "Vault"):
 
     # 1. TEST 1: Minimal Benign ExploitModule (No LLM)
     print("\n[Control Test 1] Testing Minimal Benign ExploitModule (No LLM)...")
-    benign_code = """// SPDX-License-Identifier: MIT
+    benign_code = f"""// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Vault} from "../src/Vault.sol";
+import {{{target_name}}} from "../src/{target_name}.sol";
 
-contract ExploitModule {
-    Vault public targetContract;
+contract ExploitModule {{
+    {target_name} public targetContract;
 
-    constructor(address _target) payable {
-        targetContract = Vault(payable(_target));
-    }
+    constructor(address _target) payable {{
+        targetContract = {target_name}(payable(_target));
+    }}
 
-    function runExploit() external payable {
+    function runExploit() external payable {{
         // Benign execution: does not breach solvency invariant
-    }
+    }}
 
-    receive() external payable {}
-}
+    receive() external payable {{}}
+}}
 """
     p1 = parse_model_response(target, f"```solidity\n{benign_code}\n```")
     v1_dict = verify_exploit_remote.remote(target.model_dump(), p1.model_dump())
     v1 = VerificationVerdict(**v1_dict)
-    print(f"    Status: {'✅ PASS' if v1.category == ResultCategory.RUNTIME_REVERT else '❌ FAIL'}")
+    print(f"    Status: {'✅ PASS' if v1.category in (ResultCategory.SAFE_RUN, ResultCategory.RUNTIME_REVERT) else '❌ FAIL'}")
     print(f"    Category: {v1.category.value} | Reward: {v1.reward_score:+.2f}")
     print(f"    Feedback: {v1.feedback[:120]}...")
-    assert v1.category == ResultCategory.RUNTIME_REVERT, f"Expected RUNTIME_REVERT, got {v1.category}"
+    assert v1.category in (ResultCategory.SAFE_RUN, ResultCategory.RUNTIME_REVERT), f"Expected SAFE_RUN or RUNTIME_REVERT, got {v1.category}"
     assert v1.reward_score <= 0.0, f"Expected non-positive reward, got {v1.reward_score}"
     assert not v1.is_verified, "Benign test must not be verified as exploit"
-    print("    [✓] Control Test 1 verified: Import and compilation succeeded without Declaration 'ExploitModule' error.")
+    print("    [✓] Control Test 1 verified: Benign execution gave non-positive reward without invariant breach.")
 
-    # 2. TEST 2: Confirmed Reentrancy ExploitModule
-    print("\n[Control Test 2] Testing Confirmed Working Reentrancy ExploitModule...")
-    working_exploit = """// SPDX-License-Identifier: MIT
+    # 2. TEST 2: Confirmed Reentrancy / Share Inflation ExploitModule
+    print(f"\n[Control Test 2] Testing Confirmed Working ExploitModule for {target_name}...")
+    if target_name == "Vault":
+        working_exploit = """// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
 import {Vault} from "../src/Vault.sol";
@@ -741,6 +1088,29 @@ contract ExploitModule {
     }
 }
 """
+    elif target_name == "ERC4626Vault":
+        working_exploit = """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {ERC4626Vault} from "../src/ERC4626Vault.sol";
+
+contract ExploitModule {
+    ERC4626Vault public targetContract;
+
+    constructor(address _target) payable {
+        targetContract = ERC4626Vault(payable(_target));
+    }
+
+    function runExploit() external payable {
+        targetContract.deposit{value: 1}();
+        payable(address(targetContract)).transfer(msg.value - 1);
+    }
+
+    receive() external payable {}
+}
+"""
+    else:
+        raise ValueError(f"No control exploit template available for target '{target_name}'")
     p2 = parse_model_response(target, f"```solidity\n{working_exploit}\n```")
     v2_dict = verify_exploit_remote.remote(target.model_dump(), p2.model_dump())
     v2 = VerificationVerdict(**v2_dict)
@@ -756,16 +1126,34 @@ contract ExploitModule {
     if replay_confirmed:
         v2.category = ResultCategory.EXPLOIT_CONFIRMED
         v2.is_verified = True
-        v2.reward_score = config.REWARD_INVARIANT_BREACH
         v2.replay_status = "CONFIRMED"
+
+    # The reward is recomputed with the shared reward specification, so the
+    # confirmed replay contributes its own `replay` component.
+    _breakdown = compute_reward_breakdown(
+        v2.category,
+        RewardEvidence(
+            format_valid=True,
+            compiled=True,
+            executed=True,
+            invariant_confirmed=True,
+            replay_confirmed=bool(replay_confirmed),
+        ),
+    )
+    v2.reward_score = _breakdown.total
+    v2.reward_components = dict(_breakdown.components)
+    v2.reward_penalty = _breakdown.penalty
+    v2.reward_spec_version = _breakdown.spec_version
 
     print(f"    Status: {'✅ PASS' if v2.is_verified and replay_confirmed else '❌ FAIL'}")
     print(f"    Post-Replay Category: {v2.category.value} | Reward: {v2.reward_score:+.2f} | is_verified={v2.is_verified}")
+    print(f"    Reward Attribution: {_breakdown.describe()}")
     print(f"    Feedback: {v2.feedback[:120]}...")
-    print(f"    Independent Replay: {'CONFIRMED (100% Deterministic)' if replay_confirmed else 'FAILED'}")
+    print(f"    Independent Replay: {'CONFIRMED (independent replay passed)' if replay_confirmed else 'FAILED'}")
     assert v2.is_verified, "Confirmed working exploit must be verified after successful replay"
     assert v2.category == ResultCategory.EXPLOIT_CONFIRMED
     assert v2.reward_score == 1.0
+    assert v2.reward_components.get("replay", 0.0) == config.REWARD_COMPONENT_REPLAY
     print("    [✓] Control Test 2 verified: Initial run gave INVARIANT_BREACH_UNREPLAYED (+0.50), post-replay gave EXPLOIT_CONFIRMED (+1.00).")
 
     # Record this verified trajectory as SYNTHETIC CONTROL TRAJECTORY (Round 5.2)
@@ -785,17 +1173,21 @@ contract ExploitModule {
     record_trajectory_remote.remote(t_rec.model_dump())
     print("    [✓] Synthetic control trajectory recorded with dataset_partition='synthetic_control', is_synthetic=True (isolated from GRPO dataset)!")
 
-    # 3. TEST 3: Malformed Contract Name (Formatting Error)
-    print("\n[Control Test 3] Testing Malformed Contract Name (contract VaultAttack)...")
-    malformed_code = """// SPDX-License-Identifier: MIT
+    # 3. TEST 3: Structurally broken contract that mechanical normalization cannot repair
+    #    (the wrongly-named-but-otherwise-valid case is now repaired and reaches Foundry;
+    #     this control keeps proving that a genuinely malformed exploit is still
+    #     rejected upfront, before Foundry is invoked)
+    print("\n[Control Test 3] Testing Structurally Broken Contract (missing runExploit entrypoint)...")
+    malformed_code = f"""// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-contract VaultAttack {
-    constructor(address _target) payable {}
-    function runExploit() external payable {}
-}
+contract {target_name}Attack {{
+    constructor(address _target) payable {{}}
+    // Missing mandatory runExploit() entrypoint
+}}
 """
     p3 = parse_model_response(target, f"```solidity\n{malformed_code}\n```")
+    assert not p3.format_valid, "Structurally broken exploit must be rejected before Foundry"
     v3_dict = verify_exploit_remote.remote(target.model_dump(), p3.model_dump())
     v3 = VerificationVerdict(**v3_dict)
     print(f"    Status: {'✅ PASS' if v3.category == ResultCategory.GENERATION_FORMAT_ERROR else '❌ FAIL'}")
@@ -804,6 +1196,70 @@ contract VaultAttack {
     assert v3.category == ResultCategory.GENERATION_FORMAT_ERROR
     assert v3.reward_score == config.REWARD_FORMAT_ERROR
     print("    [✓] Control Test 3 verified: Format error caught before invoking Foundry.")
+
+    # 4. TEST 4: Wrongly-named but otherwise valid contract is mechanically repaired
+    print(f"\n[Control Test 4] Testing Mechanical Contract Name Normalization (contract {target_name}Attack)...")
+    renamable_code = f"""// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {{{target_name}}} from "../src/{target_name}.sol";
+
+contract {target_name}Attack {{
+    {target_name} public targetContract;
+
+    constructor(address _target) payable {{
+        targetContract = {target_name}(payable(_target));
+    }}
+
+    function runExploit() external payable {{}}
+
+    receive() external payable {{}}
+}}
+"""
+    p4 = parse_model_response(target, f"```solidity\n{renamable_code}\n```")
+    assert p4.contract_name_normalized, "Expected mechanical contract-name normalization"
+    assert p4.original_contract_name == f"{target_name}Attack"
+    assert p4.format_valid, "Renamed exploit must pass the format gate"
+    v4_dict = verify_exploit_remote.remote(target.model_dump(), p4.model_dump())
+    v4 = VerificationVerdict(**v4_dict)
+    print(f"    Renamed: '{target_name}Attack' -> 'ExploitModule' | format_valid={p4.format_valid}")
+    print(f"    Status: {'✅ PASS' if v4.category != ResultCategory.GENERATION_FORMAT_ERROR else '❌ FAIL'}")
+    print(f"    Category: {v4.category.value} | Reward: {v4.reward_score:+.2f}")
+    assert v4.category != ResultCategory.GENERATION_FORMAT_ERROR, (
+        "Mechanically repaired exploit must reach the EVM harness instead of being rejected"
+    )
+    print("    [✓] Control Test 4 verified: repaired exploit reaches Foundry and yields a real EVM verdict.")
+
+    # 5. TEST 5: Verification-channel hijack must be rejected before Foundry
+    print("\n[Control Test 5] Testing Verification-Channel Hijack Rejection (forged breach marker)...")
+    forged_marker_code = """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {console} from "forge-std/console.sol";
+
+contract ExploitModule {
+    constructor(address _target) payable {}
+
+    function runExploit() external payable {
+        // Forges the breach marker in the logs without breaching anything.
+        console.log("[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]");
+    }
+
+    receive() external payable {}
+}
+"""
+    p5 = parse_model_response(target, f"```solidity\n{forged_marker_code}\n```")
+    v5_dict = verify_exploit_remote.remote(target.model_dump(), p5.model_dump())
+    v5 = VerificationVerdict(**v5_dict)
+    print(f"    Category: {v5.category.value} | Reward: {v5.reward_score:+.2f}")
+    print(f"    Feedback: {v5.feedback[:160]}...")
+    assert v5.category == ResultCategory.CHEATCODE_DETECTED, (
+        f"A candidate that hijacks the verification channel must be rejected, got {v5.category}"
+    )
+    assert v5.reward_score == config.REWARD_CHEATCODE_PENALTY
+    assert not v5.is_verified
+    assert v5.reward_components.get("invariant", 0.0) == 0.0
+    print("    [✓] Control Test 5 verified: forged marker rejected as security violation, no breach credit.")
 
     print("\n" + "=" * 78)
     print("🎉 ALL FOUNDRY HARNESS CONTROL TESTS PASSED (0 ERRORS)")
@@ -898,7 +1354,7 @@ def run_modal_replay_infra_error_integration_test(target_name: str = "Vault"):
     assert recorded_count == 0, "INFRA_ERROR record must strictly NOT be saved to Modal Volume for GRPO!"
     print(f"[✓] Persistence check passed: Candidate excluded from persistent GRPO trajectories (recorded={recorded_count})")
     print("=" * 78)
-    print("🎉 REAL MODAL INFRA ERROR INTEGRATION TEST PASSED (100% VERIFIED)")
+    print("🎉 REAL MODAL INFRA ERROR INTEGRATION TEST PASSED")
     print("=" * 78 + "\n")
 
 
@@ -1014,7 +1470,9 @@ def main(
     print(f"    Invariants     : {target.invariants}")
     print(f"    Solidity Vers  : {config.SOLC_VERSION}")
 
-    # 2. Phase 1: Static Analysis Layer (Slither AST Taint Analysis)
+    # 2. Phase 1: Static Analysis and model audit findings.
+    audit_findings = []
+    auditor_agent = None
     if config.ENABLE_SLITHER:
         print("\n[Phase 1] Running Slither Static Analysis on Modal CPU Worker...")
         try:
@@ -1022,14 +1480,43 @@ def main(
             target.slither_findings = slither_findings
             print(f"[✓] Slither extracted {len(slither_findings)} AST detector signal(s):")
             for sf in slither_findings:
-                print(f"    - [{sf.get('impact')}] {sf.get('check')}: {sf.get('description')[:70]}...")
+                print(f"    - [{sf.get('impact')}] {sf.get('check')}: {sf.get('description', '')[:70]}...")
         except Exception as e:
             print(f"[!] Slither notice: {e}")
 
+    # In audit mode, collect the actual model findings as a separate source.
+    if mode.lower() == "audit":
+        print(f"[+] Running audit model ({config.AUDIT_GPU_MODEL}) to produce structured findings...")
+        auditor_agent = ProductionAuditAgent()
+        try:
+            audit_findings = auditor_agent.audit_target_contract.remote(target.model_dump())
+            if not isinstance(audit_findings, list):
+                audit_findings = []
+            print(f"[+] Auditor produced {len(audit_findings)} finding(s).")
+        except Exception as e:
+            print(f"[!] Audit scan notice: {type(e).__name__}: {e}")
+            audit_findings = []
+
+    hypothesis_manager = HypothesisManager(target)
+    normalized_findings = list(target.slither_findings or []) + list(audit_findings or [])
+    prioritized_hypotheses = hypothesis_manager.ingest_auditor_findings(
+        normalized_findings, source_label="modal-audit+slither"
+    ) if normalized_findings else []
+    top_hypotheses = hypothesis_manager.get_top_hypotheses(limit=max(1, num_candidates))
+    if top_hypotheses:
+        print("[+] Prioritized vulnerability hypotheses:")
+        for item in top_hypotheses[:5]:
+            print(f"    - [{item.severity}] {item.vulnerability_class}::{item.affected_function or '*'} ({item.confidence:.2f})")
+    else:
+        print("[!] No structured findings were normalized; generation proceeds without a selected hypothesis.")
+
     # 3. Phase 2: Hypothesis Formulation & Multi-Candidate Exploit Synthesis (Round 4 Lifecycle)
     run_id = f"run_{int(time.time())}_{uuid.uuid4().hex[:6]}"
-    target_prompt = build_analysis_prompt(target)
+    primary_hypothesis = top_hypotheses[0] if top_hypotheses else None
+    primary_attack_hypothesis = hypothesis_manager.to_attack_hypothesis(primary_hypothesis) if primary_hypothesis else None
+    target_prompt = build_analysis_prompt(target, hypothesis=primary_attack_hypothesis)
     prompt_hash = compute_prompt_hash(target_prompt)
+    candidate_hypothesis_ids: Dict[str, str] = {}
     model_id = config.DEV_GPU_MODEL if generator.lower() == "dev" or target_name == "Vault" else config.AUDIT_GPU_MODEL
     checkpoint_id = "checkpoint-step-2" if use_lora else "base"
 
@@ -1040,8 +1527,12 @@ def main(
     if generator.lower() == "gemini":
         print("[+] Generator: Gemini 2.5 Flash (Frontier Reasoning API)")
         for i in range(1, num_candidates + 1):
-            p = synthesize_exploit_gemini(target)
+            selected_hypothesis = top_hypotheses[(i - 1) % len(top_hypotheses)] if top_hypotheses else None
+            attack_hypothesis = hypothesis_manager.to_attack_hypothesis(selected_hypothesis) if selected_hypothesis else None
+            p = synthesize_exploit_gemini(target, hypothesis=attack_hypothesis)
             p.candidate_id = f"{run_id}_c{i}_r0"
+            if selected_hypothesis:
+                candidate_hypothesis_ids[p.candidate_id] = selected_hypothesis.hypothesis_id
             p.run_id = run_id
             p.generation_iteration = 0
             p.candidate_index = i
@@ -1051,14 +1542,7 @@ def main(
     else:
         if mode.lower() == "audit":
             print(f"[+] Generator: Production Tier ({config.AUDIT_GPU_MODEL} on Modal H100)")
-            llm_agent = ProductionAuditAgent()
-            try:
-                findings = llm_agent.audit_target_contract.remote(target.model_dump())
-                print(f"[+] Qwen-Audit detected {len(findings)} vulnerability finding(s):")
-                for f_item in findings[:3]:
-                    print(f"    - [{f_item.get('severity', 'Med')}] {f_item.get('title')}")
-            except Exception as e:
-                print(f"[!] Audit scan notice: {e}")
+            llm_agent = auditor_agent or ProductionAuditAgent()
         else:
             lora_note = " + Trained GRPO LoRA" if use_lora else ""
             print(f"[+] Generator: Dev Tier ({config.DEV_GPU_MODEL}{lora_note} on Modal T4)")
@@ -1066,9 +1550,17 @@ def main(
 
         temperatures = [0.2 + (i * 0.2) for i in range(num_candidates)]
         for i, temp in enumerate(temperatures, 1):
-            p_dict = llm_agent.generate_solidity_exploit.remote(target.model_dump(), temperature=temp)
+            selected_hypothesis = top_hypotheses[(i - 1) % len(top_hypotheses)] if top_hypotheses else None
+            hypothesis_dict = selected_hypothesis.model_dump() if selected_hypothesis else None
+            previous_failures = hypothesis_manager.get_hypothesis_failures(selected_hypothesis.hypothesis_id) if selected_hypothesis else []
+            p_dict = llm_agent.generate_solidity_exploit.remote(
+                target.model_dump(), temperature=temp,
+                hypothesis_dict=hypothesis_dict, previous_failures=previous_failures
+            )
             p = ExploitPayload(**p_dict)
             p.candidate_id = f"{run_id}_c{i}_r0"
+            if selected_hypothesis:
+                candidate_hypothesis_ids[p.candidate_id] = selected_hypothesis.hypothesis_id
             p.run_id = run_id
             p.generation_iteration = 0
             p.candidate_index = i
@@ -1091,6 +1583,9 @@ def main(
         v.run_id = run_id
         v.generation_iteration = 0
         v.candidate_index = idx
+        hypothesis_id = candidate_hypothesis_ids.get(p.candidate_id)
+        if hypothesis_id:
+            hypothesis_manager.update_hypothesis_outcome(hypothesis_id, v, p.candidate_id)
 
         status_icon = "✅ BREACHED" if v.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED else "❌ REJECTED"
         print(f"    [Worker #{idx} | {p.candidate_id}] {status_icon} [{v.category.value}] | Reward: {v.reward_score:+.2f} | {v.feedback[:75]}...")
@@ -1127,11 +1622,18 @@ def main(
         print(f"    EVM trace              : {best_cand.verdict.feedback[:180]}...")
 
         ref_id = f"{run_id}_ref{current_round}"
+        parent_hypothesis_id = candidate_hypothesis_ids.get(best_cand.candidate_id)
+        parent_hypothesis = hypothesis_manager.hypotheses.get(parent_hypothesis_id) if parent_hypothesis_id else None
         if generator.lower() == "gemini":
             from core.llm_generator import build_refinement_prompt
             from google import genai
             client = genai.Client()
-            ref_prompt = build_refinement_prompt(target, best_cand.payload.test_code, best_cand.verdict.feedback)
+            parent_attack_hypothesis = hypothesis_manager.to_attack_hypothesis(parent_hypothesis) if parent_hypothesis else None
+            prior_failures = hypothesis_manager.get_hypothesis_failures(parent_hypothesis_id) if parent_hypothesis_id else []
+            ref_prompt = build_refinement_prompt(
+                target, best_cand.payload.test_code, best_cand.verdict.feedback,
+                hypothesis=parent_attack_hypothesis, previous_failures=prior_failures
+            )
             resp = client.models.generate_content(
                 model=config.GEMINI_MODEL,
                 contents=ref_prompt,
@@ -1144,10 +1646,13 @@ def main(
                 prompt_text=ref_prompt
             )
         else:
+            prior_failures = hypothesis_manager.get_hypothesis_failures(parent_hypothesis_id) if parent_hypothesis_id else []
             ref_dict = llm_agent.refine_solidity_exploit.remote(
                 target.model_dump(),
                 best_cand.payload.test_code,
-                best_cand.verdict.feedback
+                best_cand.verdict.feedback,
+                hypothesis_dict=parent_hypothesis.model_dump() if parent_hypothesis else None,
+                previous_failures=prior_failures
             )
             refined_payload = ExploitPayload(**ref_dict)
             if not refined_payload.prompt_text:
@@ -1155,6 +1660,8 @@ def main(
                 refined_payload.prompt_text = build_refinement_prompt(target, best_cand.payload.test_code, best_cand.verdict.feedback)
 
         refined_payload.candidate_id = ref_id
+        if parent_hypothesis_id:
+            candidate_hypothesis_ids[ref_id] = parent_hypothesis_id
         refined_payload.run_id = run_id
         refined_payload.generation_iteration = current_round
         refined_payload.candidate_index = len(all_candidate_records) + 1
@@ -1167,6 +1674,8 @@ def main(
         cand_verdict.run_id = run_id
         cand_verdict.generation_iteration = current_round
         cand_verdict.candidate_index = refined_payload.candidate_index
+        if parent_hypothesis_id:
+            hypothesis_manager.update_hypothesis_outcome(parent_hypothesis_id, cand_verdict, ref_id)
 
         status_icon = "✅ BREACHED" if cand_verdict.category == ResultCategory.INVARIANT_BREACH_UNREPLAYED else "❌ REJECTED"
         print(f"    [Refinement #{current_round} | {ref_id}] {status_icon} [{cand_verdict.category.value}] | Reward: {cand_verdict.reward_score:+.2f}")
@@ -1210,13 +1719,19 @@ def main(
             reproduced = verify_replay_remote.remote(target.model_dump(), replay_candidate.payload.model_dump())
             finalize_candidate_replay(replay_candidate, replay_success=reproduced, replay_infra_error=False)
             if reproduced:
-                print(f"[✓] EXPLOIT CONFIRMED: Candidate {replay_candidate.candidate_id} 100% reproduced in independent replay!")
+                print(f"[✓] EXPLOIT CONFIRMED: Candidate {replay_candidate.candidate_id} reproduced in independent replay.")
             else:
                 print(f"[!] Replay failed for candidate {replay_candidate.candidate_id}: marked as unconfirmed breach.")
         except Exception as exc:
             print(f"[!] Replay remote invocation raised infrastructure exception: {type(exc).__name__}: {exc}")
             finalize_candidate_replay(replay_candidate, replay_success=False, replay_infra_error=True)
             replay_candidate.verdict.feedback = f"Replay Infrastructure Error ({type(exc).__name__}): {exc}"
+
+        selected_hypothesis_id = candidate_hypothesis_ids.get(replay_candidate.candidate_id)
+        if selected_hypothesis_id:
+            hypothesis_manager.update_hypothesis_outcome(
+                selected_hypothesis_id, replay_candidate.verdict, replay_candidate.candidate_id
+            )
 
         primary_record = replay_candidate
     else:
@@ -1247,9 +1762,43 @@ def main(
     print(f"Outcome Category              : {primary_record.verdict.category.value}")
     print(f"Vulnerability Type            : {primary_record.verdict.vulnerability_type}")
     print(f"Final RLVR Ground-Truth Reward: {primary_record.verdict.reward_score:+.2f}")
-    print(f"Independent EVM Replay        : {'CONFIRMED (100% Deterministic)' if primary_record.verdict.reproducible else 'FAILED / NOT_ELIGIBLE'}")
+    print(f"Independent EVM Replay        : {'CONFIRMED (independent replay passed)' if primary_record.verdict.reproducible else 'FAILED / NOT_ELIGIBLE'}")
     print(f"Total Candidates Evaluated    : {len(all_candidate_records)}")
+    print("Hypothesis Lifecycle:")
+    for hyp in hypothesis_manager.get_top_hypotheses(limit=5):
+        print(f"  - {hyp.hypothesis_id}: {hyp.vulnerability_class} [{hyp.validation_status}] attempts={hyp.attempt_count}")
     print("=" * 78 + "\n")
+
+
+# =============================================================================
+# 12. THE DISPATCH GUARD (R1, D26-D29)
+# =============================================================================
+# Every provider callable of this app is guarded: while a required bound of its
+# container class is required-but-unset, the call is refused and the deployment
+# cannot start a billable container. The declared dispatchable functions are the
+# ones with an egress declaration (core/r1_bounds.py); the others are refused as
+# well, because they are not part of the authorised trace.
+#
+# The guard covers the module-level functions AND the Modal classes: a class
+# method is a provider callable too (the instance's method is a modal function),
+# and before R1 the class-method path bypassed the guard entirely. Every guarded
+# call is routed through the single R1 dispatch gate, so the invocation budget,
+# the concurrency gate, the ceiling assertion, the payload cap and the autoscaler
+# read-back apply to it as well.
+#
+# The guard is installed **on the provider object itself** (its own 'remote'),
+# not only on the module-level name: every reference to that object - an import
+# of it, the object in the private registry of core.r1_bounds - is therefore
+# gated, and the raw provider callable is not reachable through any attribute of
+# the guard. The installation fails closed: if the guard cannot be installed on
+# an object, the import fails instead of leaving an unguarded callable behind.
+for _name, _obj in list(globals().items()):
+    if _name.startswith("_") or _name in ("app", "model_volume", "gpu_image", "sandbox_image"):
+        continue
+    if isinstance(_obj, modal.Function):
+        globals()[_name] = r1.install_provider_guard(_name, _obj)
+    elif isinstance(_obj, modal.Cls):
+        globals()[_name] = r1.install_class_guard(_name, _obj)
 
 
 if __name__ == "__main__":

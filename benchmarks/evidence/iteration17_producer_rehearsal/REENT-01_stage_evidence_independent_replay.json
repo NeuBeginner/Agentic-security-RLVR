@@ -1,0 +1,82 @@
+{
+  "absence_records": [],
+  "attempted": true,
+  "correlation_id": "corr-REENT-01-1794258399-ba094d7d",
+  "executed": true,
+  "provider_response": {
+    "argv": [
+      "forge",
+      "test",
+      "--offline",
+      "--json",
+      "-vvvv"
+    ],
+    "candidate_b64": "Y29udHJhY3QgRXhwbG9pdE1vZHVsZSB7IGZ1bmN0aW9uIHJ1bkV4cGxvaXQoKSBleHRlcm5hbCBwYXlhYmxlIHt9IH0=",
+    "category": "EXPLOIT_CONFIRMED",
+    "command": "forge test --offline --json -vvvv",
+    "container_id": "hokkglpxczflmxlcnxxg",
+    "exit_code": 0,
+    "harness_b64": "Ly8gcmVwb3NpdG9yeS1vd25lZCBoYXJuZXNzCmNvbnRyYWN0IFZhdWx0SGFybmVzcyB7fQo=",
+    "harness_suite": "test/VaultHarness.t.sol",
+    "harness_verdict": "BREACH",
+    "invariant_violated": true,
+    "modal_runtime": {
+      "app_id": {
+        "source": "modal.running_app().app_id",
+        "status": "OBSERVED",
+        "value": "ap-EDUitOwWeMrIdYbTh4kB63"
+      },
+      "container_id": {
+        "source": "MODAL_WORKER_ID of the running container",
+        "status": "OBSERVED",
+        "value": "hokkglpxczflmxlcnxxg"
+      },
+      "function_call_id": {
+        "source": "modal.current_function_call_id()",
+        "status": "OBSERVED",
+        "value": "fc-8Hq2ZpQrVt3Lb"
+      }
+    },
+    "reproduced": true,
+    "return_code": 0,
+    "stderr_b64": "",
+    "stdout_b64": "eyJ0ZXN0L1ZhdWx0SGFybmVzcy50LnNvbDp0ZXN0RXhwbG9pdCI6eyJzdGF0dXMiOiJTdWNjZXNzIiwicmVhc29uIjpudWxsfX0K",
+    "utc_end_time": "2026-11-09T03:19:20Z",
+    "utc_start_time": "2026-11-09T03:17:41Z"
+  },
+  "provider_response_metadata": {
+    "response_byte_length": 1077,
+    "response_sha256": "33a1e69d163473cf4b0b18b1ee90ef0ae1eefcdf28fb7d57a31aeef7fd75244b",
+    "response_source": "the response of verify_replay_remote",
+    "runtime_identity_byte_length": 338,
+    "runtime_identity_sha256": "375e8edbcf04ec4c53c01916b8961491282dbc5ce3bed5de73bf656fb91db62e"
+  },
+  "requested_fields": [
+    "app_id",
+    "function_call_id",
+    "container_id"
+  ],
+  "response_received": true,
+  "runtime_envelope_received": true,
+  "runtime_identity": {
+    "app_id": {
+      "source": "modal.running_app().app_id",
+      "status": "OBSERVED",
+      "value": "ap-EDUitOwWeMrIdYbTh4kB63"
+    },
+    "container_id": {
+      "source": "MODAL_WORKER_ID of the running container",
+      "status": "OBSERVED",
+      "value": "hokkglpxczflmxlcnxxg"
+    },
+    "function_call_id": {
+      "source": "modal.current_function_call_id()",
+      "status": "OBSERVED",
+      "value": "fc-8Hq2ZpQrVt3Lb"
+    }
+  },
+  "runtime_identity_source": "modal_runtime",
+  "schema_version": "1.0.0",
+  "stage": "independent_replay",
+  "target_id": "REENT-01"
+}

@@ -1,0 +1,8 @@
+Warning: dynamic test linking disabled for 2 files: error: file ./OracleLendingPool.sol not found
+Error: Compiler run failed:
+Error (6275): Source "test/OracleLendingPool.sol" not found: File not found. Searched the following locations: "/tmp/tmp0gdcsnc2".
+ParserError: Source "test/OracleLendingPool.sol" not found: File not found. Searched the following locations: "/tmp/tmp0gdcsnc2".
+ --> test/OracleLendingPoolHarness.t.sol:5:1:
+  |
+5 | import {OracleLendingPool, MockSpotOracle} from "./OracleLendingPool.sol";
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

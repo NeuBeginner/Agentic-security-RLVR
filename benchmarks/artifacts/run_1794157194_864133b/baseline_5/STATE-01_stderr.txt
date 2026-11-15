@@ -1,0 +1,8 @@
+Warning: dynamic test linking disabled for 2 files: error: file ./RewardDistributorLogic.sol not found
+Error: Compiler run failed:
+Error (6275): Source "test/RewardDistributorLogic.sol" not found: File not found. Searched the following locations: "/tmp/tmpd6jzgkd5".
+ParserError: Source "test/RewardDistributorLogic.sol" not found: File not found. Searched the following locations: "/tmp/tmpd6jzgkd5".
+ --> test/RewardDistributorLogicHarness.t.sol:5:1:
+  |
+5 | import {RewardDistributorLogic} from "./RewardDistributorLogic.sol";
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

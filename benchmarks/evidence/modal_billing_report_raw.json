@@ -1,0 +1,202 @@
+[
+  {
+    "object_id": "ap-1HyKJ36RL77ZqYazFSctJ0",
+    "description": "purge-unwanted-models",
+    "environment": "main",
+    "interval_start": "2026-11-05T00:00:00",
+    "resource": "Memory",
+    "cost": "5.6E-7"
+  },
+  {
+    "object_id": "ap-1HyKJ36RL77ZqYazFSctJ0",
+    "description": "purge-unwanted-models",
+    "environment": "main",
+    "interval_start": "2026-11-05T00:00:00",
+    "resource": "CPU",
+    "cost": "0.00000328"
+  },
+  {
+    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Memory",
+    "cost": "0.00696753"
+  },
+  {
+    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Network Egress",
+    "cost": "2.6E-7"
+  },
+  {
+    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "H100",
+    "cost": "0.74323683"
+  },
+  {
+    "object_id": "ap-EDUitOwWeMrIdYbTh4kB63",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "CPU",
+    "cost": "0.03001687"
+  },
+  {
+    "object_id": "ap-L3wq4VVUBVKKSNf2ZLrtGd",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Network Egress",
+    "cost": "0.00013117"
+  },
+  {
+    "object_id": "ap-L3wq4VVUBVKKSNf2ZLrtGd",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Memory",
+    "cost": "0.00013702"
+  },
+  {
+    "object_id": "ap-L3wq4VVUBVKKSNf2ZLrtGd",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "CPU",
+    "cost": "0.00320238"
+  },
+  {
+    "object_id": "ap-U2RnBP52bKiPtyGkNwxTDh",
+    "description": "test-sandbox-build",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Memory",
+    "cost": "5.6E-7"
+  },
+  {
+    "object_id": "ap-U2RnBP52bKiPtyGkNwxTDh",
+    "description": "test-sandbox-build",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "CPU",
+    "cost": "0.00000328"
+  },
+  {
+    "object_id": "ap-VHU67DPTwU55ifH11fqXR5",
+    "description": "comfyui-fast",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Network Egress",
+    "cost": "0.03751206"
+  },
+  {
+    "object_id": "ap-VHU67DPTwU55ifH11fqXR5",
+    "description": "comfyui-fast",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Memory",
+    "cost": "0.01109336"
+  },
+  {
+    "object_id": "ap-VHU67DPTwU55ifH11fqXR5",
+    "description": "comfyui-fast",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "CPU",
+    "cost": "0.01639738"
+  },
+  {
+    "object_id": "ap-apQN7A8mIFzNea2aevxlbt",
+    "description": "comfyui-fast",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Memory",
+    "cost": "0.00027077"
+  },
+  {
+    "object_id": "ap-apQN7A8mIFzNea2aevxlbt",
+    "description": "comfyui-fast",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Network Egress",
+    "cost": "0.00039323"
+  },
+  {
+    "object_id": "ap-apQN7A8mIFzNea2aevxlbt",
+    "description": "comfyui-fast",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "CPU",
+    "cost": "0.00694988"
+  },
+  {
+    "object_id": "ap-binXZAE9bIMbsJZrYavbP0",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "H100",
+    "cost": "0.13359894"
+  },
+  {
+    "object_id": "ap-binXZAE9bIMbsJZrYavbP0",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Network Egress",
+    "cost": "0.02657469"
+  },
+  {
+    "object_id": "ap-binXZAE9bIMbsJZrYavbP0",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Memory",
+    "cost": "0.00080545"
+  },
+  {
+    "object_id": "ap-binXZAE9bIMbsJZrYavbP0",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "CPU",
+    "cost": "0.00522721"
+  },
+  {
+    "object_id": "ap-jWAtiLAS2vzvZRy61raOrG",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Memory",
+    "cost": "0.00173057"
+  },
+  {
+    "object_id": "ap-jWAtiLAS2vzvZRy61raOrG",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "Network Egress",
+    "cost": "0.01548871"
+  },
+  {
+    "object_id": "ap-jWAtiLAS2vzvZRy61raOrG",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "H100",
+    "cost": "0.28324992"
+  },
+  {
+    "object_id": "ap-jWAtiLAS2vzvZRy61raOrG",
+    "description": "aegis-rlvr-security",
+    "environment": "main",
+    "interval_start": "2026-11-09T00:00:00",
+    "resource": "CPU",
+    "cost": "0.00668600"
+  }
+]

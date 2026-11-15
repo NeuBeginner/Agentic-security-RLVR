@@ -1,0 +1,178 @@
+{
+  "schema_version": "1.0.0",
+  "generator": "benchmarks/validate_iteration19_evidence.py",
+  "code_sha": "18ad9740f835e7babb0a7f0fb727752660b2b8f0",
+  "generated_at_utc": "2026-11-10T01:31:54Z",
+  "scope": {
+    "iteration": 19,
+    "purpose": "live Modal CPU-only runtime smoke test",
+    "evidence_dir": "benchmarks/evidence/iteration19_cpu_smoke",
+    "stage": "cpu_smoke",
+    "target_id": "CPU-SMOKE-01",
+    "runtime": "Modal CPU-only - no GPU, no model, no volume, no production change",
+    "benchmark_run": "not touched - the 16-target run on disk still fails the Iteration 16-18 validators and this iteration does not change that"
+  },
+  "git": {
+    "head": "35c512a895c03334fb149907acd52e5329a53ad3",
+    "branch": "minimax/iteration-14-evidence-integrity",
+    "dirty": false,
+    "tracked_changes": [],
+    "untracked_paths": [
+      "benchmarks/evidence/iteration19_cpu_smoke/",
+      "benchmarks/evidence/iteration19_validation_evidence.json",
+      "test-results-iteration18-local.xml"
+    ]
+  },
+  "checks": [
+    {
+      "check": "P1.1.live_invocation",
+      "status": "PASSED",
+      "error": null,
+      "planned": "one CPU-only invocation of the smoke function succeeded and returned a response",
+      "attempted": true,
+      "executed": true,
+      "invocation_status": "SUCCEEDED",
+      "invocation_count": 1,
+      "duration_seconds": 10.369,
+      "started_at_utc": "2026-11-10T01:29:59Z",
+      "finished_at_utc": "2026-11-10T01:30:09Z"
+    },
+    {
+      "check": "P1.2.stage_evidence_contract",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the stage evidence artifact satisfies the unchanged Iteration 18 validator",
+      "attempted": true,
+      "executed": true,
+      "artifact_path": "benchmarks/evidence/iteration19_cpu_smoke/CPU-SMOKE-01_stage_evidence_cpu_smoke.json"
+    },
+    {
+      "check": "P1.3.runtime_identity_envelope",
+      "status": "PASSED",
+      "error": "",
+      "planned": "every identity field of the envelope is a documented typed fact, and the additional provider key 'image_id' is one as well",
+      "attempted": true,
+      "executed": true,
+      "identity_fields": [
+        "app_id",
+        "function_call_id",
+        "container_id"
+      ]
+    },
+    {
+      "check": "P1.4.response_envelope_binding",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the flag, the stored payload and the runtime-identity envelope describe one event, in both directions",
+      "attempted": true,
+      "executed": true,
+      "runtime_identity_source": "modal_runtime"
+    },
+    {
+      "check": "P1.5.stage_state_machine",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the four flags of the stage describe exactly one state, and the state of the live smoke stage is EXECUTED_WITH_RUNTIME_ENVELOPE",
+      "attempted": true,
+      "executed": true,
+      "state": "EXECUTED_WITH_RUNTIME_ENVELOPE"
+    },
+    {
+      "check": "P1.6.provider_issued_identifiers",
+      "status": "PASSED",
+      "error": null,
+      "planned": "every identifier the record claims was observed carries the shape the provider issues, and no synthetic identity slipped in",
+      "attempted": true,
+      "executed": true,
+      "observed_identifiers": {
+        "app_id": "ap-gW7GDdh9OlSqjL2tRnB1oJ",
+        "function_call_id": "fc-01M71H7789CATYCWNEG05916Y3",
+        "container_id": "ta-01M71H78SAWD0JF71CFPA0QTRR",
+        "image_id": "im-6seZXB42SdpnqIIAiN34Ig"
+      }
+    },
+    {
+      "check": "P1.7.artifact_digest_from_disk",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the digest of the stage evidence artifact is recomputed from the bytes on disk and equals the digest the record claims",
+      "attempted": true,
+      "executed": true,
+      "sha256_from_disk": "d797c328eea8950dfce56dd22255ad0793019d745c4a2f692a0e4df91b422e51",
+      "sha256_claimed": "d797c328eea8950dfce56dd22255ad0793019d745c4a2f692a0e4df91b422e51"
+    },
+    {
+      "check": "P1.8.source_binding",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the run is bound to the commit it was made from, that commit is an ancestor of HEAD, and the report is bound to exactly that commit",
+      "attempted": true,
+      "executed": true,
+      "recorded_commit": "18ad9740f835e7babb0a7f0fb727752660b2b8f0",
+      "report_bound_to": "18ad9740f835e7babb0a7f0fb727752660b2b8f0",
+      "tracked_files_modified": []
+    },
+    {
+      "check": "P1.9.worker_observed_runtime_metadata",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the runtime metadata is worker-observed, and every field the runtime did not expose carries the exact reason",
+      "attempted": true,
+      "executed": true,
+      "python_version": "3.11.12 (main, May 21 2025, 23:34:13) [GCC 12.2.0]",
+      "platform": "Linux-4.19.0-gvisor-x86_64-with-glibc2.36",
+      "modal_sdk_version": "1.5.5",
+      "image_id": "im-6seZXB42SdpnqIIAiN34Ig"
+    },
+    {
+      "check": "P1.10.billed_usage",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the billed CPU/runtime usage is a provider-backed fact or an explicit NOT_AVAILABLE with a reason - never an estimate",
+      "attempted": true,
+      "executed": true,
+      "billed_usage_status": "NOT_AVAILABLE"
+    },
+    {
+      "check": "P1.11.zero_gpu_allocation",
+      "status": "PASSED",
+      "error": null,
+      "planned": "no GPU was requested and the worker observed no GPU device, no NVIDIA node and no CUDA runtime library",
+      "attempted": true,
+      "executed": true,
+      "gpu_requested": null,
+      "worker_observed": {
+        "cuda_runtime_libraries": [],
+        "cuda_visible_devices_env": null,
+        "gpu_device_exposed": false,
+        "nvidia_device_nodes": [],
+        "nvidia_smi_on_path": null,
+        "nvidia_visible_devices_env": null
+      }
+    },
+    {
+      "check": "P1.12.no_production_change",
+      "status": "PASSED",
+      "error": null,
+      "planned": "the run used an ephemeral app of its own and changed no deployed production worker",
+      "attempted": true,
+      "executed": true,
+      "deployment_kind": "ephemeral",
+      "production_change": "none - this iteration executed no 'modal deploy', and no deployed production worker was changed, redeployed or restarted"
+    }
+  ],
+  "summary": {
+    "checks_total": 12,
+    "checks_passed": 12,
+    "checks_failed": 0,
+    "failed_checks": [],
+    "overall_status": "PASSED"
+  },
+  "interpretation": {
+    "planned": "validate the evidence of one live CPU-only Modal invocation with the unchanged Iteration 18 validators, verify the digest of the artifact from the bytes on disk and bind the report to the code SHA it was produced from",
+    "attempted": "the live invocation, the Iteration 18 artifact contract, the envelope schema, the response/envelope binding, the stage state machine, the provider-issued identifiers, the digest from disk, the source binding, the worker-observed metadata, the billed usage, the zero-GPU proof and the absence of a production change",
+    "executed": "the checks were executed against the artifacts stored on disk",
+    "observed": "the report states exactly what the invocation record and the stage evidence artifact contain; an unavailable field is reported as NOT_AVAILABLE with its reason and is never filled in",
+    "reported": "PASSED means every check of the live CPU-only smoke test passed; FAILED means at least one did not. This is a runtime smoke test, not a benchmark validation, and no claim about the sixteen benchmark targets is made"
+  }
+}

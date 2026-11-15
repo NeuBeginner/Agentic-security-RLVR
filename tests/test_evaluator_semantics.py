@@ -40,6 +40,8 @@ def test_evaluator_confirmed_exploit_semantics():
         execution_time_sec=0.4,
         invariant_violated=True,
         test_status="Success",
+        harness_verdict="BREACH",
+        harness_suite="test/VaultHarness.t.sol",
         decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
         reproducibility_confirmed=True
     )
@@ -61,6 +63,8 @@ def test_evaluator_unreplayed_breach_semantics():
         execution_time_sec=0.4,
         invariant_violated=True,
         test_status="Success",
+        harness_verdict="BREACH",
+        harness_suite="test/VaultHarness.t.sol",
         decoded_logs=["[INVARIANT_BREACHED:DEPOSITOR_SOLVENCY_COLLAPSE]"],
         reproducibility_confirmed=False
     )

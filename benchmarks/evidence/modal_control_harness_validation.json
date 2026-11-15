@@ -1,0 +1,964 @@
+{
+  "evidence_type": "TRUSTED_HARNESS_CONTROL_VALIDATION",
+  "version": "2.6.0",
+  "timestamp_utc": "2026-11-09T08:45:00Z",
+  "git_commit_sha": "70f5d22668bb5ebf72aa9de230fe91790d0e57c8",
+  "branch": "feat/empirical-benchmark-runner",
+  "scope": "Iteration 12 Whole-Chain Verification Ladder & Change Impact Matrix: Full 16-Target Benchmark Execution on Modal Nvidia H100 GPU with Dual-Staged Foundry Compilation, Confirmed EVM Invariant Breaches on REENT-01 (Vault) and AC-01 (AccessControlVault), Independent Remote CPU Replays, 4 Safe Controls Held (FPR=0.00%), Clean CI Pipeline, and Reconciled Modal Billing Report",
+  "benchmark_relationship": "HARNESS_VALIDATION_AND_CANONICAL_CLI_H100_BENCHMARK_EXECUTION",
+  "run_id": "run_1794209615_70f5d22",
+  "hardware_and_resource_clarification": {
+    "evm_harness_worker": "Modal Serverless CPU Container (2 cores, 2048 MB RAM, Debian Slim + Foundry v1.9.5 + solc 0.8.20/0.8.24)",
+    "gpu_allocated_for_harness": null,
+    "h100_model_inference_status": "VERIFIED_EXECUTED: Live model inference executed via canonical CLI runner (python -m benchmarks.benchmark_runner --mode real --baseline5-provider modal_h100 --baselines baseline_5) against clean commit 70f5d22668bb5ebf72aa9de230fe91790d0e57c8 on Modal Nvidia H100 80GB HBM3 GPU workers using ProductionAuditAgent (qtum/Qwen3-Coder-30B-A3B-Audit) under app session ap-EDUitOwWeMrIdYbTh4kB63. All 16 targets executed with complete per-target provenance, non-null integer exit codes, cryptographic SHA-256 digests, and reconciled billing export. Both REENT-01 (Vault) and AC-01 (AccessControlVault) achieved confirmed EVM invariant breaches with independent remote CPU container replays (reproduced: True), while all 4 safe controls held with zero false positives (FPR=0.00%)."
+  },
+  "all_16_targets_executed": [
+    {
+      "target_id": "AC-01",
+      "target_name": "AccessControlVault",
+      "execution_status": "SUCCESS",
+      "security_verdict": "EXPLOIT_CONFIRMED",
+      "replay_status": "CONFIRMED",
+      "persistence_status": "persisted",
+      "process_exit_code": 0,
+      "prompt_hash": "961b0dbd12b73ea452f67a78ee17458ee8a4cb3fe45f7b4bf79027176b08644b",
+      "correlation_id": "corr-AC-01-1794209784-80afc62f",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/AC-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/AC-01_stderr.txt",
+      "stdout_sha256": "10efad2fed07dc154a1bc717a60ec4996ed9cae8f59b85b7faaa5309ae1c14f5",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "e3110ccbd528813d6d0e266738d49b0fa57b0b602a480dd04b681c4358eff0aa",
+      "output_sha256": "c7b1c65e77177e7baf61f1926f0661141456bf113e5389a71d2c7fe1fbb76de0",
+      "duration_seconds": 29.844,
+      "utc_start_time": "2026-11-09T07:36:24Z",
+      "utc_end_time": "2026-11-09T07:36:57Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote",
+        "verify_replay_remote",
+        "record_trajectory_remote"
+      ],
+      "reproduced": true,
+      "replay_container_id": "modal-cpu-c89a89057453",
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "BREACH_VERIFIED",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": {
+        "reproduced": true,
+        "container_id": "modal-cpu-c89a89057453",
+        "command": "forge test --offline --json -vvvv",
+        "argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "return_code": 0,
+        "exit_code": 0,
+        "invariant_violated": true,
+        "harness_verdict": "BREACH",
+        "category": "EXPLOIT_CONFIRMED",
+        "candidate_sha256": "c7b1c65e77177e7baf61f1926f0661141456bf113e5389a71d2c7fe1fbb76de0",
+        "harness_sha256": "11125af44361d8978b9ce2cebdcc59b2125c31e058b329eb0f0cefe4cdbd651b",
+        "stdout_sha256": "43aabfd8fd380e4adaf834afbd91a0839f8ff7469ca464cee2d66e9e9bec7212",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utc_start_time": "2026-11-09T07:36:24Z",
+        "utc_end_time": "2026-11-09T07:36:57Z"
+      }
+    },
+    {
+      "target_id": "BIZ-01",
+      "target_name": "FeeShareYieldVault",
+      "execution_status": "SUCCESS",
+      "security_verdict": "RUNTIME_REVERT",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "c38a2be2472677cca724e3299a8e96b3abad40b68b46ac41dcebcc3b5641b843",
+      "correlation_id": "corr-BIZ-01-1794209972-e6f2b09e",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BIZ-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BIZ-01_stderr.txt",
+      "stdout_sha256": "373c9cec959882cd4148487d9f250530d8977e2aa4b1cd236d8f65aa6dc657a0",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "94bcccb40f263a812f7aefacb87b541d6a56cf558dc33e7c43cac01465edc0b2",
+      "output_sha256": "f55b48542e47f953fd7d94ef3108272b81b682dd279de94fb97cac854be25c5f",
+      "duration_seconds": 13.694,
+      "utc_start_time": "2026-11-09T07:39:32Z",
+      "utc_end_time": "2026-11-09T07:39:59Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    },
+    {
+      "target_id": "BRIDGE-01",
+      "target_name": "CrossContractBridge",
+      "execution_status": "SUCCESS",
+      "security_verdict": "RUNTIME_REVERT",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "ab73c4919a096d38d2d51040291d6d76a3b67e6eae0703cf54c26bcc4d68d28f",
+      "correlation_id": "corr-BRIDGE-01-1794210029-9275e585",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BRIDGE-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BRIDGE-01_stderr.txt",
+      "stdout_sha256": "3bb43d774404f0fcfd308f89a682295c8d8d6ee9b1fa3b5a87a58c12659e30f8",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "cbc4bed24900715d0408c19e5c2a51296299dfb4f0819025df029bf3b1a4b768",
+      "output_sha256": "441aa9cc4080a1c84c22dfec2e2514a04cb297c6b0f0a9ad7a0a60dbd66d861c",
+      "duration_seconds": 16.876,
+      "utc_start_time": "2026-11-09T07:40:29Z",
+      "utc_end_time": "2026-11-09T07:41:06Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    },
+    {
+      "target_id": "DOS-01",
+      "target_name": "AuctionDoS",
+      "execution_status": "SUCCESS",
+      "security_verdict": "RUNTIME_REVERT",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "cdec2d07f4a94e958a3e0fbc2b5fb489db526bcc1721592d88c10f4ebf56fbfd",
+      "correlation_id": "corr-DOS-01-1794210066-e36fb5b4",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/DOS-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/DOS-01_stderr.txt",
+      "stdout_sha256": "2f1878edc1a118fca854a66919b0a694494312e8e68eae958a282f1736cb9df2",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "4e27e2fde4a7421ad26a970fb8fb5ac179af319e5eb74ebfab024b854e795e1c",
+      "output_sha256": "7d147fc0ad0c2c596c38d762d5a5ecd45953295781146c5c54e51f5dcdff9ef8",
+      "duration_seconds": 15.459,
+      "utc_start_time": "2026-11-09T07:41:06Z",
+      "utc_end_time": "2026-11-09T07:41:35Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    },
+    {
+      "target_id": "ERC4626-01",
+      "target_name": "ERC4626Vault",
+      "execution_status": "SUCCESS",
+      "security_verdict": "RUNTIME_REVERT",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "ef6f9ceeeed1cc53c531a978743d7ed62fd80d5e2949c3b50d34072ffbcff458",
+      "correlation_id": "corr-ERC4626-01-1794209720-ebb36a77",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ERC4626-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ERC4626-01_stderr.txt",
+      "stdout_sha256": "eff342474aef35e13f0fa2c4cab4b1733d991d4c40f7e5d8cbf15f89940adefd",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "5400e6d7c497d796922cc61bd4dcd342dd689a0c54f4567c643025439004867c",
+      "output_sha256": "9b02137610db0462613dc8a2b934b5655c2ecdcf64022f8f4d402aa306569542",
+      "duration_seconds": 41.93,
+      "utc_start_time": "2026-11-09T07:35:20Z",
+      "utc_end_time": "2026-11-09T07:36:24Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    },
+    {
+      "target_id": "FLASH-01",
+      "target_name": "FlashLoanRewardPool",
+      "execution_status": "SUCCESS",
+      "security_verdict": "SAFE_RUN",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "a0f81af042d23ff892cc4ce2e3279dc3a346789030faa7dfe4e82d25a61c7249",
+      "correlation_id": "corr-FLASH-01-1794209875-e5ca1a09",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/FLASH-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/FLASH-01_stderr.txt",
+      "stdout_sha256": "4eb3545ccb225961083c29870db7c44cac7e14fa49e60553ee24d9b51591f833",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "d9fd70b86d1677bae01d71bab8f15e8d93cae195a814150d8eb1f6ec9878f1ae",
+      "output_sha256": "e52a6f2b61ac3a6a1dbd4bb8a70f604f6d69c521198db3069cd00365c2eb2c6a",
+      "duration_seconds": 13.723,
+      "utc_start_time": "2026-11-09T07:37:55Z",
+      "utc_end_time": "2026-11-09T07:38:22Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "SAFE_CONTROL_HELD",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    },
+    {
+      "target_id": "LIQ-01",
+      "target_name": "LendingLiquidation",
+      "execution_status": "SUCCESS",
+      "security_verdict": "RUNTIME_REVERT",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "bb8c8215b16f5f08865fe422e7f703075120912d32e0d40a6cf0daf6867568d9",
+      "correlation_id": "corr-LIQ-01-1794209999-2926b23b",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/LIQ-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/LIQ-01_stderr.txt",
+      "stdout_sha256": "80c679e580e7ce53b84b537daf995f10356f1fc3fb62f3f17e8cceae220377e5",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "22e5c16b30679b44e7c0ca07b24bc037e2c51cf17ba732ca4740c2c693fd3075",
+      "output_sha256": "eae3eb342164a3e28b63d48c8547bc1d1470cd7370721d9c229d01a6bfae4b1e",
+      "duration_seconds": 15.396,
+      "utc_start_time": "2026-11-09T07:39:59Z",
+      "utc_end_time": "2026-11-09T07:40:29Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    },
+    {
+      "target_id": "ORACLE-01",
+      "target_name": "OracleLendingPool",
+      "execution_status": "SUCCESS",
+      "security_verdict": "RUNTIME_REVERT",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "47c8d721c4f96f7e49dfdc5c9b048ec6aa80cada3eb7b2f228086d71810c8256",
+      "correlation_id": "corr-ORACLE-01-1794209817-7a2b6ad4",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ORACLE-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ORACLE-01_stderr.txt",
+      "stdout_sha256": "288cd5afe16f4c784a62853dbc20d8753ef485e893dd756123f18170da4346fd",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "987cf31b3ab7814b7869cfcb5a85297d07b83702fdf89ee880469bd3c8efdea9",
+      "output_sha256": "5c80eaeace90a89830788bf737f54792693b8de68bec84ecec44c633e6ea8062",
+      "duration_seconds": 30.579,
+      "utc_start_time": "2026-11-09T07:36:57Z",
+      "utc_end_time": "2026-11-09T07:37:55Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    },
+    {
+      "target_id": "PREC-01",
+      "target_name": "PrecisionStakingPool",
+      "execution_status": "SUCCESS",
+      "security_verdict": "RUNTIME_REVERT",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "0373a5882c9a8a7b4f4c46df3937033aa434128a4eed284677f54d0e27db1704",
+      "correlation_id": "corr-PREC-01-1794210095-12ed60f3",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/PREC-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/PREC-01_stderr.txt",
+      "stdout_sha256": "10277cf9bab229c3b6cbeef1483336bf80d885b3aa00669dbecc1872b27c4ae8",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "fbd895a4eafe93dab603ce9aeaae42f19552ba4acc1a45f055d16a87b238fc7a",
+      "output_sha256": "7de87542482536d5cdc9fb0997accdeab25a21b36873c2cb9808808543654b07",
+      "duration_seconds": 18.563,
+      "utc_start_time": "2026-11-09T07:41:35Z",
+      "utc_end_time": "2026-11-09T07:42:12Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    },
+    {
+      "target_id": "REENT-01",
+      "target_name": "Vault",
+      "execution_status": "SUCCESS",
+      "security_verdict": "EXPLOIT_CONFIRMED",
+      "replay_status": "CONFIRMED",
+      "persistence_status": "persisted",
+      "process_exit_code": 0,
+      "prompt_hash": "9e6e9a588cab9549a2abbc5261783f62e3cf40b67a9ce54ff00a43c29d9feebb",
+      "correlation_id": "corr-REENT-01-1794209621-7c51dfb0",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/REENT-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/REENT-01_stderr.txt",
+      "stdout_sha256": "5a742f3e034cf3e43d0dc4cbd24128dd78afdbe60d436d4d0d46012c34e74cf9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "a773cc86cd1873e0979a4a153102edd45b2d2f81d2ea57ef7881fee08825e241",
+      "output_sha256": "c67358c90b789d1536f2dfd30c287230789d8397ba004465924c1c214c145aa3",
+      "duration_seconds": 88.603,
+      "utc_start_time": "2026-11-09T07:33:41Z",
+      "utc_end_time": "2026-11-09T07:35:20Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote",
+        "verify_replay_remote",
+        "record_trajectory_remote"
+      ],
+      "reproduced": true,
+      "replay_container_id": "modal-cpu-ca9285db97bf",
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "BREACH_VERIFIED",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": {
+        "reproduced": true,
+        "container_id": "modal-cpu-ca9285db97bf",
+        "command": "forge test --offline --json -vvvv",
+        "argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "return_code": 0,
+        "exit_code": 0,
+        "invariant_violated": true,
+        "harness_verdict": "BREACH",
+        "category": "EXPLOIT_CONFIRMED",
+        "candidate_sha256": "c67358c90b789d1536f2dfd30c287230789d8397ba004465924c1c214c145aa3",
+        "harness_sha256": "6f405ff57e9bef9b8afd584e97bde96557d0763d3a6d3097c8a75ec51c4ccda6",
+        "stdout_sha256": "8d088711590dc962c2be5d91ebdb5a4fb05f698130ebbaa7135146f80e8281da",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utc_start_time": "2026-11-09T07:33:41Z",
+        "utc_end_time": "2026-11-09T07:35:20Z"
+      }
+    },
+    {
+      "target_id": "SAFE-01",
+      "target_name": "SecureVault",
+      "execution_status": "SUCCESS",
+      "security_verdict": "SAFE_RUN",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "2a8c8c504fb060f62a3ba4732e9f906557fa50e3c20d5eb113c88474688aa991",
+      "correlation_id": "corr-SAFE-01-1794210132-764ba5d5",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-01_stderr.txt",
+      "stdout_sha256": "7a01164522f677cbc4d2c886fe9fdea136d5884afdf867077c1b8b6052bd7fd6",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "6478720999579160ae807d719f7eb72363a1357e750119b5d1cec003e8d440b8",
+      "output_sha256": "767d0bf8a2151f392af305916d5ec395f5158177421911df3b210d1b8a836329",
+      "duration_seconds": 41.157,
+      "utc_start_time": "2026-11-09T07:42:12Z",
+      "utc_end_time": "2026-11-09T07:43:10Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "SAFE_CONTROL_HELD",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    },
+    {
+      "target_id": "SAFE-02",
+      "target_name": "SecureAccessControlVault",
+      "execution_status": "SUCCESS",
+      "security_verdict": "SAFE_RUN",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "29398f330caf1b1065a088c54b41874045cf3c53d98e8ed5dcf7807aab4ef79e",
+      "correlation_id": "corr-SAFE-02-1794210190-48086294",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-02_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-02_stderr.txt",
+      "stdout_sha256": "af34605fef80530dad21877f3cbdd19d5b431ff16fbf28e35e2109b3b5da8294",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "f8a8dbec1f190ffa39dad8a1c6bd3b10fb6b8dce8f7e921ec86fe33441d80993",
+      "output_sha256": "57b84f19305182257aacadd0064db098ea34a5c5320bc9e5f11d99a2fadaf256",
+      "duration_seconds": 12.133,
+      "utc_start_time": "2026-11-09T07:43:10Z",
+      "utc_end_time": "2026-11-09T07:43:34Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "SAFE_CONTROL_HELD",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    },
+    {
+      "target_id": "SAFE-03",
+      "target_name": "SecureERC4626Vault",
+      "execution_status": "SUCCESS",
+      "security_verdict": "SAFE_RUN",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "9d025ae4c652ba5a58b745db1b4e818463b5bfaa1b767da1e1043db8ca3c06c2",
+      "correlation_id": "corr-SAFE-03-1794210214-0e2b14bf",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-03_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-03_stderr.txt",
+      "stdout_sha256": "145f3949ed3785c9e474af070a3752bab1baadcb499843431fad780b192813bf",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "41e01284ae4715d673a804fe1398b0863e86a279cc07b807c62d8e0e2b4d33c0",
+      "output_sha256": "8c4328a5e8cce8691e75dec62a6809270e6e494dd6b24ab0ba2517c1cc3aefec",
+      "duration_seconds": 12.561,
+      "utc_start_time": "2026-11-09T07:43:34Z",
+      "utc_end_time": "2026-11-09T07:43:59Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "SAFE_CONTROL_HELD",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    },
+    {
+      "target_id": "SAFE-04",
+      "target_name": "SecureOraclePool",
+      "execution_status": "SUCCESS",
+      "security_verdict": "SAFE_RUN",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "13765694345dba05ac33301fe85fa774640f18867d652dc729572bf103a96a9c",
+      "correlation_id": "corr-SAFE-04-1794210239-e2980f82",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-04_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-04_stderr.txt",
+      "stdout_sha256": "cc3e3b64e616b34e1daa0f376bbf498301285960c0e9b5811bb6004c08749c44",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "eac7fee82da0091fede02e4bcd305dacb145d8f6b4700a24e3f62ae885986e7d",
+      "output_sha256": "413a79a5383f4921c6d4a4f4ea0da1006f204d78ea450bbc9c2231125d593774",
+      "duration_seconds": 41.063,
+      "utc_start_time": "2026-11-09T07:43:59Z",
+      "utc_end_time": "2026-11-09T07:44:58Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "SAFE_CONTROL_HELD",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    },
+    {
+      "target_id": "SIG-01",
+      "target_name": "SignatureReplayWallet",
+      "execution_status": "SUCCESS",
+      "security_verdict": "GENERATION_FORMAT_ERROR",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": -4,
+      "prompt_hash": "1261851571f2a841a858e9fe9fe8704b4de2b59dbc3c4f35dede5455598dc05f",
+      "correlation_id": "corr-SIG-01-1794209902-419b7d24",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SIG-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SIG-01_stderr.txt",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "519608493cd8851b52addfed28f69989363ea446748e02625c47fffda503edc5",
+      "input_sha256": "fe0d88dea6c402a1e0ceab505ec9da4db416f7a7549e2702671927fe17f741da",
+      "output_sha256": "2bbf4cdf11b350f8ac4fa15d4bef0182867c42f7c4ea3710f5711bce61c8b64b",
+      "duration_seconds": 14.531,
+      "utc_start_time": "2026-11-09T07:38:22Z",
+      "utc_end_time": "2026-11-09T07:39:02Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "GENERATION_FORMAT_ERROR",
+      "evm_outcome": "NOT_RUN",
+      "remote_evm_provenance": null,
+      "replay_evidence": null
+    },
+    {
+      "target_id": "STATE-01",
+      "target_name": "RewardDistributorLogic",
+      "execution_status": "SUCCESS",
+      "security_verdict": "RUNTIME_REVERT",
+      "replay_status": "NOT_ELIGIBLE",
+      "persistence_status": "not_eligible",
+      "process_exit_code": 1,
+      "prompt_hash": "796adc52974afe585c9a64e705859d83cb8d78dd43360a9e30f000f128239e9f",
+      "correlation_id": "corr-STATE-01-1794209942-bf641f59",
+      "stdout_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/STATE-01_stdout.txt",
+      "stderr_path": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/STATE-01_stderr.txt",
+      "stdout_sha256": "ff21e427bf0dedd3d72482c2b1b0a86f974e71aafa3f94451e848b02f78ff456",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_sha256": "8cde7ab7abc430d399f4e33e8907242ef5eab804bd5c7aa476442f038ea5f12f",
+      "output_sha256": "1e94b7d264dbab7586986884bcd88087b734fc32c290b4d287b7d1283712822c",
+      "duration_seconds": 14.546,
+      "utc_start_time": "2026-11-09T07:39:02Z",
+      "utc_end_time": "2026-11-09T07:39:32Z",
+      "modal_app": "aegis-rlvr-security",
+      "modal_functions": [
+        "ProductionAuditAgent.generate_solidity_exploit",
+        "verify_exploit_remote"
+      ],
+      "reproduced": null,
+      "replay_container_id": null,
+      "orchestration_status": "COMPLETED",
+      "generation_outcome": "CANDIDATE_GENERATED",
+      "evm_outcome": "RUNTIME_REVERT",
+      "remote_evm_provenance": {
+        "remote_os": "Debian GNU/Linux 12 (bookworm)",
+        "remote_platform": "linux",
+        "image_tag": "debian:12-slim-foundry",
+        "forge_version": "forge 1.9.5 (92f59f6 2026-11-04T00:23:44.821105000Z)",
+        "solc_versions": [
+          "0.8.20",
+          "0.8.24"
+        ],
+        "exact_forge_argv": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "working_directory": "/tmp/aegis_sandbox",
+        "compiler_settings": {
+          "evm_version": "paris",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "replay_evidence": null
+    }
+  ],
+  "modal_billing_audit": {
+    "audit_date": "2026-11-09",
+    "billing_period": "November 2026",
+    "raw_billing_file": "benchmarks/evidence/modal_billing_report_raw.json",
+    "canonical_run_app_session": "ap-EDUitOwWeMrIdYbTh4kB63",
+    "canonical_run_cost_usd": 0.78022149,
+    "canonical_run_breakdown": {
+      "H100": 0.74323683,
+      "CPU": 0.03001687,
+      "Memory": 0.00696753,
+      "Network Egress": 2.6e-07
+    },
+    "total_account_month_cost_usd": 1.3297,
+    "total_h100_gpu_items_billed": 3,
+    "total_h100_gpu_cost_usd": 1.1601,
+    "billing_reconciliation_verdict": "VERIFIED_ACCURATE: All live Modal H100 inference and CPU EVM container executions reconcile directly with upstream Modal billing ledger for app session ap-EDUitOwWeMrIdYbTh4kB63 via machine-readable join table modal_billing_join_table.json.",
+    "join_table_file": "benchmarks/evidence/modal_billing_join_table.json",
+    "attribution_policy": "UNATTRIBUTABLE_AGGREGATE: Per-target cost_usd is strictly null as upstream Modal SDK synchronous remote execution aggregates resource usage at the application session level (ap-EDUitOwWeMrIdYbTh4kB63)."
+  },
+  "summary_metrics": {
+    "baseline_id": "baseline_5",
+    "total_targets": 16,
+    "completed_targets": 16,
+    "unavailable_targets": 0,
+    "execution_status": "SUCCESS",
+    "vulnerable_targets": 12,
+    "synthetic_controls": 4,
+    "verified_breaches": 2,
+    "replayed_breaches": 2,
+    "true_positives": 2,
+    "true_negatives": 4,
+    "false_positives": 0,
+    "false_negatives": 10,
+    "precision": 1.0,
+    "recall": 0.1667,
+    "f1_score": 0.2858,
+    "fpr": 0.0,
+    "fnr": 0.8333,
+    "verified_finding_rate": 0.1667,
+    "replay_retention_rate": 1.0,
+    "cost_usd": null
+  }
+}

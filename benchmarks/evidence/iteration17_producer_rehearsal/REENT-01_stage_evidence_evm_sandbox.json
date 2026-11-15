@@ -1,0 +1,52 @@
+{
+  "absence_records": [
+    {
+      "field": "app_id",
+      "kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+      "reason": "the evm_sandbox stage returned a response that carried no runtime-identity envelope, so this client holds no 'app_id' for this target"
+    },
+    {
+      "field": "function_call_id",
+      "kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+      "reason": "the evm_sandbox stage returned a response that carried no runtime-identity envelope, so this client holds no 'function_call_id' for this target"
+    },
+    {
+      "field": "container_id",
+      "kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+      "reason": "the evm_sandbox stage returned a response that carried no runtime-identity envelope, so this client holds no 'container_id' for this target"
+    }
+  ],
+  "attempted": true,
+  "correlation_id": "corr-REENT-01-1794258399-ba094d7d",
+  "executed": true,
+  "provider_response": {
+    "category": "INVARIANT_BREACH_UNREPLAYED",
+    "feedback": "Remote EVM invariant breach achieved",
+    "is_verified": false,
+    "poc_code": "contract ExploitModule { function runExploit() external payable {} }",
+    "reproducible": false,
+    "reward_components": {},
+    "reward_score": 0.5,
+    "target_name": "Vault",
+    "vulnerability_type": "ReentrancyDrain"
+  },
+  "provider_response_metadata": {
+    "response_byte_length": 318,
+    "response_sha256": "7c157a17139640f797f805fb51cf9919e1a6cedddd2cc4365970949631a8bdee",
+    "response_source": "the response of verify_exploit_remote",
+    "runtime_identity_byte_length": null,
+    "runtime_identity_sha256": null
+  },
+  "requested_fields": [
+    "app_id",
+    "function_call_id",
+    "container_id"
+  ],
+  "response_received": true,
+  "runtime_envelope_received": false,
+  "runtime_identity": null,
+  "runtime_identity_source": "modal_runtime",
+  "schema_version": "1.0.0",
+  "stage": "evm_sandbox",
+  "target_id": "REENT-01"
+}
