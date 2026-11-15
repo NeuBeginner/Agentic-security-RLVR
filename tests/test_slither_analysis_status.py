@@ -594,3 +594,52 @@ def test_a_successful_report_may_not_contain_an_error_message():
     )
     assert outcome["report_valid"] is False
     assert outcome["analysis_status"] == STATUS_PARTIAL
+
+
+def test_a_timeout_with_a_partial_report_is_classified_as_partial():
+    outcome = classify_slither_outcome(
+        exit_code=-9,
+        report=_report(),
+        report_present=True,
+        report_parsable=True,
+        timed_out=True,
+    )
+    assert outcome["analysis_status"] == STATUS_PARTIAL
+    assert outcome["analysis_mode"] == MODE_FALLBACK
+    assert outcome["exit_code_disposition"] == DISPOSITION_TIMEOUT
+    assert outcome["report_valid"] is True
+
+
+def test_partial_timeout_evidence_with_a_valid_report_is_consistent():
+    record = _record(
+        mode=MODE_FALLBACK,
+        analysis_status=STATUS_PARTIAL,
+        exit_code_disposition=DISPOSITION_TIMEOUT,
+        slither_exit_code=-9,
+        slither_report_valid=True,
+        slither_report_success=True,
+        fallback_reason="slither timed out after writing a partial report",
+    )
+    assert static_analysis_evidence_is_consistent(_as_evidence(record)) is True
+
+
+def test_the_runner_preserves_a_report_when_slither_times_out(monkeypatch):
+    fake = _FakeSlither(
+        returncode=-9,
+        report=_report(),
+        stdout="Vault analyzed (1 contracts with 40 detectors), 2 result(s) found",
+        timed_out=True,
+    )
+    monkeypatch.setattr(runner_module, "run_subprocess_capped", fake)
+
+    record = run_slither_analysis_detailed(_target())
+
+    assert record["analysis_status"] == STATUS_PARTIAL
+    assert record["mode"] == MODE_FALLBACK
+    assert record["exit_code_disposition"] == DISPOSITION_TIMEOUT
+    assert record["slither_report_present"] is True
+    assert record["slither_report_valid"] is True
+    assert record["partial_finding_count"] == 2
+    assert record["finding_count"] == len(record["findings"])
+    assert record["fallback_reason"]
+    assert static_analysis_evidence_is_consistent(_as_evidence(record)) is True
