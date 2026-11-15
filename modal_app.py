@@ -55,7 +55,7 @@ model_volume = modal.Volume.from_name(config.MODEL_VOLUME_NAME, create_if_missin
 
 # GPU Image for reasoning and exploit synthesis engine
 gpu_image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.debian_slim(python_version="3.11")
     .pip_install(
         "torch",
         "transformers>=4.40.0",
