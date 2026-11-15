@@ -1037,6 +1037,11 @@ def validate_exploit_format(
             return False, f"ExploitModule function {entrypoint_name} has an invalid parameter"
         actual_param_types.append(words[0])
     if actual_param_types != expected_param_types:
+        if not expected_param_types:
+            return (
+                False,
+                f"ExploitModule function '{entrypoint_name}' must take 0 parameters, got parameters in signature: {actual_param_types}"
+            )
         return (
             False,
             f"ExploitModule function {entrypoint_name} must accept {expected_param_types}, got {actual_param_types}"
