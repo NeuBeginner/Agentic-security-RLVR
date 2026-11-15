@@ -1057,11 +1057,11 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
         with open(harness_path, "w", encoding="utf-8") as f:
             f.write(trusted_harness_source)
                 
-        # Write candidate ExploitModule (strictly sanitized filename to prevent path traversal)
+        # Keep the untrusted candidate exclusively in test/.  Putting it in
+        # src/ as well creates a second compilation unit and can shadow or
+        # duplicate the candidate during Foundry's source discovery.
         safe_filename = "ExploitModule.sol"
         with open(os.path.join(test_dir, safe_filename), "w", encoding="utf-8") as f:
-            f.write(payload.test_code)
-        with open(os.path.join(src_dir, safe_filename), "w", encoding="utf-8") as f:
             f.write(payload.test_code)
             
         env = os.environ.copy()
