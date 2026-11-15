@@ -2,6 +2,7 @@ from core.llm_generator import (
     SOLIDITY_KEYWORDS,
     analyze_contract_normalization,
     build_analysis_prompt,
+    build_refinement_prompt,
     tokenize_solidity,
     validate_exploit_format,
 )
@@ -27,6 +28,13 @@ def test_custom_error_reference_after_revert_fails_closed():
 def test_signature_replay_prompt_matches_the_target_harness():
     target = TargetProgram(name="SignatureReplayWallet", source_code="contract SignatureReplayWallet {}")
     prompt = build_analysis_prompt(target)
+    assert "function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external" in prompt
+
+
+def test_signature_replay_refinement_prompt_keeps_harness_signature():
+    target = TargetProgram(name="SignatureReplayWallet", source_code="contract SignatureReplayWallet {}")
+    prompt = build_refinement_prompt(target, "contract ExploitModule {}", "execution reverted")
+    assert "Required harness entrypoint" in prompt
     assert "function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external" in prompt
 
 
