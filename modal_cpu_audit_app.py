@@ -914,6 +914,8 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
         }
         artifacts = save_result_artifact(run_id, result)
         result["artifacts"] = artifacts
+        if artifacts.get("artifact_conflict"):
+            result["status"] = "ARTIFACT_CONFLICT"
         return result
 
     # -- Stage 4: independent replay (fresh EVM) ------------------------------
@@ -1083,6 +1085,8 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
 
     artifacts = save_result_artifact(run_id, result)
     result["artifacts"] = artifacts
+    if artifacts.get("artifact_conflict"):
+        result["status"] = "ARTIFACT_CONFLICT"
     log_event(
         "audit_completed",
         run_id=run_id,
