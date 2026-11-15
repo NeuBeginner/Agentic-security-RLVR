@@ -1422,7 +1422,7 @@ def main(
         print("\n" + "=" * 78)
         print("🧪 EXECUTING DIAGNOSTIC GRPO FORWARD PASS (NO WEIGHT UPDATES / NO OPTIMIZER STEP)")
         print("=" * 78)
-        diag_model_id = config.DEV_GPU_MODEL if generator.lower() == "dev" or target_name == "Vault" else config.AUDIT_GPU_MODEL
+        diag_model_id = config.DEV_GPU_MODEL if mode.lower() == "dev" else config.AUDIT_GPU_MODEL
         diag_res = diagnostic_grpo_forward_remote.remote(model_id=diag_model_id, batch_group_size=num_candidates)
         print(json.dumps(diag_res, indent=2))
         print("=" * 78 + "\n")
@@ -1520,7 +1520,7 @@ def main(
     target_prompt = build_analysis_prompt(target, hypothesis=primary_attack_hypothesis)
     prompt_hash = compute_prompt_hash(target_prompt)
     candidate_hypothesis_ids: Dict[str, str] = {}
-    model_id = config.DEV_GPU_MODEL if generator.lower() == "dev" or target_name == "Vault" else config.AUDIT_GPU_MODEL
+    model_id = config.DEV_GPU_MODEL if mode.lower() == "dev" else config.AUDIT_GPU_MODEL
     checkpoint_id = "checkpoint-step-2" if use_lora else "base"
 
     print(f"\n[Phase 2] Synthesizing {num_candidates} parallel exploit hypotheses (Run ID: {run_id})...")
