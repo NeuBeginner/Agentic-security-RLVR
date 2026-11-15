@@ -370,7 +370,7 @@ def test_end_to_end_diagnostic_grpo_forward(qwen_model_and_tokenizer, tmp_path):
         token_provenance="model_generate",
         trainable=True
     )
-    traj = create_finalized_trajectory(candidate, target, dataset_partition="production")
+    traj = create_finalized_trajectory(candidate, target, dataset_split="train", dataset_partition="production")
 
     (tmp_path / f"traj_{traj.trajectory_id}.json").write_text(json.dumps(traj.model_dump(), indent=2), encoding="utf-8")
 
