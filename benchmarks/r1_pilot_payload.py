@@ -162,6 +162,42 @@ def build_payloads(
     return payloads
 
 
+def _cost_input_drift() -> List[str]:
+    """The cost inputs whose working-tree bytes differ from the committed ones.
+
+    The dispatch envelope binds the SHA-256 of the rate card and of the cost
+    scenario **as they are on disk**. A checkout whose line endings differ from
+    the committed ones (a CRLF checkout of a repository without
+    ``.gitattributes``, for example) therefore produces an envelope that the
+    gate - running on another machine, from another checkout - cannot rebuild:
+    the signature would never verify. The payload has to be generated on the
+    machine that runs the pilot.
+    """
+    import hashlib
+    import subprocess
+
+    drift: List[str] = []
+    for path in (SCENARIO_PATH, RATE_CARD_PATH):
+        relative = path.relative_to(_ROOT).as_posix()
+        working = hashlib.sha256(path.read_bytes()).hexdigest()
+        committed = subprocess.run(
+            ["git", "show", f"HEAD:{relative}"],
+            cwd=str(_ROOT),
+            capture_output=True,
+        )
+        if committed.returncode != 0:
+            drift.append(f"{relative}: the committed bytes are not available")
+            continue
+        digest = hashlib.sha256(committed.stdout).hexdigest()
+        if digest != working:
+            drift.append(
+                f"{relative}: the working copy ({working}) differs from the committed "
+                f"bytes ({digest}) - regenerate the payload on the machine that runs "
+                "the pilot"
+            )
+    return drift
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -204,6 +240,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"  payload digest   : {r1_approval.payload_digest(payload)}")
         print(f"  call sites       : {payload['call_sites']}")
         print(f"  estimate/ceiling : {payload['policy']['estimate_usd']}")
+    drift = _cost_input_drift()
+    for line in drift:
+        print(f"WARNING: {line}")
     print(f"approved_at: {approved_at}")
     return 0
 
