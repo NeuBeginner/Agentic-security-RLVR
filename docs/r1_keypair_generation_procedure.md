@@ -230,10 +230,11 @@ owner has to decide explicitly:
   the proof that the pin is the one you approved, and the change of the R1
   state has to be recorded as a deliberate step (R1 -> R2), not as a silent
   edit of a test.
-* **The rate card stays unapproved.** `benchmarks/evidence/r1_rate_card.json`
-  is a separate approval input with its own source and its own reading date.
-  Pinning the key does not approve the rate card, and the rate card is not
-  changed by this procedure.
+* **The rate card is a separate approval input.** `benchmarks/evidence/r1_rate_card.json`
+  carries its own source and its own reading date, and its approval is the
+  approval of the **rates** only: the owner approved the rates on 2026-11-15
+  (`status: APPROVED`). Pinning the key does not approve the rate card, and the
+  rate card is not changed by this procedure.
 
 ### Step 7 - the approval artifact itself (a later, separate act)
 
@@ -291,5 +292,5 @@ artifacts that the old key signed.
 - [ ] `core/r1_approval.py::PINNED_PUBLIC_KEY` and `benchmarks/evidence/r1_approval_key.json` carry the **same** key;
 - [ ] `pinned_public_key()` returns the tuple and not `None`;
 - [ ] the tests of the R1 state (`PINNED_PUBLIC_KEY is None`) were replaced deliberately and the state change is recorded;
-- [ ] `benchmarks/evidence/r1_rate_card.json` is unchanged and still unapproved;
+- [ ] `benchmarks/evidence/r1_rate_card.json` is not changed by this change (the rates carry the owner's own approval of 2026-11-15);
 - [ ] no approval artifact was created, signed or committed by this change.

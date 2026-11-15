@@ -187,7 +187,10 @@ def test_the_rate_card_no_longer_deliberately_nets_the_allowance_out():
     notes = " ".join(card["notes"])
     assert "NOT netted out" not in notes
     assert card["storage_free_allowance_gib_per_month"] == 1024
-    assert card["approved_by"] is None
+    # The rates are approved by the owner - the approval of the card is the
+    # approval of the RATES, never of a stage ceiling or of a dispatch.
+    assert card["approved_by"] == "owner"
+    assert card["approved_at"]
 
 
 # --------------------------------------------------------------------------------------
@@ -439,7 +442,7 @@ def test_the_rate_card_states_the_ingress_rate_and_its_source():
     card = json.loads(RATE_CARD_PATH.read_text(encoding="utf-8"))
     assert card["ingress_per_gib"] == 0.0
     assert "network-egress-billing" in card["ingress_source"]
-    assert card["approved_by"] is None
+    assert card["approved_by"] == "owner"
 
 
 def test_a_step_that_dispatches_a_function_with_an_ingress_bound_must_declare_it():
@@ -469,14 +472,18 @@ def test_every_result_is_provisional_and_not_dispatchable():
     result = _run()
     assert result["status"] == "PROVISIONAL_ONLY / NOT_DISPATCHABLE"
     assert result["aggregate"]["status"] == "PROVISIONAL_ONLY / NOT_DISPATCHABLE"
-    # The rate card of the repository is not approved: the estimate is a proposal.
-    assert _rate_card().is_approved() is False
+    # The rates of the repository are approved by the owner - the estimate stays
+    # a proposal, because the per-stage ceilings and the bounds are not.
+    assert _rate_card().is_approved() is True
+    assert _scenario()["status"] == "PROPOSED - not maintainer-approved"
 
 
 def test_the_estimate_is_unavailable_without_an_approved_rate_card():
-    result = r1_estimator.run_scenario(_scenario(), _rate_card(), allow_unapproved_rate_card=False)
+    unapproved = dataclasses.replace(_rate_card(), approved_by=None)
+    result = r1_estimator.run_scenario(_scenario(), unapproved, allow_unapproved_rate_card=False)
     assert result["verdict"] == r1_estimator.VERDICT_UNAVAILABLE
     assert result["aggregate"]["unavailable_reasons"]
+    assert any("rate card is not approved" in reason for reason in result["aggregate"]["unavailable_reasons"])
 
 
 # --------------------------------------------------------------------------------------

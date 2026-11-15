@@ -1,8 +1,8 @@
 {
   "schema": "r1-rate-card/1.0.0",
-  "status": "PROPOSED - not maintainer-approved",
-  "approved_by": null,
-  "approved_at": null,
+  "status": "APPROVED",
+  "approved_by": "owner",
+  "approved_at": "2026-11-15T20:57:51Z",
   "source": "https://modal.com/pricing (per-second view), read 2026-11-11; corroborated by the provider's FAQ on the same page: \"Modal bills you during application load time and during the time your container is processing inputs. By default, we keep containers alive for 60 seconds after the last inputs before we shut them down, which we also bill for.\"",
   "read_at": "2026-11-11",
   "notes": [
@@ -12,7 +12,8 @@
     "The storage footprint of this proposal is a CANDIDATE estimate: R1 performed no Volume operation, so the existing remote Volume baseline of the workspace is not measured by this evidence. The cost assumption of USD 0 is kept; the capacity proof (that the cycle fits the account) stays UNAVAILABLE until a read-only baseline measurement or a defensible conservative bound exists.",
     "CPU is billed per physical core (2 vCPU equivalent) and memory per GiB; the provider's published minimum request is 0.125 cores and 128 MiB per container.",
     "Sandboxes are priced at the rate of non-preemptible Functions (a 3x multiplier on the CPU and memory list price). This workflow uses Modal Functions, so the list price below applies.",
-    "EGRESS is outbound traffic. The model download of the prefetch step is INGRESS: the provider does not bill a download into the container at the egress rate, and a read or a write of a Modal Volume is not egress either. The inbound bytes are therefore declared and bounded separately (core/r1_bounds.INGRESS_POLICIES) and are priced at the ingress rate below, which is 0."
+    "EGRESS is outbound traffic. The model download of the prefetch step is INGRESS: the provider does not bill a download into the container at the egress rate, and a read or a write of a Modal Volume is not egress either. The inbound bytes are therefore declared and bounded separately (core/r1_bounds.INGRESS_POLICIES) and are priced at the ingress rate below, which is 0.",
+    "The approval of this card is the approval of the RATES only: the per-stage ceilings of the cost proposal and the cost scenario stay unapproved, no approval key is pinned, no approval artifact exists and no provider dispatch is authorised by this card."
   ],
   "cpu_per_core_sec": 0.0000131,
   "memory_per_gib_sec": 0.00000222,
