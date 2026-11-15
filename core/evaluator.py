@@ -70,6 +70,7 @@ from core.reward_shaping import (
 #: is produced by the evaluator and a verdict that is produced by the
 #: candidate lifecycle speak the same language.
 REPLAY_STATUS_CONFIRMED = "CONFIRMED"
+REPLAY_STATUS_PENDING = "PENDING"
 REPLAY_STATUS_FAILED = "FAILED"
 REPLAY_STATUS_INFRA_ERROR = "INFRA_ERROR"
 REPLAY_STATUS_NOT_ELIGIBLE = "NOT_ELIGIBLE"
@@ -365,7 +366,7 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
             is_verified=False,  # NOT marked as verified exploit until replay confirmation!
             reproducible=False,
             state_delta_verified=state_delta_verified,
-            replay_status=REPLAY_STATUS_FAILED,
+            replay_status=REPLAY_STATUS_PENDING,
             replay_confirmed=False,
             breach_evidence_basis=breach_evidence_basis,
         )
