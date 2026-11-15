@@ -649,7 +649,11 @@ def save_result_artifact(run_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
         "reread_bytes": len(reread),
         "reread_sha256": reread_digest,
         "reread_error": reread_error,
-        "reread_verified": bool(reread) and reread_digest == written_digest,
+        # A matching read from this container is not durable evidence when
+        # the Modal Volume commit failed.
+        "reread_verified": (
+            commit_error is None and bool(reread) and reread_digest == written_digest
+        ),
     }
 
 
