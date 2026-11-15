@@ -176,7 +176,7 @@ def test_an_unreplayed_breach_never_claims_a_confirmed_exploit():
     assert verdict.reward_score == 0.5
     assert verdict.is_verified is False
     assert verdict.reproducible is False
-    assert verdict.replay_status == "FAILED"
+    assert verdict.replay_status == "PENDING"
     assert verdict.replay_confirmed is False
     assert verdict.verification_result.replay_confirmed is False
     assert verdict.verification_result.confidence_status == "PROVISIONAL_BREACH"
