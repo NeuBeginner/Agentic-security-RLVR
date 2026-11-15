@@ -1,0 +1,9 @@
+# Test-only dependencies of the CI jobs.
+#
+# The runtime dependencies live in requirements.txt. PyTorch is installed
+# separately from the CPU wheel index (see .github/workflows/ci.yml), because
+# the default PyPI wheel pulls the CUDA runtime into the runner.
+pytest>=8.0
+pytest-cov
+numpy
+transformers>=4.44,<5
