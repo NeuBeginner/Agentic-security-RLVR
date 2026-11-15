@@ -26,9 +26,9 @@ on:
       - 'modal_cpu_audit_app.py'
       - 'sandbox/**'
       - 'benchmarks/**'
+      - '!benchmarks/evidence/**'
       - 'requirements.txt'
       - 'requirements-test.txt'
-      - '.github/workflows/modal-cpu-deploy.yml'
   workflow_dispatch:
     inputs:
       confirm:
