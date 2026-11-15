@@ -36,13 +36,20 @@ no value whose *construction* conveys authority - the previous design had one
 constructor; the R1 re-review forged an approval with it, and the token is
 gone).
 
-**R1 pins no key.** The pinned key is ``None``, because no step of the
-evidence-regeneration workflow has been approved by the maintainer yet. The
-consequence is the intended one: **no provider dispatch is possible in R1**,
-and it is impossible *structurally* - not only because the bounds of the
-container classes are required-but-unset. A caller that constructs a policy
-in-process, supplies permissive profile and read-back doubles and reaches a
-provider double is refused with ``approval_not_verified``.
+**The approval authority pinned its public key on 2026-11-15.** The pin is the
+RSA-4096 public key of the maintainer - the modulus and the exponent ``65537``
+- and only its **public** half is in this repository. The private half stays
+with the maintainer: it never enters this repository, never enters a process
+of the workflow and is never handed to an agent, a CI job or a commit.
+
+**A pin is not an approval.** The pin says *who may approve*; it says nothing
+about *what is approved*. No approval artifact exists in this repository and no
+step of the evidence-regeneration workflow is approved, so **no provider
+dispatch is possible yet**, and it is impossible *structurally* - not only
+because the bounds of the container classes are required-but-unset. A caller
+that constructs a policy in-process, supplies permissive profile and read-back
+doubles and reaches a provider double is refused with
+``approval_not_verified``.
 
 **The threat model.** This module protects against a caller *inside this
 process* that reaches the workflow through its own API, its registries and its
@@ -82,10 +89,24 @@ PINNED_KEY_PATH = (
 #: trail, and a mirror that does not match this constant is refused (fail
 #: closed) - see :func:`pinned_public_key`.
 #:
-#: ``None`` means: the repository pins no key. That is the state of R1 - no
-#: step of the workflow is approved, so no approval can be verified and no
-#: provider dispatch can be authorised.
-PINNED_PUBLIC_KEY: Optional[Tuple[int, int]] = None
+#: ``None`` means: the repository pins no key - no approval can then be
+#: verified, and no provider dispatch can be authorised.
+#:
+#: The key that is pinned here is the **public** half of the approval
+#: authority's RSA-4096 pair (the SHA-256 of its DER SubjectPublicKeyInfo is
+#: ``4aafb8901f819081613a2507a5f2d95ed348bf248e5f8711ddad248c786b2ac9``). It
+#: was pinned by the owner on 2026-11-15; the private half never enters this
+#: repository. A pin is not an approval: no approval artifact exists here, so
+#: every provider dispatch stays refused with ``approval_not_verified``.
+PINNED_PUBLIC_KEY: Optional[Tuple[int, int]] = (
+    int.from_bytes(
+        base64.b64decode(
+            "3Zu/91v9AmUgTCpWd6++2/PBfQ3Ed/gEkawrl62CT6GU7BqyPX0eBMrkN1VHEV2dmTncxyNZeCQTdaD4UQ2B6R30KLaU1flVNY1wn+tgqBE+s99ma0NUmnAwPUnE5GtTcYtPBLBsHivLPxhFw46jjxQjQUDiKyEaKcer2zvk2fwMzB/Wq0ImlPIjTSSWjRyTAhqpys4AJYTQT7BlOFljFmbNliBAKHluYHl/quyXkJvs8ZEPto3NlLKgiOz+9d1/QBrX8sBuIY6561wqtpkBx8WZ19b0ZCOe/d2Z2qH/nxF3CObUZaZxM2cz2QgdDHk0ivWQV+/UjWBH+YbIA/YH2181ycfFmtwMO66D9Q1PuRI16lXoSYqYWPjWPKv9QhUrY+WxcuD8pEwWVD4tdrKuZTbOXQGmaqIZI+ggSyvoUxgkYCPg6HmeZApMRRCNhhMtQKYixXujrYaD8XY3tg2sQEDCGdarQorCIBxjHpu+y9Q1uZaSHDlJX9OJIQG3GN2OLRF+293IcIX9FUMrZJOSggPoSkAs/vv4lY8rUzO+sLA053T6BGwpuvQ3RVvXB60pZxTDe6xRlLZUiU+JN7c23wx/mWPyri5vqnbFBW/lJullY2BjFQrpkG3gL7oCdBJOy8BVkYcVdjq96i4E8ZvGUwfM158fpFI6n65lS1pojyE="
+        ),
+        "big",
+    ),
+    65537,
+)
 
 #: The DER prefix of a SHA-256 ``DigestInfo`` (RFC 8017, section 9.2).
 _SHA256_DIGEST_INFO_PREFIX = bytes.fromhex("3031300d060960864801650304020105000420")
@@ -232,9 +253,9 @@ def pinned_public_key() -> Optional[Tuple[int, int]]:
     file that is read at runtime. The evidence file mirrors it; when the two
     disagree the pin is refused.
 
-    ``None`` means that the repository pins no key: no approval can be
-    verified, and therefore no provider dispatch can be authorised. That is the
-    state of R1.
+    ``None`` means that no key can be used: either the repository pins none, or
+    the mirror of the pin disagrees with it. No approval can then be verified,
+    and therefore no provider dispatch can be authorised.
     """
     key = PINNED_PUBLIC_KEY
     if key is None:
@@ -281,7 +302,8 @@ def verify_approval(payload: Mapping[str, Any], signature: bytes) -> VerifiedApp
     """Verify an approval artifact and return its verified claims.
 
     The artifact is refused - never partially accepted - when the repository
-    pins no key, when the signature does not match the payload, or when the
+    pins no usable key (no pin at all, or a mirror that disagrees with the
+    pin), when the signature does not match the payload, or when the
     payload does not name a step, an approver and the call sites it covers.
 
     **The result is claims, not an authorisation.** The dispatch gate verifies

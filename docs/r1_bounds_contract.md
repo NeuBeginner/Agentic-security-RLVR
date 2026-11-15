@@ -435,14 +435,23 @@ The evidence mirror is a second copy of the pin: a mirror that is missing, malfo
 or different from the source pin is refused, and with it every approval (fail
 closed).
 
-**R1 pins no key** — the source pin is `null` and the mirror says `null` too,
-because no step of the evidence-regeneration workflow has been approved by the
-maintainer yet. The consequence is the intended one: **no provider dispatch is
-possible in R1**, and it is impossible *structurally* — not only because the bounds
-of the container classes are required-but-unset. The approval binds the exact policy
-it approves: a caller that swaps a cap, a budget or a ceiling after the approval was
-issued does not hold the approval any more (`approval_policy_mismatch`), and an
-approval of another step does not cover this one (`call_site_not_approved`).
+**The approval authority pinned its public key on 2026-11-15** — the RSA-4096
+modulus and the exponent `65537` are in the source (`core/r1_approval.py`) and
+in the mirror (`benchmarks/evidence/r1_approval_key.json`), and the SHA-256 of
+the DER SubjectPublicKeyInfo is
+`4aafb8901f819081613a2507a5f2d95ed348bf248e5f8711ddad248c786b2ac9`. Only the
+**public** half is in the repository; the private half stays with the
+maintainer and never enters it.
+
+**A pin is not an approval.** The pin says *who may approve*; it says nothing
+about *what is approved*. No approval artifact exists in the repository and no
+step of the evidence-regeneration workflow is approved, so the consequence is
+the intended one: **no provider dispatch is possible**, and it is impossible
+*structurally* — not only because the bounds of the container classes are
+required-but-unset. The approval binds the exact policy it approves: a caller
+that swaps a cap, a budget or a ceiling after the approval was issued does not
+hold the approval any more (`approval_policy_mismatch`), and an approval of
+another step does not cover this one (`call_site_not_approved`).
 
 The invocation allowance is consumed only by a dispatch that really starts a
 container.** The check and the increment happen under **one** lock, so two concurrent
@@ -527,8 +536,9 @@ is a property of the language and of the process, not of this guard. What the gu
   pinned key and compares both `policy_digest` and the live `dispatch_envelope_digest`
   (covering resource profiles, autoscaler lifetimes, network/egress/ingress bounds,
   payload caps, volume/toolchain settings, pinned model/cache digests and cost/rate-card
-  SHA-256 digests). R1 pins no approval key, so no live provider dispatch is possible at
-  all;
+  SHA-256 digests). The repository pins the **public** key of the approval
+  authority, but no approval artifact exists, so no live provider dispatch is
+  possible at all;
 * **no value whose construction conveys authority exists** — there is no issuance
   token, no unforgeable-in-practice marker and no "verified approval" object the
   gate accepts; the only way through the boundary is a signature of the approval
@@ -554,7 +564,7 @@ authorisation of the operator, not by code.
 | the **capacity proof** of the storage | **available**, with open sub-items | the baseline of the remote Volume is measured (64 349 622 024 B = 59.930256 GiB, read-only inventory of 2026-11-14) and verified against its evidence file; the account-wide concurrent peak has no API gauge and the post-R2p/post-R3b-R4 read-backs are still open |
 | the **per-stage ceilings** | not approved | they are proposed in `docs/r1_cost_proposal.md` and await the maintainer's review |
 | every compute step | **not dispatchable** | the estimate is unavailable while the bounds above are unset, and an unavailable estimate means no dispatch |
-| every **provider dispatch** of R1 | **refused** | no step of the workflow is approved: the repository pins no approval key, so no approval artifact can be verified and the gate refuses with `approval_not_verified` — the refusal is structural, not a side effect of the unset bounds |
+| every **provider dispatch** | **refused** | no step of the workflow is approved: the repository pins the **public** key of the approval authority, but no approval artifact exists, so nothing can be verified and the gate refuses with `approval_not_verified` — the refusal is structural, not a side effect of the unset bounds |
 
 Nothing in R1 spends a cent: the declared state is fail-closed, the approval of every
 step is absent, and the guard refuses every provider call while it holds.

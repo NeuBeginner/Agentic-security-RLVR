@@ -367,14 +367,25 @@ def test_the_ledger_holds_no_key_and_approves_nothing():
     for forbidden in ("BEGIN RSA PRIVATE KEY", "BEGIN PRIVATE KEY", "PRIVATE_EXPONENT", "modulus"):
         assert forbidden not in source
 
-    # The approval of a step stays in core/r1_approval.py - the repository pins
-    # no key, and the rate card stays unapproved.
+    # The approval of a step stays in core/r1_approval.py. The repository pins
+    # the **public** half of the approval authority's key pair - a public key is
+    # not a secret and cannot sign anything - and the private half never enters
+    # the repository. No approval artifact exists here, so nothing is approved.
     from core import r1_approval
 
-    assert r1_approval.PINNED_PUBLIC_KEY is None
-    assert r1_approval.pinned_public_key() is None
+    assert r1_approval.PINNED_PUBLIC_KEY is not None
+    modulus, exponent = r1_approval.PINNED_PUBLIC_KEY
+    assert exponent == 65537
+    assert r1_approval.pinned_public_key() == (modulus, exponent)
+
+    # The pin is the public half only: the private exponent is nowhere.
+    approval_source = (REPO_ROOT / "core" / "r1_approval.py").read_text(encoding="utf-8")
+    for forbidden in ("BEGIN RSA PRIVATE KEY", "BEGIN PRIVATE KEY", "PRIVATE_EXPONENT"):
+        assert forbidden not in approval_source
     key_file = REPO_ROOT / "benchmarks" / "evidence" / "r1_approval_key.json"
-    assert json.loads(key_file.read_text(encoding="utf-8"))["public_key"] is None
+    recorded = json.loads(key_file.read_text(encoding="utf-8"))["public_key"]
+    assert int(recorded["e"]) == exponent
+    assert r1_approval._decode_modulus(str(recorded["n"])) == modulus
 
 
 # --------------------------------------------------------------------------------------

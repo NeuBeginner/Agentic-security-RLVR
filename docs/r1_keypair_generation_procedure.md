@@ -7,11 +7,15 @@ you decide to pin an approval key.
 **What this document does not do.** It does not generate a key, and it does not
 approve anything. Nothing in this repository generates a key pair, and no step
 of the evidence-regeneration workflow is approved by the existence of this
-document. In R1 the repository pins **no** key
-(`core/r1_approval.py::PINNED_PUBLIC_KEY is None`,
-`benchmarks/evidence/r1_approval_key.json` carries `"public_key": null`), and
-that is the intended state: **no provider dispatch is possible**, so every stage
-of the workflow stays `PROVISIONAL_ONLY` / `NOT_DISPATCHABLE`.
+document. The owner pinned the **public** half of the approval key pair on
+2026-11-15 (`core/r1_approval.py::PINNED_PUBLIC_KEY` carries the RSA-4096
+modulus and the exponent `65537`; the mirror
+`benchmarks/evidence/r1_approval_key.json` carries the same key), and the
+private half stays with the owner: it never enters this repository, it never
+enters a process of the workflow, and it is never handed to an agent, a chat, a
+CI job or a commit. A pin is not an approval: no approval artifact exists
+here, so **no provider dispatch is possible** and every stage of the workflow
+stays `PROVISIONAL_ONLY` / `NOT_DISPATCHABLE`.
 
 **The boundary.** The private half of the key is *yours* and stays with you. It
 never enters this repository, it never enters a process of the workflow, and it
@@ -224,12 +228,14 @@ Pinning a key is **not** an approval of a step. It changes two things that the
 owner has to decide explicitly:
 
 * **The tests of the R1 state change.** `tests/test_r1_dispatch_boundary.py`
-  and `tests/test_r1_budget_ledger.py` assert that
-  `core.r1_approval.PINNED_PUBLIC_KEY is None` - that is the proof that R1
+  and `tests/test_r1_budget_ledger.py` used to assert that
+  `core.r1_approval.PINNED_PUBLIC_KEY is None` - that was the proof that R1
   approves nothing. With a pinned key those assertions have to be replaced by
-  the proof that the pin is the one you approved, and the change of the R1
-  state has to be recorded as a deliberate step (R1 -> R2), not as a silent
-  edit of a test.
+  the proof that the pin is the one you approved (the modulus, the exponent
+  and the mirror that carries the same key), and the change of the R1 state has
+  to be recorded as a deliberate step (R1 -> R2), not as a silent edit of a
+  test. The **negative** proofs stay: a mirror that disagrees with the pin is
+  refused, and a signature that does not verify is refused.
 * **The rate card is a separate approval input.** `benchmarks/evidence/r1_rate_card.json`
   carries its own source and its own reading date, and its approval is the
   approval of the **rates** only: the owner approved the rates on 2026-11-15
@@ -291,6 +297,6 @@ artifacts that the old key signed.
 - [ ] the size of the key is 2048 or 4096 bits and the fingerprint is recorded;
 - [ ] `core/r1_approval.py::PINNED_PUBLIC_KEY` and `benchmarks/evidence/r1_approval_key.json` carry the **same** key;
 - [ ] `pinned_public_key()` returns the tuple and not `None`;
-- [ ] the tests of the R1 state (`PINNED_PUBLIC_KEY is None`) were replaced deliberately and the state change is recorded;
+- [ ] the tests of the R1 state (`PINNED_PUBLIC_KEY is None`) were replaced deliberately by the proof that the pin is the approved one, and the state change is recorded;
 - [ ] `benchmarks/evidence/r1_rate_card.json` is not changed by this change (the rates carry the owner's own approval of 2026-11-15);
 - [ ] no approval artifact was created, signed or committed by this change.

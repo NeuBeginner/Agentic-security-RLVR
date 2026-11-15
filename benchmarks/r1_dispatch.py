@@ -18,8 +18,10 @@ call. It enforces, per step:
    anything else is asked of the provider. The gate verifies the artifact
    itself, at dispatch time, and accepts **no** "verified approval" object:
    no value whose construction conveys authority exists, so there is nothing
-   to forge. R1 pins no key, therefore **no provider dispatch is possible in
-   R1**;
+   to forge. The repository pins the **public** key of the approval authority,
+   but a pin is not an approval: no approval artifact exists, therefore **no
+   provider dispatch is possible** until a signed approval that covers the
+   step is handed to the run out of band;
 4. the **completeness of the declared bounds** - while a required bound of the class is
    required-but-unset, no dispatch of that class happens (fail closed);
 5. the **egress declaration** of the dispatched function (D29);
@@ -103,8 +105,9 @@ from core.r1_bounds import _perform_provider_call, _unwrap_guard
 # The approval of a step: the gate takes the **signed artifact** and verifies
 # the signature itself, at dispatch time, against the public key the repository
 # pins. The gate never accepts a "verified approval" object: no value whose
-# construction conveys authority may exist. R1 pins no key, so no provider
-# dispatch is authorised - see ``core/r1_approval.py``.
+# construction conveys authority may exist. The repository pins the **public**
+# key of the approval authority, but no approval artifact exists, so no
+# provider dispatch is authorised - see ``core/r1_approval.py``.
 from core import r1_approval
 from core import r1_bounds as r1_bounds
 from core.r1_approval import (
@@ -877,10 +880,10 @@ class DispatchGate:
         for a caller to forge. A caller that hands in an object instead of an
         artifact is refused, whatever the object says.
 
-        R1 pins no key, so this check refuses every provider dispatch: the live
-        provider dispatch of R1 is impossible, and it is impossible
-        *structurally* - not only because the bounds of the container classes
-        are required-but-unset.
+        No approval artifact exists in the repository, so this check refuses
+        every provider dispatch: the live provider dispatch of R1 is impossible,
+        and it is impossible *structurally* - not only because the bounds of
+        the container classes are required-but-unset.
         """
         artifact = self.approval
         if artifact is None:

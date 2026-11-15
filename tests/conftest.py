@@ -1,12 +1,15 @@
 """The shared fixtures of the R1 test suites.
 
 The approval fixture is the **out-of-band act of the approval authority**: the
-artifact is signed with a test key and the test pins its public key for the
-duration of the test. The key pair below is a *fixture* - the repository pins
-no approval key (``core/r1_approval.PINNED_PUBLIC_KEY`` is ``None`` and
-``benchmarks/evidence/r1_approval_key.json`` carries ``null``), so the test key
-cannot authorise anything outside this test suite and the live provider
-dispatch stays impossible in R1.
+artifact is signed with a test key and the test pins the test public key for
+the duration of the test. The key pair below is a *fixture*: the repository
+pins the **public** key of the approval authority
+(``core/r1_approval.PINNED_PUBLIC_KEY`` is the RSA-4096 public half of the
+owner's pair, mirrored in ``benchmarks/evidence/r1_approval_key.json``), and
+the private half of the owner's key never enters this repository. The test key
+is pinned only inside the test, so it cannot authorise anything outside this
+test suite, and the live provider dispatch stays impossible: no approval
+artifact exists in the repository at all.
 
 The fixture hands out the **signed artifact** - the payload and the signature -
 and not a "verified approval" object: the dispatch gate verifies the artifact
@@ -26,7 +29,8 @@ import pytest
 
 from core import r1_bounds as r1
 
-#: The public key of the test fixture - the repository pins none.
+#: The public key of the test fixture - a test key, not the pinned key of the
+#: approval authority.
 _TEST_MODULUS = (
     "zQ9XIV6++xRsHXBUcBlz6Y3lPYxGgQrbQVLakzcT1J8HS0bKNw/ZkQltiFJsglP1gnicjPAHFEVAV93X9Q"
     "ks4bp5UV6NLV0ooFUlmao4yDdTS1vOmSrjM5oFfmLxuRam4LOyEdvswGFpQYko9U1BHuByMFbHNtWiiSH8/C"
@@ -106,7 +110,7 @@ def approval_authority(monkeypatch) -> Callable[..., Any]:
     * ``call_sites`` - an approval that covers other call sites;
     * ``policy_payload`` - an approval of another policy;
     * ``corrupt_signature`` - a signature that does not verify;
-    * ``pin_key=False`` - no key at all: the repository pins none;
+    * ``pin_key=False`` - no key at all: the test pins none, so nothing verifies;
     * ``include_dispatch_envelope=False`` - a legacy approval without an envelope.
 
     By default the artifact signs the **effective** dispatch envelope of the
