@@ -120,12 +120,11 @@ Auditor Finding Hypothesis ({vulnerability_type} - {severity} Severity):
         if failure_lines:
             failure_context = "\nPREVIOUS FAILED CANDIDATES:\n" + "\n".join(failure_lines) + "\n"
 
-    if target.name == "SignatureReplayWallet":
-        entrypoint_doc = "6. Entrypoint signature: For SignatureReplayWallet, you MUST implement `function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external` that replays the given signature against `targetContract.executeWithSignature(...)` to drain wallet funds."
-        entrypoint_code = "    function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external {\n        // Replay signature against targetContract.executeWithSignature(...)\n    }"
-    else:
-        entrypoint_doc = "6. Implement `function runExploit() external payable` that executes transactions with the target to breach the invariant."
-        entrypoint_code = "    function runExploit() external payable {\n        // Exploit transactions here\n    }"
+    # The sandbox harness invokes the canonical zero-argument runExploit entrypoint.
+    # Target-specific calls (including signature replay) belong inside that entrypoint;
+    # a second public entrypoint would disagree with validate_exploit_format().
+    entrypoint_doc = "6. Entrypoint: implement `function runExploit() external payable` exactly; put target-specific exploit logic inside it."
+    entrypoint_code = "    function runExploit() external payable {\\n        // Execute the target-specific exploit here.\\n    }"
 
     return f"""Target Contract File: src/{target.name}.sol
 Target Contract Name: {target.name}
@@ -267,7 +266,7 @@ SOLIDITY_KEYWORDS = {
     "public", "external", "internal", "private",
     "pure", "view", "payable", "override", "virtual",
     "returns", "return", "is", "pragma", "import", "using",
-    "mapping", "address", "uint", "uint256", "int", "bool", "string", "bytes"
+    "mapping", "address", "uint", "uint256", "int", "bool", "string", "bytes", "revert"
 }
 
 
