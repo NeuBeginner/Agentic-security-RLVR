@@ -35,6 +35,7 @@ from core.r1_budget_ledger import (
     DEFAULT_CAP_USD,
     LEDGER_CAP_ENV,
     LEDGER_PATH_ENV,
+    MAX_CAP_USD,
     BudgetCapExceeded,
     BudgetLedger,
     ReservationStateError,
@@ -190,6 +191,33 @@ def test_the_path_and_the_cap_are_overridable(tmp_path, monkeypatch):
     ledger = BudgetLedger()
     assert ledger.path == path
     assert ledger.cap_usd == 12.5
+
+
+def test_a_cap_above_the_twenty_dollar_ceiling_is_refused(tmp_path):
+    """The 20.00 USD of the cycle are a ceiling - the cap may not be raised."""
+    assert MAX_CAP_USD == 20.0
+    with pytest.raises(ValueError) as excinfo:
+        BudgetLedger(path=tmp_path / "r1_budget_ledger.sqlite3", cap_usd=20.01)
+    assert "20.0" in str(excinfo.value)
+
+
+def test_a_cap_above_the_ceiling_is_refused_in_the_environment_too(tmp_path, monkeypatch):
+    """The environment variable cannot raise the cap either."""
+    monkeypatch.setenv(LEDGER_PATH_ENV, str(tmp_path / "from-env.sqlite3"))
+    monkeypatch.setenv(LEDGER_CAP_ENV, "100")
+    with pytest.raises(ValueError) as excinfo:
+        BudgetLedger()
+    assert "20.0" in str(excinfo.value)
+
+
+def test_the_cap_may_be_lowered_but_never_raised(tmp_path, monkeypatch):
+    """Lowering the cap is allowed - the ceiling itself is not exceeded."""
+    lowered = BudgetLedger(path=tmp_path / "lowered.sqlite3", cap_usd=19.99)
+    assert lowered.cap_usd == 19.99
+
+    monkeypatch.setenv(LEDGER_CAP_ENV, "20")
+    at_the_ceiling = BudgetLedger(path=tmp_path / "at-the-ceiling.sqlite3")
+    assert at_the_ceiling.cap_usd == 20.0
 
 
 def test_a_reservation_that_would_break_the_cap_is_refused(tmp_path):

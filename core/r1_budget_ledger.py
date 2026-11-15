@@ -26,6 +26,14 @@ overridable: ``AEGIS_R1_BUDGET_LEDGER_PATH`` names the ledger file and
 the repository (``~/.aegis/r1_budget_ledger.sqlite3``) so that it is persistent
 and never part of a commit.
 
+**The cap may be lowered, never raised.** The 20.00 USD of the cycle are a
+**hard ceiling**: neither the constructor argument ``cap_usd`` nor the
+environment variable ``AEGIS_R1_BUDGET_CAP_USD`` may push the cap above it. An
+attempt to do so raises ``ValueError`` at the construction of the ledger, so the
+cycle can never spend more than the approved 20.00 USD - not by an argument, not
+by an environment variable and not by a second process that inherits either of
+them.
+
 **Nothing here approves anything.** The ledger only records and enforces the
 money that the signed approval of the step already allowed: the reserved amount
 is the signed ``estimate_usd`` of the step policy, and the ledger never widens
@@ -49,6 +57,12 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 #: The cycle cap in USD - the ``cycle_cap_usd`` of the cost scenario.
 DEFAULT_CAP_USD = 20.0
+
+#: The hard ceiling of the cap, in USD. The cap may be **lowered** below it -
+#: never raised above it. The ceiling is a property of the approved cycle, not
+#: a default: it is the same value as the default cap, and it is the value the
+#: ledger refuses to exceed.
+MAX_CAP_USD = DEFAULT_CAP_USD
 
 #: The environment variable that names the ledger file.
 LEDGER_PATH_ENV = "AEGIS_R1_BUDGET_LEDGER_PATH"
@@ -209,6 +223,11 @@ class BudgetLedger:
         self.cap_usd = float(raw_cap) if raw_cap not in (None, "") else DEFAULT_CAP_USD
         if not self.cap_usd > 0:
             raise ValueError(f"the cap {self.cap_usd!r} is not a positive amount")
+        if self.cap_usd > MAX_CAP_USD:
+            raise ValueError(
+                f"the cap {self.cap_usd!r} USD is above the hard ceiling of {MAX_CAP_USD} USD "
+                "of the cycle - the cap may be lowered, never raised"
+            )
 
     # -- the database ---------------------------------------------------------------
 
@@ -436,6 +455,7 @@ __all__ = [
     "LEDGER_CAP_ENV",
     "LEDGER_PATH_ENV",
     "LedgerState",
+    "MAX_CAP_USD",
     "Reservation",
     "ReservationStateError",
     "is_billable_provider_object",
