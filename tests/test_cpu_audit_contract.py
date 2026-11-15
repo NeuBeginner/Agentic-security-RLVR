@@ -324,6 +324,29 @@ def test_the_artifacts_are_written_into_the_dedicated_volume_only():
     assert "MODEL_VOLUME_MOUNT_PATH" not in run_dir.group(1)
 
 
+def test_an_existing_run_artifact_cannot_be_overwritten(tmp_path, monkeypatch):
+    """Reusing a run id must preserve the original evidence bytes."""
+    class _Volume:
+        def commit(self):
+            return None
+
+    monkeypatch.setattr(app_module, "RESULTS_VOLUME_MOUNT_PATH", str(tmp_path))
+    monkeypatch.setattr(app_module, "results_volume", _Volume())
+
+    first = app_module.save_result_artifact("immutable-run-01", {"verdict": "first"})
+    artifact = tmp_path / "runs" / "immutable-run-01" / "result.json"
+    original = artifact.read_bytes()
+
+    second = app_module.save_result_artifact("immutable-run-01", {"verdict": "replacement"})
+
+    assert first["reread_verified"] is True
+    assert second["artifact_conflict"] is True
+    assert second["reread_verified"] is False
+    assert artifact.read_bytes() == original
+    assert b"first" in original
+    assert b"replacement" not in original
+
+
 def test_the_existing_cache_is_never_created_by_the_service():
     """``create_if_missing`` would create an empty cache - the service must not."""
     volume_declaration = re.search(
