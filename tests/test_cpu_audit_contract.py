@@ -347,6 +347,23 @@ def test_an_existing_run_artifact_cannot_be_overwritten(tmp_path, monkeypatch):
     assert b"replacement" not in original
 
 
+def test_a_volume_commit_failure_cannot_be_reported_as_verified(tmp_path, monkeypatch):
+    """A local read-back is not durable when the provider commit failed."""
+    class _FailingVolume:
+        def commit(self):
+            raise RuntimeError("simulated commit failure")
+
+    monkeypatch.setattr(app_module, "RESULTS_VOLUME_MOUNT_PATH", str(tmp_path))
+    monkeypatch.setattr(app_module, "results_volume", _FailingVolume())
+
+    artifact = app_module.save_result_artifact("commit-failure-01", {"verdict": "stored locally"})
+
+    assert artifact["commit_error"] == "RuntimeError: simulated commit failure"
+    assert artifact["reread_bytes"] > 0
+    assert artifact["reread_sha256"] == artifact["written_sha256"]
+    assert artifact["reread_verified"] is False
+
+
 def test_the_existing_cache_is_never_created_by_the_service():
     """``create_if_missing`` would create an empty cache - the service must not."""
     volume_declaration = re.search(
