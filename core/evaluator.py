@@ -27,10 +27,10 @@ A verdict is a single, self-consistent statement about one execution. The
 fields that describe the independent replay therefore always agree with each
 other and with the reward:
 
-* ``replay_status``   - ``CONFIRMED`` when the independent replay reproduced
-  the breach, ``FAILED`` when it did not, ``INFRA_ERROR`` when the replay
-  itself failed for infrastructure reasons, ``NOT_ELIGIBLE`` when no breach
-  was ever eligible for a replay confirmation;
+* ``replay_status``   - ``PENDING`` while an observed breach awaits its
+  independent replay, ``CONFIRMED`` when replay reproduces it, ``FAILED`` when
+  replay completes without reproducing it, ``INFRA_ERROR`` when replay itself
+  fails for infrastructure reasons, ``NOT_ELIGIBLE`` when no breach can be replayed;
 * ``replay_confirmed`` - the same statement as a boolean;
 * ``is_verified`` / ``reproducible`` - true only for a confirmed exploit;
 * ``verification_result`` - the oracle result of the execution, aligned with
