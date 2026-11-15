@@ -8,12 +8,47 @@ Foundry (svm) and Slither (solc-select) with zero network roundtrips.
 import hashlib
 import json
 import os
+import re
 import sys
 import urllib.request
 
 TARGET_VERSIONS = [f"0.8.{i}" for i in range(19, 29)]
 LIST_URL = "https://binaries.soliditylang.org/linux-amd64/list.json"
 BASE_BINARY_URL = "https://binaries.soliditylang.org/linux-amd64/"
+
+
+def index_target_builds(data):
+    """Validate the official manifest before any compiler is installed."""
+    if not isinstance(data, dict) or not isinstance(data.get("builds"), list):
+        raise ValueError("Solidity release manifest has no valid builds list")
+
+    builds_by_version = {}
+    for build in data["builds"]:
+        if not isinstance(build, dict):
+            continue
+        version = build.get("version")
+        if version in TARGET_VERSIONS and version not in builds_by_version:
+            rel_path = build.get("path")
+            checksum = str(build.get("sha256") or "").lower().removeprefix("0x")
+            if (
+                not isinstance(rel_path, str)
+                or not rel_path
+                or rel_path.startswith("/")
+                or ".." in rel_path.split("/")
+            ):
+                raise ValueError(f"Invalid official binary path for solc {version}")
+            if not re.fullmatch(r"[0-9a-f]{64}", checksum):
+                raise ValueError(f"Missing or invalid SHA256 checksum for solc {version}")
+            validated = dict(build)
+            validated["sha256"] = checksum
+            builds_by_version[version] = validated
+
+    missing = [version for version in TARGET_VERSIONS if version not in builds_by_version]
+    if missing:
+        raise ValueError(
+            "Solidity release manifest is missing target versions: " + ", ".join(missing)
+        )
+    return builds_by_version
 
 
 def download_and_verify_solc():
@@ -26,22 +61,13 @@ def download_and_verify_solc():
         print(f"[!] Failed to fetch solc manifest: {e}")
         sys.exit(1)
 
-    builds_by_version = {}
-    for b in data.get("builds", []):
-        v = b.get("version")
-        if v in TARGET_VERSIONS and v not in builds_by_version:
-            builds_by_version[v] = b
-
+    builds_by_version = index_target_builds(data)
     print(f"[*] Found {len(builds_by_version)} target solc versions to pre-bake.")
 
     for v in TARGET_VERSIONS:
-        build_info = builds_by_version.get(v)
-        if not build_info:
-            print(f"[!] Warning: No build info found for solc {v}")
-            continue
-
+        build_info = builds_by_version[v]
         rel_path = build_info["path"]
-        expected_sha = build_info.get("sha256", "").lower().replace("0x", "")
+        expected_sha = build_info["sha256"]
         binary_url = BASE_BINARY_URL + rel_path
 
         # Target directory for Foundry svm: ~/.svm/{version}/solc-{version}
@@ -74,7 +100,7 @@ def download_and_verify_solc():
 
             # Cryptographic Checksum Verification (Point 6)
             computed_sha = hashlib.sha256(binary_bytes).hexdigest()
-            if expected_sha and computed_sha != expected_sha:
+            if computed_sha != expected_sha:
                 raise ValueError(
                     f"FATAL: Checksum mismatch for solc {v}!\n"
                     f"Expected: {expected_sha}\n"
