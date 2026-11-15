@@ -46,6 +46,26 @@ SOLIDITY_DIR = REPO_ROOT / "benchmarks" / "targets" / "solidity"
 CONTROLS_DIR = SOLIDITY_DIR / "controls"
 
 
+def _foundry_ci_requested() -> bool:
+    """Whether the environment explicitly asked for the real Foundry toolchain."""
+    return os.environ.get("FOUNDRY_CI", "").strip().lower() == "true"
+
+
+# The suite compiles and executes real Solidity with a real `forge` binary. It
+# is therefore skipped - explicitly, and never silently - when the environment
+# did not ask for the Foundry toolchain. The skip is keyed on the *intent*
+# flag only: with FOUNDRY_CI=true the suite always runs, so a missing or
+# broken `forge` fails the test loudly instead of being skipped away.
+pytestmark = pytest.mark.skipif(
+    not _foundry_ci_requested(),
+    reason=(
+        "The real Foundry E2E suite needs a real 'forge' toolchain and runs in the "
+        "'foundry-integration' CI job (FOUNDRY_CI=true). Locally: "
+        "FOUNDRY_CI=true python -m pytest tests/test_real_foundry_e2e_all_targets.py"
+    ),
+)
+
+
 WORKING_EXPLOITS: Dict[str, str] = {
     "Vault": """// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
@@ -450,6 +470,7 @@ contract OracleSnapshotLiveTest is Test {
 
 def test_real_foundry_closed_loop_rlvr_grpo_update():
     """Execute a 4-candidate group in real Foundry and run GRPO advantage + policy loss calculation."""
+    assert shutil.which("forge") is not None, "Real Foundry binary 'forge' is required"
     target = _load_target_program("Vault")
     revert_code = """// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
