@@ -1078,7 +1078,7 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             )
             elapsed = time.time() - start_time
             raw_stdout, raw_stderr = proc.stdout, proc.stderr
-            output_text = raw_stdout + "\\n" + raw_stderr
+            output_text = raw_stdout + "\n" + raw_stderr
 
             # Byte-exact evidence streams (Iteration 14 P0.2). The digests of the
             # evidence chain describe these bytes, never a re-encoded string.
@@ -1246,7 +1246,8 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 stdout=e.stdout if isinstance(e.stdout, str) else "",
                 stderr=e.stderr if isinstance(e.stderr, str) else "",
                 execution_time_sec=elapsed,
-                category=ResultCategory.RUNTIME_REVERT,
+                # A timeout is an infrastructure failure, not an EVM revert.
+                category=ResultCategory.INFRA_ERROR,
                 timed_out=True,
                 invariant_violated=False
             )
