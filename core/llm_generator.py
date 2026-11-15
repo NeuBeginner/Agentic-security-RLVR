@@ -974,8 +974,8 @@ def validate_exploit_format(
         if other_has_run_exploit:
             return (
                 False,
-                "ExploitModule is missing mandatory entrypoint: function runExploit() external within its contract scope "
-                "(runExploit was declared in a different contract)."
+                f"ExploitModule is missing mandatory entrypoint: function {entrypoint_name} within its contract scope "
+                f"({entrypoint_name} was declared in a different contract)."
             )
         return False, f"ExploitModule is missing mandatory entrypoint: function {entrypoint_name} within its contract scope"
 
@@ -1005,7 +1005,7 @@ def validate_exploit_format(
         fn_r_idx += 1
 
     if fn_p_depth != 0:
-        return False, "ExploitModule function runExploit parameter list unclosed (missing ')')'"
+        return False, f"ExploitModule function {entrypoint_name} parameter list unclosed"
 
     # Validate the exact parameter types required by the target harness.
     expected_param_types = entrypoint_param_types or []
