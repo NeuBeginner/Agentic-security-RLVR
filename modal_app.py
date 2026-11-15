@@ -1350,7 +1350,7 @@ def run_modal_replay_infra_error_integration_test(target_name: str = "Vault"):
     # Phase 6: Persistence Isolation Check
     recorded_count = 0
     if candidate.verdict.category != ResultCategory.INFRA_ERROR:
-        traj = create_finalized_trajectory(candidate, target)
+        traj = create_finalized_trajectory(candidate, target, dataset_split="train")
         record_trajectory_remote.remote(traj.model_dump())
         recorded_count += 1
 
@@ -1750,7 +1750,7 @@ def main(
     for record in all_candidate_records:
         if record.verdict.category != ResultCategory.INFRA_ERROR:
             try:
-                traj = create_finalized_trajectory(record, target)
+                traj = create_finalized_trajectory(record, target, dataset_split="train")
                 record_trajectory_remote.remote(traj.model_dump())
                 recorded_count += 1
             except Exception as e:
