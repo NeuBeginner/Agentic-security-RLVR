@@ -79,3 +79,33 @@ The envelope preserves each Modal Volume artifact's original byte length and SHA
 **Source revision is UNAVAILABLE.** Modal app metadata exposes app version 6 and deployment time, but neither the app metadata nor the audit result includes a Git commit SHA or image-to-commit attestation. Therefore these live Modal runs prove that the deployed CPU service completed the two audits; they do **not** prove that the deployed image contained requested source SHA `b8bcb4c18cd0cd3e49034c411b2bdd636fc64969`. No claim of exact-SHA remote execution is made. The minimum remaining step is a CPU-only rebuild/deploy that embeds and emits the exact Git SHA (or an immutable image digest cryptographically attested to that SHA), followed by a fresh audit. No deployment was attempted in this pass.
 
 Run timestamps from the Modal service logs: Vault `2026-11-15T11:06:47Z`; SecureVault control `2026-11-15T11:06:58Z`. Slither returned exit code 0 in both runs; its analysis status was `completed`, with valid reports.
+
+
+## Invocation and CI verification
+
+The two remote calls were made through the Modal CPU audit service API with these exact arguments (the service itself resolves the registered candidate and trusted harness):
+
+```text
+modal_run_cpu_audit(
+  target_name="Vault",
+  request_id="cpu-audit-acceptance-20261115-vault-01",
+  run_id="acceptance-20261115-vault-01",
+  run_replay=True
+)
+
+modal_run_cpu_audit(
+  target_name="SecureVault",
+  request_id="cpu-audit-acceptance-20261115-control-01",
+  run_id="acceptance-20261115-control-01",
+  run_replay=True
+)
+```
+
+GitHub verification on archival commit `ad8f2d9adc332e7e424f58d82ac15c5d52006823`:
+
+- [Aegis-RLVR CI](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/43708062875): **SUCCESS**; complete suite **1151 passed, 11 skipped, 5 warnings**; real Foundry integration probe **SUCCESS**.
+- [Modal CPU audit contract + live smoke workflow](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/43708058715): **SUCCESS**; offline CPU contract **88 passed** and the separate ephemeral Iteration 19 CPU smoke job **SUCCESS**.
+- [Second CI run on the same SHA](https://github.com/NeuBeginner/Agentic-security-RLVR/actions/runs/43708058769): **SUCCESS**.
+- The full suite includes `tests/test_slither_analysis_status.py` (including completed/partial/fallback and timeout evidence cases) and `tests/test_runner_timeout_semantics.py`.
+
+These GitHub Actions results are bound to the archival commit above. They do not repair the separate limitation that the deployed Modal application's image/source revision is not exposed by its metadata; exact source-SHA attestation for the two live Modal calls remains `UNAVAILABLE`.
