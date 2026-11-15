@@ -1177,6 +1177,20 @@ def read_saved_result(run_id: str, auth_token: str = "") -> Dict[str, Any]:
     }
 
 
+@app.function(image=image, **DECLARED_RESOURCES)
+def probe_deployment_provenance() -> Dict[str, Any]:
+    """Return non-sensitive deployment provenance for authenticated Modal callers.
+
+    This deliberately does not mount volumes or require the service's shared
+    audit token. Access is controlled by Modal workspace credentials.
+    """
+    return {
+        "status": "COMPLETED",
+        "source_commit": SOURCE_COMMIT,
+        "declared_resources": DECLARED_RESOURCES,
+    }
+
+
 @app.function(
     image=image,
     volumes={
