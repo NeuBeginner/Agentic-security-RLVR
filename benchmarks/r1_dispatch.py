@@ -114,6 +114,20 @@ from core.r1_approval import (
     policy_digest,
 )
 
+# The persistent monetary ledger of the cycle: the money of the step is
+# reserved **before** the provider callable starts, and the reservation is
+# committed (or released) afterwards. The ledger is the control that survives
+# a process restart, a second stage and a second process - the invocation
+# budget of the gate lives in the memory of one process only.
+from core.r1_budget_ledger import (
+    BudgetCapExceeded,
+    BudgetLedger,
+    BudgetLedgerError,
+    LedgerState,
+    Reservation,
+    is_billable_provider_object,
+)
+
 #: The functions that write to the persistent volume and are therefore capped (D28).
 VOLUME_WRITING_FUNCTIONS = frozenset({"record_trajectory_remote"})
 
@@ -136,6 +150,9 @@ REFUSAL_REASONS = (
     "payload_byte_cap",
     "concurrency_gate_timeout",
     "invocation_budget_exhausted",
+    "budget_cap_exceeded",
+    "budget_ledger_missing",
+    "budget_ledger_unavailable",
     "autoscaler_readback_unavailable",
     "autoscaler_readback_missing_field",
     "autoscaler_readback_malformed",
@@ -503,12 +520,16 @@ class DispatchGate:
         profiles: Optional[Dict[str, Any]] = None,
         egress_policies: Optional[Dict[str, Any]] = None,
         autoscaler_reader: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
+        budget_ledger: Optional[BudgetLedger] = None,
+        budget_run_id: str = "r1-cycle",
     ) -> None:
         self.policy = policy
         self.approval = approval
         self.profiles = profiles or {}
         self.egress_policies = egress_policies or {}
         self.autoscaler_reader = autoscaler_reader
+        self.budget_ledger = budget_ledger
+        self.budget_run_id = budget_run_id
         self.records: List[DispatchRecord] = []
         self.used: Dict[str, int] = {}
         self._semaphores: Dict[str, threading.BoundedSemaphore] = {}
@@ -744,6 +765,7 @@ class DispatchGate:
             try:
                 # The allowance is consumed here - after every gate, immediately
                 # before the call - so a refused attempt costs no invocation.
+                reservation = None
                 if not nested:
                     # Re-verify the signature and live envelope at the last
                     # possible point before consuming allowance and entering
@@ -751,6 +773,10 @@ class DispatchGate:
                     if provider_callable:
                         self._check_approval(container_class, function_name)
                     self._consume_budget(container_class, function_name)
+                    # The money of the step is reserved **before** the provider
+                    # callable starts: a step whose reservation is refused never
+                    # starts a container and never spends.
+                    reservation = self._reserve_budget(container_class, function_name, fn)
                 try:
                     # The provider call itself. An installed call site is called
                     # through the entry point that was captured before the guard
@@ -762,8 +788,14 @@ class DispatchGate:
                     # point is never handed out.
                     result = _perform_provider_call(function_name, fn, *args, **kwargs)
                 except DispatchRefusal:
+                    # The provider call never started: the reservation goes
+                    # back to the cycle.
+                    self._release_budget(reservation)
                     raise
                 except Exception as exc:  # the provider's own failure - not a refusal
+                    # The container started and failed or timed out: the money
+                    # is charged conservatively and is never returned.
+                    self._commit_budget(reservation, "provider_failed")
                     self.records.append(
                         DispatchRecord(
                             step_id=self.policy.step_id if self.policy else "<no-policy>",
@@ -777,6 +809,8 @@ class DispatchGate:
                         )
                     )
                     raise
+                else:
+                    self._commit_budget(reservation, "completed")
             finally:
                 if not nested:
                     semaphore.release()
@@ -986,6 +1020,92 @@ class DispatchGate:
                 )
             self.used[container_class] = used + 1
 
+    # -- the monetary ledger --------------------------------------------------------
+
+    def _reserve_budget(
+        self, container_class: str, function_name: str, fn: Any
+    ) -> Optional[Reservation]:
+        """Reserve the money of the step **before** the provider callable starts.
+
+        A **local double** starts no container and costs nothing: it is not
+        charged, and the gates that decide whether a call is allowed are
+        untouched. A real provider object is charged, and a dispatch without a
+        ledger is refused: the money of a real container is never spent
+        outside the persistent ledger.
+
+        The reserved amount is the signed ``estimate_usd`` of the step policy.
+        The ledger never widens it - it only refuses a reservation that would
+        break the cap of the cycle.
+        """
+        if not is_billable_provider_object(fn):
+            return None
+        if self.budget_ledger is None:
+            self._refuse(
+                container_class,
+                function_name,
+                "budget_ledger_missing",
+                "a provider dispatch needs the persistent budget ledger",
+            )
+        if self.policy is None or is_unset(self.policy.estimate_usd):
+            self._refuse(
+                container_class,
+                function_name,
+                "budget_ledger_unavailable",
+                "the step declares no estimate, so its money cannot be reserved",
+            )
+        try:
+            return self.budget_ledger.reserve(
+                self.budget_run_id,
+                self.policy.step_id,
+                float(self.policy.estimate_usd),  # type: ignore[arg-type]
+            )
+        except BudgetCapExceeded as exc:
+            self._refuse(container_class, function_name, "budget_cap_exceeded", exc.detail)
+        except BudgetLedgerError as exc:
+            self._refuse(
+                container_class,
+                function_name,
+                "budget_ledger_unavailable",
+                str(exc),
+            )
+        return None
+
+    def _commit_budget(self, reservation: Optional[Reservation], outcome: str) -> None:
+        """Charge the reservation of the step that ran.
+
+        The charge is the **reserved** amount: the conservative cost of the
+        step. A step that failed or timed out is charged as well - the money
+        of a container that started is never returned to the cycle.
+        """
+        if reservation is None or self.budget_ledger is None:
+            return
+        try:
+            self.budget_ledger.commit(reservation.reservation_id, reservation.max_cost_usd)
+        except BudgetLedgerError:
+            # The charge could not be recorded. The reservation stays
+            # reserved: the money of the step is not given back, and the next
+            # reservation sees the smaller remainder. The failure is
+            # deliberately not raised - it would mask the failure of the step
+            # itself.
+            return
+
+    def _release_budget(self, reservation: Optional[Reservation]) -> None:
+        """Give the reservation back: the provider call never started."""
+        if reservation is None or self.budget_ledger is None:
+            return
+        try:
+            self.budget_ledger.release(reservation.reservation_id)
+        except BudgetLedgerError:
+            # The release could not be recorded. The reservation stays
+            # reserved: the money is not given back to the cycle.
+            return
+
+    def budget_state(self) -> Optional[LedgerState]:
+        """The money of the cycle as the persistent ledger sees it."""
+        if self.budget_ledger is None:
+            return None
+        return self.budget_ledger.state()
+
     def _check_payload_cap(self, function_name: str, args: Any) -> None:
         if function_name not in VOLUME_WRITING_FUNCTIONS or not args:
             return
@@ -1082,6 +1202,8 @@ def authorised_step(
     profiles: Optional[Dict[str, Any]] = None,
     egress_policies: Optional[Dict[str, Any]] = None,
     autoscaler_reader: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
+    budget_ledger: Optional[BudgetLedger] = None,
+    budget_run_id: str = "r1-cycle",
 ) -> Iterator[DispatchGate]:
     """Install the approved policy of one step as the active dispatch contract.
 
@@ -1090,6 +1212,12 @@ def authorised_step(
     at dispatch time, against the pinned public key. Without a verifiable
     artifact the gate refuses every provider dispatch: a policy that a caller
     constructs in-process does not authorise a spend.
+
+    The step runs under the **persistent budget ledger**: the money of the
+    cycle is reserved before a container starts, charged when the step ran and
+    kept when it failed. The ledger survives the end of the process, so a
+    second stage, a second process and a restart cannot spend the cycle's
+    money twice. A caller may pass its own ledger - a test or a dry run.
     """
     gate = DispatchGate(
         policy=policy,
@@ -1097,6 +1225,8 @@ def authorised_step(
         profiles=profiles,
         egress_policies=egress_policies,
         autoscaler_reader=autoscaler_reader,
+        budget_ledger=budget_ledger if budget_ledger is not None else BudgetLedger(),
+        budget_run_id=budget_run_id,
     )
     token = _ACTIVE_GATE.set(gate)
     try:
@@ -1124,6 +1254,7 @@ def dispatch(container_class: str, function_name: str, fn: Any, *args: Any, **kw
 
 __all__ = [
     "AutoscalerReadbackUnavailable",
+    "BudgetLedger",
     "DispatchGate",
     "DispatchRecord",
     "DispatchRefusal",
