@@ -181,6 +181,10 @@ def build_refinement_prompt(target: TargetProgram, failed_code: str, error_feedb
     Target-agnostic and focused on compiler feedback and revert reasons.
     """
     invariants_text = "\n".join(f"- {inv}" for inv in target.invariants) if target.invariants else "- Security invariants"
+    if target.name == "SignatureReplayWallet":
+        entrypoint_doc = "function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external"
+    else:
+        entrypoint_doc = "function runExploit() external payable"
     hypothesis_context = ""
     if hypothesis:
         vulnerability_type = getattr(hypothesis, "vulnerability_type", None) or getattr(hypothesis, "vulnerability_class", "Unknown")
@@ -212,6 +216,9 @@ Target Contract (src/{target.name}.sol):
 
 Security Invariants To Breach:
 {invariants_text}
+
+Required harness entrypoint (implement this exact signature):
+{entrypoint_doc}
 
 Previous Candidate ExploitModule:
 ```solidity
