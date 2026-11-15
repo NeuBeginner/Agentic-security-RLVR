@@ -55,45 +55,65 @@ def download_and_verify_solc():
         os.makedirs(solc_select_dir, exist_ok=True)
         solc_select_binary = os.path.join(solc_select_dir, f"solc-{v}")
 
-        # Check if already present and verified
-        if os.path.exists(dest_binary):
+        # Reuse a verified svm binary, but do not skip solc-select registration:
+        # both stores must be populated even when the Foundry cache is warm.
+        binary_bytes = None
+        if os.path.isfile(dest_binary):
             with open(dest_binary, "rb") as f:
-                existing_sha = hashlib.sha256(f.read()).hexdigest()
+                existing_bytes = f.read()
+            existing_sha = hashlib.sha256(existing_bytes).hexdigest()
             if existing_sha == expected_sha:
+                binary_bytes = existing_bytes
                 print(f"[✓] solc {v} already cached and verified (SHA256: {existing_sha[:12]}...)")
-                continue
 
-        print(f"[+] Downloading solc {v} from {binary_url}...")
-        bin_req = urllib.request.Request(binary_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(bin_req, timeout=60) as resp:
-            binary_bytes = resp.read()
+        if binary_bytes is None:
+            print(f"[+] Downloading solc {v} from {binary_url}...")
+            bin_req = urllib.request.Request(binary_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(bin_req, timeout=60) as resp:
+                binary_bytes = resp.read()
 
-        # Cryptographic Checksum Verification (Point 6)
-        computed_sha = hashlib.sha256(binary_bytes).hexdigest()
-        if expected_sha and computed_sha != expected_sha:
-            raise ValueError(
-                f"FATAL: Checksum mismatch for solc {v}!\n"
-                f"Expected: {expected_sha}\n"
-                f"Computed: {computed_sha}"
-            )
+            # Cryptographic Checksum Verification (Point 6)
+            computed_sha = hashlib.sha256(binary_bytes).hexdigest()
+            if expected_sha and computed_sha != expected_sha:
+                raise ValueError(
+                    f"FATAL: Checksum mismatch for solc {v}!\n"
+                    f"Expected: {expected_sha}\n"
+                    f"Computed: {computed_sha}"
+                )
 
-        # Write to Foundry svm location
-        with open(dest_binary, "wb") as f:
-            f.write(binary_bytes)
-        os.chmod(dest_binary, 0o755)
-
-        # Link or copy to solc-select location
-        try:
-            if not os.path.exists(solc_select_binary):
-                os.symlink(dest_binary, solc_select_binary)
-        except Exception:
-            with open(solc_select_binary, "wb") as f:
+            with open(dest_binary, "wb") as f:
                 f.write(binary_bytes)
-            os.chmod(solc_select_binary, 0o755)
+            os.chmod(dest_binary, 0o755)
 
-        print(f"[✓] solc {v} installed & verified [SHA256: {computed_sha[:12]}...]")
+        # Ensure the solc-select artifact exists and matches the verified binary.
+        expected_artifact_sha = hashlib.sha256(binary_bytes).hexdigest()
+        artifact_ok = False
+        if os.path.isfile(solc_select_binary):
+            with open(solc_select_binary, "rb") as f:
+                artifact_ok = hashlib.sha256(f.read()).hexdigest() == expected_artifact_sha
+        if not artifact_ok:
+            try:
+                if os.path.lexists(solc_select_binary):
+                    os.unlink(solc_select_binary)
+                os.symlink(dest_binary, solc_select_binary)
+            except OSError:
+                with open(solc_select_binary, "wb") as f:
+                    f.write(binary_bytes)
+                os.chmod(solc_select_binary, 0o755)
 
-    print("[*] All target solc versions successfully pre-baked and verified.")
+        print(f"[✓] solc {v} registered for Foundry and solc-select [SHA256: {expected_artifact_sha[:12]}...]")
+
+    # solc-select's wrapper reads this file to resolve the global compiler.
+    # Keep the default aligned with the project's Solidity 0.8.20 target.
+    default_version = "0.8.20"
+    if default_version not in TARGET_VERSIONS:
+        raise ValueError(f"Default solc version {default_version} is not pre-baked")
+    solc_select_config = os.path.join(os.path.expanduser("~"), ".solc-select")
+    os.makedirs(solc_select_config, exist_ok=True)
+    with open(os.path.join(solc_select_config, "global-version"), "w", encoding="utf-8") as f:
+        f.write(default_version + "\n")
+
+    print(f"[*] All target solc versions pre-baked; solc-select global version set to {default_version}.")
 
 
 if __name__ == "__main__":
