@@ -124,7 +124,7 @@ Auditor Finding Hypothesis ({vulnerability_type} - {severity} Severity):
     # Target-specific calls (including signature replay) belong inside that entrypoint;
     # a second public entrypoint would disagree with validate_exploit_format().
     entrypoint_doc = "6. Entrypoint: implement `function runExploit() external payable` exactly; put target-specific exploit logic inside it."
-    entrypoint_code = "    function runExploit() external payable {\\n        // Execute the target-specific exploit here.\\n    }"
+    entrypoint_code = "    function runExploit() external payable {\n        // Execute the target-specific exploit here.\n    }"
 
     return f"""Target Contract File: src/{target.name}.sol
 Target Contract Name: {target.name}
