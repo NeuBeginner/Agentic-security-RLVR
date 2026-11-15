@@ -603,8 +603,22 @@ def save_result_artifact(run_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
 
     result_path = os.path.join(run_dir, "result.json")
     payload = json.dumps(result, indent=2, default=str, ensure_ascii=False).encode("utf-8")
-    with open(result_path, "wb") as handle:
-        handle.write(payload)
+
+    # A run id is an evidence identity, not a mutable filename. Use exclusive
+    # creation so a caller cannot overwrite a previous audit by reusing its id.
+    # The O_EXCL semantics also protect against two concurrent calls racing here.
+    try:
+        with open(result_path, "xb") as handle:
+            handle.write(payload)
+    except FileExistsError:
+        return {
+            "results_volume": RESULTS_VOLUME_NAME,
+            "run_directory": run_dir,
+            "result_path": result_path,
+            "artifact_conflict": True,
+            "write_error": "an artifact already exists for this run_id; existing evidence was preserved",
+            "reread_verified": False,
+        }
 
     commit_error = None
     try:
