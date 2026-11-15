@@ -62,7 +62,12 @@ jobs:
               and any(isinstance(t, ast.Name) and t.id == "SOURCE_COMMIT" for t in node.targets)
               for node in tree.body
           ), "CPU audit app does not expose SOURCE_COMMIT"
-          print("deployment source and provenance field validated")
+          assert any(
+              isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and node.name == "probe_deployment_provenance"
+              for node in ast.walk(tree)
+          ), "CPU audit app does not expose the Modal-authenticated provenance probe"
+          print("deployment source and provenance entry point validated")
           PY
 
       - name: Confirm Modal workspace
