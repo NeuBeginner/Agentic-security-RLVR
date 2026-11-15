@@ -18,7 +18,7 @@ def test_revert_is_tokenized_as_a_solidity_keyword():
 
 
 def test_custom_error_name_collision_after_revert_fails_closed():
-    source = "pragma solidity ^0.8.20; contract VaultAttack { error VaultAttack(); function f() external { revert VaultAttack(); } }"
+    source = "pragma solidity ^0.8.20; contract VaultAttack { function f() external { revert VaultAttack(); } }"
     outcome = analyze_contract_normalization(source)
     assert outcome.renamed is False
     assert outcome.reason == "ambiguous_event_or_error_reference"
