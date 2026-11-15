@@ -1,5 +1,7 @@
 # Project: NeuBeginner/Agentic-security-RLVR
 
+> **Historical snapshot, not source of truth.** This generated context predates the current repository layout and contains archived implementation notes. Use the live source, `docs/`, and the current PR for operational facts. Local machine paths and personal conversation transcripts are intentionally excluded.
+
 ## Project Tree
 `
 .gitignore
