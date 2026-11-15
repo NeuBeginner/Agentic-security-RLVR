@@ -65,3 +65,17 @@ The safe control did not produce a breach. Its non-confirmed replay is not repre
 The deployed CPU service has now been exercised directly through Modal MCP, including a vulnerable target, a safe control, persisted evidence, and read-back. This is stronger than the earlier Iteration 19 GitHub smoke test and closes the missing direct-service execution check for these two registered targets.
 
 This record does **not** accept the historical 16-target benchmark evidence, regenerate Iterations 14–23, authorize R1 dispatch, merge any stacked PR, or authorize GPU/H100 spend. The remaining evidence-integrity and PR dependency gates must be reviewed separately.
+
+
+## Archived evidence and source-revision qualification
+
+The two complete parsed audit results have been archived in the repository in addition to the original Modal Volume objects:
+
+- `benchmarks/evidence/cpu_audit/modal_cpu_audit_20261115_vault.json`
+- `benchmarks/evidence/cpu_audit/modal_cpu_audit_20261115_securevault_control.json`
+
+The envelope preserves each Modal Volume artifact's original byte length and SHA-256. The GitHub JSON envelope is a separately serialized archival copy, so its Git blob digest is not the original Modal object digest.
+
+**Source revision is UNAVAILABLE.** Modal app metadata exposes app version 6 and deployment time, but neither the app metadata nor the audit result includes a Git commit SHA or image-to-commit attestation. Therefore these live Modal runs prove that the deployed CPU service completed the two audits; they do **not** prove that the deployed image contained requested source SHA `b8bcb4c18cd0cd3e49034c411b2bdd636fc64969`. No claim of exact-SHA remote execution is made. The minimum remaining step is a CPU-only rebuild/deploy that embeds and emits the exact Git SHA (or an immutable image digest cryptographically attested to that SHA), followed by a fresh audit. No deployment was attempted in this pass.
+
+Run timestamps from the Modal service logs: Vault `2026-11-15T11:06:47Z`; SecureVault control `2026-11-15T11:06:58Z`. Slither returned exit code 0 in both runs; its analysis status was `completed`, with valid reports.
