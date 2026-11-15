@@ -251,7 +251,7 @@ class RLVRTrajectory(BaseModel):
     # Provenance and Lifecycle Fields (Round 5.4: No unsafe defaults)
     # Defaulting to None guarantees unpopulated raw fields never masquerade as eligible production data.
     is_finalized: Optional[bool] = Field(default=None, description="Must be True before entering GRPO training")
-    replay_status: str = Field(default="NOT_ELIGIBLE", description="CONFIRMED, FAILED, or NOT_ELIGIBLE")
+    replay_status: str = Field(default="NOT_ELIGIBLE", description="CONFIRMED, FAILED, PENDING, or NOT_ELIGIBLE")
     
     timestamp: float = Field(default_factory=time.time)
     slither_hints: List[Dict[str, Any]] = Field(default_factory=list)
