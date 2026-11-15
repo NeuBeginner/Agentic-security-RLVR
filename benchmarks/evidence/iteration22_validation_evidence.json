@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "generator": "benchmarks/validate_iteration22_evidence.py",
-  "code_sha": "f0ce026d446e2c69a87f2bb4c155dcf0d36cd58b",
-  "generated_at_utc": "2026-11-10T11:17:32Z",
+  "code_sha": "6be0333c86f3854276ef8eb10be43d52da78539e",
+  "generated_at_utc": "2026-11-15T20:20:01Z",
   "scope": {
     "iteration": 22,
     "purpose": "validate that the strict provenance validation requires the observation side of every observed identity fact, and the evidence of it",
@@ -15,17 +15,11 @@
     "benchmark_run": "not touched - the 16-target run on disk still fails the Iteration 16-18 validators and this iteration does not change that"
   },
   "git": {
-    "head": "f0ce026d446e2c69a87f2bb4c155dcf0d36cd58b",
-    "branch": "minimax/iteration-14-evidence-integrity",
-    "dirty": true,
-    "tracked_changes": [
-      "M benchmarks/benchmark_results.json"
-    ],
-    "untracked_paths": [
-      "benchmarks/evidence/iteration22_validation_evidence.json",
-      "test-results-iteration18-local.xml",
-      "test-results-iteration19-local.xml"
-    ]
+    "head": "6be0333c86f3854276ef8eb10be43d52da78539e",
+    "branch": "feat/aegis-rlvr-complete-end-to-end",
+    "dirty": false,
+    "tracked_changes": [],
+    "untracked_paths": []
   },
   "checks": [
     {
@@ -165,8 +159,8 @@
       "planned": "the producer source is byte-wise unchanged between the commit the capture was made from and the commit the report is bound to - the capture is therefore still the capture of this producer",
       "attempted": true,
       "executed": true,
-      "capture_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
-      "reported_code_sha": "f0ce026d446e2c69a87f2bb4c155dcf0d36cd58b",
+      "capture_code_sha": "c31dcf56810aff8273e74560bbd4dca2811a27c7",
+      "reported_code_sha": "6be0333c86f3854276ef8eb10be43d52da78539e",
       "producer_source_changed": false
     },
     {
