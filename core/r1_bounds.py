@@ -339,7 +339,7 @@ GPU_PROFILE = ResourceProfile(
     gpu_type=config.AUDIT_GPU_TYPE,
     mounts_volume=True,
     provenance={
-        "timeout_sec": "modal_app.py:78 (the deployed value of the GPU class)",
+        "timeout_sec": "modal_app.py:ProductionAuditAgent (GPU class timeout declaration)",
         "gpu_type": "core/config.py:19 (published configuration)",
         "min_containers": _PLAN,
         "buffer_containers": _PLAN,
@@ -369,7 +369,7 @@ PERSISTENCE_PROFILE = ResourceProfile(
     gpu_type=None,
     mounts_volume=True,
     provenance={
-        "timeout_sec": "modal_app.py:698 (the deployed value of the persistence function)",
+        "timeout_sec": "modal_app.py:record_trajectory_remote (persistence function timeout declaration)",
         "min_containers": _PLAN,
         "buffer_containers": _PLAN,
         "max_containers": _PLAN,
