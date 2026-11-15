@@ -152,7 +152,7 @@ def test_real_model_generate_token_lineage(qwen_model_and_tokenizer, tmp_path):
     assert candidate.payload.generated_token_ids == exact_generated_ids
 
     # 5. Round-trip: Persist trajectory and load via load_trajectories_from_directory
-    traj = create_finalized_trajectory(candidate, target, dataset_partition="production")
+    traj = create_finalized_trajectory(candidate, target, dataset_split="train", dataset_partition="production")
     assert traj.prompt_used == formatted_prompt
     assert traj.generated_token_ids == exact_generated_ids
     assert traj.token_provenance == "model_generate"
