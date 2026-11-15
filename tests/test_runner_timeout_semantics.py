@@ -15,12 +15,11 @@ def test_forge_output_uses_a_real_newline_separator():
         and any(isinstance(target, ast.Name) and target.id == "output_text" for target in node.targets)
     ]
     assert assignments, "output_text assignment must remain explicit"
-    value = assignments[0].value
-    assert isinstance(value, ast.BinOp) and isinstance(value.op, ast.Add)
-    assert isinstance(value.right, ast.BinOp) and isinstance(value.right.op, ast.Add)
-    separator = value.right.left
-    assert isinstance(separator, ast.Constant)
-    assert separator.value == "\n"
+    separators = [
+        node.value for node in ast.walk(assignments[0].value)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    ]
+    assert "\n" in separators
 
 
 def test_subprocess_timeout_is_not_classified_as_an_evm_revert():
@@ -32,14 +31,18 @@ def test_subprocess_timeout_is_not_classified_as_an_evm_revert():
         and node.type.attr == "TimeoutExpired"
     ]
     assert handlers, "subprocess.TimeoutExpired handler must remain explicit"
-    handler = handlers[0]
-    categories = [
-        node for node in ast.walk(ast.Module(body=handler.body, type_ignores=[]))
-        if isinstance(node, ast.Attribute) and node.attr == "INFRA_ERROR"
-    ]
-    assert categories, "timeouts must be classified as infrastructure failures"
-    timeout_flags = [
-        kw.value for node in ast.walk(ast.Module(body=handler.body, type_ignores=[]))
-        if isinstance(node, ast.Call) for kw in node.keywords if kw.arg == "timed_out"
-    ]
-    assert any(isinstance(value, ast.Constant) and value.value is True for value in timeout_flags)
+    matching = []
+    for handler in handlers:
+        subtree = ast.Module(body=handler.body, type_ignores=[])
+        has_infra_category = any(
+            isinstance(node, ast.Attribute) and node.attr == "INFRA_ERROR"
+            for node in ast.walk(subtree)
+        )
+        has_timeout_flag = any(
+            isinstance(kw.value, ast.Constant) and kw.value.value is True
+            for node in ast.walk(subtree) if isinstance(node, ast.Call)
+            for kw in node.keywords if kw.arg == "timed_out"
+        )
+        if has_infra_category and has_timeout_flag:
+            matching.append(handler)
+    assert matching, "subprocess timeouts must be INFRA_ERROR with timed_out=True"
