@@ -107,6 +107,9 @@ from sandbox.runner import (  # noqa: E402
 #: (``aegis-rlvr-security``), which belongs to the GPU production application.
 APP_NAME = "aegis-rlvr-cpu-audit"
 
+#: Git commit checked out by the deployment job; embedded in the deployed function.
+SOURCE_COMMIT = os.environ.get("AEGIS_SOURCE_COMMIT", "unknown")
+
 #: The existing model cache. It is mounted read-only and never written into.
 MODEL_VOLUME_NAME = config.MODEL_VOLUME_NAME
 
@@ -1015,6 +1018,7 @@ def audit_contract(request: Dict[str, Any]) -> Dict[str, Any]:
     registry_entry = validation.get("registry_entry") or {}
     result: Dict[str, Any] = {
         "schema_version": RESULT_SCHEMA_VERSION,
+        "source_commit": SOURCE_COMMIT,
         "status": "COMPLETED",
         "run_id": run_id,
         "target_name": target_name,
@@ -1200,6 +1204,7 @@ def probe_environment(auth_token: str = "") -> Dict[str, Any]:
 
     probe: Dict[str, Any] = {
         "schema_version": PROBE_SCHEMA_VERSION,
+        "source_commit": SOURCE_COMMIT,
         "status": "COMPLETED",
         "declared_resources": DECLARED_RESOURCES,
         "runtime": observed_runtime_facts(),
