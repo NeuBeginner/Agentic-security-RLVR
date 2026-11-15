@@ -44,6 +44,11 @@ PROTOCOL_FILENAME = "BRIDGE_PROTOCOL.md"
 IGNORED_PATTERNS = {
     "__pycache__",
     ".pytest_cache",
+    ".venv",
+    "venv",
+    ".env",
+    ".toolchain",
+    "artifacts",
     ".git",
     ".gitignore",
     ".github",
@@ -130,8 +135,13 @@ def should_ignore(path: Path) -> bool:
     """Checks if a path should be ignored during synchronization."""
     parts = set(path.parts)
     for ignored in IGNORED_PATTERNS:
-        if ignored in parts or path.name == ignored or path.suffix in [".pyc", ".pyo"]:
+        if ignored in parts or path.name == ignored:
             return True
+    name = path.name
+    if name.endswith((".pyc", ".pyo", ".pyd", ".safetensors")):
+        return True
+    if name.startswith("test-results") and name.endswith(".xml"):
+        return True
     return False
 
 

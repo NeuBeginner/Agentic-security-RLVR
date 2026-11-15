@@ -65,7 +65,7 @@ gpu_image = (
         "pydantic>=2.0.0",
         "google-genai>=2.0.0",
     )
-    .add_local_python_source("core", "sandbox")
+    .add_local_python_source("core", "sandbox", "benchmarks", copy=True)
 )
 
 # The model-cache prefetch (R2p) is deliberately NOT declared here: it is a
@@ -809,14 +809,17 @@ def diagnostic_grpo_forward_remote(
     )
 
     print(f"[Diagnostic Forward] Loading tokenizer and model: {model_id} on Modal GPU...")
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    cache_dir = config.MODEL_CACHE_DIR
+    tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=cache_dir, local_files_only=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         torch_dtype=torch.bfloat16,
-        device_map="cuda"
+        device_map="cuda",
+        cache_dir=cache_dir,
+        local_files_only=True,
     )
     model.eval()
 

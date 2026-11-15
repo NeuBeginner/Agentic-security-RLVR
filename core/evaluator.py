@@ -200,8 +200,13 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
         kwargs.setdefault("execution_evidence", result.evidence)
         kwargs.setdefault("oracle_invariant_results", result.invariant_results)
         kwargs.setdefault("oracle_verification_result", _aligned_verification_result(result))
-        kwargs.setdefault("replay_status", REPLAY_STATUS_NOT_ELIGIBLE)
-        kwargs.setdefault("replay_confirmed", bool(result.reproducibility_confirmed))
+        inferred_replay_status = (
+            REPLAY_STATUS_CONFIRMED
+            if result.reproducibility_confirmed
+            else REPLAY_STATUS_NOT_ELIGIBLE
+        )
+        replay_status = kwargs.setdefault("replay_status", inferred_replay_status)
+        kwargs.setdefault("replay_confirmed", replay_status == REPLAY_STATUS_CONFIRMED)
         kwargs.setdefault("breach_evidence_basis", BREACH_BASIS_NONE)
         return _build_verdict(*args, **kwargs)
 
@@ -412,7 +417,7 @@ def create_trajectory_record(
     payload: ExploitPayload,
     verdict: VerificationVerdict,
     prompt_used: str = "",
-    dataset_split: str = "train",
+    dataset_split: Optional[str] = None,
     dataset_partition: str = "production",
     is_synthetic: bool = False,
     token_provenance: str = "model_generate",

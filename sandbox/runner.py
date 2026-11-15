@@ -1101,7 +1101,7 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                     stdout=raw_stdout,
                     stderr=raw_stderr,
                     execution_time_sec=elapsed,
-                    category=ResultCategory.RUNTIME_REVERT,
+                    category=ResultCategory.INFRA_ERROR,
                     timed_out=True,
                     invariant_violated=False,
                     verified_by_harness=False,
