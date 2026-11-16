@@ -93,6 +93,8 @@ Why each candidate:
   cores, the persistence function's is unset (it runs on the platform default of
   0.125 cores today), the GPU container's is unset (also the 0.125-core default).
 * **`scaledown_window = 60 s`** is the provider's published default, made explicit.
+  **Approved** for all three container classes on 2026-11-16 and now declared in
+  `core/r1_bounds.py`; the estimate is unchanged by the declaration.
 * **The prefetch's protocol allowance** is 1 MiB per container: the workspace's
   billing export shows **$0.00013117 of network egress (3.35 MB)** for a whole app
   session on 2026-11-09 — the measured order of magnitude of the control-plane and

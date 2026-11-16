@@ -166,8 +166,22 @@ def test_an_unapproved_limit_is_never_replaced_by_a_permissive_default():
     assert kwargs["cpu"] == r1.config.SANDBOX_CPU_CORES
     assert kwargs["memory"] == r1.config.SANDBOX_MEMORY_MB
     assert "startup_timeout" not in kwargs
-    assert "scaledown_window" not in kwargs
     assert kwargs["min_containers"] == 0 and kwargs["buffer_containers"] == 0
+
+
+def test_the_approved_scaledown_window_is_declared_by_every_class():
+    """D27: the idle tail of the billable lifetime is declared, not inherited.
+
+    The read-back of D27 compares the four autoscaler fields of the deployment
+    with the declaration. An undeclared ``scaledown_window`` is a missing field
+    in the read-back, and a missing field is a refusal - so the approval of
+    60 s has to reach the decorator of every container class.
+    """
+    for container_class, profile in r1.PROFILES.items():
+        assert profile.scaledown_window_sec == 60, container_class
+        assert profile.modal_kwargs()["scaledown_window"] == 60, container_class
+        declared = r1.declared_autoscaler_settings(profile)
+        assert declared["scaledown_window"] == 60, container_class
 
 
 def test_the_sandbox_class_declares_the_network_blocking_and_the_volume_class_does_not():

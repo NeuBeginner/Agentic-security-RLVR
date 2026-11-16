@@ -43,9 +43,9 @@ production value and never hardcodes a price.
 
 | class | cpu | memory | timeout | startup_timeout | scaledown_window |
 |---|---|---|---|---|---|
-| sandbox CPU | request **2.0** (declared, `core/config.py:37`) / limit **unset** | request **2048 MiB** (declared, `core/config.py:38`) / limit **unset** | **60 s** (declared, `core/config.py:36`) | **unset** | **unset** |
-| GPU class (`ProductionAuditAgent`) | request **unset** / limit **unset** | request **unset** / limit **unset** | **1200 s** (declared, the deployed value `modal_app.py`) | **unset** | **unset** |
-| persistence function | request **unset** / limit **unset** | request **unset** / limit **unset** | **60 s** (declared, the deployed value) | **unset** | **unset** |
+| sandbox CPU | request **2.0** (declared, `core/config.py:37`) / limit **unset** | request **2048 MiB** (declared, `core/config.py:38`) / limit **unset** | **60 s** (declared, `core/config.py:36`) | **unset** | **60 s** (approved 2026-11-16) |
+| GPU class (`ProductionAuditAgent`) | request **unset** / limit **unset** | request **unset** / limit **unset** | **1200 s** (declared, the deployed value `modal_app.py`) | **unset** | **60 s** (approved 2026-11-16) |
+| persistence function | request **unset** / limit **unset** | request **unset** / limit **unset** | **60 s** (declared, the deployed value) | **unset** | **60 s** (approved 2026-11-16) |
 
 Why the limits are unset: they are production values that change the bill, and the
 maintainer has not approved them. A request is not a limit — the provider's default
@@ -53,6 +53,13 @@ CPU limit is `request + 16`, which moves whenever the request moves, and the mem
 line has **no** limit at all while the limit is unset. The *candidate* values and
 their rationale are in `docs/r1_cost_proposal.md`; they are proposals, not
 declarations.
+
+The **scaledown window** is the exception: the owner approved **60 s** for all three
+classes on 2026-11-16. 60 s is the provider's published default (the value the
+deployment inherited implicitly) and the value the candidate bounds of the cost
+scenario carry — so the declaration now states it explicitly instead of leaving it
+to the provider. That matters for D27: an **undeclared** field is a **missing**
+field in the read-back, and a missing field is a refusal.
 
 `T_billable = startup_timeout + timeout + scaledown_window` is therefore a number
 only once all three are declared. The estimator refuses while it is not.
@@ -66,7 +73,7 @@ Every class declares, in its decorator:
 | `min_containers` | **0** | **0** | **0** | no container is kept warm while the function is inactive ⇒ every billed container exists to serve a demand |
 | `buffer_containers` | **0** | **0** | **0** | no idle container is maintained while the function is active ⇒ no billed container is idle by design |
 | `max_containers` | **48** | **32** | **16** | the provider-enforced **concurrency** ceiling of the class — the union ceiling of every authorised step (plan §8.2.5) |
-| `scaledown_window` | unset | unset | unset | the idle tail of `T_billable` — an approval input |
+| `scaledown_window` | **60 s** | **60 s** | **60 s** | the idle tail of `T_billable` — approved 2026-11-16 (the provider's published default), so the deployment declares it and the read-back finds it |
 
 `max_containers` is a *concurrency* cap. It never clamps a cumulative quantity: the
 number of containers a class starts over a step is bounded by the **invocation
@@ -145,9 +152,10 @@ across nine client paths; see `docs/r1_sdk_compat_report_20261114.md` and
 The comparison is against the **declaration** of the class
 (`core.r1_bounds.declared_autoscaler_settings`). A field that is required-but-unset in
 the declaration cannot be compared, so the dispatch is refused
-(`autoscaler_readback_malformed`). In the state of this repository that is the case
-for `scaledown_window` — which is exactly the intended fail-closed behaviour while
-the bound is unapproved.
+(`autoscaler_readback_malformed`). With the **scaledown window approved** (60 s,
+2026-11-16) all four fields are declared by all three classes, so the comparison is
+complete; a *missing* field in the read-back is now a **defect of the deployment**,
+not a consequence of an unapproved bound — and it is refused as such.
 
 ## D28 — the producer-enforced payload cap and the storage interval
 
@@ -276,7 +284,7 @@ confirms the exact closure state formed by `modal_app.py`:
 * `_tag_ == "ProductionAuditAgent.*"`
 * `block_network is True`
 * `gpu == "H100"`, `timeout == 1200`, `min_containers == 0`, `buffer_containers == 0`, `max_containers == 32`
-* `cpu is None`, `memory is None`, `scaledown_window is None` (unapproved bounds remain absent from `r1.GPU_PROFILE.modal_kwargs()`, never replaced by permissive defaults; `modal/app.py:1282` internally sets `startup_timeout = startup_timeout or timeout` on `_Function`, while `r1.GPU_PROFILE.startup_timeout_sec` remains `Unset` so the R1 gate blocks dispatch)
+* `cpu is None`, `memory is None`, `scaledown_window == 60` (the approved idle-retention bound reaches the decorator; the unapproved CPU/memory limits remain absent from `r1.GPU_PROFILE.modal_kwargs()`, never replaced by permissive defaults; `modal/app.py:1282` internally sets `startup_timeout = startup_timeout or timeout` on `_Function`, while `r1.GPU_PROFILE.startup_timeout_sec` remains `Unset` so the R1 gate blocks dispatch)
 * `/vol/models` is mounted to the `aegis-model-cache` Volume (`validated_volumes_no_cloud_buckets`), and `secrets` includes `r1.OFFLINE_ENV` (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`).
 
 The declaration is **not** a workload-level
@@ -557,7 +565,8 @@ authorisation of the operator, not by code.
 | item | state | reason |
 |---|---|---|
 | the CPU / memory **limits** of the three classes | required-but-unset | production values that change the bill; the maintainer has not approved them (the candidates are in the cost proposal) |
-| `startup_timeout`, `scaledown_window` | required-but-unset | approval inputs; `T_billable` is not a number without them |
+| `startup_timeout` | required-but-unset | an approval input; `T_billable` is not a number without it |
+| `scaledown_window` | **approved: 60 s** (all three classes, 2026-11-16) | the provider's published default, made explicit: the deployment declares it, the D27 read-back finds the field, and the estimate is unchanged |
 | the **protocol allowance** | required-but-unset | an approval input with its source and date; without it the egress term is unavailable |
 | `MAX_TRAJECTORY_PAYLOAD_BYTES` | **approved: 1 MiB** (1 048 576 bytes, 2026-11-16) | the persistence function refuses a payload above the cap (fail closed) and writes a smaller one; the cap is bound by the dispatch envelope, so a change of it invalidates the signature |
 | the **prefetch function** (R2p) | **implemented** (idempotent) | it verifies the materialised pinned revision, writes the manifest and downloads nothing; the **cold** path (an empty cache) needs the **retry allowance** of the download, which is still required-but-unset, so a cold cache refuses instead of downloading without a bound (D29) |

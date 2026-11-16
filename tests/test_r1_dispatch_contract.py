@@ -1089,7 +1089,9 @@ def test_the_gpu_class_service_function_carries_the_exact_modal_sdk_deployment_k
     # Unapproved bounds are absent (None), never replaced by permissive defaults.
     assert cells["cpu"] is None
     assert cells["memory"] is None
-    assert cells["scaledown_window"] is None
+    # The scaledown window is approved (D27): the deployment declares it, so the
+    # read-back finds the field instead of refusing on a missing one.
+    assert cells["scaledown_window"] == 60
     volumes = dict(cells["validated_volumes_no_cloud_buckets"])
     assert "/vol/models" in volumes
     assert cells["secrets"] and len(cells["secrets"]) == 1

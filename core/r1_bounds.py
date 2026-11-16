@@ -276,6 +276,20 @@ UNION_CEILING_PERSISTENCE = 16
 
 _PLAN = "plan §8.2.5 (D27)"
 
+#: The provenance of the approved idle tail of the billable lifetime (D26, D27).
+#:
+#: The owner approved 60 s for the ``scaledown_window`` of the three container
+#: classes on 2026-11-16: it is the provider's published default (the value the
+#: deployment inherited implicitly) and the value the candidate bounds of the
+#: cost scenario carry, so the deployment now **declares** it instead of leaving
+#: it to the provider. The declaration is what the read-back of D27 verifies:
+#: an undeclared field is a missing field, and a missing field is a refusal.
+_SCALEDOWN_APPROVAL = (
+    "owner approval 2026-11-16; the provider's published default is 60 s "
+    "(modal.com/pricing, FAQ, read 2026-11-11); the same value is the candidate "
+    "bound of the cost scenario"
+)
+
 SANDBOX_CPU_PROFILE = ResourceProfile(
     container_class=SANDBOX_CPU,
     description="sandbox CPU - verify_exploit_remote / verify_replay_remote / model-cache prefetch",
@@ -292,10 +306,7 @@ SANDBOX_CPU_PROFILE = ResourceProfile(
     ),
     timeout_sec=config.SANDBOX_TIMEOUT_SEC,
     startup_timeout_sec=Unset("the startup timeout is an approval input (D26)"),
-    scaledown_window_sec=Unset(
-        "the idle tail of the billable lifetime is an approval input (D26); the "
-        "provider's published default is 60 s (modal.com/pricing, FAQ, read 2026-11-11)"
-    ),
+    scaledown_window_sec=60,
     min_containers=0,
     buffer_containers=0,
     max_containers=UNION_CEILING_SANDBOX_CPU,
@@ -305,6 +316,7 @@ SANDBOX_CPU_PROFILE = ResourceProfile(
         "cpu_request_cores": "core/config.py:37 (published configuration)",
         "memory_request_mb": "core/config.py:38 (published configuration)",
         "timeout_sec": "core/config.py:36 (published configuration)",
+        "scaledown_window_sec": _SCALEDOWN_APPROVAL,
         "min_containers": _PLAN,
         "buffer_containers": _PLAN,
         "max_containers": _PLAN,
@@ -332,7 +344,7 @@ GPU_PROFILE = ResourceProfile(
         "the startup timeout of the GPU container is an approval input (D26); the "
         "model load happens inside the container startup"
     ),
-    scaledown_window_sec=Unset("the idle tail of the billable lifetime is an approval input (D26)"),
+    scaledown_window_sec=60,
     min_containers=0,
     buffer_containers=0,
     max_containers=UNION_CEILING_GPU,
@@ -362,7 +374,7 @@ PERSISTENCE_PROFILE = ResourceProfile(
     memory_limit_mb=Unset("the memory limit of the persistence container is an approval input (D26)"),
     timeout_sec=60,
     startup_timeout_sec=Unset("the startup timeout of the persistence container is an approval input (D26)"),
-    scaledown_window_sec=Unset("the idle tail of the billable lifetime is an approval input (D26)"),
+    scaledown_window_sec=60,
     min_containers=0,
     buffer_containers=0,
     max_containers=UNION_CEILING_PERSISTENCE,
