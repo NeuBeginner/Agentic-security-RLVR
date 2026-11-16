@@ -380,6 +380,44 @@ def test_the_container_is_recognised_by_its_environment(monkeypatch):
     assert r1.inside_provider_container() is False
 
 
+def test_the_sandbox_image_carries_the_packages_the_verify_functions_import():
+    """The verify functions report the provider-issued identity of the container.
+
+    That report imports ``benchmarks.evidence_integrity``, and the image of the
+    sandbox class carries the repository's packages: without ``benchmarks`` the
+    container dies inside the function with "ModuleNotFoundError: No module
+    named 'benchmarks'" - after the sandbox has already done its work.
+    """
+    import ast
+
+    source = (REPO_ROOT / "sandbox" / "runner.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    definition = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "sandbox_image"
+            for target in node.targets
+        ):
+            definition = node.value
+            break
+    assert definition is not None, "sandbox/runner.py does not define sandbox_image"
+
+    sources = set()
+    for node in ast.walk(definition):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_local_python_source"
+        ):
+            for argument in node.args:
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                    sources.add(argument.value)
+    assert {"core", "sandbox", "benchmarks"} <= sources, (
+        "the image of the sandbox class does not carry every package the verify "
+        f"functions import: it carries {sorted(sources)}"
+    )
+
+
 def test_a_class_method_call_is_refused_while_the_bounds_are_unapproved():
     """The class-method bypass is closed: the call never reaches the provider."""
     import modal_app
