@@ -216,6 +216,7 @@ def test_the_prefetch_image_carries_the_sources_of_the_repository():
     assert definition is not None, "modal_app.py does not define prefetch_image"
 
     sources = set()
+    installed = set()
     for node in ast.walk(definition):
         if (
             isinstance(node, ast.Call)
@@ -225,9 +226,22 @@ def test_the_prefetch_image_carries_the_sources_of_the_repository():
             for argument in node.args:
                 if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
                     sources.add(argument.value)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "pip_install"
+        ):
+            for argument in node.args:
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                    installed.add(argument.value.split(">=")[0].split("==")[0].strip())
     assert {"core", "sandbox"} <= sources, (
         "the image of the prefetch step does not carry the repository's sources: "
         f"it carries {sorted(sources)}"
+    )
+    # The deployed module imports core.schemas (through core.hypothesis_manager),
+    # and that imports pydantic: without it the container dies at import time.
+    assert "pydantic" in installed, (
+        f"the image of the prefetch step does not install pydantic: it installs {sorted(installed)}"
     )
 
 
