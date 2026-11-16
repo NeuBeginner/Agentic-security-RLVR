@@ -66,12 +66,16 @@ from core.r1_bounds import (
     is_unset,
     profile_for,
 )
+from core.r1_retention import DEFAULT_RETENTION_SEC, SECONDS_PER_DAY
 
 #: The shortest calendar month - the conservative calendar treatment of the plan.
 DAYS_PER_MONTH_BOUND = 28.0
-SECONDS_PER_DAY = 86400.0
-#: The retention interval: 30 days from the publication to the verified deletion.
-DEFAULT_RETENTION_SEC = 30 * SECONDS_PER_DAY
+#: The seconds of a day, and the retention interval: 30 days from the publication
+#: to the verified deletion. The interval is declared **once**, in the module that
+#: enforces it (``core.r1_retention``): the cost model prices the very interval the
+#: cleanup procedure deletes at the end of it.
+SECONDS_PER_DAY = SECONDS_PER_DAY
+DEFAULT_RETENTION_SEC = DEFAULT_RETENTION_SEC
 
 GIB = 1024.0 ** 3
 
