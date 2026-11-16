@@ -95,9 +95,13 @@ gpu_image = (
 # 2026-11-14 (23/23 files, byte-exact).
 
 #: The image of the prefetch container: a CPU image with the pinned hub client.
+#: The repository's own sources travel with it (``core`` and ``sandbox``): the
+#: deployed module imports ``core.config`` and ``core.r1_bounds`` at import
+#: time, so an image without them cannot even start the container.
 prefetch_image = (
     modal.Image.debian_slim(python_version="3.10")
     .pip_install(f"huggingface_hub=={r1.HUGGINGFACE_HUB_VERSION}")
+    .add_local_python_source("core", "sandbox")
 )
 
 

@@ -191,6 +191,46 @@ def test_the_prefetch_is_an_authorised_call_site_of_the_sandbox_class():
     assert isinstance(modal_app.prefetch_model_cache_remote, bounds.GuardedRemote)
 
 
+def test_the_prefetch_image_carries_the_sources_of_the_repository():
+    """The prefetch container must be able to import the deployed module.
+
+    The deployed ``modal_app`` imports ``core.config`` and ``core.r1_bounds``
+    at import time, so an image without the repository's sources cannot even
+    start the container: the import fails with ``ModuleNotFoundError: No
+    module named 'core'`` and the step crash-loops instead of running.
+    """
+    import ast
+
+    source = (
+        (Path(__file__).resolve().parent.parent / "modal_app.py").read_text(encoding="utf-8")
+    )
+    tree = ast.parse(source)
+    definition = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "prefetch_image"
+            for target in node.targets
+        ):
+            definition = node.value
+            break
+    assert definition is not None, "modal_app.py does not define prefetch_image"
+
+    sources = set()
+    for node in ast.walk(definition):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_local_python_source"
+        ):
+            for argument in node.args:
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                    sources.add(argument.value)
+    assert {"core", "sandbox"} <= sources, (
+        "the image of the prefetch step does not carry the repository's sources: "
+        f"it carries {sorted(sources)}"
+    )
+
+
 def test_the_prefetch_declares_the_egress_policy_of_its_class():
     import modal_app
 
