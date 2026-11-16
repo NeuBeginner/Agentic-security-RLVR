@@ -144,7 +144,9 @@ def test_every_unapproved_bound_is_visible_and_named():
         assert fields, f"{container_class} must declare its unapproved bounds explicitly"
     record = r1.declaration_record()
     assert record["missing_bounds"] == missing
-    assert record["max_trajectory_payload_bytes"] is None
+    # The D28 cap is approved (1 MiB): the record states the value, not "unset".
+    assert record["max_trajectory_payload_bytes"] == 1024 * 1024
+    assert record["prefetch"]["timeout_sec"] == 3600
     assert record["pinned_model"]["bytes_total"] > 0
 
 
@@ -315,9 +317,12 @@ def test_the_guard_refuses_a_provider_call_while_the_bounds_are_unapproved():
     assert fake.calls == []
 
 
-def test_the_producer_enforced_payload_cap_refuses_an_unapproved_cap():
+def test_the_producer_enforced_payload_cap_refuses_a_payload_above_the_approved_cap():
+    """The D28 cap is approved (1 MiB): a payload within it passes, a larger one is refused."""
+    assert r1.MAX_TRAJECTORY_PAYLOAD_BYTES == 1024 * 1024
+    r1.assert_payload_within_cap(1024 * 1024, "record_trajectory_remote")
     with pytest.raises(r1.BoundsNotApproved):
-        r1.assert_payload_within_cap(10, "record_trajectory_remote")
+        r1.assert_payload_within_cap(1024 * 1024 + 1, "record_trajectory_remote")
 
 
 # --------------------------------------------------------------------------------------
@@ -424,17 +429,39 @@ def test_a_class_without_a_readback_is_not_dispatchable(signed_approval):
 
 
 def test_the_payload_byte_cap_is_enforced_on_the_volume_writing_function(signed_approval):
+    """A payload above the approved cap (D28) is refused before the container starts."""
     world = _approved_world()
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy, approval=signed_approval(policy, world=world), **world
     )
     fake = FakeProviderCallable()
+    oversized = {"payload": "x" * (r1.MAX_TRAJECTORY_PAYLOAD_BYTES + 1)}
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
-        gate.dispatch(r1.PERSISTENCE, "record_trajectory_remote", fake, {"payload": "x" * 10})
-    # The cap itself is not approved in the repository, so the write is refused.
+        gate.dispatch(r1.PERSISTENCE, "record_trajectory_remote", fake, oversized)
     assert excinfo.value.reason == "payload_byte_cap"
     assert fake.calls == []
+
+
+def test_a_payload_within_the_approved_cap_passes_the_cap_gate(signed_approval):
+    """The cap is a ceiling, not a refusal: a small trajectory is written."""
+    world = _approved_world()
+
+    def class_reader(target, function_name=""):
+        container_class = r1.FUNCTION_CLASS.get(function_name)
+        return r1.declared_autoscaler_settings(world["profiles"][container_class])
+
+    policy = _policy()
+    gate = r1_dispatch.DispatchGate(
+        policy=policy,
+        approval=signed_approval(policy, world=world),
+        autoscaler_reader=class_reader,
+        **world,
+    )
+    fake = FakeProviderCallable()
+    result = gate.dispatch(r1.PERSISTENCE, "record_trajectory_remote", fake, {"payload": "x" * 16})
+    assert result == {"ok": True}
+    assert len(fake.calls) == 1
 
 
 def test_a_local_double_is_passed_through_and_counted():

@@ -66,10 +66,14 @@
       "step_id": "R2p",
       "description": "model-cache prefetch - exactly 1 CPU container, exactly 1 attempt",
       "invocations": {
-        "sandbox_cpu": 1
+        "sandbox_cpu": 1,
+        "gpu": 0,
+        "persistence": 0
       },
       "concurrency_caps": {
-        "sandbox_cpu": 1
+        "sandbox_cpu": 1,
+        "gpu": 0,
+        "persistence": 0
       },
       "egress_functions": {
         "sandbox_cpu": [
@@ -115,10 +119,14 @@
       "step_id": "R3",
       "description": "CPU plumbing smoke - exactly 1 sandbox-CPU invocation",
       "invocations": {
-        "sandbox_cpu": 1
+        "sandbox_cpu": 1,
+        "gpu": 0,
+        "persistence": 0
       },
       "concurrency_caps": {
-        "sandbox_cpu": 1
+        "sandbox_cpu": 1,
+        "gpu": 0,
+        "persistence": 0
       },
       "egress_functions": {
         "sandbox_cpu": [

@@ -286,6 +286,14 @@ def estimate_step(
         quantities["rate_card_read_at"] = rate_card.read_at
 
     for container_class, invocations in step.invocations.items():
+        # A class with **zero** invocations starts no container: it contributes no
+        # compute, no storage and no egress, so it needs no approved bounds. The
+        # scenario declares the unused classes explicitly with a zero, because the
+        # step policy of the gate has to declare a budget and a cap for *every*
+        # container class - the declaration is a completeness requirement of the
+        # approval, not a claim that the class runs.
+        if int(invocations) <= 0:
+            continue
         profile = (profiles or {}).get(container_class) or profile_for(container_class)
         missing = profile.missing_bounds()
         if missing:

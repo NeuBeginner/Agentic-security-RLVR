@@ -680,6 +680,8 @@ class DispatchGate:
                 "manifest_sha256": manifest_digest,
                 "offline_environment": self._approval_value(r1_bounds.OFFLINE_ENV),
                 "download_retry_allowance": self._approval_value(r1_bounds.DOWNLOAD_RETRY_ALLOWANCE),
+                "prefetch_timeout_sec": self._approval_value(r1_bounds.PREFETCH_TIMEOUT_SEC),
+                "huggingface_hub_version": self._approval_value(r1_bounds.HUGGINGFACE_HUB_VERSION),
             },
             "cost_inputs_sha256": cost_files,
             "evidence_inputs_sha256": evidence_files,

@@ -224,11 +224,12 @@ but they are reported next to it in every run:
 
 **The footprint of R2p counts the pinned bytes twice, on purpose.** The measured
 baseline already contains the pinned revision (23/23 files, byte-exact), so a
-prefetch of the same revision would in the measured state write only the manifest.
-The candidate keeps the **cold-cache worst case** — the full pinned cache — because
-the prefetch function is not implemented yet and its behaviour on an already
-materialised cache is not verified. The resulting peak is an **upper bound** of the
-cycle, not a prediction of it.
+prefetch of the same revision would in the measured state write only the
+manifest. The candidate keeps the **cold-cache worst case** — the full pinned
+cache — because the estimate is an approval input of its own and the
+implementation of the prefetch did not change it: the cold path is still the
+priced one, and it still needs the retry allowance of the download. The
+resulting peak is an **upper bound** of the cycle, not a prediction of it.
 
 ## D29 — the egress
 
@@ -558,8 +559,8 @@ authorisation of the operator, not by code.
 | the CPU / memory **limits** of the three classes | required-but-unset | production values that change the bill; the maintainer has not approved them (the candidates are in the cost proposal) |
 | `startup_timeout`, `scaledown_window` | required-but-unset | approval inputs; `T_billable` is not a number without them |
 | the **protocol allowance** | required-but-unset | an approval input with its source and date; without it the egress term is unavailable |
-| `MAX_TRAJECTORY_PAYLOAD_BYTES` | required-but-unset | the persistence function therefore refuses every payload (fail closed) |
-| the **prefetch function** (R2p) | not implemented in R1 | it is a separately authorised step and its download timeout is an approval input; its per-container **ingress** bound **is** declared, so the estimator can price R2p |
+| `MAX_TRAJECTORY_PAYLOAD_BYTES` | **approved: 1 MiB** (1 048 576 bytes, 2026-11-16) | the persistence function refuses a payload above the cap (fail closed) and writes a smaller one; the cap is bound by the dispatch envelope, so a change of it invalidates the signature |
+| the **prefetch function** (R2p) | **implemented** (idempotent) | it verifies the materialised pinned revision, writes the manifest and downloads nothing; the **cold** path (an empty cache) needs the **retry allowance** of the download, which is still required-but-unset, so a cold cache refuses instead of downloading without a bound (D29) |
 | the **Iteration 19 CPU smoke** (a separate deployment) | **refused** | it is not part of the authorised trace: no approved step policy, no declared bounds, no egress declaration. The live invocation refuses before the ephemeral app starts; only an explicit maintainer approval lifts it |
 | the **capacity proof** of the storage | **available**, with open sub-items | the baseline of the remote Volume is measured (64 349 622 024 B = 59.930256 GiB, read-only inventory of 2026-11-14) and verified against its evidence file; the account-wide concurrent peak has no API gauge and the post-R2p/post-R3b-R4 read-backs are still open |
 | the **per-stage ceilings** | not approved | they are proposed in `docs/r1_cost_proposal.md` and await the maintainer's review |

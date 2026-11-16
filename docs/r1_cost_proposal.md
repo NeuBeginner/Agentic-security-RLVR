@@ -184,8 +184,9 @@ reported next to it in every run:
   The pinned bytes are counted **twice** here, on purpose: the measured baseline
   already contains the pinned revision (23/23 files, byte-exact), so in the measured
   state the prefetch would write only the manifest. The cold-cache worst case is kept
-  because the prefetch function is not implemented yet and its behaviour on an
-  already materialised cache is not verified. The peak is an **upper bound** of the
+  because this estimate is an approval input of its own: the prefetch is implemented
+  and idempotent, but the priced path is still the cold one, and it still needs the
+  retry allowance of the download. The peak is an **upper bound** of the
   cycle, not a prediction of it.
 * The cycle's storage window is the **sum**: `T_exec` (20 400 s over the four
   stages) + the post-execution interval before the publication (86 400 s) + the

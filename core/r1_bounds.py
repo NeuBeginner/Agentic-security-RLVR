@@ -640,10 +640,13 @@ def declared_autoscaler_settings(profile: ResourceProfile) -> Dict[str, Optional
 # Producer-enforced payload cap (D28)
 # --------------------------------------------------------------------------------------
 
-MAX_TRAJECTORY_PAYLOAD_BYTES: Bound = Unset(
-    "the hard byte cap of one trajectory payload is an approval input; the "
-    "persistence function refuses a larger payload instead of writing it (D28)"
-)
+#: The **approved** hard byte cap of one trajectory payload (D28).
+#:
+#: The owner approved 1 MiB (1 048 576 bytes) on 2026-11-16. The cap is a
+#: producer-enforced bound, not a provider one: the persistence function
+#: refuses a larger payload instead of writing it, so the volume's increment
+#: stays bounded by construction and an oversized write is never billed.
+MAX_TRAJECTORY_PAYLOAD_BYTES: Bound = 1_048_576
 
 
 def assert_payload_within_cap(payload_bytes: int, context: str = "trajectory payload") -> None:
@@ -680,6 +683,25 @@ DOWNLOAD_RETRY_ALLOWANCE: Bound = Unset(
     "R_download is an approval input: the declared maximum number of download "
     "attempts of the prefetch step (D29)"
 )
+
+#: The wall-clock budget of the prefetch container (R2p) - an approval input.
+#:
+#: The sandbox class' own execution timeout is the published 120 s of the
+#: verification functions; the prefetch has a budget of its own, because it is
+#: the step that materialises the pinned cache. The value is the wall-clock
+#: budget of R2p that the owner's signed approval carries
+#: (``benchmarks/evidence/r1_cost_scenario.json``, step ``R2p``,
+#: ``t_exec_sec``). The dispatch gate enforces the same budget client-side.
+PREFETCH_TIMEOUT_SEC: int = 3600
+
+#: The pinned hub client of the prefetch container.
+#:
+#: The version is pinned because it determines the **cache layout** the prefetch
+#: writes and the GPU container reads: a client of another version may write a
+#: layout the transformers stack of the GPU class does not read. The pinned
+#: version is the one whose layout the materialised volume of the workspace
+#: already uses.
+HUGGINGFACE_HUB_VERSION: str = "0.36.2"
 
 
 def prefetch_ingress_cap_bytes() -> int:
@@ -1677,6 +1699,13 @@ def declaration_record() -> Dict[str, Any]:
         "max_trajectory_payload_bytes": (
             None if is_unset(MAX_TRAJECTORY_PAYLOAD_BYTES) else MAX_TRAJECTORY_PAYLOAD_BYTES
         ),
+        "prefetch": {
+            "timeout_sec": PREFETCH_TIMEOUT_SEC,
+            "huggingface_hub_version": HUGGINGFACE_HUB_VERSION,
+            "download_retry_allowance": (
+                None if is_unset(DOWNLOAD_RETRY_ALLOWANCE) else DOWNLOAD_RETRY_ALLOWANCE
+            ),
+        },
         "pinned_model": {
             "repo_id": PINNED_MODEL.repo_id,
             "revision": PINNED_MODEL.revision,
