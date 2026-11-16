@@ -331,6 +331,55 @@ def test_the_deployment_installs_the_guard_on_the_functions_and_on_the_classes()
     assert isinstance(agent.audit_target_contract, r1.GuardedClassMethod)
 
 
+def test_the_deployed_module_keeps_its_provider_objects_inside_a_container():
+    """The container serves the function: the module keeps the provider's objects.
+
+    The provider's runtime resolves the callable it serves from the module, by
+    name: a module attribute that is the provider's own object is served, and
+    any other object is refused ("Function ... is a strange type"). The guard
+    replaces that attribute with its own wrapper, so the installation must not
+    happen inside a container - otherwise the container dies at startup and the
+    step never runs.
+
+    The check runs in a **subprocess**: the guard is installed at import time,
+    and the module is imported once per process.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import modal, modal_app\n"
+        "assert isinstance(modal_app.verify_exploit_remote, modal.Function), "
+        "type(modal_app.verify_exploit_remote)\n"
+        "assert isinstance(modal_app.ProductionAuditAgent, modal.Cls), "
+        "type(modal_app.ProductionAuditAgent)\n"
+        "print('OK')\n"
+    )
+    environment = dict(os.environ)
+    environment[r1.CONTAINER_ENV_MARKER] = "1"
+    environment["PYTHONPATH"] = str(REPO_ROOT)
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    assert completed.returncode == 0, completed.stderr[-4000:]
+    assert "OK" in completed.stdout
+
+
+def test_the_container_is_recognised_by_its_environment(monkeypatch):
+    """The installation is skipped in a container and happens everywhere else."""
+    monkeypatch.setenv(r1.CONTAINER_ENV_MARKER, "1")
+    assert r1.inside_provider_container() is True
+
+    monkeypatch.delenv(r1.CONTAINER_ENV_MARKER, raising=False)
+    monkeypatch.delenv("MODAL_TASK_ID", raising=False)
+    monkeypatch.delenv("MODAL_INPUT_ID", raising=False)
+    assert r1.inside_provider_container() is False
+
+
 def test_a_class_method_call_is_refused_while_the_bounds_are_unapproved():
     """The class-method bypass is closed: the call never reaches the provider."""
     import modal_app

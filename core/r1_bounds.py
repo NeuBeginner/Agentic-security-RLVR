@@ -1601,6 +1601,43 @@ class GuardedClass:
         )
 
 
+#: The environment variable the Modal platform sets inside a function container.
+CONTAINER_ENV_MARKER = "MODAL_IS_REMOTE"
+
+#: The script the provider's runtime starts a container with. The main module of
+#: such a process is that script - a client process never is.
+CONTAINER_ENTRY_POINT = "_container_entrypoint.py"
+
+
+def inside_provider_container() -> bool:
+    """True when this process runs **inside** a Modal function container.
+
+    The dispatch guard is a **client-side** control: it gates the provider
+    calls that this repository makes, and the gate - with the signed approval,
+    the budget ledger and the autoscaler read-back - lives in the client
+    process.
+
+    A container is the other side of the same call: it has to **serve** the
+    function. The provider's runtime resolves the callable it serves from the
+    module, by name: a module attribute that is the provider's own object is
+    served, and any other object is refused ("Function ... is a strange type").
+    The guard replaces the module attribute with its own wrapper, so the
+    installation must not happen inside the container. Nothing is gated there
+    either: the container does not call the provider, it *is* the call.
+
+    Three independent signals are used, because a container is recognised both
+    from the environment the platform sets and from the entry point the
+    runtime starts the container with. The modules of the provider's runtime
+    are **not** a signal: the client SDK imports them too.
+    """
+    if os.environ.get(CONTAINER_ENV_MARKER) == "1":
+        return True
+    if os.environ.get("MODAL_TASK_ID") or os.environ.get("MODAL_INPUT_ID"):
+        return True
+    entry_point = getattr(sys.modules.get("__main__"), "__file__", "") or ""
+    return entry_point.endswith(CONTAINER_ENTRY_POINT)
+
+
 def install_provider_guard(function_name: str, fn: Any) -> GuardedRemote:
     """Install the guard on a provider callable and return the guarded name.
 
@@ -1768,9 +1805,12 @@ __all__ = [
     "declared_timeout",
     "deployed_max_containers",
     "egress_policy",
+    "CONTAINER_ENV_MARKER",
+    "CONTAINER_ENTRY_POINT",
     "ingress_policy",
     "INGRESS_POLICIES",
     "IngressPolicy",
+    "inside_provider_container",
     "is_provider_callable",
     "is_unset",
     "install_class_guard",

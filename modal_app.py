@@ -2022,13 +2022,24 @@ def main(
 # gated, and the raw provider callable is not reachable through any attribute of
 # the guard. The installation fails closed: if the guard cannot be installed on
 # an object, the import fails instead of leaving an unguarded callable behind.
-for _name, _obj in list(globals().items()):
-    if _name.startswith("_") or _name in ("app", "model_volume", "gpu_image", "sandbox_image"):
-        continue
-    if isinstance(_obj, modal.Function):
-        globals()[_name] = r1.install_provider_guard(_name, _obj)
-    elif isinstance(_obj, modal.Cls):
-        globals()[_name] = r1.install_class_guard(_name, _obj)
+#
+# The installation happens on the **client side** only. The guard is a
+# client-side control: it gates the provider calls this repository makes, and
+# the gate - with the signed approval, the budget ledger and the autoscaler
+# read-back - lives in the client process. A container is the other side of
+# the same call: it has to *serve* the function, and the provider's runtime
+# resolves the callable it serves from the module by name. A module attribute
+# that is the provider's own object is served; any other object is refused
+# ("Function ... is a strange type"). Inside a container there is nothing to
+# gate either: the container does not call the provider, it *is* the call.
+if not r1.inside_provider_container():
+    for _name, _obj in list(globals().items()):
+        if _name.startswith("_") or _name in ("app", "model_volume", "gpu_image", "sandbox_image"):
+            continue
+        if isinstance(_obj, modal.Function):
+            globals()[_name] = r1.install_provider_guard(_name, _obj)
+        elif isinstance(_obj, modal.Cls):
+            globals()[_name] = r1.install_class_guard(_name, _obj)
 
 
 if __name__ == "__main__":
