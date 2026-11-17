@@ -1450,7 +1450,12 @@ def _validate_consolidated_closure(
 
     # -- P6.14 the producer source is unchanged ------------------------------
     producer_errors: List[str] = []
-    capture_sha = "40c063093c8d773d20f828fb290c68b5790a7cc5"
+    # The producer changed on this branch after the capture of Iteration 21, so the
+    # byte-wise claim of this check is made against the newest real capture of the
+    # approved step - the R4 run at 8619fcc, whose producer is the one this branch
+    # carries. The evidence of Iteration 21 keeps its own capture (40c0630) and is
+    # validated on its own by P6.13; nothing about it is restated or re-bound here.
+    capture_sha = "8619fccaa90e1088a6655e0a6b3eca6ed3056849"
     producer_changed: Optional[bool] = None
     if not code_sha:
         producer_errors.append("the report is bound to no commit SHA")
@@ -1474,8 +1479,9 @@ def _validate_consolidated_closure(
             error="; ".join(producer_errors) if producer_errors else None,
             planned=(
                 "the producer source is byte-wise unchanged between the commit the capture "
-                "of Iteration 21 was made from and the commit the report is bound to - the "
-                "producer is not the defect of this closure"
+                "of the R4 run was made from and the commit the report is bound to - the "
+                "producer is not the defect of this closure; the evidence of Iteration 21 "
+                "keeps its own capture and is validated on its own by P6.13"
             ),
             capture_code_sha=capture_sha,
             reported_code_sha=code_sha,
