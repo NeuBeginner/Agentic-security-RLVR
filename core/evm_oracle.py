@@ -710,6 +710,84 @@ REGISTRY_PRECEDENCE = [
 # 2. TRUSTED EVM STATE ORACLE ENGINE
 # =============================================================================
 
+def _decode_abi_string_at(raw_bytes: bytes, head_index: int, min_offset: int) -> Optional[str]:
+    """Decode a dynamic ABI `string` parameter whose offset sits at word `head_index`."""
+    head_start = head_index * 32
+    if head_start + 32 > len(raw_bytes):
+        return None
+    offset = int.from_bytes(raw_bytes[head_start:head_start + 32], "big")
+    if offset < min_offset or offset + 32 > len(raw_bytes):
+        return None
+    length = int.from_bytes(raw_bytes[offset:offset + 32], "big")
+    end = offset + 32 + length
+    if end > len(raw_bytes):
+        return None
+    return raw_bytes[offset + 32:end].decode("utf-8", errors="strict")
+
+
+def _decode_oracle_snapshot_payload(
+    data_hex: str,
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[Dict[str, Any]], bool]:
+    """Decode `OracleSnapshot` log data supporting ABI (string,string,string), ABI (string), and legacy raw JSON hex."""
+    clean_data = (data_hex or "").strip()
+    if clean_data.startswith(("0x", "0X")):
+        clean_data = clean_data[2:]
+    if not clean_data or len(clean_data) % 2 != 0:
+        return None, None, None, False
+    try:
+        raw_bytes = bytes.fromhex(clean_data)
+    except ValueError:
+        return None, None, None, False
+
+    # Case A: Standard ABI-encoded 3-string tuple OracleSnapshot(string,string,string)
+    if len(raw_bytes) >= 96:
+        try:
+            s0 = _decode_abi_string_at(raw_bytes, 0, 96)
+            s1 = _decode_abi_string_at(raw_bytes, 1, 96)
+            s2 = _decode_abi_string_at(raw_bytes, 2, 96)
+            if s0 is not None and s1 is not None and s2 is not None:
+                d0 = json.loads(s0)
+                d1 = json.loads(s1)
+                d2 = json.loads(s2) if s2.strip() else {}
+                if isinstance(d0, dict) and isinstance(d1, dict) and isinstance(d2, dict):
+                    return d0, d1, d2, True
+        except Exception:
+            pass
+
+    # Case B: Single ABI-encoded string OracleSnapshot(string) carrying {"initial": ..., "final": ..., "context": ...}
+    if len(raw_bytes) >= 64:
+        try:
+            s0 = _decode_abi_string_at(raw_bytes, 0, 32)
+            if s0 is not None:
+                parsed = json.loads(s0)
+                if isinstance(parsed, dict) and (
+                    isinstance(parsed.get("initial"), dict) or isinstance(parsed.get("final"), dict)
+                ):
+                    init_d = parsed.get("initial") if isinstance(parsed.get("initial"), dict) else {}
+                    fin_d = parsed.get("final") if isinstance(parsed.get("final"), dict) else {}
+                    ctx_d = parsed.get("context") if isinstance(parsed.get("context"), dict) else {}
+                    return init_d, fin_d, ctx_d, True
+        except Exception:
+            pass
+
+    # Case C: Legacy raw UTF-8 JSON bytes (used in synthetic unit tests)
+    try:
+        stripped = raw_bytes.decode("utf-8", errors="strict").strip("\x00 \t\r\n")
+        if stripped.startswith("{") and stripped.endswith("}"):
+            parsed = json.loads(stripped)
+            if isinstance(parsed, dict) and (
+                isinstance(parsed.get("initial"), dict) or isinstance(parsed.get("final"), dict)
+            ):
+                init_d = parsed.get("initial") if isinstance(parsed.get("initial"), dict) else {}
+                fin_d = parsed.get("final") if isinstance(parsed.get("final"), dict) else {}
+                ctx_d = parsed.get("context") if isinstance(parsed.get("context"), dict) else {}
+                return init_d, fin_d, ctx_d, True
+    except Exception:
+        pass
+
+    return None, None, None, False
+
+
 class TrustedEVMStateOracle:
     """
     Independent Trusted EVM State Oracle (Hardened).
@@ -830,21 +908,14 @@ class TrustedEVMStateOracle:
             # Check if event is OracleSnapshot
             if topic0 == TOPIC_ORACLE_SNAPSHOT:
                 if emitter and emitter in valid_emitters:
-                    has_genuine_harness_signal = True
-                    # Decode structured snapshot payload if present
-                    try:
-                        clean_data = data.replace("0x", "")
-                        # Try to extract JSON strings from ABI data
-                        raw_bytes = bytes.fromhex(clean_data)
-                        text_content = raw_bytes.decode("utf-8", errors="ignore")
-                        match = re.search(r'\{.*\}', text_content)
-                        if match:
-                            parsed = json.loads(match.group(0))
-                            initial_state.update(parsed.get("initial", {}))
-                            final_state.update(parsed.get("final", {}))
-                            trace_context.update(parsed.get("context", {}))
-                    except Exception:
-                        pass
+                    init_d, fin_d, ctx_d, ok = _decode_oracle_snapshot_payload(data)
+                    if ok and init_d is not None and fin_d is not None and ctx_d is not None:
+                        has_genuine_harness_signal = True
+                        initial_state.update(init_d)
+                        final_state.update(fin_d)
+                        trace_context.update(ctx_d)
+                    else:
+                        trace_context["oracle_snapshot_decode_error"] = True
                 else:
                     spoof_attempt_detected = True
 

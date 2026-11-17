@@ -1,0 +1,18 @@
+* text=auto eol=lf
+*.py text eol=lf
+*.sol text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+
+# The published evidence is byte-stable. The SHA-256 digests of the run
+# directories are recorded in their reproducibility manifests, so git must not
+# rewrite their line endings: a checkout has to reproduce the published bytes
+# exactly, on every platform.
+benchmarks/artifacts/** -text
+benchmarks/evidence/** -text
+benchmarks/benchmark_results.json -text

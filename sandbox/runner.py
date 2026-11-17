@@ -19,6 +19,40 @@ from core.evidence import (
 
 # Path to pre-baking script
 PREBAKE_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebake_solc.py")
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+
+def _resolve_local_foundry_paths():
+    """Discover local Foundry binaries and pre-baked Solidity libraries when present."""
+    candidates = [
+        os.path.join(_REPO_ROOT, ".toolchain", "foundry"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Foundry") if os.environ.get("LOCALAPPDATA") else "",
+        os.path.join(os.path.expanduser("~"), ".foundry", "bin"),
+        "/root/.foundry/bin",
+    ]
+    foundry_bin_dir = None
+    exe_name = "forge.exe" if os.name == "nt" else "forge"
+    for candidate in candidates:
+        if candidate and os.path.isfile(os.path.join(candidate, exe_name)):
+            foundry_bin_dir = candidate
+            break
+    if shutil.which("forge") is None and foundry_bin_dir:
+        current_path = os.environ.get("PATH", "")
+        if foundry_bin_dir not in current_path.split(os.pathsep):
+            os.environ["PATH"] = os.pathsep.join([foundry_bin_dir, current_path]) if current_path else foundry_bin_dir
+
+    env_base_lib = os.environ.get("FOUNDRY_BASE_LIB_DIR")
+    if env_base_lib:
+        base_lib_dir = env_base_lib
+    elif os.path.exists("/opt/foundry_base/lib"):
+        base_lib_dir = "/opt/foundry_base/lib"
+    else:
+        local_lib = os.path.join(_REPO_ROOT, ".toolchain", "foundry_base", "lib")
+        base_lib_dir = local_lib if os.path.exists(local_lib) else "/opt/foundry_base/lib"
+    return foundry_bin_dir, base_lib_dir
+
+
+_LOCAL_FOUNDRY_BIN_DIR, _DEFAULT_FOUNDRY_BASE_LIB_DIR = _resolve_local_foundry_paths()
 
 # This directory is copied into the Modal image from the repository at deploy time.
 # Runtime request payloads are never allowed to supply trusted harness source.
@@ -718,14 +752,29 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
         
         # Symlink pre-baked libraries in <1ms (zero copying).
         # The library root is the image-baked /opt/foundry_base/lib in the Modal
-        # image; FOUNDRY_BASE_LIB_DIR allows a local, non-Linux toolchain to
-        # point at the same pre-baked libraries.
-        base_lib = os.environ.get("FOUNDRY_BASE_LIB_DIR", "/opt/foundry_base/lib")
+        # image; FOUNDRY_BASE_LIB_DIR (or repo-local .toolchain/foundry_base/lib)
+        # allows a local toolchain to point at the same pre-baked libraries.
+        base_lib = os.environ.get("FOUNDRY_BASE_LIB_DIR") or _DEFAULT_FOUNDRY_BASE_LIB_DIR
         target_lib = os.path.join(tmpdir, "lib")
         if os.path.exists(base_lib):
+            linked = False
             try:
                 os.symlink(base_lib, target_lib)
+                linked = True
             except Exception:
+                linked = False
+            if not linked and os.name == "nt":
+                try:
+                    subprocess.run(
+                        ["cmd", "/c", "mklink", "/J", target_lib, base_lib],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    linked = True
+                except Exception:
+                    linked = False
+            if not linked:
                 shutil.copytree(base_lib, target_lib)
         
         # Write foundry.toml
@@ -757,7 +806,14 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             f.write(payload.test_code)
             
         env = os.environ.copy()
-        env["PATH"] = f"/root/.foundry/bin:{env.get('PATH', '')}"
+        path_prefixes = []
+        if _LOCAL_FOUNDRY_BIN_DIR:
+            path_prefixes.append(_LOCAL_FOUNDRY_BIN_DIR)
+        if os.name != "nt":
+            path_prefixes.append("/root/.foundry/bin")
+        if path_prefixes:
+            existing_path = env.get("PATH", "")
+            env["PATH"] = os.pathsep.join(path_prefixes + ([existing_path] if existing_path else []))
         
         try:
             # Run offline with JSON output and maximum trace detail (-vvvv)
@@ -768,6 +824,30 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 timeout=config.SANDBOX_TIMEOUT_SEC,
                 env=env,
             )
+            # Guard against transient Windows solc-0.8.20.exe access violations / ICEs
+            # when compiling large dependency graphs (forge-std) in fresh workspaces.
+            if os.name == "nt" and proc.returncode != 0 and not proc.timed_out:
+                for _retry in range(3):
+                    combined_err = (proc.stderr or "") + "\n" + (proc.stdout or "")
+                    if not any(
+                        sig in combined_err
+                        for sig in (
+                            "0xc0000005",
+                            "Internal compiler error",
+                            "solc exited with exit code",
+                        )
+                    ):
+                        break
+                    for artifact_subdir in ("out", "cache"):
+                        shutil.rmtree(os.path.join(tmpdir, artifact_subdir), ignore_errors=True)
+                    proc = run_subprocess_capped(
+                        cmd,
+                        cwd=tmpdir,
+                        timeout=config.SANDBOX_TIMEOUT_SEC,
+                        env=env,
+                    )
+                    if proc.returncode == 0 or proc.timed_out:
+                        break
             elapsed = time.time() - start_time
             raw_stdout, raw_stderr = proc.stdout, proc.stderr
             output_text = raw_stdout + "\\n" + raw_stderr
