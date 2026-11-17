@@ -36,8 +36,8 @@ from benchmarks.protocol import reject_synthetic_modal_uris
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PUBLISHED_RUN = REPO_ROOT / "benchmarks" / "artifacts" / "run_1794209615_70f5d22"
-REGENERATED_RUN = REPO_ROOT / "benchmarks" / "artifacts" / "run_1794935485_8619fcc"
-REGENERATED_RUN_DIR = "benchmarks/artifacts/run_1794935485_8619fcc"
+REGENERATED_RUN = REPO_ROOT / "benchmarks" / "artifacts" / "run_1794945167_fdb1b2d"
+REGENERATED_RUN_DIR = "benchmarks/artifacts/run_1794945167_fdb1b2d"
 PUBLISHED_FIELD_MAP = REPO_ROOT / "benchmarks" / "evidence" / "evidence_regeneration_field_map.json"
 
 
@@ -201,7 +201,7 @@ def test_the_regenerated_run_is_the_approved_step_r4():
     summary = json.loads(
         (REGENERATED_RUN / "summary.json").read_text(encoding="utf-8")
     )
-    assert summary["run_id"] == "run_1794935485_8619fcc"
+    assert summary["run_id"] == "run_1794945167_fdb1b2d"
     approval = summary["approval"]
     assert approval["step_id"] == "R4"
     assert approval["approved_by"] == "owner"
