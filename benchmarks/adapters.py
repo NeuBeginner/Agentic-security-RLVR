@@ -33,8 +33,26 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
 from contextlib import contextmanager
+from contextvars import ContextVar
 
 _MODAL_APP_RUNNING = False
+
+#: The provider addressing mode of the run.
+#:
+#: ``False`` (the default) keeps the behaviour of the repository as it was: the
+#: provider callables come from the local ``modal_app`` module and the run needs
+#: an ephemeral app context.
+#:
+#: ``True`` is the mode of an **approved** run: the application is **deployed**,
+#: so its provider callables are resolved **by name** against the deployed app
+#: (``modal.Function.from_name`` / ``modal.Cls.from_name``). A local import of
+#: ``modal_app`` is not usable from a separate process: the object it hands out
+#: is not hydrated, so a call to it fails with "Function has not been hydrated
+#: with the metadata it needs to run on Modal, because the App it is defined on is
+#: not running".
+_DEPLOYED_ADDRESSING: ContextVar[bool] = ContextVar(
+    "aegis_deployed_addressing", default=False
+)
 
 
 def dispatch_via_r1_gate(container_class: str, function_name: str, fn, *args, **kwargs):
@@ -114,6 +132,112 @@ def ensure_modal_app_context() -> ModalAppContext:
     return ModalAppContext()
 
 
+# --------------------------------------------------------------------------------------
+# The addressing of the provider callables
+# --------------------------------------------------------------------------------------
+
+
+def deployed_addressing_enabled() -> bool:
+    """True when the run addresses the **deployed** application by name."""
+    return _DEPLOYED_ADDRESSING.get()
+
+
+@contextmanager
+def deployed_app_addressing(enabled: bool = True):
+    """Address the deployed application by name for the duration of the block.
+
+    The mode changes **where** the provider callables come from - the deployed
+    app, addressed by name - and **nothing else**: every call still goes through
+    the R1 dispatch gate, the signed approval and the persistent budget ledger.
+    """
+    token = _DEPLOYED_ADDRESSING.set(bool(enabled))
+    try:
+        yield
+    finally:
+        _DEPLOYED_ADDRESSING.reset(token)
+
+
+def deployed_provider_function(function_name: str) -> Any:
+    """The **deployed** function of the application, guarded on the client side.
+
+    The client-side guard is the same one the local ``modal_app`` module
+    installs: it is installed **on the provider object itself** (its own
+    ``remote``), so every reference to the object is gated and the raw provider
+    callable is not reachable through any attribute of the guard. The guard
+    routes the call through the R1 gate - the invocation budget, the concurrency
+    gate, the ceiling assertion, the payload cap and the autoscaler read-back
+    apply to it exactly as they apply to every other dispatch.
+    """
+    import modal
+
+    from core.config import config
+    from core import r1_bounds as r1
+
+    fn = modal.Function.from_name(config.APP_NAME, function_name)
+    return r1.install_provider_guard(function_name, fn)
+
+
+def deployed_provider_class(class_name: str) -> Any:
+    """The **deployed** class of the application, guarded on the client side.
+
+    Instantiating the guarded class hands out a guarded instance: every provider
+    method of it is a guarded method, so the class-method path is no bypass of
+    the dispatch gate.
+    """
+    import modal
+
+    from core.config import config
+    from core import r1_bounds as r1
+
+    cls = modal.Cls.from_name(config.APP_NAME, class_name)
+    return r1.install_class_guard(class_name, cls)
+
+
+def provider_function(function_name: str) -> Any:
+    """The provider callable of a call site - the deployed one or the local one.
+
+    In the deployed mode the callable is resolved **by name** against the
+    deployed application; otherwise it is the guarded callable of the local
+    ``modal_app`` module.
+    """
+    if deployed_addressing_enabled():
+        return deployed_provider_function(function_name)
+
+    import importlib
+
+    module = importlib.import_module("modal_app")
+    return getattr(module, function_name)
+
+
+def provider_class_method(class_name: str, method_name: str) -> Any:
+    """The provider callable of a class method - the deployed one or the local one."""
+    if deployed_addressing_enabled():
+        instance = deployed_provider_class(class_name)()
+    else:
+        import importlib
+
+        module = importlib.import_module("modal_app")
+        instance = getattr(module, class_name)()
+    return getattr(instance, method_name)
+
+
+@contextmanager
+def provider_call_context():
+    """The context a provider call needs.
+
+    A run that addresses the **deployed** application needs no ephemeral app:
+    its provider callables are resolved by name against the deployed app, so
+    nothing is run locally and no container is started by the context itself. A
+    run without an approval keeps the ephemeral app context of the local
+    ``modal_app`` module.
+    """
+    if deployed_addressing_enabled():
+        yield
+        return
+    with ensure_modal_app_context():
+        yield
+
+
 def _client_observed_app_id() -> Dict[str, Any]:
     """
     The provider-issued application id of the running Modal app - observed on
@@ -146,6 +270,17 @@ def _client_observed_app_id() -> Dict[str, Any]:
         return observed(
             str(app_id),
             source=SOURCE_CLIENT_APP_ID,
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+    if deployed_addressing_enabled():
+        # The run addresses the **deployed** application by name: the local app
+        # object was never run, so it holds no provider-issued id. The id of the
+        # deployed app is observed inside the remote worker (the stage facts),
+        # never on the client side - and it is never fabricated here.
+        return not_available(
+            "the run addresses the deployed application by name, so no local app was "
+            "run: the provider-issued application id of the deployed app is observed "
+            "inside the remote worker (stage facts), not on the client side",
             observed_by=OBSERVATION_SIDE_CLIENT,
         )
     return not_available(
@@ -1768,7 +1903,12 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
 
         try:
             from core.schemas import TargetProgram, ExploitPayload, AttackHypothesis, ResultCategory, VerificationVerdict
-            from modal_app import verify_exploit_remote, verify_replay_remote, record_trajectory_remote
+
+            # The provider callables of the run: the **deployed** ones when the run
+            # addresses the deployed application by name, the local ones otherwise.
+            verify_exploit_remote = provider_function("verify_exploit_remote")
+            verify_replay_remote = provider_function("verify_replay_remote")
+            record_trajectory_remote = provider_function("record_trajectory_remote")
 
             # Resolve trusted verification harness
             solidity_dir = (
@@ -1814,26 +1954,24 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             # serialization - not the raw transport bytes of the provider
             # (Iteration 16 P0.1, Iteration 17 wording).
             inference_response: Any = None
-            with ensure_modal_app_context():
+            with provider_call_context():
                 payload = None
                 if self.candidate_generator:
                     payload = self.candidate_generator(target_prog)
                 elif self.provider == "modal_h100":
-                    from modal_app import ProductionAuditAgent
-                    agent = ProductionAuditAgent()
                     t_payload = target_prog.model_dump()
                     t_payload["correlation_id"] = correlation_id
                     p_dict = dispatch_via_r1_gate(
                         "gpu",
                         "ProductionAuditAgent.generate_solidity_exploit",
-                        agent.generate_solidity_exploit,
+                        provider_class_method(
+                            "ProductionAuditAgent", "generate_solidity_exploit"
+                        ),
                         t_payload,
                     )
                     inference_response = p_dict
                     payload = ExploitPayload(**p_dict)
                 elif self.provider == "modal_t4":
-                    from modal_app import DevReasoningAgent
-                    agent = DevReasoningAgent()
                     t_payload = target_prog.model_dump()
                     t_payload["correlation_id"] = correlation_id
                     # The dev T4 agent is not part of the authorised trace: it has no
@@ -1841,7 +1979,9 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     p_dict = dispatch_via_r1_gate(
                         "gpu",
                         "DevReasoningAgent.generate_solidity_exploit",
-                        agent.generate_solidity_exploit,
+                        provider_class_method(
+                            "DevReasoningAgent", "generate_solidity_exploit"
+                        ),
                         t_payload,
                     )
                     inference_response = p_dict
@@ -1890,25 +2030,25 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     err_trace = verdict.feedback or verdict.stderr or "Exploit candidate failed to breach invariant."
                     try:
                         if self.provider == "modal_h100":
-                            from modal_app import ProductionAuditAgent
-                            ref_agent = ProductionAuditAgent()
                             rp_dict = dispatch_via_r1_gate(
                                 "gpu",
                                 "ProductionAuditAgent.refine_solidity_exploit",
-                                ref_agent.refine_solidity_exploit,
+                                provider_class_method(
+                                    "ProductionAuditAgent", "refine_solidity_exploit"
+                                ),
                                 target_dict,
                                 payload.test_code,
                                 err_trace,
                             )
                         else:
-                            from modal_app import DevReasoningAgent
-                            ref_agent = DevReasoningAgent()
                             # The dev T4 agent is not part of the authorised trace:
                             # it has no egress declaration, so the gate refuses it.
                             rp_dict = dispatch_via_r1_gate(
                                 "gpu",
                                 "DevReasoningAgent.refine_solidity_exploit",
-                                ref_agent.refine_solidity_exploit,
+                                provider_class_method(
+                                    "DevReasoningAgent", "refine_solidity_exploit"
+                                ),
                                 target_dict,
                                 payload.test_code,
                                 err_trace,

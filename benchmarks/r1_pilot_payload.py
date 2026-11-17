@@ -105,6 +105,24 @@ def _call_sites_for(step_data: Dict[str, Any]) -> List[str]:
     return sorted(sites)
 
 
+def world_for_step(step_id: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """The effective profiles and egress policies of one step of the scenario.
+
+    This is the world the gate has to be constructed with: the values the
+    estimator priced. The dispatch envelope binds them, so a run that rebuilds
+    them differently produces an envelope the signed artifact does not cover -
+    and the gate refuses the step.
+
+    The runner of an approved run uses this function, so the world of the run
+    and the world of the signed payload are built by **one** code path.
+    """
+    scenario = json.loads(SCENARIO_PATH.read_text(encoding="utf-8"))
+    scenario_steps = {step["step_id"]: step for step in scenario["steps"]}
+    if step_id not in scenario_steps:
+        raise SystemExit(f"the cost scenario declares no step '{step_id}'")
+    return _world_for(scenario_steps[step_id])
+
+
 def build_payloads(
     *,
     approved_at: str,

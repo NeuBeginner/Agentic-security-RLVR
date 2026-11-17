@@ -37,6 +37,7 @@ import shutil
 import subprocess
 import sys
 import time
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -99,7 +100,169 @@ from benchmarks.adapters import (
     FullAegisRLVRBaselineAdapter,
     SyntheticSmokeAdapter,
     ensure_modal_app_context,
+    deployed_app_addressing,
+    deployed_addressing_enabled,
 )
+
+
+# --------------------------------------------------------------------------------------
+# The approved run (R4)
+# --------------------------------------------------------------------------------------
+#
+# A run under a **signed approval** is a different thing from an ordinary run:
+#
+# * the provider callables are the **deployed** ones - the application is resolved
+#   **by name** (``modal.Function.from_name`` / ``modal.Cls.from_name``), so no
+#   ephemeral app is run and no call reaches an unhydrated local object;
+# * every provider call goes through the R1 dispatch gate, which verifies the
+#   signed artifact itself, at dispatch time, against the pinned public key;
+# * the money of the cycle is reserved in the **persistent** budget ledger, so a
+#   second run cannot spend it twice.
+#
+# Without an approval artifact the runner behaves exactly as it always did.
+
+
+def _approved_bound(value: Any) -> Any:
+    """One bound of an approved policy - an unset bound keeps its reason."""
+    if isinstance(value, dict) and set(value) == {"unset"}:
+        from core.r1_bounds import Unset
+
+        return Unset(str(value["unset"]))
+    return value
+
+
+def _step_policy_from_payload(payload: Any):
+    """The step policy of an approved payload.
+
+    The policy is **not** an authorisation: the authorisation is the signed
+    artifact. The policy is the record of the approved caps, and it is taken
+    from the signed payload - never from the command line.
+    """
+    from benchmarks.r1_dispatch import StepPolicy
+    from core.r1_approval import ApprovalNotVerified
+
+    if not isinstance(payload, dict):
+        raise ApprovalNotVerified("the approval approves no policy")
+    required = (
+        "step_id",
+        "invocation_budgets",
+        "concurrency_caps",
+        "wall_clock_budget_sec",
+        "post_execution_deadline_sec",
+        "monetary_ceiling_usd",
+        "estimate_usd",
+        "approved_by",
+        "approved_at",
+    )
+    missing = [name for name in required if name not in payload]
+    if missing:
+        raise ApprovalNotVerified(
+            f"the approved policy misses the fields: {', '.join(missing)}"
+        )
+    return StepPolicy(
+        step_id=str(payload["step_id"]),
+        invocation_budgets={str(k): int(v) for k, v in payload["invocation_budgets"].items()},
+        concurrency_caps={str(k): int(v) for k, v in payload["concurrency_caps"].items()},
+        wall_clock_budget_sec=_approved_bound(payload["wall_clock_budget_sec"]),
+        post_execution_deadline_sec=_approved_bound(payload["post_execution_deadline_sec"]),
+        monetary_ceiling_usd=_approved_bound(payload["monetary_ceiling_usd"]),
+        estimate_usd=payload["estimate_usd"],
+        approved_by=str(payload["approved_by"]),
+        approved_at=str(payload["approved_at"]),
+    )
+
+
+@dataclass
+class ApprovedStep:
+    """The approved step a real run executes under."""
+
+    step_id: str
+    artifact_path: str
+    claims: Any
+    policy: Any
+    ledger: Any
+    gate: Any
+
+    def to_record(self) -> Dict[str, Any]:
+        """The record of the approval - what the run actually ran under."""
+        state = self.ledger.state()
+        return {
+            "step_id": self.step_id,
+            "artifact_path": self.artifact_path,
+            "approved_by": self.claims.approved_by,
+            "approved_at": self.claims.approved_at,
+            "policy_digest": self.claims.policy_digest,
+            "dispatch_envelope_digest": self.claims.dispatch_envelope_digest,
+            "artifact_digest": self.claims.artifact_digest,
+            "estimate_usd": self.policy.estimate_usd,
+            "monetary_ceiling_usd": self.policy.monetary_ceiling_usd,
+            "provider_addressing": (
+                "deployed app by name (modal.Function.from_name / modal.Cls.from_name)"
+                if deployed_addressing_enabled()
+                else "local modal_app module"
+            ),
+            "budget_ledger": {
+                "path": str(self.ledger.path),
+                "cap_usd": state.cap_usd,
+                "spent_usd": state.spent_usd,
+                "reserved_usd": state.reserved_usd,
+                "available_usd": state.available_usd,
+            },
+            "gate_records": [record.to_record() for record in self.gate.records],
+        }
+
+
+@contextmanager
+def approved_step_run(
+    approval_artifact_path: str,
+    step_id: str = "R4",
+    budget_ledger_path: Optional[str] = None,
+    budget_cap_usd: Optional[float] = None,
+    budget_run_id: str = "r1-cycle",
+):
+    """Open the approved step: the signed artifact, the ledger and the gate.
+
+    The artifact is read, verified and handed to the gate **as it is**: the gate
+    verifies it itself, at dispatch time, against the pinned public key. A run
+    without a verifiable artifact starts no provider container at all.
+
+    The **effective world** of the step - the profiles and the egress policies
+    the estimator priced - is rebuilt from the cost scenario, exactly as the
+    payload builder built it. Any difference would change the dispatch envelope
+    and the signature would no longer match: the gate refuses such a step.
+    """
+    from benchmarks import r1_dispatch
+    from benchmarks.r1_pilot_payload import world_for_step
+    from core import r1_approval
+    from core.r1_budget_ledger import BudgetLedger
+
+    artifact = r1_approval.load_approval_artifact(approval_artifact_path)
+    claims = r1_approval.verify_artifact(artifact)
+    if claims.step_id != step_id:
+        raise r1_approval.ApprovalNotVerified(
+            f"the artifact approves the step '{claims.step_id}', not '{step_id}'"
+        )
+    policy = _step_policy_from_payload(artifact.payload.get("policy"))
+    profiles, egress = world_for_step(step_id)
+    ledger = BudgetLedger(path=budget_ledger_path, cap_usd=budget_cap_usd)
+    with r1_dispatch.authorised_step(
+        policy=policy,
+        approval=artifact,
+        profiles=profiles,
+        egress_policies=egress,
+        budget_ledger=ledger,
+        budget_run_id=budget_run_id,
+    ) as gate:
+        with deployed_app_addressing():
+            yield ApprovedStep(
+                step_id=step_id,
+                artifact_path=str(approval_artifact_path),
+                claims=claims,
+                policy=policy,
+                ledger=ledger,
+                gate=gate,
+            )
+
 
 
 @dataclass
@@ -301,6 +464,11 @@ class AegisBenchmarkSuite:
         baseline5_provider: Optional[str] = None,
         baseline5_model_id: Optional[str] = None,
         require_clean: Optional[bool] = None,
+        approval_artifact: Optional[str] = None,
+        approval_step_id: str = "R4",
+        budget_ledger_path: Optional[str] = None,
+        budget_cap_usd: Optional[float] = None,
+        budget_run_id: str = "r1-cycle",
     ) -> Dict[str, Any]:
         """
         Executes the benchmark suite across baselines.
@@ -316,9 +484,26 @@ class AegisBenchmarkSuite:
                                 Choices: "modal_h100", "modal_t4", "gemini", "openai".
                                 Defaults to `provider` if None.
             baseline5_model_id: Model ID override for Baseline 5 (e.g. "qtum/Qwen3-Coder-30B-A3B-Audit").
+            approval_artifact: Optional path of the **signed** approval artifact of the step
+                               (the payload plus its signature). With it the run executes under
+                               the approved step: the deployed application is addressed by name,
+                               every provider call goes through the R1 dispatch gate and the
+                               money of the cycle is reserved in the persistent budget ledger.
+                               Without it the run behaves exactly as it always did.
+            approval_step_id: The step the approval artifact approves (R4 by default).
+            budget_ledger_path: Optional path of the persistent budget ledger of the cycle.
+            budget_cap_usd: Optional cap of the cycle in USD - it may be lowered below the
+                             hard ceiling of $20, never raised above it.
+            budget_run_id: The run id the ledger charges the reservations of the step to.
         """
         if mode not in ("smoke", "real"):
             raise ValueError("mode must be 'smoke' or 'real'")
+
+        if approval_artifact and mode != "real":
+            raise ValueError(
+                "an approval artifact requires the real mode: a smoke run starts no "
+                "provider container, so there is nothing for the approval to authorise"
+            )
 
         # Resolve Baseline 5 provider & model
         b5_provider = baseline5_provider if baseline5_provider is not None else provider
@@ -391,15 +576,32 @@ class AegisBenchmarkSuite:
         adapter_manifests: Dict[str, AdapterRunManifest] = {}
         base_dir = self.dataset_path.parent.parent
 
-        from contextlib import nullcontext
-
         needs_modal = any(
             isinstance(ad, FullAegisRLVRBaselineAdapter) and getattr(ad, "provider", "") in ("modal_h100", "modal_t4")
             for ad in adapters.values()
         )
-        app_ctx = ensure_modal_app_context() if needs_modal else nullcontext()
 
-        with app_ctx:
+        # The approval of the step is opened **around** the run: the gate, the
+        # signed artifact and the persistent ledger are the contract of the
+        # provider calls the run makes. A run without an approval keeps the
+        # ephemeral app context of the local ``modal_app`` module; an approved
+        # run addresses the **deployed** application by name and runs nothing
+        # locally.
+        approved: Optional[ApprovedStep] = None
+        with ExitStack() as stack:
+            if approval_artifact:
+                approved = stack.enter_context(
+                    approved_step_run(
+                        approval_artifact_path=approval_artifact,
+                        step_id=approval_step_id,
+                        budget_ledger_path=budget_ledger_path,
+                        budget_cap_usd=budget_cap_usd,
+                        budget_run_id=budget_run_id,
+                    )
+                )
+            elif needs_modal:
+                stack.enter_context(ensure_modal_app_context())
+
             for b_id, adapter in adapters.items():
                 baseline_start_time = time.time()
                 baseline_artifacts: List[TargetExecutionArtifact] = []
@@ -706,6 +908,10 @@ class AegisBenchmarkSuite:
             "reproducibility_manifest": rel_manifest_file,
             "reproducibility_manifest_summary": repro_manifest.to_dict(),
             "baselines": results,
+            # The approval the run executed under - ``None`` for a run without
+            # one. The record states the signed digests, the addressing of the
+            # provider callables and the money of the cycle.
+            "approval": approved.to_record() if approved is not None else None,
         }
 
         if save_results:
@@ -750,27 +956,64 @@ def main():
     parser.add_argument("--artifacts-dir", type=str, default=None,
                         help="Directory to save per-target execution artifacts")
     parser.add_argument("--no-save", action="store_true", help="Do not write benchmark_results.json")
+    parser.add_argument("--approval-artifact", type=str, default=None,
+                        help=("Path of the SIGNED approval artifact of the step (the payload plus its "
+                              "signature). With it the run executes under the approved step: the "
+                              "deployed application is addressed by name, every provider call goes "
+                              "through the R1 dispatch gate and the money of the cycle is reserved in "
+                              "the persistent budget ledger. Without it the runner behaves exactly "
+                              "as before."))
+    parser.add_argument("--approval-step-id", type=str, default="R4",
+                        help="The step the approval artifact approves (R4 by default)")
+    parser.add_argument("--budget-ledger-path", type=str, default=None,
+                        help=("Path of the persistent budget ledger of the cycle "
+                              "(default: ~/.aegis/r1_budget_ledger.sqlite3)"))
+    parser.add_argument("--budget-cap-usd", type=float, default=None,
+                        help=("The cap of the cycle in USD. It may be lowered below the hard ceiling "
+                              "of $20, never raised above it (default: the environment variable "
+                              "AEGIS_R1_BUDGET_CAP_USD, otherwise $20)."))
+    parser.add_argument("--budget-run-id", type=str, default="r1-cycle",
+                        help="The run id the ledger charges the reservations of the step to")
     args = parser.parse_args()
 
     artifacts_path = Path(args.artifacts_dir) if args.artifacts_dir else None
     suite = AegisBenchmarkSuite(artifacts_dir=artifacts_path)
 
     print(f"[*] Running Aegis-RLVR Benchmark Suite [Mode: {args.mode.upper()}] for {args.model_id}...")
-    report = suite.run_benchmark(
-        mode=args.mode,
-        model_id=args.model_id,
-        provider=args.provider,
-        save_results=not args.no_save,
-        baselines_to_run=args.baselines,
-        baseline5_provider=args.baseline5_provider,
-        baseline5_model_id=args.baseline5_model_id,
-    )
+    if args.approval_artifact:
+        print(f"[*] Approved step {args.approval_step_id}: {args.approval_artifact}")
+        print(f"[*] Provider addressing: deployed app by name (modal.Function.from_name / modal.Cls.from_name)")
+    try:
+        report = suite.run_benchmark(
+            mode=args.mode,
+            model_id=args.model_id,
+            provider=args.provider,
+            save_results=not args.no_save,
+            baselines_to_run=args.baselines,
+            baseline5_provider=args.baseline5_provider,
+            baseline5_model_id=args.baseline5_model_id,
+            approval_artifact=args.approval_artifact,
+            approval_step_id=args.approval_step_id,
+            budget_ledger_path=args.budget_ledger_path,
+            budget_cap_usd=args.budget_cap_usd,
+            budget_run_id=args.budget_run_id,
+        )
+    except Exception as exc:
+        print(f"[!] The run was refused: {type(exc).__name__}: {exc}")
+        raise SystemExit(2)
 
     print(f"\n[+] Benchmark Complete ({report['evaluated_at']}):")
     print(f"    Mode: {report['execution_mode']} | Synthetic Smoke: {report['is_synthetic_smoke']}")
     print(f"    Commit: {report['git_commit_sha']} | Evaluated: {report['total_targets_evaluated']} targets")
     if report.get("artifacts_directory"):
         print(f"    Artifacts: {report['artifacts_directory']}\n")
+    approval = report.get("approval")
+    if approval:
+        ledger = approval["budget_ledger"]
+        print(f"    Approval: {approval['step_id']} by {approval['approved_by']} at {approval['approved_at']}")
+        print(f"    Addressing: {approval['provider_addressing']}")
+        print(f"    Ledger: {ledger['path']} | cap {ledger['cap_usd']} | spent {ledger['spent_usd']} | "
+              f"reserved {ledger['reserved_usd']} | available {ledger['available_usd']}\n")
 
     for b_id, metrics in report["baselines"].items():
         status = metrics.get("status", "SUCCESS")
