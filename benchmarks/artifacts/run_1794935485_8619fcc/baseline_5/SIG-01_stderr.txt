@@ -1,0 +1,30 @@
+Error: Compiler run failed:
+Error (9553): Invalid type for argument in function call. Invalid implicit conversion from address to address payable requested.
+  --> src/ExploitModule.sol:16:80:
+   |
+16 |         MaliciousContract malicious = new MaliciousContract{value: 0.01 ether}(address(targetContract));
+   |                                                                                ^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning (5159): "selfdestruct" has been deprecated. The underlying opcode will eventually undergo breaking changes, and its use is not recommended.
+  --> src/ExploitModule.sol:41:9:
+   |
+41 |         selfdestruct(owner);
+   |         ^^^^^^^^^^^^
+
+Error (9553): Invalid type for argument in function call. Invalid implicit conversion from address to address payable requested.
+  --> test/ExploitModule.sol:16:80:
+   |
+16 |         MaliciousContract malicious = new MaliciousContract{value: 0.01 ether}(address(targetContract));
+   |                                                                                ^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning (5159): "selfdestruct" has been deprecated. The underlying opcode will eventually undergo breaking changes, and its use is not recommended.
+  --> test/ExploitModule.sol:41:9:
+   |
+41 |         selfdestruct(owner);
+   |         ^^^^^^^^^^^^
+
+Error (9582): Member "runSignatureReplay" not found or not visible after argument-dependent lookup in contract ExploitModule.
+  --> test/SignatureReplayWalletHarness.t.sol:32:9:
+   |
+32 |         exploit.runSignatureReplay(r, s, v);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
