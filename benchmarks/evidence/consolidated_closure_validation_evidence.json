@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "generator": "benchmarks/validate_consolidated_closure_evidence.py",
-  "code_sha": "690f39a125ef091dee61ae9f18550ab068587c4e",
-  "generated_at_utc": "2026-11-10T14:58:30Z",
+  "code_sha": "7858dec4d39b171609810aeb896c107a0756db0c",
+  "generated_at_utc": "2026-11-17T19:45:39Z",
   "scope": {
     "closure": "consolidated architecture closure of PR #12",
     "purpose": "validate the fail-closed evaluator leak (P0) and the run-level observation-side gap (P1), and the evidence of the full-chain audit",
@@ -16,16 +16,11 @@
     "benchmark_run": "not touched - the 16-target run on disk still fails the Iteration 14-18 validators and this closure does not change that"
   },
   "git": {
-    "head": "690f39a125ef091dee61ae9f18550ab068587c4e",
-    "branch": "minimax/iteration-14-evidence-integrity",
-    "dirty": true,
-    "tracked_changes": [
-      "M benchmarks/benchmark_results.json"
-    ],
-    "untracked_paths": [
-      "test-results-iteration18-local.xml",
-      "test-results-iteration19-local.xml"
-    ]
+    "head": "7858dec4d39b171609810aeb896c107a0756db0c",
+    "branch": "docs/evidence-regeneration-architecture-plan",
+    "dirty": false,
+    "tracked_changes": [],
+    "untracked_paths": []
   },
   "checks": [
     {
@@ -970,11 +965,11 @@
       "check": "P6.14.the_producer_source_is_unchanged_since_the_capture",
       "status": "PASSED",
       "error": null,
-      "planned": "the producer source is byte-wise unchanged between the commit the capture of Iteration 21 was made from and the commit the report is bound to - the producer is not the defect of this closure",
+      "planned": "the producer source is byte-wise unchanged between the commit the capture of the R4 run was made from and the commit the report is bound to - the producer is not the defect of this closure; the evidence of Iteration 21 keeps its own capture and is validated on its own by P6.13",
       "attempted": true,
       "executed": true,
-      "capture_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
-      "reported_code_sha": "690f39a125ef091dee61ae9f18550ab068587c4e",
+      "capture_code_sha": "8619fccaa90e1088a6655e0a6b3eca6ed3056849",
+      "reported_code_sha": "7858dec4d39b171609810aeb896c107a0756db0c",
       "producer_source_changed": false
     },
     {
