@@ -124,6 +124,28 @@ def _reader():
     return reader
 
 
+def _reader_for(world):
+    """A reader that reports the autoscaler settings the profiles declare.
+
+    The read-back (D27) compares the effective settings of the provider with
+    the declaration of the container class - so a test with more than one
+    class needs a reader that answers per call site.
+    """
+
+    def reader(target, function_name=""):
+        container_class = r1.FUNCTION_CLASS.get(function_name, "")
+        profile = world["profiles"].get(container_class) or r1.profile_for(container_class)
+        declared = r1.declared_autoscaler_settings(profile)
+        return {
+            "min_containers": declared["min_containers"],
+            "max_containers": declared["max_containers"],
+            "buffer_containers": declared["buffer_containers"],
+            "scaledown_window": declared["scaledown_window"],
+        }
+
+    return reader
+
+
 def _signed_approval(signed_approval, policy, world=None):
     """Sign the exact effective envelope used by the gate in this test."""
     options = dict(world or {})
@@ -461,6 +483,183 @@ def test_a_dispatch_is_refused_when_the_cap_is_exhausted(monkeypatch, signed_app
 
     assert excinfo.value.reason == "budget_cap_exceeded"
     assert len(double.calls) == 1
+    assert ledger.state().spent_usd == pytest.approx(0.5)
+
+
+# --------------------------------------------------------------------------------------
+# a step with many invocations
+# --------------------------------------------------------------------------------------
+
+
+#: The estimate of R4 - the cost of the **whole** step, as the estimator
+#: computes it from the invocation counts of the scenario.
+R4_ESTIMATE_USD = 12.9878
+
+#: The money the pilot spent before R4.
+PILOT_SPENT_USD = 3.828384
+
+
+def _r4_policy() -> r1_dispatch.StepPolicy:
+    """The policy of R4: 48 sandbox + 32 GPU + 16 persistence invocations."""
+    return _policy(
+        step_id="R4",
+        invocation_budgets={r1.SANDBOX_CPU: 48, r1.GPU_CLASS: 32, r1.PERSISTENCE: 16},
+        concurrency_caps={r1.SANDBOX_CPU: 48, r1.GPU_CLASS: 32, r1.PERSISTENCE: 16},
+        monetary_ceiling_usd=R4_ESTIMATE_USD,
+        estimate_usd=R4_ESTIMATE_USD,
+    )
+
+
+def test_the_estimate_of_a_step_covers_all_its_invocations(monkeypatch, signed_approval, tmp_path):
+    """R4 makes ninety-six invocations - and costs its estimate **once**.
+
+    The signed estimate is the cost of the **step**, not of a call: the
+    estimator computes it from the invocation counts of the scenario. R4
+    (12.9878 USD, 48 sandbox + 32 GPU + 16 persistence invocations) therefore
+    fits into the money the cycle has left - even with the 3.83 USD the pilot
+    spent before it - and the money of the cycle stays the money of the
+    **steps**, not of the ninety-six calls.
+    """
+    world = _approved_world()
+    ledger = _ledger(tmp_path)  # the cap of the cycle: 20.00 USD
+
+    # The pilot spent 3.83 USD before R4.
+    spent = ledger.reserve("r1-pilot", "R3b", PILOT_SPENT_USD)
+    ledger.commit(spent.reservation_id, PILOT_SPENT_USD)
+
+    policy = _r4_policy()
+    sandbox = _install_double(monkeypatch, "verify_exploit_remote", ModalProviderDouble())
+    gpu = _install_double(
+        monkeypatch, "ProductionAuditAgent.generate_solidity_exploit", ModalProviderDouble()
+    )
+    persistence = _install_double(monkeypatch, "record_trajectory_remote", ModalProviderDouble())
+
+    with r1_dispatch.authorised_step(
+        policy,
+        approval=_signed_approval(signed_approval, policy, world),
+        autoscaler_reader=_reader_for(world),
+        budget_ledger=ledger,
+        budget_run_id="r1-pilot",
+        **world,
+    ) as gate:
+        for _ in range(48):
+            gate.dispatch(
+                r1.SANDBOX_CPU,
+                "verify_exploit_remote",
+                r1.GuardedRemote(sandbox, "verify_exploit_remote"),
+                {"a": 1},
+            )
+        for _ in range(32):
+            gate.dispatch(
+                r1.GPU_CLASS,
+                "ProductionAuditAgent.generate_solidity_exploit",
+                r1.GuardedRemote(gpu, "ProductionAuditAgent.generate_solidity_exploit"),
+                {"a": 1},
+            )
+        for _ in range(16):
+            gate.dispatch(
+                r1.PERSISTENCE,
+                "record_trajectory_remote",
+                r1.GuardedRemote(persistence, "record_trajectory_remote"),
+                {"trajectory_id": "t", "candidate": {}},
+            )
+
+    # Ninety-six invocations, one estimate.
+    assert len(sandbox.calls) == 48
+    assert len(gpu.calls) == 32
+    assert len(persistence.calls) == 16
+    state = ledger.state()
+    assert state.spent_usd == pytest.approx(PILOT_SPENT_USD + R4_ESTIMATE_USD)
+    assert state.reserved_usd == pytest.approx(0.0)
+    assert state.spent_usd <= state.cap_usd
+
+    # The estimate of the step was reserved **once**, not ninety-six times.
+    rows = [row for row in ledger.reservations() if row.step_id == "R4"]
+    assert len(rows) == 1
+    assert rows[0].max_cost_usd == pytest.approx(R4_ESTIMATE_USD)
+    assert rows[0].state == "committed"
+
+
+def test_another_run_of_the_step_is_refused_when_the_cap_does_not_fit(monkeypatch, signed_approval, tmp_path):
+    """The estimate of a step is reserved once **per run**: a second run pays again.
+
+    A new ``budget_run_id`` is a new attempt of the step, so it reserves the
+    estimate again - and the cap of the cycle refuses it when the two do not
+    fit. The protection against a repeated run is not weakened by the change.
+    """
+    world = _approved_world()
+    ledger = _ledger(tmp_path)
+
+    spent = ledger.reserve("r1-pilot", "R3b", PILOT_SPENT_USD)
+    ledger.commit(spent.reservation_id, PILOT_SPENT_USD)
+
+    policy = _r4_policy()
+    sandbox = _install_double(monkeypatch, "verify_exploit_remote", ModalProviderDouble())
+
+    with r1_dispatch.authorised_step(
+        policy,
+        approval=_signed_approval(signed_approval, policy, world),
+        autoscaler_reader=_reader_for(world),
+        budget_ledger=ledger,
+        budget_run_id="r1-pilot",
+        **world,
+    ) as gate:
+        gate.dispatch(
+            r1.SANDBOX_CPU,
+            "verify_exploit_remote",
+            r1.GuardedRemote(sandbox, "verify_exploit_remote"),
+            {"a": 1},
+        )
+
+    # The same step, another run: the estimate is reserved again.
+    again = r1_dispatch.DispatchGate(
+        policy=policy,
+        approval=_signed_approval(signed_approval, policy, world),
+        autoscaler_reader=_reader_for(world),
+        budget_ledger=ledger,
+        budget_run_id="r1-pilot-next",
+        **world,
+    )
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        again.dispatch(
+            r1.SANDBOX_CPU,
+            "verify_exploit_remote",
+            r1.GuardedRemote(sandbox, "verify_exploit_remote"),
+            {"a": 2},
+        )
+
+    assert excinfo.value.reason == "budget_cap_exceeded"
+    assert ledger.state().spent_usd == pytest.approx(PILOT_SPENT_USD + R4_ESTIMATE_USD)
+    assert len(sandbox.calls) == 1
+
+
+def test_a_failed_invocation_makes_the_next_one_pay_again(monkeypatch, signed_approval, tmp_path):
+    """A failed attempt of a step is charged - and its retry reserves again."""
+    world = _approved_world()
+    double = _install_double(
+        monkeypatch, "verify_exploit_remote", ModalProviderDouble(error=RuntimeError("the container died"))
+    )
+    policy = _policy()
+    ledger = _ledger(tmp_path, cap_usd=0.75)
+
+    with r1_dispatch.authorised_step(
+        policy,
+        approval=_signed_approval(signed_approval, policy, world),
+        autoscaler_reader=_reader(),
+        budget_ledger=ledger,
+        **world,
+    ) as gate:
+        with pytest.raises(RuntimeError):
+            gate.dispatch(
+                r1.SANDBOX_CPU, "verify_exploit_remote", r1.GuardedRemote(double, "verify_exploit_remote"), {"a": 1}
+            )
+        # The failed attempt is charged; the retry reserves the estimate again.
+        with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+            gate.dispatch(
+                r1.SANDBOX_CPU, "verify_exploit_remote", r1.GuardedRemote(double, "verify_exploit_remote"), {"a": 2}
+            )
+
+    assert excinfo.value.reason == "budget_cap_exceeded"
     assert ledger.state().spent_usd == pytest.approx(0.5)
 
 

@@ -539,6 +539,12 @@ class DispatchGate:
         self._readback_done: Dict[str, bool] = {}
         self._started_at = time.monotonic()
         self._lock = threading.Lock()
+        # The reservation that holds the money of this step - see
+        # ``_reserve_budget``. The estimate of a step covers **all** its
+        # invocations, so it is reserved once for the step and every later
+        # invocation of that step is covered by it.
+        self._step_reservation: Optional[Reservation] = None
+        self._step_estimate_reserved = False
 
     # -- helpers ------------------------------------------------------------------
 
@@ -1038,9 +1044,26 @@ class DispatchGate:
         ledger is refused: the money of a real container is never spent
         outside the persistent ledger.
 
-        The reserved amount is the signed ``estimate_usd`` of the step policy.
-        The ledger never widens it - it only refuses a reservation that would
-        break the cap of the cycle.
+        **The estimate of a step covers all its invocations.** The signed
+        ``estimate_usd`` is the cost of the **whole** step - the estimator
+        computes it from the invocation counts of the scenario - so it is
+        reserved **once** for the step, and every later invocation of that
+        step is covered by that reservation. A step that makes ninety-six
+        invocations (R4) therefore costs its estimate once and not
+        ninety-six times: the money of the cycle is the money of the **steps**,
+        not of the calls.
+
+        The protection is not weakened by it:
+
+        * the **first** invocation of the step reserves the estimate against the
+          cap of the cycle, and the ledger refuses it when the cap would break;
+        * a **failed** invocation ends the attempt: its money is charged
+          conservatively and the next invocation reserves the estimate again,
+          so a retry pays again;
+        * an invocation that never started gives its reservation back;
+        * another **run** of the step - another ``budget_run_id`` - reserves the
+          estimate again, and the cap of the cycle decides whether it fits;
+        * no container starts while the money of the cycle is exhausted.
         """
         if not is_billable_provider_object(fn):
             return None
@@ -1058,8 +1081,27 @@ class DispatchGate:
                 "budget_ledger_unavailable",
                 "the step declares no estimate, so its money cannot be reserved",
             )
+
+        # The money of the cycle must not be exhausted: a container that starts
+        # while the cap is used up spends money the cycle does not have.
+        state = self.budget_ledger.state()
+        if state.spent_usd + state.reserved_usd >= state.cap_usd:
+            self._refuse(
+                container_class,
+                function_name,
+                "budget_cap_exceeded",
+                f"the money of the cycle is exhausted: {state.spent_usd} spent + "
+                f"{state.reserved_usd} reserved of the cap of {state.cap_usd} USD",
+            )
+
+        if self._step_estimate_reserved:
+            # The estimate of this step is already reserved: this invocation is
+            # covered by it. The number of invocations is bounded by the signed
+            # ``invocation_budgets`` of the policy.
+            return None
+
         try:
-            return self.budget_ledger.reserve(
+            reservation = self.budget_ledger.reserve(
                 self.budget_run_id,
                 self.policy.step_id,
                 float(self.policy.estimate_usd),  # type: ignore[arg-type]
@@ -1073,7 +1115,9 @@ class DispatchGate:
                 "budget_ledger_unavailable",
                 str(exc),
             )
-        return None
+        self._step_reservation = reservation
+        self._step_estimate_reserved = True
+        return reservation
 
     def _commit_budget(self, reservation: Optional[Reservation], outcome: str) -> None:
         """Charge the reservation of the step that ran.
@@ -1081,6 +1125,10 @@ class DispatchGate:
         The charge is the **reserved** amount: the conservative cost of the
         step. A step that failed or timed out is charged as well - the money
         of a container that started is never returned to the cycle.
+
+        A **failed** invocation ends the attempt of the step: the next
+        invocation of that step reserves the estimate again, so a retry pays
+        again and the cap of the cycle decides whether it fits.
         """
         if reservation is None or self.budget_ledger is None:
             return
@@ -1093,6 +1141,9 @@ class DispatchGate:
             # deliberately not raised - it would mask the failure of the step
             # itself.
             return
+        if outcome == "provider_failed":
+            self._step_reservation = None
+            self._step_estimate_reserved = False
 
     def _release_budget(self, reservation: Optional[Reservation]) -> None:
         """Give the reservation back: the provider call never started."""
@@ -1104,6 +1155,8 @@ class DispatchGate:
             # The release could not be recorded. The reservation stays
             # reserved: the money is not given back to the cycle.
             return
+        self._step_reservation = None
+        self._step_estimate_reserved = False
 
     def budget_state(self) -> Optional[LedgerState]:
         """The money of the cycle as the persistent ledger sees it."""
