@@ -2547,6 +2547,11 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                         # The client re-validates the envelope against the bytes it
                         # just stored.  A replay is CONFIRMED only when this
                         # validation passes.
+                        #
+                        # The function-call id of the evm_sandbox stage is the
+                        # anchor of the anti-replay check: the replay must have
+                        # run in a **fresh** invocation, not in the one of the
+                        # initial run.
                         replay_envelope_valid, replay_envelope_error = validate_replay_evidence_envelope(
                             {
                                 "replay_status": "CONFIRMED",
@@ -2558,6 +2563,11 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                                 "output_sha256": output_sha,
                             },
                             artifact_root=replay_artifact_dir,
+                            evm_sandbox_function_call_id=_runtime_function_call_id(
+                                verdict_dict.get("modal_runtime")
+                                if isinstance(verdict_dict, dict)
+                                else None
+                            ),
                         )
                         if not replay_envelope_valid:
                             replay_evidence["complete"] = False
@@ -2879,9 +2889,16 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             modal_invocation_provenance["persisted_path"] = persisted_path
 
             if is_verified:
-                observed_container = replay_details.get("container_id")
+                # The provider may name no container for the replay call. The
+                # anchor of the confirmation is then the function-call id the
+                # worker observed for its own invocation - never a string
+                # "None" and never an invented container id.
+                observed_anchor = (
+                    replay_details.get("container_id")
+                    or replay_evidence.get("function_call_id")
+                )
                 verdict_log = (
-                    f"Replay confirmed in fresh container {observed_container}: "
+                    f"Replay confirmed in fresh container {observed_anchor}: "
                     f"{replay_details.get('harness_verdict', 'EXPLOIT_CONFIRMED')}"
                 )
                 final_logs = [verdict_log]

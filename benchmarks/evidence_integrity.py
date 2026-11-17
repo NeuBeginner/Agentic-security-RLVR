@@ -3368,10 +3368,73 @@ def persist_replay_artifact(
     )
 
 
+def _replay_anchor_is_sound(
+    replay_data: Dict[str, Any],
+    evm_sandbox_function_call_id: Optional[str] = None,
+) -> Tuple[bool, Optional[str]]:
+    """The anchor of a replay envelope whose provider named no container.
+
+    A Modal function container has no supported source of a provider-issued
+    container id, and the provider names the container of an input only while
+    that input runs - so the client, which correlates after the call returned,
+    finds none. The **worker** of the replay nevertheless observed the
+    function-call id of its own invocation and attested that no container id
+    was available, with the exact reason.
+
+    Such an envelope may be CONFIRMED only when all of it holds:
+
+    * the envelope carries the function-call id of the replay, and it is a
+      provider-issued one (``fc-...``);
+    * the runtime envelope of the worker says the same - the very same id,
+      observed by the worker - and attests the container id as NOT_AVAILABLE,
+      with a value of ``None`` and a non-empty reason;
+    * the replay ran in a **fresh** invocation: its function-call id is not the
+      one of the evm_sandbox stage of the initial run.
+
+    Every other case is an envelope without a container identity.
+    """
+    call_id = replay_data.get("function_call_id")
+    if not isinstance(call_id, str) or not call_id:
+        return False, "Replay evidence envelope has no container identity"
+    if not MODAL_FUNCTION_CALL_ID_RE.fullmatch(call_id):
+        return False, "Replay evidence envelope has no container identity"
+
+    runtime = replay_data.get("modal_runtime")
+    if not isinstance(runtime, dict):
+        return False, "Replay evidence envelope has no container identity"
+
+    runtime_call = runtime.get("function_call_id")
+    if not isinstance(runtime_call, dict):
+        return False, "Replay evidence envelope has no container identity"
+    if runtime_call.get("status") != "OBSERVED":
+        return False, "Replay evidence envelope has no container identity"
+    if runtime_call.get("observed_by") != OBSERVATION_SIDE_WORKER:
+        return False, "Replay evidence envelope has no container identity"
+    if runtime_call.get("value") != call_id:
+        return False, "Replay evidence envelope has no container identity"
+
+    runtime_container = runtime.get("container_id")
+    if not isinstance(runtime_container, dict):
+        return False, "Replay evidence envelope has no container identity"
+    if runtime_container.get("status") != NOT_AVAILABLE:
+        return False, "Replay evidence envelope has no container identity"
+    if runtime_container.get("value") is not None:
+        return False, "Replay evidence envelope has no container identity"
+    reason = runtime_container.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return False, "Replay evidence envelope has no container identity"
+
+    if evm_sandbox_function_call_id and evm_sandbox_function_call_id == call_id:
+        return False, "Replay evidence envelope has no container identity"
+
+    return True, None
+
+
 def validate_replay_evidence_envelope(
     artifact: Dict[str, Any],
     *,
     artifact_root: Optional[os.PathLike | str] = None,
+    evm_sandbox_function_call_id: Optional[str] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
     Validate the independent replay evidence envelope (Iteration 14 P0.2).
@@ -3383,6 +3446,14 @@ def validate_replay_evidence_envelope(
     When ``artifact_root`` is given, the digests of the replay stdout, stderr,
     candidate input and harness input are recomputed from the stored files. A
     mismatch, a missing file or a reused initial-run digest is a hard failure.
+
+    The container identity of the replay is required. A **provider-issued**
+    container id (``ta-...``) is checked strictly: an empty, synthetic or
+    malformed id is refused. When the provider named no container at all - the
+    worker attested the absence with its reason - the envelope may still be
+    confirmed on the **worker's own anchor**: the function-call id it observed
+    for its own invocation, in a fresh invocation that is not the one of the
+    initial run. See :func:`_replay_anchor_is_sound`.
     """
     replay_status = artifact.get("replay_status")
     replayed_breaches = artifact.get("replayed_breaches", 0)
@@ -3405,17 +3476,27 @@ def validate_replay_evidence_envelope(
 
     # 1. Fresh container identity: must be a real observed container id.
     container_id = replay_data.get("container_id")
-    if not isinstance(container_id, str) or not container_id:
-        return False, "Replay evidence envelope has no container identity"
-    if container_id in FORBIDDEN_SYNTHETIC_CONTAINER_IDS:
-        return False, f"Replay evidence envelope uses the synthetic container id {container_id!r}"
-    if SYNTHETIC_CONTAINER_ID_RE.fullmatch(container_id):
-        return False, (
-            f"Replay evidence envelope uses the synthetic container id {container_id!r}; the "
-            "container identity must be the provider-issued worker id"
+    if container_id is None:
+        # The provider named no container for the replay call. The envelope
+        # may still be confirmed on the worker's own anchor - see
+        # _replay_anchor_is_sound.
+        anchored, anchor_error = _replay_anchor_is_sound(
+            replay_data, evm_sandbox_function_call_id
         )
-    if not MODAL_CONTAINER_ID_RE.fullmatch(container_id):
-        return False, f"Replay evidence envelope has a malformed container id {container_id!r}"
+        if not anchored:
+            return False, anchor_error
+    else:
+        if not isinstance(container_id, str) or not container_id:
+            return False, "Replay evidence envelope has no container identity"
+        if container_id in FORBIDDEN_SYNTHETIC_CONTAINER_IDS:
+            return False, f"Replay evidence envelope uses the synthetic container id {container_id!r}"
+        if SYNTHETIC_CONTAINER_ID_RE.fullmatch(container_id):
+            return False, (
+                f"Replay evidence envelope uses the synthetic container id {container_id!r}; the "
+                "container identity must be the provider-issued worker id"
+            )
+        if not MODAL_CONTAINER_ID_RE.fullmatch(container_id):
+            return False, f"Replay evidence envelope has a malformed container id {container_id!r}"
 
     # 2. Exact command / argv.
     cmd = replay_data.get("command")
