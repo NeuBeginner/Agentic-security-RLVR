@@ -1,0 +1,1779 @@
+{
+  "field_map": [
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.REENT-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "0bdb6ebf0f07f5d4c77c3f92b63dec8cfcc8e7c3e0445d18044cd3337fa6053b"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.REENT-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "becad7dd59613a5ec7f00373d358c6f5b3d1878caeffc3c49a2b920a2a356abe"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.REENT-01.modal_invocation_provenance.stages.independent_replay.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "independent_replay",
+      "value_length": 101,
+      "value_sha256": "2db251985eaafb14f64dbcf5c1295f39550396711e8705d84285d548630bf9be"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.ERC4626-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 94,
+      "value_sha256": "cca5ee735109bab0265e648578aa2cd84958f0d439ab8c35f682402a2dd91121"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.ERC4626-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 106,
+      "value_sha256": "4b4a0d34bbdbe66be6584772f3259ea5671f1aaa38b9fd128b42f03d1aa05dd5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.AC-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 84,
+      "value_sha256": "cb3f3491d0c23da39f38dcd7a63ce140cffe7e088a04cd575097875217ac94c5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.AC-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 96,
+      "value_sha256": "3a24bf3c4ab2934320ca0efff86d67aa89dded24c4796b77744c0b2f6c75d3f8"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.AC-01.modal_invocation_provenance.stages.independent_replay.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "independent_replay",
+      "value_length": 95,
+      "value_sha256": "8f5d4e8926e2e6d7875ff94163e87b588cf8c54fa40b2e6b8691cdca0e9790c3"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.ORACLE-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 92,
+      "value_sha256": "656ca43ce0c75b7a0f39cadcdea3eda6ae4be768c1d5c87b19fa459d27ce5906"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.ORACLE-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 104,
+      "value_sha256": "e76eee97910a8724e95a3f23357768341ef4cf1bebdb2ea0eec4475349473bef"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.FLASH-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "3c94f0167cd67b50a6cfc62b632bdce052994d62236ac230dbd658bfb6b6dfa5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.FLASH-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "4b7e4c5fe6df5b9030b29b60c4956726fd76637656117e4c6a92b9f7fea8474c"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SIG-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "e63d02586e20905cede3c4ca17fe9c8fbbec0f8a98f0325f2c62c158369cf121"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.STATE-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "e851955d9f45f3905e5d9147d92a9151bb0c736fc4d539d39b3dd2cc7b0b0e11"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.STATE-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "b572e58df6a4d684ac3b524edd933aa3da2bdbb38eb913df9b264040a9b480e0"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.BIZ-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "0ce5254bf124cc702fadae3205ca7fd7613c0c445cc0e0bca5740a56f377f7ab"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.BIZ-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "5784bc8f911550c1e95ab00f6ebc4744d049f5daeedd33ecc932380914f0d596"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.LIQ-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "d425f0dec097edc30bc13ca6b99033e12f65e39f75d053b108b884e495ed8470"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.LIQ-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "d15148080c6df943b3f7406d87843518fc19e6757505b22bbd5ea610583cbe07"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.BRIDGE-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 92,
+      "value_sha256": "f29fab94b34b076e8ce749c822f5c29a70f778eb645117aa9a00861c2b09af20"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.BRIDGE-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 104,
+      "value_sha256": "66200873ae460a771dd060e6e60deaff4e4e879af6c0c221f8d6acadb68df561"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.DOS-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "942b626660be866a39dab94d000c75598da8fc155724458a71d158acebf0e3dc"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.DOS-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "b63e96e3f631db11a1c3a33989a3ded408ba4173e8cd2adcfaee93760c13456e"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.PREC-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "ad973cd7a38ef97bf7332c1480b7c2f1496e7e8d63657eff77068acd62dbd60c"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.PREC-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "c8f1c5cd1f7d75adfb1ef007fab726d17b246e2ea48e857ee4cb4c3a12ccc828"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "02e91d0a1b69fc62a4b8ae9b8c9fe4749c8fe1ffaf0db72687c502534599b031"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "606d397b6504d78a0b26e1440c98aabe14b68d5f2195fc2cfefc5120b220c659"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-02.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "aad982b6d2b1e05c964b5e7d6537efeb42483ca9b01e93ecfb3c7562f5e13405"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-02.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "e08e840e5d72dfc83096103d09d11bc3683f4c6ead11aefa2d7d453672d014e3"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-03.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "f108ebdaee1bf478484a1a5c42327204e9cfe2ec4b42ed081f537c471dbd7af9"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-03.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "2cc8747f3406bb379f72ab8b38b169cbaca228f4794468ef735d3e031563278a"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-04.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "02eb8a622bb1d3a0886078e0a86523b76c29e193966dc18b519c35729951e777"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-04.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "4e747986f6b8650e4ee5d1dedbcce1d3c76a2f72c000b439fe2e7081adf78389"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/AC-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 84,
+      "value_sha256": "cb3f3491d0c23da39f38dcd7a63ce140cffe7e088a04cd575097875217ac94c5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/AC-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 96,
+      "value_sha256": "3a24bf3c4ab2934320ca0efff86d67aa89dded24c4796b77744c0b2f6c75d3f8"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/AC-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.independent_replay.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "independent_replay",
+      "value_length": 95,
+      "value_sha256": "8f5d4e8926e2e6d7875ff94163e87b588cf8c54fa40b2e6b8691cdca0e9790c3"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/AC-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 84,
+      "value_sha256": "cb3f3491d0c23da39f38dcd7a63ce140cffe7e088a04cd575097875217ac94c5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/AC-01.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 96,
+      "value_sha256": "3a24bf3c4ab2934320ca0efff86d67aa89dded24c4796b77744c0b2f6c75d3f8"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/AC-01.json",
+      "json_path": "modal_invocation_provenance.stages.independent_replay.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "independent_replay",
+      "value_length": 95,
+      "value_sha256": "8f5d4e8926e2e6d7875ff94163e87b588cf8c54fa40b2e6b8691cdca0e9790c3"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BIZ-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "0ce5254bf124cc702fadae3205ca7fd7613c0c445cc0e0bca5740a56f377f7ab"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BIZ-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "5784bc8f911550c1e95ab00f6ebc4744d049f5daeedd33ecc932380914f0d596"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BIZ-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "0ce5254bf124cc702fadae3205ca7fd7613c0c445cc0e0bca5740a56f377f7ab"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BIZ-01.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "5784bc8f911550c1e95ab00f6ebc4744d049f5daeedd33ecc932380914f0d596"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BRIDGE-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 92,
+      "value_sha256": "f29fab94b34b076e8ce749c822f5c29a70f778eb645117aa9a00861c2b09af20"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BRIDGE-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 104,
+      "value_sha256": "66200873ae460a771dd060e6e60deaff4e4e879af6c0c221f8d6acadb68df561"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BRIDGE-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 92,
+      "value_sha256": "f29fab94b34b076e8ce749c822f5c29a70f778eb645117aa9a00861c2b09af20"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BRIDGE-01.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 104,
+      "value_sha256": "66200873ae460a771dd060e6e60deaff4e4e879af6c0c221f8d6acadb68df561"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/DOS-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "942b626660be866a39dab94d000c75598da8fc155724458a71d158acebf0e3dc"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/DOS-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "b63e96e3f631db11a1c3a33989a3ded408ba4173e8cd2adcfaee93760c13456e"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/DOS-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "942b626660be866a39dab94d000c75598da8fc155724458a71d158acebf0e3dc"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/DOS-01.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "b63e96e3f631db11a1c3a33989a3ded408ba4173e8cd2adcfaee93760c13456e"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ERC4626-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 94,
+      "value_sha256": "cca5ee735109bab0265e648578aa2cd84958f0d439ab8c35f682402a2dd91121"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ERC4626-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 106,
+      "value_sha256": "4b4a0d34bbdbe66be6584772f3259ea5671f1aaa38b9fd128b42f03d1aa05dd5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ERC4626-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 94,
+      "value_sha256": "cca5ee735109bab0265e648578aa2cd84958f0d439ab8c35f682402a2dd91121"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ERC4626-01.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 106,
+      "value_sha256": "4b4a0d34bbdbe66be6584772f3259ea5671f1aaa38b9fd128b42f03d1aa05dd5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/FLASH-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "3c94f0167cd67b50a6cfc62b632bdce052994d62236ac230dbd658bfb6b6dfa5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/FLASH-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "4b7e4c5fe6df5b9030b29b60c4956726fd76637656117e4c6a92b9f7fea8474c"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/FLASH-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "3c94f0167cd67b50a6cfc62b632bdce052994d62236ac230dbd658bfb6b6dfa5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/FLASH-01.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "4b7e4c5fe6df5b9030b29b60c4956726fd76637656117e4c6a92b9f7fea8474c"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/LIQ-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "d425f0dec097edc30bc13ca6b99033e12f65e39f75d053b108b884e495ed8470"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/LIQ-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "d15148080c6df943b3f7406d87843518fc19e6757505b22bbd5ea610583cbe07"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/LIQ-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "d425f0dec097edc30bc13ca6b99033e12f65e39f75d053b108b884e495ed8470"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/LIQ-01.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "d15148080c6df943b3f7406d87843518fc19e6757505b22bbd5ea610583cbe07"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ORACLE-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 92,
+      "value_sha256": "656ca43ce0c75b7a0f39cadcdea3eda6ae4be768c1d5c87b19fa459d27ce5906"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ORACLE-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 104,
+      "value_sha256": "e76eee97910a8724e95a3f23357768341ef4cf1bebdb2ea0eec4475349473bef"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ORACLE-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 92,
+      "value_sha256": "656ca43ce0c75b7a0f39cadcdea3eda6ae4be768c1d5c87b19fa459d27ce5906"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ORACLE-01.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 104,
+      "value_sha256": "e76eee97910a8724e95a3f23357768341ef4cf1bebdb2ea0eec4475349473bef"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/PREC-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "ad973cd7a38ef97bf7332c1480b7c2f1496e7e8d63657eff77068acd62dbd60c"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/PREC-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "c8f1c5cd1f7d75adfb1ef007fab726d17b246e2ea48e857ee4cb4c3a12ccc828"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/PREC-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "ad973cd7a38ef97bf7332c1480b7c2f1496e7e8d63657eff77068acd62dbd60c"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/PREC-01.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "c8f1c5cd1f7d75adfb1ef007fab726d17b246e2ea48e857ee4cb4c3a12ccc828"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/REENT-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "0bdb6ebf0f07f5d4c77c3f92b63dec8cfcc8e7c3e0445d18044cd3337fa6053b"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/REENT-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "becad7dd59613a5ec7f00373d358c6f5b3d1878caeffc3c49a2b920a2a356abe"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/REENT-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.independent_replay.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "independent_replay",
+      "value_length": 101,
+      "value_sha256": "2db251985eaafb14f64dbcf5c1295f39550396711e8705d84285d548630bf9be"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/REENT-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "0bdb6ebf0f07f5d4c77c3f92b63dec8cfcc8e7c3e0445d18044cd3337fa6053b"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/REENT-01.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "becad7dd59613a5ec7f00373d358c6f5b3d1878caeffc3c49a2b920a2a356abe"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/REENT-01.json",
+      "json_path": "modal_invocation_provenance.stages.independent_replay.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "independent_replay",
+      "value_length": 101,
+      "value_sha256": "2db251985eaafb14f64dbcf5c1295f39550396711e8705d84285d548630bf9be"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "02e91d0a1b69fc62a4b8ae9b8c9fe4749c8fe1ffaf0db72687c502534599b031"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "606d397b6504d78a0b26e1440c98aabe14b68d5f2195fc2cfefc5120b220c659"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "02e91d0a1b69fc62a4b8ae9b8c9fe4749c8fe1ffaf0db72687c502534599b031"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-01.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "606d397b6504d78a0b26e1440c98aabe14b68d5f2195fc2cfefc5120b220c659"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-02.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "aad982b6d2b1e05c964b5e7d6537efeb42483ca9b01e93ecfb3c7562f5e13405"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-02.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "e08e840e5d72dfc83096103d09d11bc3683f4c6ead11aefa2d7d453672d014e3"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-02.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "aad982b6d2b1e05c964b5e7d6537efeb42483ca9b01e93ecfb3c7562f5e13405"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-02.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "e08e840e5d72dfc83096103d09d11bc3683f4c6ead11aefa2d7d453672d014e3"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-03.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "f108ebdaee1bf478484a1a5c42327204e9cfe2ec4b42ed081f537c471dbd7af9"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-03.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "2cc8747f3406bb379f72ab8b38b169cbaca228f4794468ef735d3e031563278a"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-03.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "f108ebdaee1bf478484a1a5c42327204e9cfe2ec4b42ed081f537c471dbd7af9"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-03.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "2cc8747f3406bb379f72ab8b38b169cbaca228f4794468ef735d3e031563278a"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-04.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "02eb8a622bb1d3a0886078e0a86523b76c29e193966dc18b519c35729951e777"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-04.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "4e747986f6b8650e4ee5d1dedbcce1d3c76a2f72c000b439fe2e7081adf78389"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-04.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "02eb8a622bb1d3a0886078e0a86523b76c29e193966dc18b519c35729951e777"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-04.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "4e747986f6b8650e4ee5d1dedbcce1d3c76a2f72c000b439fe2e7081adf78389"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SIG-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "e63d02586e20905cede3c4ca17fe9c8fbbec0f8a98f0325f2c62c158369cf121"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SIG-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "e63d02586e20905cede3c4ca17fe9c8fbbec0f8a98f0325f2c62c158369cf121"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/STATE-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "e851955d9f45f3905e5d9147d92a9151bb0c736fc4d539d39b3dd2cc7b0b0e11"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/STATE-01.json",
+      "json_path": "tool_metadata.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "b572e58df6a4d684ac3b524edd933aa3da2bdbb38eb913df9b264040a9b480e0"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/STATE-01.json",
+      "json_path": "modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "e851955d9f45f3905e5d9147d92a9151bb0c736fc4d539d39b3dd2cc7b0b0e11"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/STATE-01.json",
+      "json_path": "modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "b572e58df6a4d684ac3b524edd933aa3da2bdbb38eb913df9b264040a9b480e0"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.REENT-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "0bdb6ebf0f07f5d4c77c3f92b63dec8cfcc8e7c3e0445d18044cd3337fa6053b"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.REENT-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "becad7dd59613a5ec7f00373d358c6f5b3d1878caeffc3c49a2b920a2a356abe"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.REENT-01.modal_invocation_provenance.stages.independent_replay.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "independent_replay",
+      "value_length": 101,
+      "value_sha256": "2db251985eaafb14f64dbcf5c1295f39550396711e8705d84285d548630bf9be"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.ERC4626-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 94,
+      "value_sha256": "cca5ee735109bab0265e648578aa2cd84958f0d439ab8c35f682402a2dd91121"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.ERC4626-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 106,
+      "value_sha256": "4b4a0d34bbdbe66be6584772f3259ea5671f1aaa38b9fd128b42f03d1aa05dd5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.AC-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 84,
+      "value_sha256": "cb3f3491d0c23da39f38dcd7a63ce140cffe7e088a04cd575097875217ac94c5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.AC-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 96,
+      "value_sha256": "3a24bf3c4ab2934320ca0efff86d67aa89dded24c4796b77744c0b2f6c75d3f8"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.AC-01.modal_invocation_provenance.stages.independent_replay.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "independent_replay",
+      "value_length": 95,
+      "value_sha256": "8f5d4e8926e2e6d7875ff94163e87b588cf8c54fa40b2e6b8691cdca0e9790c3"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.ORACLE-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 92,
+      "value_sha256": "656ca43ce0c75b7a0f39cadcdea3eda6ae4be768c1d5c87b19fa459d27ce5906"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.ORACLE-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 104,
+      "value_sha256": "e76eee97910a8724e95a3f23357768341ef4cf1bebdb2ea0eec4475349473bef"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.FLASH-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "3c94f0167cd67b50a6cfc62b632bdce052994d62236ac230dbd658bfb6b6dfa5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.FLASH-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "4b7e4c5fe6df5b9030b29b60c4956726fd76637656117e4c6a92b9f7fea8474c"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.SIG-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "e63d02586e20905cede3c4ca17fe9c8fbbec0f8a98f0325f2c62c158369cf121"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.STATE-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "e851955d9f45f3905e5d9147d92a9151bb0c736fc4d539d39b3dd2cc7b0b0e11"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.STATE-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "b572e58df6a4d684ac3b524edd933aa3da2bdbb38eb913df9b264040a9b480e0"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.BIZ-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "0ce5254bf124cc702fadae3205ca7fd7613c0c445cc0e0bca5740a56f377f7ab"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.BIZ-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "5784bc8f911550c1e95ab00f6ebc4744d049f5daeedd33ecc932380914f0d596"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.LIQ-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "d425f0dec097edc30bc13ca6b99033e12f65e39f75d053b108b884e495ed8470"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.LIQ-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "d15148080c6df943b3f7406d87843518fc19e6757505b22bbd5ea610583cbe07"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.BRIDGE-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 92,
+      "value_sha256": "f29fab94b34b076e8ce749c822f5c29a70f778eb645117aa9a00861c2b09af20"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.BRIDGE-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 104,
+      "value_sha256": "66200873ae460a771dd060e6e60deaff4e4e879af6c0c221f8d6acadb68df561"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.DOS-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "942b626660be866a39dab94d000c75598da8fc155724458a71d158acebf0e3dc"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.DOS-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "b63e96e3f631db11a1c3a33989a3ded408ba4173e8cd2adcfaee93760c13456e"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.PREC-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "ad973cd7a38ef97bf7332c1480b7c2f1496e7e8d63657eff77068acd62dbd60c"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.PREC-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "c8f1c5cd1f7d75adfb1ef007fab726d17b246e2ea48e857ee4cb4c3a12ccc828"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.SAFE-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "02e91d0a1b69fc62a4b8ae9b8c9fe4749c8fe1ffaf0db72687c502534599b031"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.SAFE-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "606d397b6504d78a0b26e1440c98aabe14b68d5f2195fc2cfefc5120b220c659"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.SAFE-02.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "aad982b6d2b1e05c964b5e7d6537efeb42483ca9b01e93ecfb3c7562f5e13405"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.SAFE-02.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "e08e840e5d72dfc83096103d09d11bc3683f4c6ead11aefa2d7d453672d014e3"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.SAFE-03.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "f108ebdaee1bf478484a1a5c42327204e9cfe2ec4b42ed081f537c471dbd7af9"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.SAFE-03.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "2cc8747f3406bb379f72ab8b38b169cbaca228f4794468ef735d3e031563278a"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.SAFE-04.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "02eb8a622bb1d3a0886078e0a86523b76c29e193966dc18b519c35729951e777"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "json_path": "adapters.baseline_5.per_target_provenance.SAFE-04.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "4e747986f6b8650e4ee5d1dedbcce1d3c76a2f72c000b439fe2e7081adf78389"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.REENT-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "0bdb6ebf0f07f5d4c77c3f92b63dec8cfcc8e7c3e0445d18044cd3337fa6053b"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.REENT-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "becad7dd59613a5ec7f00373d358c6f5b3d1878caeffc3c49a2b920a2a356abe"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.REENT-01.modal_invocation_provenance.stages.independent_replay.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "independent_replay",
+      "value_length": 101,
+      "value_sha256": "2db251985eaafb14f64dbcf5c1295f39550396711e8705d84285d548630bf9be"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.ERC4626-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 94,
+      "value_sha256": "cca5ee735109bab0265e648578aa2cd84958f0d439ab8c35f682402a2dd91121"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.ERC4626-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 106,
+      "value_sha256": "4b4a0d34bbdbe66be6584772f3259ea5671f1aaa38b9fd128b42f03d1aa05dd5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.AC-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 84,
+      "value_sha256": "cb3f3491d0c23da39f38dcd7a63ce140cffe7e088a04cd575097875217ac94c5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.AC-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 96,
+      "value_sha256": "3a24bf3c4ab2934320ca0efff86d67aa89dded24c4796b77744c0b2f6c75d3f8"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.AC-01.modal_invocation_provenance.stages.independent_replay.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "independent_replay",
+      "value_length": 95,
+      "value_sha256": "8f5d4e8926e2e6d7875ff94163e87b588cf8c54fa40b2e6b8691cdca0e9790c3"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.ORACLE-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 92,
+      "value_sha256": "656ca43ce0c75b7a0f39cadcdea3eda6ae4be768c1d5c87b19fa459d27ce5906"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.ORACLE-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 104,
+      "value_sha256": "e76eee97910a8724e95a3f23357768341ef4cf1bebdb2ea0eec4475349473bef"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.FLASH-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "3c94f0167cd67b50a6cfc62b632bdce052994d62236ac230dbd658bfb6b6dfa5"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.FLASH-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "4b7e4c5fe6df5b9030b29b60c4956726fd76637656117e4c6a92b9f7fea8474c"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SIG-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "e63d02586e20905cede3c4ca17fe9c8fbbec0f8a98f0325f2c62c158369cf121"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.STATE-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 90,
+      "value_sha256": "e851955d9f45f3905e5d9147d92a9151bb0c736fc4d539d39b3dd2cc7b0b0e11"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.STATE-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 102,
+      "value_sha256": "b572e58df6a4d684ac3b524edd933aa3da2bdbb38eb913df9b264040a9b480e0"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.BIZ-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "0ce5254bf124cc702fadae3205ca7fd7613c0c445cc0e0bca5740a56f377f7ab"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.BIZ-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "5784bc8f911550c1e95ab00f6ebc4744d049f5daeedd33ecc932380914f0d596"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.LIQ-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "d425f0dec097edc30bc13ca6b99033e12f65e39f75d053b108b884e495ed8470"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.LIQ-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "d15148080c6df943b3f7406d87843518fc19e6757505b22bbd5ea610583cbe07"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.BRIDGE-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 92,
+      "value_sha256": "f29fab94b34b076e8ce749c822f5c29a70f778eb645117aa9a00861c2b09af20"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.BRIDGE-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 104,
+      "value_sha256": "66200873ae460a771dd060e6e60deaff4e4e879af6c0c221f8d6acadb68df561"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.DOS-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 86,
+      "value_sha256": "942b626660be866a39dab94d000c75598da8fc155724458a71d158acebf0e3dc"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.DOS-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 98,
+      "value_sha256": "b63e96e3f631db11a1c3a33989a3ded408ba4173e8cd2adcfaee93760c13456e"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.PREC-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "ad973cd7a38ef97bf7332c1480b7c2f1496e7e8d63657eff77068acd62dbd60c"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.PREC-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "c8f1c5cd1f7d75adfb1ef007fab726d17b246e2ea48e857ee4cb4c3a12ccc828"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-01.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "02e91d0a1b69fc62a4b8ae9b8c9fe4749c8fe1ffaf0db72687c502534599b031"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-01.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "606d397b6504d78a0b26e1440c98aabe14b68d5f2195fc2cfefc5120b220c659"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-02.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "aad982b6d2b1e05c964b5e7d6537efeb42483ca9b01e93ecfb3c7562f5e13405"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-02.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "e08e840e5d72dfc83096103d09d11bc3683f4c6ead11aefa2d7d453672d014e3"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-03.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "f108ebdaee1bf478484a1a5c42327204e9cfe2ec4b42ed081f537c471dbd7af9"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-03.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "2cc8747f3406bb379f72ab8b38b169cbaca228f4794468ef735d3e031563278a"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-04.modal_invocation_provenance.stages.inference.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "inference",
+      "value_length": 88,
+      "value_sha256": "02eb8a622bb1d3a0886078e0a86523b76c29e193966dc18b519c35729951e777"
+    },
+    {
+      "field": "durable_log_ref",
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "json_path": "reproducibility_manifest_summary.adapters.baseline_5.per_target_provenance.SAFE-04.modal_invocation_provenance.stages.evm_sandbox.durable_log_ref",
+      "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+      "replacement": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+      "stage": "evm_sandbox",
+      "value_length": 100,
+      "value_sha256": "4e747986f6b8650e4ee5d1dedbcce1d3c76a2f72c000b439fe2e7081adf78389"
+    }
+  ],
+  "files": [
+    {
+      "byte_length": 1109352,
+      "file": "benchmarks/artifacts/latest_summary.json",
+      "occurrences": 33,
+      "sha256": "3ff3993e0d6f7b50a070daff1504756435541057de83febef6e86b5136d6ba47"
+    },
+    {
+      "byte_length": 106544,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/AC-01.json",
+      "occurrences": 6,
+      "sha256": "079ec83c107e98ff9086ca4dde72a70bcaa38c5641fc17c71a00c7cebb77c5c9"
+    },
+    {
+      "byte_length": 44216,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BIZ-01.json",
+      "occurrences": 4,
+      "sha256": "2e72121accf4cd233a2c34d6fe9c98ef5f75b05bfcb40e047bd580ae6f20e460"
+    },
+    {
+      "byte_length": 55196,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/BRIDGE-01.json",
+      "occurrences": 4,
+      "sha256": "9d083ada5b26e424d88c23d53cad6c53399ecc9cb70091ca1195f051e21adf17"
+    },
+    {
+      "byte_length": 45931,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/DOS-01.json",
+      "occurrences": 4,
+      "sha256": "56fd83c37f7d003b5bcbe69157ae9d26cfe8c4e665d84ae86979dbc74d824ec1"
+    },
+    {
+      "byte_length": 58672,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ERC4626-01.json",
+      "occurrences": 4,
+      "sha256": "51e0b03d8a204fc27603c7a2522434184dd334af71a720c2602d8ff7314c87b5"
+    },
+    {
+      "byte_length": 59828,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/FLASH-01.json",
+      "occurrences": 4,
+      "sha256": "ea68f9ee78774a7a031d9363fb83f5e5b9944a598e6d6e0bfe791b2330bdd9d3"
+    },
+    {
+      "byte_length": 47521,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/LIQ-01.json",
+      "occurrences": 4,
+      "sha256": "08e00b6f302f23f820779acad029f5c8c1fde3100b7b052bcc7cbbde11642099"
+    },
+    {
+      "byte_length": 59259,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/ORACLE-01.json",
+      "occurrences": 4,
+      "sha256": "527f853cd7258e1e9135a04bed110059af0c4f1d1350ec40770617ba76b6eace"
+    },
+    {
+      "byte_length": 47338,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/PREC-01.json",
+      "occurrences": 4,
+      "sha256": "90e0da4bc06eb2e2f4fa3d3a23b9596bba207b39c357151759bae2081ae7a275"
+    },
+    {
+      "byte_length": 151280,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/REENT-01.json",
+      "occurrences": 6,
+      "sha256": "d5db7df4437174e3d71313705669db2a2bdfa775df4b3eb737be36cee24275b0"
+    },
+    {
+      "byte_length": 54905,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-01.json",
+      "occurrences": 4,
+      "sha256": "71cafda6b447a2ae035e82cc6a6b832713b2d26796f8c28e7f3cfe202fcaa15a"
+    },
+    {
+      "byte_length": 51858,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-02.json",
+      "occurrences": 4,
+      "sha256": "57b9e48868bc92316811dbf378efb539e208fb770cf2be8277d523ea35d8680e"
+    },
+    {
+      "byte_length": 57285,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-03.json",
+      "occurrences": 4,
+      "sha256": "b137aaffe8b4effb89e54f1d2e9d88c537970e11361fa788a0560838d77e6c30"
+    },
+    {
+      "byte_length": 52403,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SAFE-04.json",
+      "occurrences": 4,
+      "sha256": "938db2b0cb0388b09c539c443dc812e6570dabd4e3cff43089b834b5def7c49c"
+    },
+    {
+      "byte_length": 9677,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/SIG-01.json",
+      "occurrences": 2,
+      "sha256": "d53eda7d8b5966ed1910289398e517acc1bff8318973258f9895bf4986fab330"
+    },
+    {
+      "byte_length": 49926,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/baseline_5/STATE-01.json",
+      "occurrences": 4,
+      "sha256": "c43ac5d6e303fd577bd679a9224649f62241a80896ac2c437ee9294b07a6ec2a"
+    },
+    {
+      "byte_length": 105640,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/reproducibility_manifest.json",
+      "occurrences": 33,
+      "sha256": "0d8ec80175998598596f53c17976468e5618e5f664e55fb1294549a860f96972"
+    },
+    {
+      "byte_length": 1109352,
+      "file": "benchmarks/artifacts/run_1794209615_70f5d22/summary.json",
+      "occurrences": 33,
+      "sha256": "3ff3993e0d6f7b50a070daff1504756435541057de83febef6e86b5136d6ba47"
+    }
+  ],
+  "published_run_dir": "benchmarks/artifacts/run_1794209615_70f5d22",
+  "published_run_dir_is_immutable": true,
+  "purpose": "the mapping of the 165 fabricated Modal URIs of the published artifacts tree onto the contract of a new run - the historical record keeps its bytes and its digests",
+  "refused_by": "benchmarks/evidence_integrity.py::validate_modal_invocation_provenance (the legacy log-URI fields of a stage) and benchmarks/protocol.py::reject_synthetic_modal_uris (every field of the artifact)",
+  "replacement_contract": "the new run records the reference as the provider-issued value, or as an explicit NOT_AVAILABLE fact with a reason and a verified evidence reference - never as a fabricated URI",
+  "schema": "aegis-rlvr/evidence-regeneration-field-map/1",
+  "status": "PREPARED - the new run is not authorised and not performed",
+  "synthetic_uri_prefix": "modal-app://",
+  "total_occurrences": 165
+}

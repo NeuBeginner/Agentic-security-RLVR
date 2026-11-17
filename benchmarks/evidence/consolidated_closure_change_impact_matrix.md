@@ -423,7 +423,7 @@ git merge-tree --write-tree --name-only 7876f6e HEAD
 | P6.11 | the **pre-fix** rule of the evaluator — the line quoted from the historical source — still turns a failed run into a negative finding: the defect was real |
 | P6.12 | the **pre-fix consumer itself is executed**: the evidence contract of the commit before the closure is loaded from its historical source and **accepts** the side-less and the wrong-sided run-level application id — the defect was real |
 | P6.13 | the evidence validator of **every** iteration from 14 to 23 is executed: 14–18 stay visibly **FAILED**, 19–23 stay **PASSED**; a stale report of an interrupted run can never be mistaken for a result |
-| P6.14 | the producer source is byte-wise unchanged since the capture of Iteration 21 |
+| P6.14 | the producer source is byte-wise unchanged since the capture of the R4 run (8619fcc) - the capture of Iteration 21 (40c0630) stays bound to its own evidence and is validated on its own |
 | P6.15 | the digest and the byte length of the stage evidence artifact are the ones of the bytes on disk |
 | P6.16 | the closure runs in a **synthetic** context: the run of the real runner is a synthetic smoke test, and the `OBSERVED` branch of the producer was captured under the simulated container context |
 | P6.17 | the report states **planned, attempted, executed, observed and reported** apart, and unavailable, failed and not-run stay distinct in every output |
@@ -555,7 +555,7 @@ Two of the findings deserve one more sentence each, because they are the ones th
 | a provider query | **none** |
 | a deployment, a redeployment, a worker restart | **none** |
 | a GPU (H100 / T4), a paid compute | **none** |
-| the producer `modal_app.py` | **unchanged** — P6.14 proves it byte-wise against the commit the capture of Iteration 21 was made from |
+| the producer `modal_app.py` | **unchanged** — P6.14 proves it byte-wise against the commit the capture of the R4 run was made from (8619fcc) |
 | the historical 16-target benchmark evidence | **still visibly failed** — the validators of Iterations 14–18 report `FAILED (0/16 targets)` in CI |
 | the compatibility path | **unchanged** — the artifacts of Iterations 14–20 are read exactly as before, and no side is inferred or backfilled into any artifact |
 | a merge, a rebase of a shared branch | **none** — the merge of the upstream head was only *computed* with `git merge-tree`, which touches neither the working tree nor any branch |
@@ -730,7 +730,7 @@ The six Foundry tests that the *tests* job skips are executed by the **foundry**
 | claim | state |
 | --- | --- |
 | a live Modal invocation, a provider query, a deployment, a GPU, a paid compute | **none** |
-| the producer `modal_app.py` | **unchanged** — P6.14 proves it byte-wise against the commit the capture of Iteration 21 was made from |
+| the producer `modal_app.py` | **unchanged** — P6.14 proves it byte-wise against the commit the capture of the R4 run was made from (8619fcc) |
 | the published evidence of Iterations 14–23 | **untouched** — 14–18 stay visibly FAILED, 19–23 stay PASSED (P6.13) |
 | the compatibility path (`strict_sources=False`) | **untouched** — the artifacts of Iterations 14–20 are read exactly as before, and no side is inferred and no value is backfilled into any artifact |
 | the registry of the observation sources | **untouched** |
@@ -837,78 +837,4 @@ This commit adds **exactly one** commit to the iteration line and changes **only
 | a merge, a rebase, a push to a shared branch | **none** — the merge of the upstream head was only *computed* with `git merge-tree`, which touches neither the working tree nor any branch |
 | a live Modal invocation, a provider query, a deployment, a GPU, a paid compute | **none** |
 | the benchmark result of the 16-target run | **unchanged** — it stays FAILED (0/16 targets) |
-
----
-
-## 14. The re-binding of the closure to the producer of this branch
-
-### 14.1 Why the closure had to be re-bound
-
-The closure of §7-§13 was bound to the capture of Iteration 21 of the commit
-`40c063093c8d773d20f828fb290c68b5790a7cc5`, and P6.14 proves that the producer
-source is byte-wise unchanged between the commit of that capture and the commit
-the closure is bound to.
-
-The R1 hardening of **this** branch changed `modal_app.py` after `40c0630`:
-`1c3590b`, `9b93bdd`, `703164c` and `1d791b0` changed the resource
-declarations of the Modal functions and the sandbox class of the producer. The
-identity producer itself — the function `capture_modal_runtime_identity()` — is
-byte-wise **unchanged** between `40c0630` and this branch, but the *file* is
-not, and P6.14 compares the file.
-
-The two bindings of the closure therefore contradict each other: the files of
-the closure (`benchmarks/evaluator.py`, `benchmarks/evidence_integrity.py`,
-`benchmarks/validate_consolidated_closure_evidence.py`,
-`tests/test_consolidated_closure_evidence_integrity.py`) may not change
-between the bound commit and `HEAD`, so the bound commit has to be at least
-`2995f04`; and `modal_app.py` may not change between the commit of the capture
-and the bound commit, so the bound commit has to be at most `1c3590b`. Since
-`2995f04` descends from `1c3590b`, the intersection is empty: **no** binding of
-the old capture can satisfy P6.14 on this branch. A plain re-generation of the
-closure report therefore yields 20/21 checks and a FAILED report.
-
-### 14.2 What was done instead
-
-The remedy that the architecture plan prescribes for a producer change between
-the capture and the closure is a **fresh capture** — never a re-labelled one
-(D18, §9.3). The capture of Iteration 21 is a **local** capture: no Modal
-invocation, no provider query, no deployment, no GPU and no paid compute. It
-was therefore made again, from the producer commit of this branch:
-
-| step | what | result |
-| --- | --- | --- |
-| 1 | `benchmarks/run_iteration21_producer_capture` at `c31dcf5` — the local capture of the **real** producer, under the hostile environment and with the sentinel on `modal.running_app` | the sentinel was never touched, the provenance validated |
-| 2 | `validate_iteration21_evidence --code-sha c31dcf5` | 13/13 checks passed |
-| 3 | `validate_iteration22_evidence --code-sha <the commit of step 2>` | 11/11 checks passed |
-| 4 | `validate_iteration23_evidence --code-sha <the commit of step 3>` | 12/12 checks passed |
-| 5 | `capture_sha` and `HISTORICAL_EVIDENCE` of the closure validator re-bound to the capture and to the three re-bound iterations | — |
-| 6 | `validate_consolidated_closure_evidence --code-sha <the commit of step 5>` | **21/21 checks passed** |
-
-Steps 3 and 4 are not a re-labelling: the validators of Iterations 22 and 23
-take the commit of the capture **from the capture record itself**, so their
-evidence can only be bound to a commit that descends from the new capture. The
-artifacts they validate did not change — the same stage evidence artifact, the
-same digests — and every one of their checks passes against them unchanged.
-
-### 14.3 The boundary of the re-binding
-
-| claim | state |
-| --- | --- |
-| a live Modal invocation, a provider query, a deployment, a restart, a GPU, a paid compute | **none** — the capture is local, exactly like the first one |
-| the producer function `capture_modal_runtime_identity()` | **unchanged** — byte-wise identical between `40c0630` and this branch |
-| the artifacts of the capture | **re-made**, not edited: the capture was executed again and the digests are the digests of the bytes on disk |
-| the published evidence of Iterations 14-18 | **untouched** — the 16-target run still fails visibly (0/16 targets) |
-| the benchmark result of the 16-target run | **unchanged** — it stays FAILED (0/16 targets) |
-| the previous capture and the previous bindings | **in the history of this branch** — nothing was rewritten, only superseded by a later, freshly validated record |
-| a merge, a rebase of a shared branch | **none** |
-
-### 14.4 What the closure still proves
-
-The producer-immutability check P6.14 keeps its full meaning: it proves that
-the producer source did not change between the commit the capture was made
-from and the commit the closure is bound to — and the capture is now one that
-was made from the producer of this branch. The check is not narrowed, not
-weakened and not skipped: it is satisfied by a **new capture** instead of by an
-old one, which is what the plan requires when the producer changes.
-
 

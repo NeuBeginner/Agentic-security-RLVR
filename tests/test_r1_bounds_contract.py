@@ -144,7 +144,9 @@ def test_every_unapproved_bound_is_visible_and_named():
         assert fields, f"{container_class} must declare its unapproved bounds explicitly"
     record = r1.declaration_record()
     assert record["missing_bounds"] == missing
-    assert record["max_trajectory_payload_bytes"] is None
+    # The D28 cap is approved (1 MiB): the record states the value, not "unset".
+    assert record["max_trajectory_payload_bytes"] == 1024 * 1024
+    assert record["prefetch"]["timeout_sec"] == 3600
     assert record["pinned_model"]["bytes_total"] > 0
 
 
@@ -164,8 +166,22 @@ def test_an_unapproved_limit_is_never_replaced_by_a_permissive_default():
     assert kwargs["cpu"] == r1.config.SANDBOX_CPU_CORES
     assert kwargs["memory"] == r1.config.SANDBOX_MEMORY_MB
     assert "startup_timeout" not in kwargs
-    assert "scaledown_window" not in kwargs
     assert kwargs["min_containers"] == 0 and kwargs["buffer_containers"] == 0
+
+
+def test_the_approved_scaledown_window_is_declared_by_every_class():
+    """D27: the idle tail of the billable lifetime is declared, not inherited.
+
+    The read-back of D27 compares the four autoscaler fields of the deployment
+    with the declaration. An undeclared ``scaledown_window`` is a missing field
+    in the read-back, and a missing field is a refusal - so the approval of
+    60 s has to reach the decorator of every container class.
+    """
+    for container_class, profile in r1.PROFILES.items():
+        assert profile.scaledown_window_sec == 60, container_class
+        assert profile.modal_kwargs()["scaledown_window"] == 60, container_class
+        declared = r1.declared_autoscaler_settings(profile)
+        assert declared["scaledown_window"] == 60, container_class
 
 
 def test_the_sandbox_class_declares_the_network_blocking_and_the_volume_class_does_not():
@@ -315,9 +331,12 @@ def test_the_guard_refuses_a_provider_call_while_the_bounds_are_unapproved():
     assert fake.calls == []
 
 
-def test_the_producer_enforced_payload_cap_refuses_an_unapproved_cap():
+def test_the_producer_enforced_payload_cap_refuses_a_payload_above_the_approved_cap():
+    """The D28 cap is approved (1 MiB): a payload within it passes, a larger one is refused."""
+    assert r1.MAX_TRAJECTORY_PAYLOAD_BYTES == 1024 * 1024
+    r1.assert_payload_within_cap(1024 * 1024, "record_trajectory_remote")
     with pytest.raises(r1.BoundsNotApproved):
-        r1.assert_payload_within_cap(10, "record_trajectory_remote")
+        r1.assert_payload_within_cap(1024 * 1024 + 1, "record_trajectory_remote")
 
 
 # --------------------------------------------------------------------------------------
@@ -424,17 +443,39 @@ def test_a_class_without_a_readback_is_not_dispatchable(signed_approval):
 
 
 def test_the_payload_byte_cap_is_enforced_on_the_volume_writing_function(signed_approval):
+    """A payload above the approved cap (D28) is refused before the container starts."""
     world = _approved_world()
     policy = _policy()
     gate = r1_dispatch.DispatchGate(
         policy=policy, approval=signed_approval(policy, world=world), **world
     )
     fake = FakeProviderCallable()
+    oversized = {"payload": "x" * (r1.MAX_TRAJECTORY_PAYLOAD_BYTES + 1)}
     with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
-        gate.dispatch(r1.PERSISTENCE, "record_trajectory_remote", fake, {"payload": "x" * 10})
-    # The cap itself is not approved in the repository, so the write is refused.
+        gate.dispatch(r1.PERSISTENCE, "record_trajectory_remote", fake, oversized)
     assert excinfo.value.reason == "payload_byte_cap"
     assert fake.calls == []
+
+
+def test_a_payload_within_the_approved_cap_passes_the_cap_gate(signed_approval):
+    """The cap is a ceiling, not a refusal: a small trajectory is written."""
+    world = _approved_world()
+
+    def class_reader(target, function_name=""):
+        container_class = r1.FUNCTION_CLASS.get(function_name)
+        return r1.declared_autoscaler_settings(world["profiles"][container_class])
+
+    policy = _policy()
+    gate = r1_dispatch.DispatchGate(
+        policy=policy,
+        approval=signed_approval(policy, world=world),
+        autoscaler_reader=class_reader,
+        **world,
+    )
+    fake = FakeProviderCallable()
+    result = gate.dispatch(r1.PERSISTENCE, "record_trajectory_remote", fake, {"payload": "x" * 16})
+    assert result == {"ok": True}
+    assert len(fake.calls) == 1
 
 
 def test_a_local_double_is_passed_through_and_counted():
@@ -730,4 +771,53 @@ def test_verify_model_cache_manifest_checks_repo_revision_and_sha256(tmp_path):
     failed_sha = r1.verify_model_cache_manifest(str(tmp_path), wrong_sha)
     assert failed_sha["status"] == "FAILED"
     assert failed_sha["mismatched"] == ["model.safetensors"]
+
+
+def test_all_11_windows_crlf_baseline_digest_failures_are_exclusively_line_ending_normalization():
+    """Prove non-mutatingly that all files behind the 11 Windows CRLF test failures match LF digests."""
+    import hashlib
+    import subprocess
+    import sys
+
+    if str(REPO_ROOT / "tests") not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT / "tests"))
+
+    import test_iteration14_evidence_integrity as t14
+    import test_iteration19_evidence_integrity as t19
+    import test_iteration20_evidence_integrity as t20
+    import test_iteration21_evidence_integrity as t21
+
+    def sha256_hex(data: bytes) -> str:
+        return hashlib.sha256(data).hexdigest()
+
+    def git_blob_sha256(rel_path: str) -> str:
+        blob = subprocess.check_output(["git", "show", f"HEAD:{rel_path}"], cwd=str(REPO_ROOT))
+        return sha256_hex(blob)
+
+    # 1. Failure #1 (test_stored_stdout_digests_match_the_stored_bytes): 16 target stdout/stderr pairs
+    checked_pairs = 0
+    for artifact_path in sorted(t14.SAFE_RUN_DIR.glob("*.json")):
+        artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+        for key, digest_key in (("stdout_path", "stdout_sha256"), ("stderr_path", "stderr_sha256")):
+            rel_path = artifact.get(key)
+            declared = artifact.get(digest_key)
+            if not rel_path or not declared:
+                continue
+            raw = (REPO_ROOT / rel_path).read_bytes()
+            lf = raw.replace(b"\r\n", b"\n")
+            assert sha256_hex(lf) == declared, rel_path
+            assert git_blob_sha256(rel_path) == declared, rel_path
+            checked_pairs += 1
+    assert checked_pairs == 32
+
+    # 2. Failures #2-#11: Iteration 19, 20 and 21 stage evidence artifacts
+    for mod in (t19, t20, t21):
+        rec = json.loads(mod.RECORD_PATH.read_text(encoding="utf-8"))
+        declared = rec["evidence_artifact"]["sha256"]
+        rel_path = mod.ARTIFACT_PATH.relative_to(REPO_ROOT).as_posix()
+        raw = mod.ARTIFACT_PATH.read_bytes()
+        lf = raw.replace(b"\r\n", b"\n")
+        assert sha256_hex(lf) == declared, rel_path
+        assert git_blob_sha256(rel_path) == declared, rel_path
+
 

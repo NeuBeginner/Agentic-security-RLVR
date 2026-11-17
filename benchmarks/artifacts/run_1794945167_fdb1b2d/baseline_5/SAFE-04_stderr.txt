@@ -1,0 +1,24 @@
+Error: Compiler run failed:
+Error (4247): Expression has to be an lvalue.
+  --> src/ExploitModule.sol:30:9:
+   |
+30 |         mockOracle.price = 2 * 1e18;
+   |         ^^^^^^^^^^^^^^^^
+
+Error (7407): Type int_const 2000000000000000000 is not implicitly convertible to expected type function () view external returns (uint256).
+  --> src/ExploitModule.sol:30:28:
+   |
+30 |         mockOracle.price = 2 * 1e18;
+   |                            ^^^^^^^^
+
+Error (4247): Expression has to be an lvalue.
+  --> test/ExploitModule.sol:30:9:
+   |
+30 |         mockOracle.price = 2 * 1e18;
+   |         ^^^^^^^^^^^^^^^^
+
+Error (7407): Type int_const 2000000000000000000 is not implicitly convertible to expected type function () view external returns (uint256).
+  --> test/ExploitModule.sol:30:28:
+   |
+30 |         mockOracle.price = 2 * 1e18;
+   |                            ^^^^^^^^

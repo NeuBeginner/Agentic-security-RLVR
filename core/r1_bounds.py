@@ -276,6 +276,20 @@ UNION_CEILING_PERSISTENCE = 16
 
 _PLAN = "plan §8.2.5 (D27)"
 
+#: The provenance of the approved idle tail of the billable lifetime (D26, D27).
+#:
+#: The owner approved 60 s for the ``scaledown_window`` of the three container
+#: classes on 2026-11-16: it is the provider's published default (the value the
+#: deployment inherited implicitly) and the value the candidate bounds of the
+#: cost scenario carry, so the deployment now **declares** it instead of leaving
+#: it to the provider. The declaration is what the read-back of D27 verifies:
+#: an undeclared field is a missing field, and a missing field is a refusal.
+_SCALEDOWN_APPROVAL = (
+    "owner approval 2026-11-16; the provider's published default is 60 s "
+    "(modal.com/pricing, FAQ, read 2026-11-11); the same value is the candidate "
+    "bound of the cost scenario"
+)
+
 SANDBOX_CPU_PROFILE = ResourceProfile(
     container_class=SANDBOX_CPU,
     description="sandbox CPU - verify_exploit_remote / verify_replay_remote / model-cache prefetch",
@@ -292,10 +306,7 @@ SANDBOX_CPU_PROFILE = ResourceProfile(
     ),
     timeout_sec=config.SANDBOX_TIMEOUT_SEC,
     startup_timeout_sec=Unset("the startup timeout is an approval input (D26)"),
-    scaledown_window_sec=Unset(
-        "the idle tail of the billable lifetime is an approval input (D26); the "
-        "provider's published default is 60 s (modal.com/pricing, FAQ, read 2026-11-11)"
-    ),
+    scaledown_window_sec=60,
     min_containers=0,
     buffer_containers=0,
     max_containers=UNION_CEILING_SANDBOX_CPU,
@@ -305,6 +316,7 @@ SANDBOX_CPU_PROFILE = ResourceProfile(
         "cpu_request_cores": "core/config.py:37 (published configuration)",
         "memory_request_mb": "core/config.py:38 (published configuration)",
         "timeout_sec": "core/config.py:36 (published configuration)",
+        "scaledown_window_sec": _SCALEDOWN_APPROVAL,
         "min_containers": _PLAN,
         "buffer_containers": _PLAN,
         "max_containers": _PLAN,
@@ -332,7 +344,7 @@ GPU_PROFILE = ResourceProfile(
         "the startup timeout of the GPU container is an approval input (D26); the "
         "model load happens inside the container startup"
     ),
-    scaledown_window_sec=Unset("the idle tail of the billable lifetime is an approval input (D26)"),
+    scaledown_window_sec=60,
     min_containers=0,
     buffer_containers=0,
     max_containers=UNION_CEILING_GPU,
@@ -362,7 +374,7 @@ PERSISTENCE_PROFILE = ResourceProfile(
     memory_limit_mb=Unset("the memory limit of the persistence container is an approval input (D26)"),
     timeout_sec=60,
     startup_timeout_sec=Unset("the startup timeout of the persistence container is an approval input (D26)"),
-    scaledown_window_sec=Unset("the idle tail of the billable lifetime is an approval input (D26)"),
+    scaledown_window_sec=60,
     min_containers=0,
     buffer_containers=0,
     max_containers=UNION_CEILING_PERSISTENCE,
@@ -640,10 +652,13 @@ def declared_autoscaler_settings(profile: ResourceProfile) -> Dict[str, Optional
 # Producer-enforced payload cap (D28)
 # --------------------------------------------------------------------------------------
 
-MAX_TRAJECTORY_PAYLOAD_BYTES: Bound = Unset(
-    "the hard byte cap of one trajectory payload is an approval input; the "
-    "persistence function refuses a larger payload instead of writing it (D28)"
-)
+#: The **approved** hard byte cap of one trajectory payload (D28).
+#:
+#: The owner approved 1 MiB (1 048 576 bytes) on 2026-11-16. The cap is a
+#: producer-enforced bound, not a provider one: the persistence function
+#: refuses a larger payload instead of writing it, so the volume's increment
+#: stays bounded by construction and an oversized write is never billed.
+MAX_TRAJECTORY_PAYLOAD_BYTES: Bound = 1_048_576
 
 
 def assert_payload_within_cap(payload_bytes: int, context: str = "trajectory payload") -> None:
@@ -680,6 +695,25 @@ DOWNLOAD_RETRY_ALLOWANCE: Bound = Unset(
     "R_download is an approval input: the declared maximum number of download "
     "attempts of the prefetch step (D29)"
 )
+
+#: The wall-clock budget of the prefetch container (R2p) - an approval input.
+#:
+#: The sandbox class' own execution timeout is the published 120 s of the
+#: verification functions; the prefetch has a budget of its own, because it is
+#: the step that materialises the pinned cache. The value is the wall-clock
+#: budget of R2p that the owner's signed approval carries
+#: (``benchmarks/evidence/r1_cost_scenario.json``, step ``R2p``,
+#: ``t_exec_sec``). The dispatch gate enforces the same budget client-side.
+PREFETCH_TIMEOUT_SEC: int = 3600
+
+#: The pinned hub client of the prefetch container.
+#:
+#: The version is pinned because it determines the **cache layout** the prefetch
+#: writes and the GPU container reads: a client of another version may write a
+#: layout the transformers stack of the GPU class does not read. The pinned
+#: version is the one whose layout the materialised volume of the workspace
+#: already uses.
+HUGGINGFACE_HUB_VERSION: str = "0.36.2"
 
 
 def prefetch_ingress_cap_bytes() -> int:
@@ -1567,6 +1601,43 @@ class GuardedClass:
         )
 
 
+#: The environment variable the Modal platform sets inside a function container.
+CONTAINER_ENV_MARKER = "MODAL_IS_REMOTE"
+
+#: The script the provider's runtime starts a container with. The main module of
+#: such a process is that script - a client process never is.
+CONTAINER_ENTRY_POINT = "_container_entrypoint.py"
+
+
+def inside_provider_container() -> bool:
+    """True when this process runs **inside** a Modal function container.
+
+    The dispatch guard is a **client-side** control: it gates the provider
+    calls that this repository makes, and the gate - with the signed approval,
+    the budget ledger and the autoscaler read-back - lives in the client
+    process.
+
+    A container is the other side of the same call: it has to **serve** the
+    function. The provider's runtime resolves the callable it serves from the
+    module, by name: a module attribute that is the provider's own object is
+    served, and any other object is refused ("Function ... is a strange type").
+    The guard replaces the module attribute with its own wrapper, so the
+    installation must not happen inside the container. Nothing is gated there
+    either: the container does not call the provider, it *is* the call.
+
+    Three independent signals are used, because a container is recognised both
+    from the environment the platform sets and from the entry point the
+    runtime starts the container with. The modules of the provider's runtime
+    are **not** a signal: the client SDK imports them too.
+    """
+    if os.environ.get(CONTAINER_ENV_MARKER) == "1":
+        return True
+    if os.environ.get("MODAL_TASK_ID") or os.environ.get("MODAL_INPUT_ID"):
+        return True
+    entry_point = getattr(sys.modules.get("__main__"), "__file__", "") or ""
+    return entry_point.endswith(CONTAINER_ENTRY_POINT)
+
+
 def install_provider_guard(function_name: str, fn: Any) -> GuardedRemote:
     """Install the guard on a provider callable and return the guarded name.
 
@@ -1677,6 +1748,13 @@ def declaration_record() -> Dict[str, Any]:
         "max_trajectory_payload_bytes": (
             None if is_unset(MAX_TRAJECTORY_PAYLOAD_BYTES) else MAX_TRAJECTORY_PAYLOAD_BYTES
         ),
+        "prefetch": {
+            "timeout_sec": PREFETCH_TIMEOUT_SEC,
+            "huggingface_hub_version": HUGGINGFACE_HUB_VERSION,
+            "download_retry_allowance": (
+                None if is_unset(DOWNLOAD_RETRY_ALLOWANCE) else DOWNLOAD_RETRY_ALLOWANCE
+            ),
+        },
         "pinned_model": {
             "repo_id": PINNED_MODEL.repo_id,
             "revision": PINNED_MODEL.revision,
@@ -1727,9 +1805,12 @@ __all__ = [
     "declared_timeout",
     "deployed_max_containers",
     "egress_policy",
+    "CONTAINER_ENV_MARKER",
+    "CONTAINER_ENTRY_POINT",
     "ingress_policy",
     "INGRESS_POLICIES",
     "IngressPolicy",
+    "inside_provider_container",
     "is_provider_callable",
     "is_unset",
     "install_class_guard",

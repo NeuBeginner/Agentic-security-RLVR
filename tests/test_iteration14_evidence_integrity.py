@@ -557,6 +557,129 @@ def test_incomplete_replay_envelope_is_never_confirmed():
 
 
 # ===========================================================================
+# P0.2 - The anchor of a replay whose provider named no container
+# ===========================================================================
+
+
+def _anchored_replay_envelope(tmp_path: Path):
+    """Build a valid replay envelope whose provider named no container.
+
+    The worker of the replay observed the function-call id of its own
+    invocation and attested that no container id was available - the exact
+    state of a Modal function container on Modal SDK 1.5.5.
+    """
+    artifact, envelope = _complete_replay_envelope(tmp_path)
+    call_id = "fc-01M7N7ZZ5DSTQ3GX0K1RVH07GP"
+    envelope["container_id"] = None
+    envelope["function_call_id"] = call_id
+    envelope["modal_runtime"] = {
+        "function_call_id": observed(
+            call_id,
+            source="modal.current_function_call_id()",
+            observed_by="worker",
+        ),
+        "container_id": not_available(
+            "a Modal function container has no supported source of a provider-issued "
+            "container id: the public runtime API of Modal SDK 1.5.5 exposes no "
+            "accessor for it, and the provider names the container of an input only "
+            "while that input runs",
+            observed_by="worker",
+        ),
+    }
+    return artifact, envelope
+
+
+def test_replay_envelope_accepts_the_worker_anchor_when_no_container_was_named(tmp_path):
+    """The worker's own function-call id is the anchor of the confirmation."""
+    artifact, _ = _anchored_replay_envelope(tmp_path)
+
+    ok, err = validate_replay_evidence_envelope(artifact, artifact_root=tmp_path)
+
+    assert ok is True, err
+
+
+def test_replay_envelope_without_a_function_call_id_has_no_container_identity(tmp_path):
+    """An envelope with neither a container nor an anchor is refused."""
+    artifact, envelope = _anchored_replay_envelope(tmp_path)
+    del envelope["function_call_id"]
+
+    ok, err = validate_replay_evidence_envelope(artifact, artifact_root=tmp_path)
+
+    assert ok is False
+    assert "no container identity" in err
+
+
+def test_replay_envelope_refuses_an_anchor_that_is_not_worker_observed(tmp_path):
+    """Only the worker's own observation is an anchor."""
+    artifact, envelope = _anchored_replay_envelope(tmp_path)
+    envelope["modal_runtime"]["function_call_id"]["observed_by"] = "client"
+
+    ok, err = validate_replay_evidence_envelope(artifact, artifact_root=tmp_path)
+
+    assert ok is False
+    assert "no container identity" in err
+
+
+def test_replay_envelope_refuses_an_anchor_that_contradicts_the_runtime_envelope(tmp_path):
+    """The anchor and the runtime envelope of the worker must name one call."""
+    artifact, envelope = _anchored_replay_envelope(tmp_path)
+    envelope["modal_runtime"]["function_call_id"]["value"] = "fc-01M7N7ZZ5DSTQ3GX0K1RVH07GQ"
+
+    ok, err = validate_replay_evidence_envelope(artifact, artifact_root=tmp_path)
+
+    assert ok is False
+    assert "no container identity" in err
+
+
+def test_replay_envelope_refuses_a_replay_in_the_invocation_of_the_initial_run(tmp_path):
+    """The replay must have run in a fresh invocation."""
+    artifact, envelope = _anchored_replay_envelope(tmp_path)
+    call_id = envelope["function_call_id"]
+
+    ok, err = validate_replay_evidence_envelope(
+        artifact,
+        artifact_root=tmp_path,
+        evm_sandbox_function_call_id=call_id,
+    )
+
+    assert ok is False
+    assert "no container identity" in err
+
+
+def test_replay_envelope_refuses_an_absence_of_a_container_without_a_reason(tmp_path):
+    """The worker must say why it could not attest a container id."""
+    artifact, envelope = _anchored_replay_envelope(tmp_path)
+    envelope["modal_runtime"]["container_id"]["reason"] = ""
+
+    ok, err = validate_replay_evidence_envelope(artifact, artifact_root=tmp_path)
+
+    assert ok is False
+    assert "no container identity" in err
+
+
+def test_replay_envelope_refuses_an_empty_container_id(tmp_path):
+    """An empty container id is still refused - the anchor is not a loophole."""
+    artifact, envelope = _anchored_replay_envelope(tmp_path)
+    envelope["container_id"] = ""
+
+    ok, err = validate_replay_evidence_envelope(artifact, artifact_root=tmp_path)
+
+    assert ok is False
+    assert "no container identity" in err
+
+
+def test_replay_envelope_refuses_a_synthetic_container_id_with_the_anchor(tmp_path):
+    """A synthetic container id is refused even when the anchor is sound."""
+    artifact, envelope = _anchored_replay_envelope(tmp_path)
+    envelope["container_id"] = "modal-cpu-ca9285db97bf"
+
+    ok, err = validate_replay_evidence_envelope(artifact, artifact_root=tmp_path)
+
+    assert ok is False
+    assert "synthetic container id" in err
+
+
+# ===========================================================================
 # P0.3 - Remote EVM toolchain provenance
 # ===========================================================================
 

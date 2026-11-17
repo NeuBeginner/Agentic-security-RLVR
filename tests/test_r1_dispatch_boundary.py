@@ -412,16 +412,18 @@ def test_a_policy_without_an_approval_is_refused_for_every_provider_call_site():
         assert fake.calls == [], function_name
 
 
-def test_the_repository_pins_no_approval_key():
+def test_the_repository_as_it_stands_cannot_authorise_a_dispatch():
     """P0.3: the repository as it stands cannot authorise a dispatch.
 
-    The pinned public key is absent, so no approval artifact can be verified:
-    the live provider dispatch is impossible in R1, and it is impossible
-    *structurally* - not only because the bounds are unapproved.
+    The approval authority pinned its **public** key, but no approval artifact
+    exists: the live provider dispatch is impossible, and it is impossible
+    *structurally* - not only because the bounds are unapproved. A caller that
+    only runs code here cannot mint an approval: the private half of the key
+    is not in the repository, so no signature it can produce verifies.
     """
     from core import r1_approval
 
-    assert r1_approval.pinned_public_key() is None
+    assert r1_approval.pinned_public_key() is not None
     with pytest.raises(r1_approval.ApprovalNotVerified):
         r1_approval.verify_approval(
             {"step_id": "R3", "approved_by": "maintainer", "approved_at": "2026-11-12"},
@@ -550,7 +552,7 @@ def _dispatch_with(approval: Any) -> Tuple[Any, List[Tuple[Any, Any]]]:
 
 
 def test_an_approval_without_a_pinned_key_authorises_nothing(signed_approval):
-    """P0.4: no key - no approval. The repository pins none, so nothing verifies."""
+    """P0.4: no key - no approval. Without a pinned key nothing verifies."""
     artifact = signed_approval(_policy(), pin_key=False)
 
     refusal, calls = _dispatch_with(artifact)
@@ -648,16 +650,22 @@ def test_the_gate_verifies_the_artifact_at_dispatch_time(signed_approval):
 # --------------------------------------------------------------------------------------
 
 
-def test_the_repository_pins_no_approval_key():
-    """P0.4: the repository pins no key, so no approval can be verified.
+def test_the_repository_pins_the_public_key_of_the_approval_authority():
+    """P0.4: the repository pins the **public** key of the approval authority.
 
     The pin is a constant of the source - not a file that is read at runtime -
-    and the evidence mirror carries ``null`` as well.
+    and the evidence mirror carries the same key. The pin says *who may
+    approve*; it is not an approval: no approval artifact exists in the
+    repository, so every provider dispatch stays refused.
     """
     from core import r1_approval
 
-    assert r1_approval.PINNED_PUBLIC_KEY is None
-    assert r1_approval.pinned_public_key() is None
+    assert r1_approval.PINNED_PUBLIC_KEY is not None
+    modulus, exponent = r1_approval.PINNED_PUBLIC_KEY
+    assert exponent == 65537
+    assert modulus.bit_length() == 4096
+    # The pin is usable: the mirror of the pin carries exactly this key.
+    assert r1_approval.pinned_public_key() == (modulus, exponent)
 
 
 def test_the_evidence_mirror_agrees_with_the_source_pin():
@@ -667,10 +675,11 @@ def test_the_evidence_mirror_agrees_with_the_source_pin():
     from core import r1_approval
 
     mirror = json.loads(r1_approval.PINNED_KEY_PATH.read_text(encoding="utf-8"))
-    assert mirror.get("public_key") is None, (
-        "the evidence mirror carries a key while the source pins none"
-    )
-    assert r1_approval.PINNED_PUBLIC_KEY is None
+    recorded = mirror.get("public_key")
+    assert isinstance(recorded, dict), "the evidence mirror carries no key"
+    assert int(recorded["e"]) == r1_approval.PINNED_PUBLIC_KEY[1]
+    assert r1_approval._decode_modulus(str(recorded["n"])) == r1_approval.PINNED_PUBLIC_KEY[0]
+    assert r1_approval._mirror_matches(r1_approval.PINNED_PUBLIC_KEY)
 
 
 def test_a_mirror_that_disagrees_with_the_pin_is_refused(monkeypatch):

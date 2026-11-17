@@ -82,6 +82,7 @@ from benchmarks.evidence_integrity import (  # noqa: E402
     validate_safe_control_sentinel_semantics,
     validate_stage_evidence_binding,
 )
+from benchmarks.protocol import reject_synthetic_modal_uris  # noqa: E402
 
 DEFAULT_RAW_EXPORT = "benchmarks/evidence/modal_billing_report_raw.json"
 DEFAULT_JOIN_TABLE = "benchmarks/evidence/modal_billing_join_table.json"
@@ -341,6 +342,12 @@ def validate_run(
             known_app_ids=billing_app_ids,
             evidence_root=run_dir / baseline_id,
         )
+        # A new run may not carry a fabricated URI in **any** field: the
+        # provenance validator refuses the legacy log-URI fields of a stage,
+        # the top-level refusal covers everything else.
+        uri_ok, uri_err = reject_synthetic_modal_uris(artifact)
+        if not uri_ok:
+            modal_ok, modal_err = False, uri_err
         binding = _stage_binding_report(
             artifact, evidence_root=run_dir / baseline_id
         )

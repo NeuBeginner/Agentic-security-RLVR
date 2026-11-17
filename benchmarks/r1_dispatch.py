@@ -18,8 +18,10 @@ call. It enforces, per step:
    anything else is asked of the provider. The gate verifies the artifact
    itself, at dispatch time, and accepts **no** "verified approval" object:
    no value whose construction conveys authority exists, so there is nothing
-   to forge. R1 pins no key, therefore **no provider dispatch is possible in
-   R1**;
+   to forge. The repository pins the **public** key of the approval authority,
+   but a pin is not an approval: no approval artifact exists, therefore **no
+   provider dispatch is possible** until a signed approval that covers the
+   step is handed to the run out of band;
 4. the **completeness of the declared bounds** - while a required bound of the class is
    required-but-unset, no dispatch of that class happens (fail closed);
 5. the **egress declaration** of the dispatched function (D29);
@@ -103,8 +105,9 @@ from core.r1_bounds import _perform_provider_call, _unwrap_guard
 # The approval of a step: the gate takes the **signed artifact** and verifies
 # the signature itself, at dispatch time, against the public key the repository
 # pins. The gate never accepts a "verified approval" object: no value whose
-# construction conveys authority may exist. R1 pins no key, so no provider
-# dispatch is authorised - see ``core/r1_approval.py``.
+# construction conveys authority may exist. The repository pins the **public**
+# key of the approval authority, but no approval artifact exists, so no
+# provider dispatch is authorised - see ``core/r1_approval.py``.
 from core import r1_approval
 from core import r1_bounds as r1_bounds
 from core.r1_approval import (
@@ -112,6 +115,20 @@ from core.r1_approval import (
     ApprovalNotVerified,
     VerifiedApproval,
     policy_digest,
+)
+
+# The persistent monetary ledger of the cycle: the money of the step is
+# reserved **before** the provider callable starts, and the reservation is
+# committed (or released) afterwards. The ledger is the control that survives
+# a process restart, a second stage and a second process - the invocation
+# budget of the gate lives in the memory of one process only.
+from core.r1_budget_ledger import (
+    BudgetCapExceeded,
+    BudgetLedger,
+    BudgetLedgerError,
+    LedgerState,
+    Reservation,
+    is_billable_provider_object,
 )
 
 #: The functions that write to the persistent volume and are therefore capped (D28).
@@ -136,6 +153,9 @@ REFUSAL_REASONS = (
     "payload_byte_cap",
     "concurrency_gate_timeout",
     "invocation_budget_exhausted",
+    "budget_cap_exceeded",
+    "budget_ledger_missing",
+    "budget_ledger_unavailable",
     "autoscaler_readback_unavailable",
     "autoscaler_readback_missing_field",
     "autoscaler_readback_malformed",
@@ -247,26 +267,64 @@ class StepPolicy:
 # --------------------------------------------------------------------------------------
 
 
-def _run_coroutine_blocking(coro: Any) -> Any:
-    """Run a coroutine from synchronous code, even inside a running loop."""
-    try:
-        from modal._utils.async_utils import run_coro_blocking
-    except Exception:  # pragma: no cover - the SDK always ships it in 1.5.5
-        run_coro_blocking = None
-    if run_coro_blocking is not None:
-        return run_coro_blocking(coro)
-    import asyncio
+#: The read-only ``FunctionGet`` call, built once per process.
+_FUNCTION_GET: Optional[Callable[[Any], Any]] = None
 
-    return asyncio.run(coro)
+
+def _function_get_on_the_sdk_loop() -> Callable[[Any], Any]:
+    """Build the read-only ``FunctionGet`` call on the Modal SDK's own loop.
+
+    Modal SDK 1.5.5 exposes two clients, and they are not interchangeable:
+
+    * ``modal.client.Client`` is the **synchronous** wrapper - the SDK builds it
+      with ``Client = synchronize_api(_Client)`` (``modal/client.py:532``), so
+      ``Client.from_env()`` returns the client itself and is not awaitable.
+      Awaiting it raises ``TypeError: object Client can't be used in 'await'
+      expression``, which is the defect that made the D27 read-back fail closed
+      against every deployment, independently of the deployment state.
+    * ``modal.client._Client`` is the **asynchronous** client: ``_Client.from_env()``
+      is a coroutine function.
+
+    The RPC itself is asynchronous in both cases: the generated stub is
+    ``modal._grpc_client.UnaryUnaryWrapper`` and its ``__call__`` is ``async
+    def``, so the read has to run on an event loop that owns the gRPC channel
+    of the client.
+
+    The read therefore goes through ``synchronize_api``, the SDK's own
+    synchronisation machinery: the coroutine runs on the synchronizer's loop,
+    which is the loop the public synchronous client uses as well. Running it on
+    a private loop instead deadlocks as soon as the public synchronous client
+    has already been created in the process - which the provider does when it
+    resolves a Modal object - because the client singleton then belongs to the
+    synchronizer's loop while the RPC would be awaited on another one.
+    """
+    global _FUNCTION_GET
+    if _FUNCTION_GET is None:
+        from modal._utils.async_utils import synchronize_api
+        from modal.client import _Client
+
+        @synchronize_api
+        async def _function_get(request: Any) -> Any:
+            client = await _Client.from_env()
+            return await client.stub.FunctionGet(request)
+
+        _FUNCTION_GET = _function_get
+    return _FUNCTION_GET
 
 
 def _object_tag(function_name: str) -> str:
-    """The provider object tag of a call site.
+    """The provider object tag of a call site in Modal SDK 1.5.5.
 
-    A module-level function is tagged with its own name; a class method is a
-    method of the class's service function, which carries the class's tag.
+    A module-level function is tagged with its own name; a class method belongs
+    to the class's service function, which Modal SDK 1.5.5 tags as
+    ``f"{cls_name}.*"`` (``modal/cls.py:730``, ``modal/_functions.py:175``).
     """
-    return function_name.split(".", 1)[0]
+    if not function_name:
+        return ""
+    if "." in function_name:
+        cls_name = function_name.split(".", 1)[0]
+        return f"{cls_name}.*" if cls_name else ""
+    return function_name
 
 
 def provider_autoscaler_reader(target: Any, function_name: str = "") -> Dict[str, Any]:
@@ -283,10 +341,20 @@ def provider_autoscaler_reader(target: Any, function_name: str = "") -> Dict[str
     ``FunctionData.autoscaler_settings`` from its response. The SDK drops that field
     when it builds its own ``FunctionInfo``, which is why the read happens here.
 
-    Every failure - no credentials, no deployed object, an unexpected SDK shape -
-    is an *unavailable* read and never a partial one: the step is refused. This
-    reader has never been executed against the provider in this repository: no live
-    provider call is part of the R1 evidence.
+    In ``modal_proto.api_pb2``, ``FunctionGetResponse.function`` (field 5),
+    ``FunctionData.autoscaler_settings`` (field 31) and all four scalar fields of
+    ``AutoscalerSettings`` carry explicit protobuf field presence
+    (``has_presence=True``). Because Python protobuf returns a default submessage or
+    ``0`` on ``getattr(...)`` when an optional field is unset, this reader checks
+    ``HasField(...)`` at every level so an unset message or field fails closed
+    instead of silently reading ``0``.
+
+    Every failure - no credentials, no deployed object, an unexpected SDK shape - 
+    is an *unavailable* read and never a partial one: the step is refused.
+
+    The client is the **asynchronous** one of Modal SDK 1.5.5 and the RPC runs on
+    the SDK's own synchronizer loop; see ``_function_get_on_the_sdk_loop`` for
+    the measured reasons. The reader itself is synchronous.
 
     The read is additionally **opt-in**: it needs ``R1_ENABLE_PROVIDER_READBACK=1``
     in the environment. Without it the read is unavailable and the step is refused,
@@ -302,8 +370,9 @@ def provider_autoscaler_reader(target: Any, function_name: str = "") -> Dict[str
             "set, so the effective autoscaler settings cannot be read"
         )
     try:
-        from modal.client import Client
         from modal_proto import api_pb2
+
+        function_get = _function_get_on_the_sdk_loop()
     except Exception as exc:  # pragma: no cover - the SDK always ships both
         raise AutoscalerReadbackUnavailable(
             f"the Modal client is not importable: {exc}"
@@ -315,7 +384,11 @@ def provider_autoscaler_reader(target: Any, function_name: str = "") -> Dict[str
         from core.config import config
 
         app_name = config.APP_NAME
-    tag = _object_tag(function_name) if function_name else getattr(target, "_tag", None)
+    tag = (
+        _object_tag(function_name)
+        if function_name
+        else (getattr(target, "_tag_", None) or getattr(target, "_tag", None))
+    )
     if not tag:
         raise AutoscalerReadbackUnavailable(
             "the provider object tag of the dispatched function is unknown"
@@ -328,23 +401,36 @@ def provider_autoscaler_reader(target: Any, function_name: str = "") -> Dict[str
         app_version=0,
     )
 
-    async def _read() -> Any:
-        client = await Client.from_env()
-        return await client.stub.FunctionGet(request)
-
     try:
-        response = _run_coroutine_blocking(_read())
+        response = function_get(request)
     except Exception as exc:
         raise AutoscalerReadbackUnavailable(
             f"the read-only FunctionGet of '{tag}' failed: {type(exc).__name__}: {exc}"
         ) from exc
 
-    settings = getattr(getattr(response, "function", None), "autoscaler_settings", None)
+    if hasattr(response, "HasField") and not response.HasField("function"):
+        raise AutoscalerReadbackUnavailable(
+            f"the provider response of '{tag}' carries no FunctionData submessage"
+        )
+    fn_data = getattr(response, "function", None)
+    if fn_data is None or (
+        hasattr(fn_data, "HasField") and not fn_data.HasField("autoscaler_settings")
+    ):
+        raise AutoscalerReadbackUnavailable(
+            f"the provider response of '{tag}' carries no autoscaler settings"
+        )
+    settings = getattr(fn_data, "autoscaler_settings", None)
     if settings is None:
         raise AutoscalerReadbackUnavailable(
             f"the provider response of '{tag}' carries no autoscaler settings"
         )
-    return {name: getattr(settings, name, None) for name in AUTOSCALER_FIELDS}
+    result: Dict[str, Any] = {}
+    for name in AUTOSCALER_FIELDS:
+        if hasattr(settings, "HasField") and not settings.HasField(name):
+            result[name] = None
+        else:
+            result[name] = getattr(settings, name, None)
+    return result
 
 
 def read_back_autoscaler(
@@ -437,18 +523,28 @@ class DispatchGate:
         profiles: Optional[Dict[str, Any]] = None,
         egress_policies: Optional[Dict[str, Any]] = None,
         autoscaler_reader: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
+        budget_ledger: Optional[BudgetLedger] = None,
+        budget_run_id: str = "r1-cycle",
     ) -> None:
         self.policy = policy
         self.approval = approval
         self.profiles = profiles or {}
         self.egress_policies = egress_policies or {}
         self.autoscaler_reader = autoscaler_reader
+        self.budget_ledger = budget_ledger
+        self.budget_run_id = budget_run_id
         self.records: List[DispatchRecord] = []
         self.used: Dict[str, int] = {}
         self._semaphores: Dict[str, threading.BoundedSemaphore] = {}
         self._readback_done: Dict[str, bool] = {}
         self._started_at = time.monotonic()
         self._lock = threading.Lock()
+        # The reservation that holds the money of this step - see
+        # ``_reserve_budget``. The estimate of a step covers **all** its
+        # invocations, so it is reserved once for the step and every later
+        # invocation of that step is covered by it.
+        self._step_reservation: Optional[Reservation] = None
+        self._step_estimate_reserved = False
 
     # -- helpers ------------------------------------------------------------------
 
@@ -506,6 +602,12 @@ class DispatchGate:
         ):
             raw = (root / relative).read_bytes()
             cost_files[relative] = hashlib.sha256(raw).hexdigest()
+        evidence_files = {}
+        for relative in (
+            "benchmarks/evidence/r1_readonly_evidence_20261114.json",
+        ):
+            raw = (root / relative).read_bytes()
+            evidence_files[relative] = hashlib.sha256(raw).hexdigest()
 
         effective_classes = sorted(
             set(r1_bounds.CONTAINER_CLASSES) | set(r1_bounds.FUNCTION_CLASS.values())
@@ -584,17 +686,25 @@ class DispatchGate:
                 "manifest_sha256": manifest_digest,
                 "offline_environment": self._approval_value(r1_bounds.OFFLINE_ENV),
                 "download_retry_allowance": self._approval_value(r1_bounds.DOWNLOAD_RETRY_ALLOWANCE),
+                "prefetch_timeout_sec": self._approval_value(r1_bounds.PREFETCH_TIMEOUT_SEC),
+                "huggingface_hub_version": self._approval_value(r1_bounds.HUGGINGFACE_HUB_VERSION),
             },
             "cost_inputs_sha256": cost_files,
+            "evidence_inputs_sha256": evidence_files,
         }
 
     def _semaphore(self, container_class: str) -> threading.BoundedSemaphore:
-        if container_class not in self._semaphores:
-            cap = 1
-            if self.policy is not None:
-                cap = max(1, int(self.policy.concurrency_caps.get(container_class, 1)))
-            self._semaphores[container_class] = threading.BoundedSemaphore(cap)
-        return self._semaphores[container_class]
+        # Creation must be atomic: otherwise two first-time concurrent dispatches
+        # can each install a different semaphore and bypass the class concurrency cap.
+        with self._lock:
+            semaphore = self._semaphores.get(container_class)
+            if semaphore is None:
+                cap = 1
+                if self.policy is not None:
+                    cap = max(1, int(self.policy.concurrency_caps.get(container_class, 1)))
+                semaphore = threading.BoundedSemaphore(cap)
+                self._semaphores[container_class] = semaphore
+            return semaphore
 
     def _refuse(self, container_class: str, function_name: str, reason: str, detail: str = "") -> None:
         record = DispatchRecord(
@@ -666,6 +776,7 @@ class DispatchGate:
             try:
                 # The allowance is consumed here - after every gate, immediately
                 # before the call - so a refused attempt costs no invocation.
+                reservation = None
                 if not nested:
                     # Re-verify the signature and live envelope at the last
                     # possible point before consuming allowance and entering
@@ -673,6 +784,10 @@ class DispatchGate:
                     if provider_callable:
                         self._check_approval(container_class, function_name)
                     self._consume_budget(container_class, function_name)
+                    # The money of the step is reserved **before** the provider
+                    # callable starts: a step whose reservation is refused never
+                    # starts a container and never spends.
+                    reservation = self._reserve_budget(container_class, function_name, fn)
                 try:
                     # The provider call itself. An installed call site is called
                     # through the entry point that was captured before the guard
@@ -684,8 +799,14 @@ class DispatchGate:
                     # point is never handed out.
                     result = _perform_provider_call(function_name, fn, *args, **kwargs)
                 except DispatchRefusal:
+                    # The provider call never started: the reservation goes
+                    # back to the cycle.
+                    self._release_budget(reservation)
                     raise
                 except Exception as exc:  # the provider's own failure - not a refusal
+                    # The container started and failed or timed out: the money
+                    # is charged conservatively and is never returned.
+                    self._commit_budget(reservation, "provider_failed")
                     self.records.append(
                         DispatchRecord(
                             step_id=self.policy.step_id if self.policy else "<no-policy>",
@@ -699,6 +820,8 @@ class DispatchGate:
                         )
                     )
                     raise
+                else:
+                    self._commit_budget(reservation, "completed")
             finally:
                 if not nested:
                     semaphore.release()
@@ -765,10 +888,10 @@ class DispatchGate:
         for a caller to forge. A caller that hands in an object instead of an
         artifact is refused, whatever the object says.
 
-        R1 pins no key, so this check refuses every provider dispatch: the live
-        provider dispatch of R1 is impossible, and it is impossible
-        *structurally* - not only because the bounds of the container classes
-        are required-but-unset.
+        No approval artifact exists in the repository, so this check refuses
+        every provider dispatch: the live provider dispatch of R1 is impossible,
+        and it is impossible *structurally* - not only because the bounds of
+        the container classes are required-but-unset.
         """
         artifact = self.approval
         if artifact is None:
@@ -908,6 +1031,139 @@ class DispatchGate:
                 )
             self.used[container_class] = used + 1
 
+    # -- the monetary ledger --------------------------------------------------------
+
+    def _reserve_budget(
+        self, container_class: str, function_name: str, fn: Any
+    ) -> Optional[Reservation]:
+        """Reserve the money of the step **before** the provider callable starts.
+
+        A **local double** starts no container and costs nothing: it is not
+        charged, and the gates that decide whether a call is allowed are
+        untouched. A real provider object is charged, and a dispatch without a
+        ledger is refused: the money of a real container is never spent
+        outside the persistent ledger.
+
+        **The estimate of a step covers all its invocations.** The signed
+        ``estimate_usd`` is the cost of the **whole** step - the estimator
+        computes it from the invocation counts of the scenario - so it is
+        reserved **once** for the step, and every later invocation of that
+        step is covered by that reservation. A step that makes ninety-six
+        invocations (R4) therefore costs its estimate once and not
+        ninety-six times: the money of the cycle is the money of the **steps**,
+        not of the calls.
+
+        The protection is not weakened by it:
+
+        * the **first** invocation of the step reserves the estimate against the
+          cap of the cycle, and the ledger refuses it when the cap would break;
+        * a **failed** invocation ends the attempt: its money is charged
+          conservatively and the next invocation reserves the estimate again,
+          so a retry pays again;
+        * an invocation that never started gives its reservation back;
+        * another **run** of the step - another ``budget_run_id`` - reserves the
+          estimate again, and the cap of the cycle decides whether it fits;
+        * no container starts while the money of the cycle is exhausted.
+        """
+        if not is_billable_provider_object(fn):
+            return None
+        if self.budget_ledger is None:
+            self._refuse(
+                container_class,
+                function_name,
+                "budget_ledger_missing",
+                "a provider dispatch needs the persistent budget ledger",
+            )
+        if self.policy is None or is_unset(self.policy.estimate_usd):
+            self._refuse(
+                container_class,
+                function_name,
+                "budget_ledger_unavailable",
+                "the step declares no estimate, so its money cannot be reserved",
+            )
+
+        # The money of the cycle must not be exhausted: a container that starts
+        # while the cap is used up spends money the cycle does not have.
+        state = self.budget_ledger.state()
+        if state.spent_usd + state.reserved_usd >= state.cap_usd:
+            self._refuse(
+                container_class,
+                function_name,
+                "budget_cap_exceeded",
+                f"the money of the cycle is exhausted: {state.spent_usd} spent + "
+                f"{state.reserved_usd} reserved of the cap of {state.cap_usd} USD",
+            )
+
+        if self._step_estimate_reserved:
+            # The estimate of this step is already reserved: this invocation is
+            # covered by it. The number of invocations is bounded by the signed
+            # ``invocation_budgets`` of the policy.
+            return None
+
+        try:
+            reservation = self.budget_ledger.reserve(
+                self.budget_run_id,
+                self.policy.step_id,
+                float(self.policy.estimate_usd),  # type: ignore[arg-type]
+            )
+        except BudgetCapExceeded as exc:
+            self._refuse(container_class, function_name, "budget_cap_exceeded", exc.detail)
+        except BudgetLedgerError as exc:
+            self._refuse(
+                container_class,
+                function_name,
+                "budget_ledger_unavailable",
+                str(exc),
+            )
+        self._step_reservation = reservation
+        self._step_estimate_reserved = True
+        return reservation
+
+    def _commit_budget(self, reservation: Optional[Reservation], outcome: str) -> None:
+        """Charge the reservation of the step that ran.
+
+        The charge is the **reserved** amount: the conservative cost of the
+        step. A step that failed or timed out is charged as well - the money
+        of a container that started is never returned to the cycle.
+
+        A **failed** invocation ends the attempt of the step: the next
+        invocation of that step reserves the estimate again, so a retry pays
+        again and the cap of the cycle decides whether it fits.
+        """
+        if reservation is None or self.budget_ledger is None:
+            return
+        try:
+            self.budget_ledger.commit(reservation.reservation_id, reservation.max_cost_usd)
+        except BudgetLedgerError:
+            # The charge could not be recorded. The reservation stays
+            # reserved: the money of the step is not given back, and the next
+            # reservation sees the smaller remainder. The failure is
+            # deliberately not raised - it would mask the failure of the step
+            # itself.
+            return
+        if outcome == "provider_failed":
+            self._step_reservation = None
+            self._step_estimate_reserved = False
+
+    def _release_budget(self, reservation: Optional[Reservation]) -> None:
+        """Give the reservation back: the provider call never started."""
+        if reservation is None or self.budget_ledger is None:
+            return
+        try:
+            self.budget_ledger.release(reservation.reservation_id)
+        except BudgetLedgerError:
+            # The release could not be recorded. The reservation stays
+            # reserved: the money is not given back to the cycle.
+            return
+        self._step_reservation = None
+        self._step_estimate_reserved = False
+
+    def budget_state(self) -> Optional[LedgerState]:
+        """The money of the cycle as the persistent ledger sees it."""
+        if self.budget_ledger is None:
+            return None
+        return self.budget_ledger.state()
+
     def _check_payload_cap(self, function_name: str, args: Any) -> None:
         if function_name not in VOLUME_WRITING_FUNCTIONS or not args:
             return
@@ -1004,6 +1260,8 @@ def authorised_step(
     profiles: Optional[Dict[str, Any]] = None,
     egress_policies: Optional[Dict[str, Any]] = None,
     autoscaler_reader: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
+    budget_ledger: Optional[BudgetLedger] = None,
+    budget_run_id: str = "r1-cycle",
 ) -> Iterator[DispatchGate]:
     """Install the approved policy of one step as the active dispatch contract.
 
@@ -1012,6 +1270,12 @@ def authorised_step(
     at dispatch time, against the pinned public key. Without a verifiable
     artifact the gate refuses every provider dispatch: a policy that a caller
     constructs in-process does not authorise a spend.
+
+    The step runs under the **persistent budget ledger**: the money of the
+    cycle is reserved before a container starts, charged when the step ran and
+    kept when it failed. The ledger survives the end of the process, so a
+    second stage, a second process and a restart cannot spend the cycle's
+    money twice. A caller may pass its own ledger - a test or a dry run.
     """
     gate = DispatchGate(
         policy=policy,
@@ -1019,6 +1283,8 @@ def authorised_step(
         profiles=profiles,
         egress_policies=egress_policies,
         autoscaler_reader=autoscaler_reader,
+        budget_ledger=budget_ledger if budget_ledger is not None else BudgetLedger(),
+        budget_run_id=budget_run_id,
     )
     token = _ACTIVE_GATE.set(gate)
     try:
@@ -1046,6 +1312,7 @@ def dispatch(container_class: str, function_name: str, fn: Any, *args: Any, **kw
 
 __all__ = [
     "AutoscalerReadbackUnavailable",
+    "BudgetLedger",
     "DispatchGate",
     "DispatchRecord",
     "DispatchRefusal",

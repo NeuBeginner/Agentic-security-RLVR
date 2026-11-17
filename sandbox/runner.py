@@ -99,7 +99,10 @@ sandbox_image = (
     .env({"PATH": "/root/.foundry/bin:$PATH"})
     .pip_install("pydantic>=2.0.0", "slither-analyzer", "solc-select")
     .add_local_dir(LOCAL_TRUSTED_HARNESSES_DIR, remote_path=TRUSTED_HARNESSES_DIR, copy=True)
-    .add_local_python_source("core", "sandbox")
+    # The repository's packages travel with the image. ``benchmarks`` is needed
+    # as well: the verify functions report the provider-issued identity of the
+    # container, and that report imports ``benchmarks.evidence_integrity``.
+    .add_local_python_source("core", "sandbox", "benchmarks")
 )
 
 FOUNDRY_TOML_CONTENT = """[profile.default]

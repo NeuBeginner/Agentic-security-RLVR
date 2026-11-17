@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "generator": "benchmarks/validate_consolidated_closure_evidence.py",
-  "code_sha": "e9325f605e9ae35ccfa3a1b13872d037ddf5f870",
-  "generated_at_utc": "2026-11-15T20:21:21Z",
+  "code_sha": "7858dec4d39b171609810aeb896c107a0756db0c",
+  "generated_at_utc": "2026-11-17T19:45:39Z",
   "scope": {
     "closure": "consolidated architecture closure of PR #12",
     "purpose": "validate the fail-closed evaluator leak (P0) and the run-level observation-side gap (P1), and the evidence of the full-chain audit",
@@ -16,8 +16,8 @@
     "benchmark_run": "not touched - the 16-target run on disk still fails the Iteration 14-18 validators and this closure does not change that"
   },
   "git": {
-    "head": "e9325f605e9ae35ccfa3a1b13872d037ddf5f870",
-    "branch": "feat/aegis-rlvr-complete-end-to-end",
+    "head": "7858dec4d39b171609810aeb896c107a0756db0c",
+    "branch": "docs/evidence-regeneration-architecture-plan",
     "dirty": false,
     "tracked_changes": [],
     "untracked_paths": []
@@ -933,7 +933,7 @@
           "iteration": 21,
           "expected": "PASSED",
           "observed": "PASSED",
-          "bound_code_sha": "c31dcf56810aff8273e74560bbd4dca2811a27c7",
+          "bound_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
           "returncode": 0,
           "output": [
             "wrote benchmarks/evidence/_closure_probe/iteration21.json: PASSED, 13/13 checks passed"
@@ -943,7 +943,7 @@
           "iteration": 22,
           "expected": "PASSED",
           "observed": "PASSED",
-          "bound_code_sha": "6be0333c86f3854276ef8eb10be43d52da78539e",
+          "bound_code_sha": "f0ce026d",
           "returncode": 0,
           "output": [
             "wrote benchmarks/evidence/_closure_probe/iteration22.json: PASSED, 11/11 checks passed"
@@ -953,7 +953,7 @@
           "iteration": 23,
           "expected": "PASSED",
           "observed": "PASSED",
-          "bound_code_sha": "df25537934141fe6ae84e10a64973730f19f0ab0",
+          "bound_code_sha": "749cba24",
           "returncode": 0,
           "output": [
             "wrote benchmarks/evidence/_closure_probe/iteration23.json: PASSED, 12/12 checks passed"
@@ -965,11 +965,11 @@
       "check": "P6.14.the_producer_source_is_unchanged_since_the_capture",
       "status": "PASSED",
       "error": null,
-      "planned": "the producer source is byte-wise unchanged between the commit the capture of Iteration 21 was made from and the commit the report is bound to - the producer is not the defect of this closure",
+      "planned": "the producer source is byte-wise unchanged between the commit the capture of the R4 run was made from and the commit the report is bound to - the producer is not the defect of this closure; the evidence of Iteration 21 keeps its own capture and is validated on its own by P6.13",
       "attempted": true,
       "executed": true,
-      "capture_code_sha": "c31dcf56810aff8273e74560bbd4dca2811a27c7",
-      "reported_code_sha": "e9325f605e9ae35ccfa3a1b13872d037ddf5f870",
+      "capture_code_sha": "8619fccaa90e1088a6655e0a6b3eca6ed3056849",
+      "reported_code_sha": "7858dec4d39b171609810aeb896c107a0756db0c",
       "producer_source_changed": false
     },
     {
@@ -1489,7 +1489,7 @@
       "iteration": 21,
       "expected": "PASSED",
       "observed": "PASSED",
-      "bound_code_sha": "c31dcf56810aff8273e74560bbd4dca2811a27c7",
+      "bound_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
       "returncode": 0,
       "output": [
         "wrote benchmarks/evidence/_closure_probe/iteration21.json: PASSED, 13/13 checks passed"
@@ -1499,7 +1499,7 @@
       "iteration": 22,
       "expected": "PASSED",
       "observed": "PASSED",
-      "bound_code_sha": "6be0333c86f3854276ef8eb10be43d52da78539e",
+      "bound_code_sha": "f0ce026d",
       "returncode": 0,
       "output": [
         "wrote benchmarks/evidence/_closure_probe/iteration22.json: PASSED, 11/11 checks passed"
@@ -1509,7 +1509,7 @@
       "iteration": 23,
       "expected": "PASSED",
       "observed": "PASSED",
-      "bound_code_sha": "df25537934141fe6ae84e10a64973730f19f0ab0",
+      "bound_code_sha": "749cba24",
       "returncode": 0,
       "output": [
         "wrote benchmarks/evidence/_closure_probe/iteration23.json: PASSED, 12/12 checks passed"

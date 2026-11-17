@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "generator": "benchmarks/validate_iteration21_evidence.py",
-  "code_sha": "c31dcf56810aff8273e74560bbd4dca2811a27c7",
-  "generated_at_utc": "2026-11-15T20:19:56Z",
+  "code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
+  "generated_at_utc": "2026-11-10T10:28:05Z",
   "scope": {
     "iteration": 21,
     "purpose": "validate the provider-backed container identity of the production producer and the evidence of it",
@@ -13,13 +13,16 @@
     "benchmark_run": "not touched - the 16-target run on disk still fails the Iteration 16-18 validators and this iteration does not change that"
   },
   "git": {
-    "head": "c31dcf56810aff8273e74560bbd4dca2811a27c7",
-    "branch": "feat/aegis-rlvr-complete-end-to-end",
-    "dirty": true,
-    "tracked_changes": [
-      "M benchmarks/evidence/iteration21_producer_capture/capture_record.json"
-    ],
-    "untracked_paths": []
+    "head": "40c063093c8d773d20f828fb290c68b5790a7cc5",
+    "branch": "minimax/iteration-14-evidence-integrity",
+    "dirty": false,
+    "tracked_changes": [],
+    "untracked_paths": [
+      "benchmarks/evidence/iteration21_producer_capture/",
+      "benchmarks/evidence/iteration21_validation_evidence.json",
+      "test-results-iteration18-local.xml",
+      "test-results-iteration19-local.xml"
+    ]
   },
   "checks": [
     {
@@ -38,12 +41,12 @@
       "forbidden_lookups": [],
       "other_lookups": [
         {
-          "line": 904,
+          "line": 848,
           "name": "PYTORCH_CUDA_ALLOC_CONF",
           "kind": "environ[]"
         },
         {
-          "line": 908,
+          "line": 852,
           "name": "TRAINING_STATUS",
           "kind": "environ.get"
         }
@@ -171,8 +174,8 @@
       "planned": "the capture names the commit it was made from, and that commit is the one the report is bound to",
       "attempted": true,
       "executed": true,
-      "capture_code_sha": "c31dcf56810aff8273e74560bbd4dca2811a27c7",
-      "reported_code_sha": "c31dcf56810aff8273e74560bbd4dca2811a27c7"
+      "capture_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
+      "reported_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5"
     }
   ],
   "summary": {

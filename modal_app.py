@@ -68,12 +68,242 @@ gpu_image = (
     .add_local_python_source("core", "sandbox")
 )
 
-# The model-cache prefetch (R2p) is deliberately NOT declared here: it is a
-# separately authorised step, its download timeout is an approval input, and the
-# dispatch path refuses it until its bounds are approved. Its per-container egress
-# bound (pinned_bytes x (1 + R_download)) is declared in core/r1_bounds.py, so the
-# estimator can price R2p (D29).
+# =============================================================================
+# 1b. THE MODEL-CACHE PREFETCH (R2p)
+# =============================================================================
+# R2p materialises the volume's model cache **once**, before any GPU step, and
+# records the manifest of the pinned revision - the manifest the GPU class
+# verifies in its ``@modal.enter()`` before every container start.
+#
+# The step is **idempotent**. If the pinned revision is already materialised on
+# the volume, the function verifies the revision and the bytes, writes (or
+# re-reads) the manifest and returns **without downloading anything**: a second
+# download of the 61 GB would be a per-container cost that the step exists to
+# avoid (D29).
+#
+# The **cold** path - an empty cache - downloads the pinned revision and is
+# bounded by the **ingress** cap of the prefetch (``core.r1_bounds``): the
+# retry allowance of the download is an approval input, and while it is
+# required-but-unset the cold path refuses instead of downloading without a
+# bound. A refusal is never a download.
+#
+# The manifest records the path, the size and the hub's own blob id of every
+# file of the pinned snapshot. It deliberately carries **no recomputed
+# SHA-256**: the GPU container verifies the manifest on *every* start (up to 32
+# containers in R4), and re-hashing 59.9 GiB per start is not affordable. The
+# byte-exactness of the cache was established by the read-only inventory of
+# 2026-11-14 (23/23 files, byte-exact).
 
+#: The image of the prefetch container: a CPU image with the pinned hub client
+#: and the runtime dependency of the deployed module. The module imports
+#: ``core.schemas`` (through ``core.hypothesis_manager``), and that imports
+#: pydantic - without it the container dies at import time.
+prefetch_image = (
+    modal.Image.debian_slim(python_version="3.10")
+    .pip_install(
+        f"huggingface_hub=={r1.HUGGINGFACE_HUB_VERSION}",
+        "pydantic>=2.0.0",
+    )
+    .add_local_python_source("core", "sandbox")
+)
+
+
+def _collect_cache_files(cache_dir: str, snapshot_dir: str) -> List[Dict[str, Any]]:
+    """The files of the pinned snapshot: their path, their size, their blob id.
+
+    The paths are relative to ``cache_dir`` - the directory the manifest is
+    verified against. The size is the size of the **file** the snapshot entry
+    points at (the snapshot entries are symlinks into the blob store), and the
+    blob id is the hub's own content digest of that file.
+    """
+    collected: List[Dict[str, Any]] = []
+    for root, _dirs, names in os.walk(snapshot_dir):
+        for name in sorted(names):
+            full = os.path.join(root, name)
+            try:
+                size = os.path.getsize(full)
+            except OSError:
+                continue
+            blob_id = None
+            if os.path.islink(full):
+                blob_id = os.path.basename(os.readlink(full))
+            collected.append(
+                {
+                    "path": os.path.relpath(full, cache_dir).replace(os.sep, "/"),
+                    "size": int(size),
+                    "blob_id": blob_id,
+                }
+            )
+    collected.sort(key=lambda entry: entry["path"])
+    return collected
+
+
+def _read_manifest(manifest_path: str) -> Optional[dict]:
+    """The manifest of an earlier attempt, or ``None`` when there is none."""
+    if not os.path.isfile(manifest_path):
+        return None
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return manifest if isinstance(manifest, dict) else None
+
+
+def _build_cache_manifest(files: List[Dict[str, Any]], created_at: str) -> dict:
+    """The manifest of the pinned revision - what the GPU class verifies."""
+    return {
+        "schema": "r1-model-cache-manifest/1",
+        "repo_id": r1.PINNED_MODEL.repo_id,
+        "revision": r1.PINNED_MODEL.revision,
+        "created_at": created_at,
+        "bytes_total": sum(int(entry.get("size", 0)) for entry in files),
+        "file_count": len(files),
+        "files": list(files),
+    }
+
+
+def _prefetch_plan(cache_dir: str, manifest_path: str, snapshot_dir: str) -> Dict[str, Any]:
+    """What the step has to do: verify, write the manifest, or download.
+
+    The plan is the **idempotency** of R2p: an already materialised cache is
+    verified against its own manifest and nothing is downloaded, and a cache
+    that is materialised but has no manifest only needs the manifest written.
+    """
+    existing = _read_manifest(manifest_path)
+    files = _collect_cache_files(cache_dir, snapshot_dir)
+    if existing and existing.get("files"):
+        if r1.verify_model_cache_manifest(cache_dir, existing)["status"] == "PASSED":
+            return {
+                "action": "ALREADY_MATERIALISED",
+                "manifest": existing,
+                "files": files,
+                "downloaded_bytes": 0,
+            }
+    if files:
+        return {
+            "action": "WRITE_MANIFEST",
+            "manifest": None,
+            "files": files,
+            "downloaded_bytes": 0,
+        }
+    return {
+        "action": "DOWNLOAD",
+        "manifest": None,
+        "files": [],
+        "downloaded_bytes": 0,
+    }
+
+
+def _prefetch_record(
+    status: str,
+    manifest: dict,
+    downloaded_bytes: int,
+    manifest_path: str,
+    written: bool,
+) -> dict:
+    """The record of the step: the revision, the manifest, the measured size."""
+    files = manifest.get("files", [])
+    return {
+        "status": status,
+        "repo_id": r1.PINNED_MODEL.repo_id,
+        "revision": r1.PINNED_MODEL.revision,
+        "file_count": len(files),
+        "bytes_total": sum(int(entry.get("size", 0)) for entry in files),
+        "downloaded_bytes": int(downloaded_bytes),
+        "manifest_path": manifest_path,
+        "manifest_written": written,
+        "verified": True,
+    }
+
+
+@app.function(
+    image=prefetch_image,
+    volumes={"/vol/models": model_volume},
+    timeout=r1.PREFETCH_TIMEOUT_SEC,
+    **r1.modal_function_kwargs(r1.SANDBOX_CPU, "prefetch_model_cache_remote"),
+)
+def prefetch_model_cache_remote() -> dict:
+    """R2p: materialise the pinned revision once and record its manifest.
+
+    The function returns the record of the step: the pinned revision, the file
+    manifest, the measured size of the cache and the number of bytes the step
+    downloaded (0 on the idempotent path).
+    """
+    from datetime import datetime, timezone
+
+    cache_dir = config.MODEL_CACHE_DIR
+    repo_dirname = "models--" + r1.PINNED_MODEL.repo_id.replace("/", "--")
+    snapshot_dir = os.path.join(
+        cache_dir, repo_dirname, "snapshots", r1.PINNED_MODEL.revision
+    )
+    manifest_path = r1.MODEL_CACHE_MANIFEST_PATH
+
+    plan = _prefetch_plan(cache_dir, manifest_path, snapshot_dir)
+
+    # 1. The idempotent path: the cache is materialised and its manifest verifies.
+    if plan["action"] == "ALREADY_MATERIALISED":
+        return _prefetch_record(
+            "ALREADY_MATERIALISED", plan["manifest"], 0, manifest_path, False
+        )
+
+    # 2. The materialised snapshot of the pinned revision.
+    files = plan["files"]
+    downloaded_bytes = 0
+
+    if not files:
+        # 2a. The cold path. The download is bounded by the approved ingress cap;
+        #     the cap is required-but-unset while the retry allowance is not
+        #     approved, and the step then refuses instead of downloading (D29).
+        ingress_cap = r1.prefetch_ingress_cap_bytes()
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(
+            repo_id=r1.PINNED_MODEL.repo_id,
+            revision=r1.PINNED_MODEL.revision,
+            cache_dir=cache_dir,
+        )
+        files = _collect_cache_files(cache_dir, snapshot_dir)
+        downloaded_bytes = sum(int(entry["size"]) for entry in files)
+        if downloaded_bytes > ingress_cap:
+            raise RuntimeError(
+                f"[!] the download of {downloaded_bytes} bytes exceeds the approved "
+                f"ingress cap of {ingress_cap} bytes (D29)"
+            )
+
+    if not files:
+        raise RuntimeError(
+            f"[!] the pinned revision {r1.PINNED_MODEL.revision} of "
+            f"{r1.PINNED_MODEL.repo_id} is not materialised in {cache_dir}"
+        )
+
+    bytes_total = sum(int(entry["size"]) for entry in files)
+    if bytes_total < r1.PINNED_MODEL.bytes_total:
+        raise RuntimeError(
+            f"[!] the materialised cache holds {bytes_total} bytes, less than the "
+            f"pinned {r1.PINNED_MODEL.bytes_total} bytes - the cache is incomplete"
+        )
+
+    manifest = _build_cache_manifest(
+        files, datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
+
+    with open(manifest_path, "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2, sort_keys=True)
+    try:
+        model_volume.commit()
+    except Exception:
+        pass
+
+    check = r1.verify_model_cache_manifest(cache_dir, manifest)
+    if check["status"] != "PASSED":
+        raise RuntimeError(
+            f"[!] the written manifest does not verify: {check['reason']}; "
+            f"missing={check['missing'][:5]} mismatched={check['mismatched'][:5]}"
+        )
+
+    status = "MATERIALISED" if downloaded_bytes else "ALREADY_MATERIALISED"
+    return _prefetch_record(status, manifest, downloaded_bytes, manifest_path, True)
 
 
 # =============================================================================
@@ -1792,13 +2022,24 @@ def main(
 # gated, and the raw provider callable is not reachable through any attribute of
 # the guard. The installation fails closed: if the guard cannot be installed on
 # an object, the import fails instead of leaving an unguarded callable behind.
-for _name, _obj in list(globals().items()):
-    if _name.startswith("_") or _name in ("app", "model_volume", "gpu_image", "sandbox_image"):
-        continue
-    if isinstance(_obj, modal.Function):
-        globals()[_name] = r1.install_provider_guard(_name, _obj)
-    elif isinstance(_obj, modal.Cls):
-        globals()[_name] = r1.install_class_guard(_name, _obj)
+#
+# The installation happens on the **client side** only. The guard is a
+# client-side control: it gates the provider calls this repository makes, and
+# the gate - with the signed approval, the budget ledger and the autoscaler
+# read-back - lives in the client process. A container is the other side of
+# the same call: it has to *serve* the function, and the provider's runtime
+# resolves the callable it serves from the module by name. A module attribute
+# that is the provider's own object is served; any other object is refused
+# ("Function ... is a strange type"). Inside a container there is nothing to
+# gate either: the container does not call the provider, it *is* the call.
+if not r1.inside_provider_container():
+    for _name, _obj in list(globals().items()):
+        if _name.startswith("_") or _name in ("app", "model_volume", "gpu_image", "sandbox_image"):
+            continue
+        if isinstance(_obj, modal.Function):
+            globals()[_name] = r1.install_provider_guard(_name, _obj)
+        elif isinstance(_obj, modal.Cls):
+            globals()[_name] = r1.install_class_guard(_name, _obj)
 
 
 if __name__ == "__main__":

@@ -331,6 +331,93 @@ def test_the_deployment_installs_the_guard_on_the_functions_and_on_the_classes()
     assert isinstance(agent.audit_target_contract, r1.GuardedClassMethod)
 
 
+def test_the_deployed_module_keeps_its_provider_objects_inside_a_container():
+    """The container serves the function: the module keeps the provider's objects.
+
+    The provider's runtime resolves the callable it serves from the module, by
+    name: a module attribute that is the provider's own object is served, and
+    any other object is refused ("Function ... is a strange type"). The guard
+    replaces that attribute with its own wrapper, so the installation must not
+    happen inside a container - otherwise the container dies at startup and the
+    step never runs.
+
+    The check runs in a **subprocess**: the guard is installed at import time,
+    and the module is imported once per process.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import modal, modal_app\n"
+        "assert isinstance(modal_app.verify_exploit_remote, modal.Function), "
+        "type(modal_app.verify_exploit_remote)\n"
+        "assert isinstance(modal_app.ProductionAuditAgent, modal.Cls), "
+        "type(modal_app.ProductionAuditAgent)\n"
+        "print('OK')\n"
+    )
+    environment = dict(os.environ)
+    environment[r1.CONTAINER_ENV_MARKER] = "1"
+    environment["PYTHONPATH"] = str(REPO_ROOT)
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    assert completed.returncode == 0, completed.stderr[-4000:]
+    assert "OK" in completed.stdout
+
+
+def test_the_container_is_recognised_by_its_environment(monkeypatch):
+    """The installation is skipped in a container and happens everywhere else."""
+    monkeypatch.setenv(r1.CONTAINER_ENV_MARKER, "1")
+    assert r1.inside_provider_container() is True
+
+    monkeypatch.delenv(r1.CONTAINER_ENV_MARKER, raising=False)
+    monkeypatch.delenv("MODAL_TASK_ID", raising=False)
+    monkeypatch.delenv("MODAL_INPUT_ID", raising=False)
+    assert r1.inside_provider_container() is False
+
+
+def test_the_sandbox_image_carries_the_packages_the_verify_functions_import():
+    """The verify functions report the provider-issued identity of the container.
+
+    That report imports ``benchmarks.evidence_integrity``, and the image of the
+    sandbox class carries the repository's packages: without ``benchmarks`` the
+    container dies inside the function with "ModuleNotFoundError: No module
+    named 'benchmarks'" - after the sandbox has already done its work.
+    """
+    import ast
+
+    source = (REPO_ROOT / "sandbox" / "runner.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    definition = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "sandbox_image"
+            for target in node.targets
+        ):
+            definition = node.value
+            break
+    assert definition is not None, "sandbox/runner.py does not define sandbox_image"
+
+    sources = set()
+    for node in ast.walk(definition):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_local_python_source"
+        ):
+            for argument in node.args:
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                    sources.add(argument.value)
+    assert {"core", "sandbox", "benchmarks"} <= sources, (
+        "the image of the sandbox class does not carry every package the verify "
+        f"functions import: it carries {sorted(sources)}"
+    )
+
+
 def test_a_class_method_call_is_refused_while_the_bounds_are_unapproved():
     """The class-method bypass is closed: the call never reaches the provider."""
     import modal_app
@@ -950,6 +1037,153 @@ def test_the_provider_read_back_is_opt_in():
         r1_dispatch.provider_autoscaler_reader(None, "verify_exploit_remote")
 
 
+def test_object_tag_matches_modal_sdk_1_5_5_registration_tags():
+    """Module functions use their name; @app.cls service functions use 'ClassName.*'."""
+    import modal_app
+    from modal._utils.async_utils import synchronizer
+
+    raw_app = synchronizer._translate_in(modal_app.app)
+    registered_tags = set(raw_app._local_state.functions.keys())
+    assert "verify_exploit_remote" in registered_tags
+    assert "verify_replay_remote" in registered_tags
+    assert "record_trajectory_remote" in registered_tags
+    assert "ProductionAuditAgent.*" in registered_tags
+    assert "ProductionAuditAgent" not in registered_tags
+
+    assert r1_dispatch._object_tag("verify_exploit_remote") == "verify_exploit_remote"
+    assert (
+        r1_dispatch._object_tag("ProductionAuditAgent.generate_solidity_exploit")
+        == "ProductionAuditAgent.*"
+    )
+    assert (
+        r1_dispatch._object_tag("ProductionAuditAgent.refine_solidity_exploit")
+        == "ProductionAuditAgent.*"
+    )
+
+
+def test_provider_autoscaler_reader_enforces_protobuf_has_field_presence(monkeypatch):
+    """Unset protobuf fields in FunctionGetResponse must fail closed, never read as 0."""
+    from modal.client import _Client
+    from modal_proto import api_pb2
+
+    monkeypatch.setenv("R1_ENABLE_PROVIDER_READBACK", "1")
+    captured_requests = []
+    next_response = [api_pb2.FunctionGetResponse()]
+
+    class FakeStub:
+        async def FunctionGet(self, request):
+            captured_requests.append(request)
+            return next_response[0]
+
+    class FakeClient:
+        stub = FakeStub()
+
+    async def fake_from_env():
+        return FakeClient()
+
+    # The read-back uses the *asynchronous* client of Modal SDK 1.5.5; the public
+    # synchronous client is never used (see tests/test_r1_readback_sdk_compat.py).
+    monkeypatch.setattr(_Client, "from_env", fake_from_env)
+
+    # 1. Empty FunctionGetResponse (unset 'function' submessage) -> unavailable
+    next_response[0] = api_pb2.FunctionGetResponse()
+    with pytest.raises(r1_dispatch.AutoscalerReadbackUnavailable, match="no FunctionData"):
+        r1_dispatch.provider_autoscaler_reader(
+            None, "ProductionAuditAgent.generate_solidity_exploit"
+        )
+    assert captured_requests[-1].object_tag == "ProductionAuditAgent.*"
+
+    # 2. FunctionData with unset 'autoscaler_settings' submessage -> unavailable
+    next_response[0] = api_pb2.FunctionGetResponse(function=api_pb2.FunctionData())
+    with pytest.raises(
+        r1_dispatch.AutoscalerReadbackUnavailable, match="no autoscaler settings"
+    ):
+        r1_dispatch.provider_autoscaler_reader(None, "verify_exploit_remote")
+    assert captured_requests[-1].object_tag == "verify_exploit_remote"
+
+    # 3. Partial AutoscalerSettings (scaledown_window unset) -> None, refused by read_back_autoscaler
+    next_response[0] = api_pb2.FunctionGetResponse(
+        function=api_pb2.FunctionData(
+            autoscaler_settings=api_pb2.AutoscalerSettings(
+                min_containers=0,
+                max_containers=32,
+                buffer_containers=0,
+            )
+        )
+    )
+    partial = r1_dispatch.provider_autoscaler_reader(
+        None, "ProductionAuditAgent.generate_solidity_exploit"
+    )
+    assert partial == {
+        "min_containers": 0,
+        "max_containers": 32,
+        "buffer_containers": 0,
+        "scaledown_window": None,
+    }
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        r1_dispatch.read_back_autoscaler(
+            None,
+            function_name="ProductionAuditAgent.generate_solidity_exploit",
+            reader=r1_dispatch.provider_autoscaler_reader,
+        )
+    assert excinfo.value.reason == "autoscaler_readback_missing_field"
+    assert "scaledown_window" in excinfo.value.detail
+
+    # 4. Complete AutoscalerSettings -> all four integers returned
+    next_response[0] = api_pb2.FunctionGetResponse(
+        function=api_pb2.FunctionData(
+            autoscaler_settings=api_pb2.AutoscalerSettings(
+                min_containers=0,
+                max_containers=32,
+                buffer_containers=0,
+                scaledown_window=60,
+            )
+        )
+    )
+    complete = r1_dispatch.read_back_autoscaler(
+        None,
+        function_name="ProductionAuditAgent.generate_solidity_exploit",
+        reader=r1_dispatch.provider_autoscaler_reader,
+    )
+    assert complete == {
+        "min_containers": 0,
+        "max_containers": 32,
+        "buffer_containers": 0,
+        "scaledown_window": 60,
+    }
+
+
+def test_the_gpu_class_service_function_carries_the_exact_modal_sdk_deployment_kwargs():
+    """Verify the actual Modal SDK 1.5.5 _Function closure formed for ProductionAuditAgent.*."""
+    import modal_app
+    from modal._utils.async_utils import synchronizer
+
+    raw_app = synchronizer._translate_in(modal_app.app)
+    gpu_service_fn = raw_app._local_state.functions["ProductionAuditAgent.*"]
+    assert gpu_service_fn._tag_ == "ProductionAuditAgent.*"
+
+    load_fn = gpu_service_fn._load
+    cells = {
+        name: cell.cell_contents
+        for name, cell in zip(load_fn.__code__.co_freevars, load_fn.__closure__)
+    }
+    assert cells["block_network"] is True
+    assert cells["gpu"] == "H100"
+    assert cells["timeout"] == 1200
+    assert cells["min_containers"] == 0
+    assert cells["buffer_containers"] == 0
+    assert cells["max_containers"] == 32
+    # Unapproved bounds are absent (None), never replaced by permissive defaults.
+    assert cells["cpu"] is None
+    assert cells["memory"] is None
+    # The scaledown window is approved (D27): the deployment declares it, so the
+    # read-back finds the field instead of refusing on a missing one.
+    assert cells["scaledown_window"] == 60
+    volumes = dict(cells["validated_volumes_no_cloud_buckets"])
+    assert "/vol/models" in volumes
+    assert cells["secrets"] and len(cells["secrets"]) == 1
+
+
 def test_an_unavailable_read_back_refuses_the_dispatch(signed_approval):
     world = _approved_world()
 
@@ -1031,6 +1265,49 @@ def test_a_gpu_payload_cap_of_zero_is_only_possible_with_the_provider_blocking()
 # --------------------------------------------------------------------------------------
 # D - the invocation allowance
 # --------------------------------------------------------------------------------------
+
+
+def test_the_class_semaphore_is_initialized_once_under_concurrency(monkeypatch):
+    """The first-time membership check must not race across dispatch threads."""
+    gate = r1_dispatch.DispatchGate(policy=_policy())
+    barrier = threading.Barrier(2)
+    returned: List[Any] = []
+    created: List[Any] = []
+    errors: List[BaseException] = []
+    original = threading.BoundedSemaphore
+
+    class _BarrierDict(dict):
+        def __contains__(self, key):
+            # The old unsynchronised implementation checked membership outside
+            # a lock. Force both callers past that check before either can insert.
+            barrier.wait(timeout=5)
+            return super().__contains__(key)
+
+    def counting_semaphore(value=1):
+        semaphore = original(value)
+        created.append(semaphore)
+        return semaphore
+
+    monkeypatch.setattr(r1_dispatch.threading, "BoundedSemaphore", counting_semaphore)
+    gate._semaphores = _BarrierDict()
+
+    def worker() -> None:
+        try:
+            returned.append(gate._semaphore(r1.SANDBOX_CPU))
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert not errors
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(created) == 1
+    assert len(returned) == 2
+    assert returned[0] is returned[1]
 
 
 def test_the_invocation_allowance_is_consumed_atomically_under_concurrency(signed_approval):
@@ -1199,9 +1476,18 @@ def test_every_refusal_leaves_the_invocation_allowance_untouched(reason, signed_
 
 
 
-@pytest.mark.parametrize("filename", ["r1_rate_card.json", "r1_cost_scenario.json"])
-def test_signed_envelope_binds_cost_scenario_and_rate_card_bytes(filename, signed_approval, monkeypatch):
-    """A rate-card or scenario edit invalidates the signature even if Python objects stay unchanged."""
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "r1_rate_card.json",
+        "r1_cost_scenario.json",
+        "r1_readonly_evidence_20261114.json",
+    ],
+)
+def test_signed_envelope_binds_cost_scenario_rate_card_and_readonly_evidence_bytes(
+    filename, signed_approval, monkeypatch
+):
+    """Any approved cost or measured-evidence input edit invalidates the signature."""
     policy = _policy()
     world = _approved_world()
     gate = r1_dispatch.DispatchGate(policy=policy, **world)
@@ -1222,3 +1508,33 @@ def test_signed_envelope_binds_cost_scenario_and_rate_card_bytes(filename, signe
         gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", fake, {})
     assert excinfo.value.reason == "approval_envelope_mismatch"
     assert fake.calls == []
+
+def test_provider_dispatch_fails_closed_when_no_approval_key_is_pinned(monkeypatch):
+    """A syntactically present artifact cannot authorise a call without a pinned key.
+
+    This isolates the approval gate from the later resource/read-back gates:
+    even an otherwise permissive test world and a provider double must be
+    rejected before the provider is reached.
+    """
+    from core import r1_approval
+
+    monkeypatch.setattr(r1_approval, "PINNED_PUBLIC_KEY", None)
+    policy = _policy()
+    artifact = r1_approval.ApprovalArtifact(payload={}, signature=b"not-a-signature")
+    gate = r1_dispatch.DispatchGate(
+        policy=policy,
+        approval=artifact,
+        autoscaler_reader=_reader(),
+        **_approved_world(),
+    )
+    provider = FakeProviderCallable()
+
+    with pytest.raises(r1_dispatch.DispatchRefusal) as excinfo:
+        gate.dispatch(r1.SANDBOX_CPU, "verify_exploit_remote", provider, {})
+
+    assert excinfo.value.reason == "approval_not_verified"
+    assert provider.calls == []
+    assert gate.used == {}
+    assert gate.records[-1].outcome == "refused"
+    assert gate.records[-1].reason == "approval_not_verified"
+

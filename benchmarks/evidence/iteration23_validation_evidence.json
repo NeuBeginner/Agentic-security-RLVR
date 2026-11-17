@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "generator": "benchmarks/validate_iteration23_evidence.py",
-  "code_sha": "df25537934141fe6ae84e10a64973730f19f0ab0",
-  "generated_at_utc": "2026-11-15T20:20:06Z",
+  "code_sha": "749cba244b58fd76a3b91efe46df0c6bac204af6",
+  "generated_at_utc": "2026-11-10T11:50:16Z",
   "scope": {
     "iteration": 23,
     "purpose": "validate that the strict stage validation uses the registered observation side of every field, and the evidence of it",
@@ -15,11 +15,15 @@
     "benchmark_run": "not touched - the 16-target run on disk still fails the Iteration 16-18 validators and this iteration does not change that"
   },
   "git": {
-    "head": "df25537934141fe6ae84e10a64973730f19f0ab0",
-    "branch": "feat/aegis-rlvr-complete-end-to-end",
+    "head": "749cba244b58fd76a3b91efe46df0c6bac204af6",
+    "branch": "minimax/iteration-14-evidence-integrity",
     "dirty": false,
     "tracked_changes": [],
-    "untracked_paths": []
+    "untracked_paths": [
+      "benchmarks/evidence/iteration23_validation_evidence.json",
+      "test-results-iteration18-local.xml",
+      "test-results-iteration19-local.xml"
+    ]
   },
   "checks": [
     {
@@ -236,8 +240,8 @@
       "planned": "the producer source is byte-wise unchanged between the commit the capture was made from and the commit the report is bound to - the capture is therefore still the capture of this producer",
       "attempted": true,
       "executed": true,
-      "capture_code_sha": "c31dcf56810aff8273e74560bbd4dca2811a27c7",
-      "reported_code_sha": "df25537934141fe6ae84e10a64973730f19f0ab0",
+      "capture_code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
+      "reported_code_sha": "749cba244b58fd76a3b91efe46df0c6bac204af6",
       "producer_source_changed": false
     },
     {
@@ -274,7 +278,7 @@
           "iteration": 22,
           "errors": [],
           "checks_total": 11,
-          "code_sha": "6be0333c86f3854276ef8eb10be43d52da78539e"
+          "code_sha": "f0ce026d446e2c69a87f2bb4c155dcf0d36cd58b"
         }
       ]
     },

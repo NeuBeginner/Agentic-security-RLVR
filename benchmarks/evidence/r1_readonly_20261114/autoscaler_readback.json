@@ -1,0 +1,12 @@
+{
+  "collected_at_utc": "2026-11-14T08:50:44.673964+00:00",
+  "app_name": "aegis-rlvr-security",
+  "object_tag": "ProductionAuditAgent.*",
+  "environment": "main",
+  "rpc": "FunctionGet (read-only)",
+  "repository_reader": "benchmarks.r1_dispatch.provider_autoscaler_reader",
+  "reader_status": "UNAVAILABLE",
+  "reader_error": "AutoscalerReadbackUnavailable: the read-only FunctionGet of 'ProductionAuditAgent.*' failed: TypeError: object Client can't be used in 'await' expression",
+  "raw_status": "UNAVAILABLE",
+  "raw_error": "NotFoundError: App 'aegis-rlvr-security' not found in environment 'main'"
+}

@@ -37,14 +37,15 @@ production value and never hardcodes a price.
 | `tests/test_r1_dispatch_boundary.py` | the boundary proofs: no provider callable in the repository, the class-method boundary, and the gate that is not self-authorising |
 | `tests/conftest.py` | the shared fixtures, including the **out-of-band act of the approval authority** (the test key that signs an approval artifact) |
 | `tests/test_r1_cost_model.py` | the proofs of the cost model and of the one authoritative command |
+| `tests/test_r1_readback_sdk_compat.py` | the proofs of the Modal SDK 1.5.5 compatibility of the read-back: the asynchronous client, the synchronizer's loop, the fail-closed behaviour and the absence of the mutating autoscaler RPC |
 
 ## D26 — explicit request/limit pairs and an explicit lifecycle
 
 | class | cpu | memory | timeout | startup_timeout | scaledown_window |
 |---|---|---|---|---|---|
-| sandbox CPU | request **2.0** (declared, `core/config.py:37`) / limit **unset** | request **2048 MiB** (declared, `core/config.py:38`) / limit **unset** | **60 s** (declared, `core/config.py:36`) | **unset** | **unset** |
-| GPU class (`ProductionAuditAgent`) | request **unset** / limit **unset** | request **unset** / limit **unset** | **1200 s** (declared, the deployed value `modal_app.py`) | **unset** | **unset** |
-| persistence function | request **unset** / limit **unset** | request **unset** / limit **unset** | **60 s** (declared, the deployed value) | **unset** | **unset** |
+| sandbox CPU | request **2.0** (declared, `core/config.py:37`) / limit **unset** | request **2048 MiB** (declared, `core/config.py:38`) / limit **unset** | **60 s** (declared, `core/config.py:36`) | **unset** | **60 s** (approved 2026-11-16) |
+| GPU class (`ProductionAuditAgent`) | request **unset** / limit **unset** | request **unset** / limit **unset** | **1200 s** (declared, the deployed value `modal_app.py`) | **unset** | **60 s** (approved 2026-11-16) |
+| persistence function | request **unset** / limit **unset** | request **unset** / limit **unset** | **60 s** (declared, the deployed value) | **unset** | **60 s** (approved 2026-11-16) |
 
 Why the limits are unset: they are production values that change the bill, and the
 maintainer has not approved them. A request is not a limit — the provider's default
@@ -52,6 +53,13 @@ CPU limit is `request + 16`, which moves whenever the request moves, and the mem
 line has **no** limit at all while the limit is unset. The *candidate* values and
 their rationale are in `docs/r1_cost_proposal.md`; they are proposals, not
 declarations.
+
+The **scaledown window** is the exception: the owner approved **60 s** for all three
+classes on 2026-11-16. 60 s is the provider's published default (the value the
+deployment inherited implicitly) and the value the candidate bounds of the cost
+scenario carry — so the declaration now states it explicitly instead of leaving it
+to the provider. That matters for D27: an **undeclared** field is a **missing**
+field in the read-back, and a missing field is a refusal.
 
 `T_billable = startup_timeout + timeout + scaledown_window` is therefore a number
 only once all three are declared. The estimator refuses while it is not.
@@ -65,7 +73,7 @@ Every class declares, in its decorator:
 | `min_containers` | **0** | **0** | **0** | no container is kept warm while the function is inactive ⇒ every billed container exists to serve a demand |
 | `buffer_containers` | **0** | **0** | **0** | no idle container is maintained while the function is active ⇒ no billed container is idle by design |
 | `max_containers` | **48** | **32** | **16** | the provider-enforced **concurrency** ceiling of the class — the union ceiling of every authorised step (plan §8.2.5) |
-| `scaledown_window` | unset | unset | unset | the idle tail of `T_billable` — an approval input |
+| `scaledown_window` | **60 s** | **60 s** | **60 s** | the idle tail of `T_billable` — approved 2026-11-16 (the provider's published default), so the deployment declares it and the read-back finds it |
 
 `max_containers` is a *concurrency* cap. It never clamps a cumulative quantity: the
 number of containers a class starts over a step is bounded by the **invocation
@@ -90,17 +98,64 @@ The read-back therefore uses the provider's **read-only** `FunctionGet` RPC — 
 one the SDK itself uses to load a function (`modal/_functions.py:1315-1322`) — and
 reads `FunctionData.autoscaler_settings` from its response. The SDK drops that field
 when it builds its own `FunctionInfo`, which is why the read happens in
-`benchmarks/r1_dispatch.py:provider_autoscaler_reader`. The reader is additionally
+`benchmarks/r1_dispatch.py:provider_autoscaler_reader`. Static inspection against
+installed Modal SDK `1.5.5` (`modal/cls.py`, `modal/_functions.py`,
+`modal_proto/api_pb2.py`) pins two wire-level requirements in
+`provider_autoscaler_reader`:
+
+1. **Class service-function `object_tag` resolution.** A module-level `@app.function`
+   is registered in `app._local_state.functions` under its own function name
+   (`_tag_ = "verify_exploit_remote"`), whereas `@app.cls` registers a class service
+   function under `f"{cls_name}.*"` (`modal/cls.py:730`: `class_service_name = f"{name}.*"`
+   and `modal/_functions.py:175`: `self.implementation_name = f"{user_cls.__name__}.*"`).
+   `_object_tag("ProductionAuditAgent.generate_solidity_exploit")` therefore resolves
+   to `"ProductionAuditAgent.*"` so `FunctionGetRequest.object_tag` addresses the actual
+   deployed class service function.
+2. **Protobuf `HasField` presence enforcement.** In `modal_proto/api_pb2.py`,
+   `FunctionGetResponse.function` (`FunctionData`, field 5),
+   `FunctionData.autoscaler_settings` (`AutoscalerSettings`, field 31), and all four
+   scalar fields of `AutoscalerSettings` (`min_containers`, `max_containers`,
+   `buffer_containers`, `scaledown_window`) declare `has_presence=True`. Because Python
+   protobuf returns a default submessage or `0` on `getattr(...)` when an optional
+   field is unset — and because `modal/_functions.py:1334` only consumes
+   `response.function_id` and `response.handle_metadata` without guaranteeing that the
+   server populates `response.function.autoscaler_settings` on `FunctionGet` —
+   `provider_autoscaler_reader` explicitly checks `HasField("function")`,
+   `HasField("autoscaler_settings")`, and per-field `HasField(name)`. Any unset
+   submessage raises `AutoscalerReadbackUnavailable`, and any unset scalar field is
+   mapped to `None` (refused with `autoscaler_readback_missing_field`), never silently
+   coerced to `0`.
+
+The reader is additionally
 **opt-in**: it needs `R1_ENABLE_PROVIDER_READBACK=1` in the environment, so that no
 test and no accidental code path can reach the provider. Without the opt-in the read
 is *unavailable* and the step is refused (`autoscaler_readback_unavailable`).
 
+**The client of the read (Modal SDK 1.5.5).** The SDK exposes two clients and they
+are not interchangeable: `modal.client.Client` is the **synchronous** wrapper
+(`Client = synchronize_api(_Client)`, `modal/client.py:532`), so `Client.from_env()`
+returns the client and is not awaitable, while `modal.client._Client` is the
+**asynchronous** client (`async def from_env`, `modal/client.py:238`). The RPC itself
+is asynchronous in both cases — the generated stub is
+`modal._grpc_client.UnaryUnaryWrapper` and its `__call__` is `async def` — so the read
+has to run on an event loop that owns the gRPC channel of the client. The reader
+therefore builds the call through `synchronize_api`, the SDK's own synchronisation
+machinery: the coroutine runs on the **Modal synchronizer's loop**, the same loop the
+public synchronous client uses. Awaiting the public client raises `TypeError: object
+Client can't be used in 'await' expression`, and running the read on a *private* loop
+blocks forever as soon as the public synchronous client has been created in the
+process — which the provider does when it resolves a Modal object. Both were measured
+across nine client paths; see `docs/r1_sdk_compat_report_20261114.md` and
+`benchmarks/evidence/r1_sdk_compat_20261114/`. The proofs are in
+`tests/test_r1_readback_sdk_compat.py`.
+
 The comparison is against the **declaration** of the class
 (`core.r1_bounds.declared_autoscaler_settings`). A field that is required-but-unset in
 the declaration cannot be compared, so the dispatch is refused
-(`autoscaler_readback_malformed`). In the state of this repository that is the case
-for `scaledown_window` — which is exactly the intended fail-closed behaviour while
-the bound is unapproved.
+(`autoscaler_readback_malformed`). With the **scaledown window approved** (60 s,
+2026-11-16) all four fields are declared by all three classes, so the comparison is
+complete; a *missing* field in the read-back is now a **defect of the deployment**,
+not a consequence of an unapproved bound — and it is refused as such.
 
 ## D28 — the producer-enforced payload cap and the storage interval
 
@@ -134,26 +189,55 @@ The model has three parts and no fourth:
    the sum of the per-stage totals is **exactly** the cycle total: the standing
    baseline is never priced twice.
 
-The current cycle: peak **56.908 GiB**, time-weighted **56.906 GiB**,
-**69.58 GiB-month** of footprint against an allowance of **1 252 GiB-month** ⇒ the
-storage of the whole cycle costs **USD 0**.00.
+The current cycle: peak **116.839 GiB**, time-weighted **116.837 GiB**,
+**142.86 GiB-month** of footprint against an allowance of **1 252 GiB-month** ⇒ the
+storage of the whole cycle costs **USD 0**.00. The peak starts at the **measured**
+baseline of the Volume (59.930256 GiB) and adds the conservative prefetch worst case
+(the pinned cache, 56.888 GiB) on top of it.
 
-### The footprint is a candidate estimate, and the capacity proof is unavailable
+### The baseline is measured; the capacity proof is available, with open sub-items
 
 The **cost** of the storage above is USD 0 while the footprint stays inside the
 allowance — that arithmetic is kept. The **proof** that the cycle fits the account
-is a different question, and it is **UNAVAILABLE**:
+is a different question, and it is now **AVAILABLE**:
 
 | what | state | why |
 |---|---|---|
-| the **baseline** of the remote Volume | **UNKNOWN** | R1 performed **no Volume operation** (it is prohibited in this task), so the existing baseline of this workspace is **not measured** by this evidence. The `0.0 GiB` of the scenario is an **assumption**, not a measurement |
+| the **baseline** of the remote Volume | **MEASURED** — **64 349 622 024 bytes** (59.930256 GiB) | the read-only inventory of 2026-11-14: two independent listings (one recursive, one breadth-first) agree byte-for-byte, 247 entries = 156 files + 42 directories + 49 symlinks. Evidence: `benchmarks/evidence/r1_readonly_evidence_20261114.json` and `docs/r1_readonly_evidence_report_20261114.md`, §1. The estimator **verifies the scenario against that file** and refuses a baseline that is not the measured one |
 | the **measured local bytes** | **5 034 779 bytes** (0.004689 GiB, 159 tracked files) | the tracked artifacts tree of this repository, measured on 2026-11-12 with `git cat-file -s`. These are the *local* evidence bytes — they are **not** the volume's baseline |
 | the **increment of a future run** | **CANDIDATE ESTIMATE** (56.888 GiB of model cache + 0.001/0.02 GiB of evidence) | the size of the artefacts a future run *would* write; the published run's tracked artifacts (0.004689 GiB) anchor the order of magnitude, the values themselves are not measured |
-| the **capacity proof** | **UNAVAILABLE** | it needs the volume's existing baseline. It stays unavailable until a **read-only baseline measurement** or a **defensible conservative bound** exists |
+| the **capacity proof** | **AVAILABLE** | the baseline is measured, the workspace holds exactly **one** Volume (so the measured total *is* the account-wide footprint), and against the published 1 024 GiB/month allowance the account uses 5.85 % with 964.07 GiB of headroom; the billing summary of the same month corroborates it (volumes metered 1.98 USD, fully covered by the free allowance, billed 0.00 USD) |
 
 The estimator reports these states in every run (`baseline_status`,
-`incremental_status`, `capacity_proof`, `capacity_proof_reasons`), so a reader never
+`incremental_status`, `capacity_proof`, `capacity_proof_reasons`,
+`capacity_proof_missing_evidence`, `capacity_proof_residuals`), so a reader never
 has to guess whether a number was measured or assumed.
+
+**Open sub-items of the capacity proof** — they do not make the proof unavailable,
+but they are reported next to it in every run:
+
+1. **The account-wide concurrent storage peak has no API gauge.** The measured total
+   is an instantaneous inventory; the monthly billing confirms that the account stays
+   inside the allowance. An explicit operator attestation may substitute for this
+   sub-item.
+2. **Post-R2p model-cache manifest and Volume footprint read-back:** verification that
+   the materialised revision `655425b794ae4a19f2ea16fa480c6b39102721ee` of
+   `qtum/Qwen3-Coder-30B-A3B-Audit` on `aegis-model-cache` equals the pinned
+   `61 077 997 602 bytes` (`56.888 GiB`) with no residual staging or partial-download
+   artefacts.
+3. **Post-R3b/R4 trajectory footprint and retention-deletion verification:** measurement
+   of the written trajectory bytes after R3b and R4 (confirming they remain within the
+   `0.021 GiB` candidate bound) and verification of their deletion at the end of the
+   30-day retention window.
+
+**The footprint of R2p counts the pinned bytes twice, on purpose.** The measured
+baseline already contains the pinned revision (23/23 files, byte-exact), so a
+prefetch of the same revision would in the measured state write only the
+manifest. The candidate keeps the **cold-cache worst case** — the full pinned
+cache — because the estimate is an approval input of its own and the
+implementation of the prefetch did not change it: the cold path is still the
+priced one, and it still needs the retry allowance of the download. The
+resulting peak is an **upper bound** of the cycle, not a prediction of it.
 
 ## D29 — the egress
 
@@ -190,9 +274,20 @@ counted as zero.
 
 The GPU class declares `block_network=r1.class_network_policy(r1.GPU_CLASS)`, which is
 **True**. The semantics are proven by the SDK itself: the parameter exists for
-`app.cls` (`modal/app.py:1102`), it is transmitted to the provider as
-`api_pb2.Function.block_network` (`modal/_functions.py:1044`) and it is the provider's
-documented outbound-traffic switch. The declaration is **not** a workload-level
+`app.cls` (`modal/app.py:1102`), is forwarded at `modal/app.py:1288` into
+`_Function._from_local` for the class service function `ProductionAuditAgent.*`, and is
+transmitted to the provider as `api_pb2.Function.block_network`
+(`modal/_functions.py:1044`) — the provider's documented outbound-traffic switch.
+Static inspection of `modal_app.app._local_state.functions["ProductionAuditAgent.*"]`
+confirms the exact closure state formed by `modal_app.py`:
+
+* `_tag_ == "ProductionAuditAgent.*"`
+* `block_network is True`
+* `gpu == "H100"`, `timeout == 1200`, `min_containers == 0`, `buffer_containers == 0`, `max_containers == 32`
+* `cpu is None`, `memory is None`, `scaledown_window == 60` (the approved idle-retention bound reaches the decorator; the unapproved CPU/memory limits remain absent from `r1.GPU_PROFILE.modal_kwargs()`, never replaced by permissive defaults; `modal/app.py:1282` internally sets `startup_timeout = startup_timeout or timeout` on `_Function`, while `r1.GPU_PROFILE.startup_timeout_sec` remains `Unset` so the R1 gate blocks dispatch)
+* `/vol/models` is mounted to the `aegis-model-cache` Volume (`validated_volumes_no_cloud_buckets`), and `secrets` includes `r1.OFFLINE_ENV` (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`).
+
+The declaration is **not** a workload-level
 convention: the offline environment and the verified cache manifest are the second,
 independent layer.
 
@@ -259,19 +354,25 @@ refusal, and the historical Iteration 19 evidence is untouched by any of this.
 
 The gate enforces, per step:
 
-1. the **authorisation of the call site** (`unauthorised_call_site`) — the refusal
-   registry of `core/r1_bounds.py` names every provider call site that is *not* part
-   of the authorised trace: the T4 dev agent, the Slither worker, the fault-injection
-   worker, the volume audit, the GRPO diagnostic and the GRPO training, and the
-   audit-role method of the GPU class. The check is the **first** one, so a refusal
-   names the call site instead of a downstream symptom;
+1. the **authorisation of the call site and its authoritative container class**
+   (`unauthorised_call_site`) — the refusal registry of `core/r1_bounds.py` names
+   every provider call site that is *not* part of the authorised trace: the T4 dev
+   agent, the Slither worker, the fault-injection worker, the volume audit, the GRPO
+   diagnostic and the GRPO training, and the audit-role method of the GPU class. The
+   gate also checks that the caller-supplied `container_class` equals the
+   authoritative class mapped in `core/r1_bounds.FUNCTION_CLASS`, so a call site
+   cannot be mislabelled to borrow another class's bounds or allowance. The check is
+   the **first** one, so a refusal names the call site instead of a downstream
+   symptom;
 2. an **approved step policy** — a provider dispatch without one is refused
    (`no_approved_step_policy`), and the policy itself must declare the wall-clock
    budget, the post-execution deadline, the monetary ceiling and an estimate at or
    below that ceiling;
-3. a **signed approval** of the step (`approval_not_verified`,
-   `approval_policy_mismatch`, `call_site_not_approved`) — the gate verifies the
-   artifact itself, at dispatch time; see *The approval is external* below;
+3. a **signed approval of both the `StepPolicy` and the complete D26–D29 dispatch
+   envelope** (`approval_not_verified`, `approval_policy_mismatch`,
+   `call_site_not_approved`, `approval_envelope_unavailable`,
+   `approval_envelope_mismatch`) — the gate verifies the artifact itself at the gate
+   and again immediately before provider entry; see *The approval is external* below;
 4. the **completeness of the declared bounds** of the class (`bounds_not_approved`);
 5. the **egress declaration** of the function (`no_egress_declaration`,
    `egress_bound_not_approved`);
@@ -288,17 +389,45 @@ The gate enforces, per step:
 
 Every refusal is recorded with its machine-readable reason.
 
-**The approval is external.** The gate is a mechanism, not an authorisation: a step
-policy that a caller constructs in-process — with an `approved_by` of its own choosing
-— authorises nothing. The authorisation is the **approval artifact** of the step: a
-JSON document that names the step, the approver, the moment of the approval, the call
-sites it covers and the exact policy it approves, and that carries an **RSA
-signature** (RSASSA-PKCS1-v1_5 over SHA-256) over its canonical form. The signature
-is verified against the **public** key of the approval authority, which the repository
-pins in the source (`core/r1_approval.py::PINNED_PUBLIC_KEY`) and mirrors for the
-audit trail in `benchmarks/evidence/r1_approval_key.json`; the private half of that
-key never enters this repository and never enters the process, so a caller that can
-only run code here cannot mint an approval.
+**The approval is external — and binds the complete D26–D29 dispatch envelope, not
+`StepPolicy` alone.** The gate is a mechanism, not an authorisation: a step policy
+that a caller constructs in-process — with an `approved_by` of its own choosing —
+authorises nothing. The contract distinguishes two levels:
+
+* **(a) Signature verification of `StepPolicy` alone (`policy_digest`)** binds only the
+  per-step invocation budgets, concurrency caps, wall-clock and post-execution
+  deadlines, estimate and monetary ceiling. That check is necessary (`approval_policy_mismatch`),
+  but by itself it is **insufficient**, because resource profiles, autoscaler lifetimes,
+  network/egress policies, persistence caps, model/cache identities and cost inputs live
+  outside `StepPolicy`. A policy-only artifact is therefore rejected outright
+  (`approval_not_verified`).
+* **(b) Approval of the complete D26–D29 dispatch envelope (`dispatch_envelope_digest`)**
+  is required before any stage could become dispatchable. The signed JSON artifact must
+  include a canonical `dispatch_envelope` (`schema: "r1-dispatch-envelope/1"`) binding
+  every effective input that can alter the safety, resource or cost envelope: the
+  `StepPolicy`, the deployment and volume configuration (including `/vol/models` mount
+  path and free-allowance parameters), the `solc`/`foundry` toolchain versions, the
+  authoritative `function_class_map`, both declared (`core.r1_bounds.PROFILES`) and
+  effective per-class `ResourceProfile`s (CPU/memory request/limit, GPU type,
+  startup/execution/scaledown lifetimes, min/buffer/max containers, volume mounts and
+  provenance), declared and effective egress/ingress/network-blocking policies,
+  `MAX_TRAJECTORY_PAYLOAD_BYTES`, `PINNED_MODEL` (enforced via `revision=` in
+  `modal_app.py` and SHA-256 checks in `verify_model_cache_manifest`), the live
+  model-cache manifest state and SHA-256 digest, and the SHA-256 digests of
+  `benchmarks/evidence/r1_cost_scenario.json` and `benchmarks/evidence/r1_rate_card.json`.
+
+The gate recomputes `dispatch_envelope_payload()` from the live authoritative
+declarations and the gate's effective configuration (including any caller-injected
+`profiles` or `egress_policies`) at dispatch time — and re-verifies it immediately
+before provider entry — comparing its canonical SHA-256 digest against the signed
+`claims.dispatch_envelope_digest`. Any missing, extra, non-finite, malformed or altered
+bound, profile, network policy, model/cache identity or cost-input byte fails closed
+with `approval_envelope_unavailable` or `approval_envelope_mismatch` before any
+provider call is made. The RSA signature (RSASSA-PKCS1-v1_5 over SHA-256) is verified
+against the **public** key of the approval authority pinned in
+`core/r1_approval.py::PINNED_PUBLIC_KEY` and mirrored in
+`benchmarks/evidence/r1_approval_key.json`; the private half never enters this
+repository or process.
 
 **The gate verifies the artifact itself.** The dispatch gate takes the **signed
 artifact** — the payload and its signature — and verifies the signature itself, at
@@ -315,14 +444,23 @@ The evidence mirror is a second copy of the pin: a mirror that is missing, malfo
 or different from the source pin is refused, and with it every approval (fail
 closed).
 
-**R1 pins no key** — the source pin is `null` and the mirror says `null` too,
-because no step of the evidence-regeneration workflow has been approved by the
-maintainer yet. The consequence is the intended one: **no provider dispatch is
-possible in R1**, and it is impossible *structurally* — not only because the bounds
-of the container classes are required-but-unset. The approval binds the exact policy
-it approves: a caller that swaps a cap, a budget or a ceiling after the approval was
-issued does not hold the approval any more (`approval_policy_mismatch`), and an
-approval of another step does not cover this one (`call_site_not_approved`).
+**The approval authority pinned its public key on 2026-11-15** — the RSA-4096
+modulus and the exponent `65537` are in the source (`core/r1_approval.py`) and
+in the mirror (`benchmarks/evidence/r1_approval_key.json`), and the SHA-256 of
+the DER SubjectPublicKeyInfo is
+`4aafb8901f819081613a2507a5f2d95ed348bf248e5f8711ddad248c786b2ac9`. Only the
+**public** half is in the repository; the private half stays with the
+maintainer and never enters it.
+
+**A pin is not an approval.** The pin says *who may approve*; it says nothing
+about *what is approved*. No approval artifact exists in the repository and no
+step of the evidence-regeneration workflow is approved, so the consequence is
+the intended one: **no provider dispatch is possible**, and it is impossible
+*structurally* — not only because the bounds of the container classes are
+required-but-unset. The approval binds the exact policy it approves: a caller
+that swaps a cap, a budget or a ceiling after the approval was issued does not
+hold the approval any more (`approval_policy_mismatch`), and an approval of
+another step does not cover this one (`call_site_not_approved`).
 
 The invocation allowance is consumed only by a dispatch that really starts a
 container.** The check and the increment happen under **one** lock, so two concurrent
@@ -402,9 +540,14 @@ is a property of the language and of the process, not of this guard. What the gu
   in a registry, not in an attribute (a test invokes every callable the module holds,
   including the contents of their closures, against a fake provider and requires zero
   recorded calls);
-* **no provider dispatch is possible without a signed approval** — the gate verifies
-  the artifact itself against the pinned key, and R1 pins no approval key, so no live
-  provider dispatch is possible at all;
+* **no provider dispatch is possible without a signed approval of the complete
+  D26–D29 dispatch envelope** — the gate verifies the artifact itself against the
+  pinned key and compares both `policy_digest` and the live `dispatch_envelope_digest`
+  (covering resource profiles, autoscaler lifetimes, network/egress/ingress bounds,
+  payload caps, volume/toolchain settings, pinned model/cache digests and cost/rate-card
+  SHA-256 digests). The repository pins the **public** key of the approval
+  authority, but no approval artifact exists, so no live provider dispatch is
+  possible at all;
 * **no value whose construction conveys authority exists** — there is no issuance
   token, no unforgeable-in-practice marker and no "verified approval" object the
   gate accepts; the only way through the boundary is a signature of the approval
@@ -422,15 +565,16 @@ authorisation of the operator, not by code.
 | item | state | reason |
 |---|---|---|
 | the CPU / memory **limits** of the three classes | required-but-unset | production values that change the bill; the maintainer has not approved them (the candidates are in the cost proposal) |
-| `startup_timeout`, `scaledown_window` | required-but-unset | approval inputs; `T_billable` is not a number without them |
+| `startup_timeout` | required-but-unset | an approval input; `T_billable` is not a number without it |
+| `scaledown_window` | **approved: 60 s** (all three classes, 2026-11-16) | the provider's published default, made explicit: the deployment declares it, the D27 read-back finds the field, and the estimate is unchanged |
 | the **protocol allowance** | required-but-unset | an approval input with its source and date; without it the egress term is unavailable |
-| `MAX_TRAJECTORY_PAYLOAD_BYTES` | required-but-unset | the persistence function therefore refuses every payload (fail closed) |
-| the **prefetch function** (R2p) | not implemented in R1 | it is a separately authorised step and its download timeout is an approval input; its per-container **ingress** bound **is** declared, so the estimator can price R2p |
+| `MAX_TRAJECTORY_PAYLOAD_BYTES` | **approved: 1 MiB** (1 048 576 bytes, 2026-11-16) | the persistence function refuses a payload above the cap (fail closed) and writes a smaller one; the cap is bound by the dispatch envelope, so a change of it invalidates the signature |
+| the **prefetch function** (R2p) | **implemented** (idempotent) | it verifies the materialised pinned revision, writes the manifest and downloads nothing; the **cold** path (an empty cache) needs the **retry allowance** of the download, which is still required-but-unset, so a cold cache refuses instead of downloading without a bound (D29) |
 | the **Iteration 19 CPU smoke** (a separate deployment) | **refused** | it is not part of the authorised trace: no approved step policy, no declared bounds, no egress declaration. The live invocation refuses before the ephemeral app starts; only an explicit maintainer approval lifts it |
-| the **capacity proof** of the storage | **unavailable** | the baseline of the remote Volume is not measured by this evidence (no Volume operation); it needs a read-only baseline measurement or a defensible conservative bound |
+| the **capacity proof** of the storage | **available**, with open sub-items | the baseline of the remote Volume is measured (64 349 622 024 B = 59.930256 GiB, read-only inventory of 2026-11-14) and verified against its evidence file; the account-wide concurrent peak has no API gauge and the post-R2p/post-R3b-R4 read-backs are still open |
 | the **per-stage ceilings** | not approved | they are proposed in `docs/r1_cost_proposal.md` and await the maintainer's review |
 | every compute step | **not dispatchable** | the estimate is unavailable while the bounds above are unset, and an unavailable estimate means no dispatch |
-| every **provider dispatch** of R1 | **refused** | no step of the workflow is approved: the repository pins no approval key, so no approval artifact can be verified and the gate refuses with `approval_not_verified` — the refusal is structural, not a side effect of the unset bounds |
+| every **provider dispatch** | **refused** | no step of the workflow is approved: the repository pins the **public** key of the approval authority, but no approval artifact exists, so nothing can be verified and the gate refuses with `approval_not_verified` — the refusal is structural, not a side effect of the unset bounds |
 
 Nothing in R1 spends a cent: the declared state is fail-closed, the approval of every
 step is absent, and the guard refuses every provider call while it holds.

@@ -33,8 +33,26 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
 from contextlib import contextmanager
+from contextvars import ContextVar
 
 _MODAL_APP_RUNNING = False
+
+#: The provider addressing mode of the run.
+#:
+#: ``False`` (the default) keeps the behaviour of the repository as it was: the
+#: provider callables come from the local ``modal_app`` module and the run needs
+#: an ephemeral app context.
+#:
+#: ``True`` is the mode of an **approved** run: the application is **deployed**,
+#: so its provider callables are resolved **by name** against the deployed app
+#: (``modal.Function.from_name`` / ``modal.Cls.from_name``). A local import of
+#: ``modal_app`` is not usable from a separate process: the object it hands out
+#: is not hydrated, so a call to it fails with "Function has not been hydrated
+#: with the metadata it needs to run on Modal, because the App it is defined on is
+#: not running".
+_DEPLOYED_ADDRESSING: ContextVar[bool] = ContextVar(
+    "aegis_deployed_addressing", default=False
+)
 
 
 def dispatch_via_r1_gate(container_class: str, function_name: str, fn, *args, **kwargs):
@@ -114,6 +132,211 @@ def ensure_modal_app_context() -> ModalAppContext:
     return ModalAppContext()
 
 
+# --------------------------------------------------------------------------------------
+# The addressing of the provider callables
+# --------------------------------------------------------------------------------------
+
+
+def deployed_addressing_enabled() -> bool:
+    """True when the run addresses the **deployed** application by name."""
+    return _DEPLOYED_ADDRESSING.get()
+
+
+@contextmanager
+def deployed_app_addressing(enabled: bool = True):
+    """Address the deployed application by name for the duration of the block.
+
+    The mode changes **where** the provider callables come from - the deployed
+    app, addressed by name - and **nothing else**: every call still goes through
+    the R1 dispatch gate, the signed approval and the persistent budget ledger.
+    """
+    token = _DEPLOYED_ADDRESSING.set(bool(enabled))
+    try:
+        yield
+    finally:
+        _DEPLOYED_ADDRESSING.reset(token)
+
+
+def deployed_provider_function(function_name: str) -> Any:
+    """The **deployed** function of the application, guarded on the client side.
+
+    The client-side guard is the same one the local ``modal_app`` module
+    installs: it is installed **on the provider object itself** (its own
+    ``remote``), so every reference to the object is gated and the raw provider
+    callable is not reachable through any attribute of the guard. The guard
+    routes the call through the R1 gate - the invocation budget, the concurrency
+    gate, the ceiling assertion, the payload cap and the autoscaler read-back
+    apply to it exactly as they apply to every other dispatch.
+    """
+    import modal
+
+    from core.config import config
+    from core import r1_bounds as r1
+
+    fn = modal.Function.from_name(config.APP_NAME, function_name)
+    return r1.install_provider_guard(function_name, fn)
+
+
+def deployed_provider_class(class_name: str) -> Any:
+    """The **deployed** class of the application, guarded on the client side.
+
+    Instantiating the guarded class hands out a guarded instance: every provider
+    method of it is a guarded method, so the class-method path is no bypass of
+    the dispatch gate.
+    """
+    import modal
+
+    from core.config import config
+    from core import r1_bounds as r1
+
+    cls = modal.Cls.from_name(config.APP_NAME, class_name)
+    return r1.install_class_guard(class_name, cls)
+
+
+def provider_function(function_name: str) -> Any:
+    """The provider callable of a call site - the deployed one or the local one.
+
+    In the deployed mode the callable is resolved **by name** against the
+    deployed application; otherwise it is the guarded callable of the local
+    ``modal_app`` module.
+    """
+    if deployed_addressing_enabled():
+        return deployed_provider_function(function_name)
+
+    import importlib
+
+    module = importlib.import_module("modal_app")
+    return getattr(module, function_name)
+
+
+def provider_class_method(class_name: str, method_name: str) -> Any:
+    """The provider callable of a class method - the deployed one or the local one."""
+    if deployed_addressing_enabled():
+        instance = deployed_provider_class(class_name)()
+    else:
+        import importlib
+
+        module = importlib.import_module("modal_app")
+        instance = getattr(module, class_name)()
+    return getattr(instance, method_name)
+
+
+@contextmanager
+def provider_call_context():
+    """The context a provider call needs.
+
+    A run that addresses the **deployed** application needs no ephemeral app:
+    its provider callables are resolved by name against the deployed app, so
+    nothing is run locally and no container is started by the context itself. A
+    run without an approval keeps the ephemeral app context of the local
+    ``modal_app`` module.
+    """
+    if deployed_addressing_enabled():
+        yield
+        return
+    with ensure_modal_app_context():
+        yield
+
+
+# --------------------------------------------------------------------------------------
+# The client-side observation of the deployed app and of the container of a call
+# --------------------------------------------------------------------------------------
+
+
+#: The provider-issued container ids this client correlated to a provider call,
+#: keyed by the function-call id. The provider names the container of an input
+#: only while that container exists, so the correlation is made **right after
+#: the call returned** - a correlation made at the end of the run finds nothing,
+#: because the container of the call is gone by then.
+_CLIENT_OBSERVED_CONTAINER_IDS: Dict[str, Dict[str, Any]] = {}
+
+#: The handle of the deployed application, resolved once per process.
+_DEPLOYED_APP_HANDLE: Optional[Any] = None
+
+
+def _deployed_app_handle() -> Tuple[Optional[Any], str]:
+    """The handle of the **deployed** application - resolved on the client side.
+
+    ``modal.App.lookup`` with ``create_if_missing=False`` only **reads**: the
+    provider resolves the existing app record and never creates one. The
+    lookup is awaited inside the SDK's own task context, the way the SDK's own
+    command line reaches the very same provider.
+
+    Returns the handle and an empty reason, or ``(None, reason)`` when the
+    provider could not be asked.
+    """
+    global _DEPLOYED_APP_HANDLE
+
+    if _DEPLOYED_APP_HANDLE is not None:
+        return _DEPLOYED_APP_HANDLE, ""
+
+    import modal
+
+    from core.config import config
+
+    try:
+        from modal._utils.async_utils import synchronizer
+
+        async def _lookup():
+            return await modal.App.lookup.aio(config.APP_NAME)
+
+        handle = synchronizer.wrap(_lookup)()
+    except Exception as exc:
+        return None, f": {type(exc).__name__}: {exc}"
+
+    _DEPLOYED_APP_HANDLE = handle
+    return handle, ""
+
+
+def _deployed_app_id() -> Tuple[Optional[str], str]:
+    """The provider-issued application id of the deployed application.
+
+    Two reads, in this order:
+
+    * the SDK's own lookup of the app name (``create_if_missing=False``), which
+      yields the handle of the deployed app; and
+    * the provider's own lookup of the app name, which yields the very same id
+      through the gRPC call the SDK sends for it.
+
+    Neither of them creates anything. The id is never invented: when the
+    provider names no application the caller states the absence.
+    """
+    handle, reason = _deployed_app_handle()
+    if handle is not None:
+        app_id = getattr(handle, "app_id", None)
+        if app_id:
+            return str(app_id), ""
+
+    from core.config import config
+
+    try:
+        from benchmarks.modal_provider import ModalProvider
+
+        app_id = ModalProvider().app_id_of_app_name(config.APP_NAME)
+        if app_id:
+            return app_id, ""
+    except Exception as exc:
+        reason = reason or f": {type(exc).__name__}: {exc}"
+    return None, reason
+
+
+def _runtime_function_call_id(runtime_identity: Any) -> Optional[str]:
+    """The provider-issued function-call id of a runtime envelope.
+
+    The envelope is the worker's own report: it names the function call the
+    worker executed. A value that is not an observed envelope names no call.
+    """
+    if not isinstance(runtime_identity, dict):
+        return None
+    fact = runtime_identity.get("function_call_id")
+    if not isinstance(fact, dict):
+        return None
+    value = fact.get("value")
+    if fact.get("status") != "OBSERVED" or not isinstance(value, str) or not value:
+        return None
+    return value
+
+
 def _client_observed_app_id() -> Dict[str, Any]:
     """
     The provider-issued application id of the running Modal app - observed on
@@ -124,6 +347,11 @@ def _client_observed_app_id() -> Dict[str, Any]:
     holds the provider-issued ``App.app_id`` of the app it ran - the SDK keeps
     it after the app has finished.
 
+    A run that addresses the **deployed** application by name never ran a local
+    app, so the local app object holds no id at all. The id of the deployed app
+    is read from the provider instead: the provider's own lookup of the app
+    name returns the provider-issued id of that very app.
+
     The fact is explicitly client-side: a client observation is never
     presented as a worker observation.
     """
@@ -133,6 +361,21 @@ def _client_observed_app_id() -> Dict[str, Any]:
         not_available,
         observed,
     )
+
+    if deployed_addressing_enabled():
+        app_id, reason = _deployed_app_id()
+        if app_id:
+            return observed(
+                app_id,
+                source=SOURCE_CLIENT_APP_ID,
+                observed_by=OBSERVATION_SIDE_CLIENT,
+            )
+        return not_available(
+            "the run addresses the deployed application by name, so no local app was run: the "
+            "provider-issued application id of the deployed app could not be resolved on the "
+            f"client side{reason}",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
 
     app_id = None
     try:
@@ -163,6 +406,10 @@ def _client_observed_app_page_url() -> Dict[str, Any]:
     ``App.get_dashboard_url()`` is a supported public method of the SDK; it
     returns the provider's URL of the app it belongs to. A function container
     has no such API, so this fact is a client-side one.
+
+    A run that addresses the **deployed** application by name reads the URL
+    from the handle of that very app - the provider's URL of the deployed app,
+    not of a local app that was never run.
     """
     from benchmarks.evidence_integrity import (
         OBSERVATION_SIDE_CLIENT,
@@ -170,6 +417,29 @@ def _client_observed_app_page_url() -> Dict[str, Any]:
         not_available,
         observed,
     )
+
+    if deployed_addressing_enabled():
+        handle, reason = _deployed_app_handle()
+        app_page_url = None
+        failure = ""
+        if handle is not None:
+            try:
+                app_page_url = handle.get_dashboard_url()
+            except Exception as exc:
+                app_page_url = None
+                failure = f": {type(exc).__name__}: {exc}"
+        if app_page_url:
+            return observed(
+                str(app_page_url),
+                source=SOURCE_CLIENT_APP_PAGE_URL,
+                observed_by=OBSERVATION_SIDE_CLIENT,
+            )
+        return not_available(
+            "the run addresses the deployed application by name, so no local app was run: the "
+            "provider exposed no dashboard URL for the deployed app on the client side"
+            f"{failure or reason}",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
 
     app_page_url = None
     failure = ""
@@ -287,7 +557,17 @@ def _client_observed_container_id(
             observed_by=OBSERVATION_SIDE_CLIENT,
         )
 
-    container_ids = {item.container_id for item in matching}
+    named = [item for item in matching if item.container_id]
+    if not named:
+        return not_available(
+            f"the provider's call graph holds the input of the function call {call_id!r} but "
+            "names no container for it: the provider clears the container of an input that has "
+            "already finished, so the container of an invocation can only be read while that "
+            "container is alive",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+
+    container_ids = {item.container_id for item in named}
     if len(container_ids) != 1:
         return not_available(
             f"the provider's call graph of the function call {call_id!r} names "
@@ -347,7 +627,7 @@ def _client_observed_container_id(
             observed_by=OBSERVATION_SIDE_CLIENT,
         )
 
-    graph_input = matching[0]
+    graph_input = named[0]
     fact = observed(
         container_id,
         source=SOURCE_CLIENT_CONTAINER_ID,
@@ -376,6 +656,72 @@ def _client_observed_container_id(
     return fact
 
 
+def observe_container_id_of_call(
+    function_call_id: Any,
+    provider: Any = None,
+) -> Dict[str, Any]:
+    """
+    The provider-issued container id of **one** provider call - correlated now.
+
+    The provider names the container of an input only while that container
+    exists: a container that was reclaimed is named by nobody. The correlation
+    is therefore made **right after the call returned**, and the fact is kept
+    for the rest of the run - the report of the run is written long after the
+    last call, when every container of the run is gone.
+
+    The correlation never attaches a container that the provider does not tie
+    to this very call: the call graph, the container listing of the
+    application and the provider's own task record have to agree.
+    """
+    from benchmarks.evidence_integrity import (
+        OBSERVATION_SIDE_CLIENT,
+        SOURCE_CLIENT_CONTAINER_ID,
+        not_available,
+    )
+
+    call_id = _observed_value(function_call_id)
+    if not call_id:
+        return not_available(
+            "the container id of this invocation cannot be resolved on the client side: the "
+            "worker envelope holds no observed function-call id, and the provider's call graph "
+            "is keyed by the function call",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+
+    cached = _CLIENT_OBSERVED_CONTAINER_IDS.get(call_id)
+    if cached is not None:
+        return cached
+
+    fact = _client_observed_container_id(
+        function_call_id=call_id,
+        app_id=_client_observed_app_id(),
+        provider=provider,
+    )
+    _CLIENT_OBSERVED_CONTAINER_IDS[call_id] = fact
+    return fact
+
+
+def _observe_container_id_of_runtime(runtime_identity: Any) -> Dict[str, Any]:
+    """Correlate the container of the call a runtime envelope belongs to.
+
+    The envelope names the function call the worker executed; the container of
+    that call is correlated while that container is still alive.
+    """
+    call_id = _runtime_function_call_id(runtime_identity)
+    if not call_id:
+        from benchmarks.evidence_integrity import (
+            OBSERVATION_SIDE_CLIENT,
+            not_available,
+        )
+
+        return not_available(
+            "the worker envelope of this stage names no observed function-call id, so the "
+            "provider's call graph cannot be asked for the container of this invocation",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+    return observe_container_id_of_call(call_id)
+
+
 def _client_observed_block(
     stage_facts: Optional[Dict[str, Any]] = None,
     provider: Any = None,
@@ -387,16 +733,25 @@ def _client_observed_block(
     in the stage facts of this run - it is a provider-observed, invocation-
     correlated fact, never a container that merely belongs to the same app.
 
+    A correlation that was already made - right after the call returned, while
+    the container was still alive - is reused: at the time the report is
+    written the container of the call is long gone, and the provider names it
+    to nobody.
+
     ``provider`` is the collaborator the provider is asked through. Without
     one the real :class:`benchmarks.modal_provider.ModalProvider` is used; a
     caller that must not reach the provider passes a provider that refuses.
     """
     app_id = _client_observed_app_id()
     function_call_id = (stage_facts or {}).get("function_call_id")
+    call_id = _observed_value(function_call_id)
+    cached = _CLIENT_OBSERVED_CONTAINER_IDS.get(call_id) if call_id else None
     return {
         "app_id": app_id,
         "app_page_url": _client_observed_app_page_url(),
-        "container_id": _client_observed_container_id(
+        "container_id": cached
+        if cached is not None
+        else _client_observed_container_id(
             function_call_id=function_call_id,
             app_id=app_id,
             provider=provider,
@@ -443,6 +798,22 @@ def _decode_b64(value: Optional[str]) -> Optional[bytes]:
         return base64.b64decode(value, validate=True)
     except (ValueError, TypeError):
         return None
+
+
+def build_api_hypothesis(target_prog):
+    """Build the API-backed Baseline 5 hypothesis using the canonical manager."""
+    from core.hypothesis_manager import HypothesisManager
+    from core.schemas import AttackHypothesis
+
+    manager = HypothesisManager(target_prog)
+    hypotheses = manager.ingest_slither_findings()
+    if hypotheses:
+        return manager.to_attack_hypothesis(hypotheses[0])
+    return AttackHypothesis(
+        vulnerability_type="SecurityAudit",
+        reasoning_trace="No Slither finding supplied; inspect the target source and stated invariants.",
+        attack_vector="Analyze externally callable state-changing functions and attempt to violate a stated invariant.",
+    )
 
 
 def invoke_llm_provider(provider: str, model_id: str, prompt: str) -> str:
@@ -1752,7 +2123,12 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
 
         try:
             from core.schemas import TargetProgram, ExploitPayload, AttackHypothesis, ResultCategory, VerificationVerdict
-            from modal_app import verify_exploit_remote, verify_replay_remote, record_trajectory_remote
+
+            # The provider callables of the run: the **deployed** ones when the run
+            # addresses the deployed application by name, the local ones otherwise.
+            verify_exploit_remote = provider_function("verify_exploit_remote")
+            verify_replay_remote = provider_function("verify_replay_remote")
+            record_trajectory_remote = provider_function("record_trajectory_remote")
 
             # Resolve trusted verification harness
             solidity_dir = (
@@ -1798,26 +2174,24 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             # serialization - not the raw transport bytes of the provider
             # (Iteration 16 P0.1, Iteration 17 wording).
             inference_response: Any = None
-            with ensure_modal_app_context():
+            with provider_call_context():
                 payload = None
                 if self.candidate_generator:
                     payload = self.candidate_generator(target_prog)
                 elif self.provider == "modal_h100":
-                    from modal_app import ProductionAuditAgent
-                    agent = ProductionAuditAgent()
                     t_payload = target_prog.model_dump()
                     t_payload["correlation_id"] = correlation_id
                     p_dict = dispatch_via_r1_gate(
                         "gpu",
                         "ProductionAuditAgent.generate_solidity_exploit",
-                        agent.generate_solidity_exploit,
+                        provider_class_method(
+                            "ProductionAuditAgent", "generate_solidity_exploit"
+                        ),
                         t_payload,
                     )
                     inference_response = p_dict
                     payload = ExploitPayload(**p_dict)
                 elif self.provider == "modal_t4":
-                    from modal_app import DevReasoningAgent
-                    agent = DevReasoningAgent()
                     t_payload = target_prog.model_dump()
                     t_payload["correlation_id"] = correlation_id
                     # The dev T4 agent is not part of the authorised trace: it has no
@@ -1825,20 +2199,16 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     p_dict = dispatch_via_r1_gate(
                         "gpu",
                         "DevReasoningAgent.generate_solidity_exploit",
-                        agent.generate_solidity_exploit,
+                        provider_class_method(
+                            "DevReasoningAgent", "generate_solidity_exploit"
+                        ),
                         t_payload,
                     )
                     inference_response = p_dict
                     payload = ExploitPayload(**p_dict)
                 else:
-                    from core.hypothesis import HypothesisManager
-                    hyp_mgr = HypothesisManager()
-                    hypotheses = hyp_mgr.generate_hypotheses(target_prog)
-                    selected_hyp = hypotheses[0] if hypotheses else AttackHypothesis(
-                        vulnerability_type="SecurityAudit",
-                        reasoning_trace="Automated hypothesis generation",
-                        attack_vector="direct",
-                    )
+                    # Keep the API-backed path on the same tested hypothesis builder.
+                    selected_hyp = build_api_hypothesis(target_prog)
                     prompt = (
                         f"Synthesize an ExploitModule for target {target_prog.name}.\n"
                         f"Hypothesis: {selected_hyp.vulnerability_type} ({selected_hyp.reasoning_trace})\n"
@@ -1862,16 +2232,14 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     target_dict,
                     payload_dict,
                 )
+                # The provider names the container of an input only while that
+                # container exists, so the correlation is made right here - right
+                # after the call returned - and not when the report is written.
+                _observe_container_id_of_runtime(verdict_dict.get("modal_runtime"))
                 verdict = VerificationVerdict(**verdict_dict)
                 elapsed = round(time.time() - start_time, 3)
 
                 # 2b. Closed-loop refinement if candidate failed compilation or reverted without breach
-                initial_inference_response = inference_response
-                initial_verdict_dict = verdict_dict
-                refinement_attempted = False
-                refinement_inference_response: Any = None
-                refinement_verdict_dict: Any = None
-                refinement_function_name: Optional[str] = None
                 max_refinements = 1
                 refinements_done = 0
                 while (
@@ -1883,36 +2251,32 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     and self.provider in ("modal_h100", "modal_t4")
                 ):
                     refinements_done += 1
-                    refinement_attempted = True
                     err_trace = verdict.feedback or verdict.stderr or "Exploit candidate failed to breach invariant."
                     try:
                         if self.provider == "modal_h100":
-                            from modal_app import ProductionAuditAgent
-                            ref_agent = ProductionAuditAgent()
-                            refinement_function_name = "ProductionAuditAgent.refine_solidity_exploit"
                             rp_dict = dispatch_via_r1_gate(
                                 "gpu",
-                                refinement_function_name,
-                                ref_agent.refine_solidity_exploit,
+                                "ProductionAuditAgent.refine_solidity_exploit",
+                                provider_class_method(
+                                    "ProductionAuditAgent", "refine_solidity_exploit"
+                                ),
                                 target_dict,
                                 payload.test_code,
                                 err_trace,
                             )
                         else:
-                            from modal_app import DevReasoningAgent
-                            ref_agent = DevReasoningAgent()
                             # The dev T4 agent is not part of the authorised trace:
                             # it has no egress declaration, so the gate refuses it.
-                            refinement_function_name = "DevReasoningAgent.refine_solidity_exploit"
                             rp_dict = dispatch_via_r1_gate(
                                 "gpu",
-                                refinement_function_name,
-                                ref_agent.refine_solidity_exploit,
+                                "DevReasoningAgent.refine_solidity_exploit",
+                                provider_class_method(
+                                    "DevReasoningAgent", "refine_solidity_exploit"
+                                ),
                                 target_dict,
                                 payload.test_code,
                                 err_trace,
                             )
-                        refinement_inference_response = rp_dict
                         ref_payload = ExploitPayload(**rp_dict)
                         if ref_payload and ref_payload.test_code and len(ref_payload.test_code.strip()) > 20:
                             candidates_count += 1
@@ -1926,7 +2290,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                                 target_dict,
                                 payload_dict,
                             )
-                            refinement_verdict_dict = verdict_dict
+                            _observe_container_id_of_runtime(verdict_dict.get("modal_runtime"))
                             verdict = VerificationVerdict(**verdict_dict)
                         else:
                             break
@@ -1956,6 +2320,22 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                         if isinstance(raw_replay, dict):
                             replay_details = dict(raw_replay)
                             is_replayed = bool(raw_replay.get("reproduced", False))
+                            # The container of the replay call is correlated
+                            # while that container is still alive: the provider
+                            # names the container of an input only while it
+                            # exists, so a correlation made when the report is
+                            # written finds nothing. A container that the
+                            # provider does not tie to this very call is never
+                            # attached - the absence is stated instead, and the
+                            # real function-call id stays the anchor of the
+                            # envelope.
+                            replay_container_fact = _observe_container_id_of_runtime(
+                                replay_details.get("modal_runtime")
+                            )
+                            observed_replay_container = _observed_value(replay_container_fact)
+                            if observed_replay_container:
+                                replay_details["container_id"] = observed_replay_container
+                            replay_details["client_observed_container_id"] = replay_container_fact
                         else:
                             # A non-dict replay response carries no evidence at all.
                             is_replayed = False
@@ -2097,6 +2477,13 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                                 + ", ".join(missing)
                             ),
                             "container_id": replay_details.get("container_id"),
+                            # The real function-call id of the replay call. It is
+                            # the anchor of the envelope: when the provider names
+                            # no container for that call, this id is what the
+                            # envelope states - never an invented container id.
+                            "function_call_id": _runtime_function_call_id(
+                                replay_details.get("modal_runtime")
+                            ),
                             "harness_verdict": replay_details.get("harness_verdict"),
                             "exit_code": replay_details.get("exit_code"),
                             "utc_start_time": replay_details.get("utc_start_time"),
@@ -2128,6 +2515,12 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                             "complete": True,
                             # Real container identity as observed by the replay worker.
                             "container_id": replay_details.get("container_id"),
+                            # The real function-call id of the replay call: the
+                            # anchor of the envelope when the provider names no
+                            # container for it.
+                            "function_call_id": _runtime_function_call_id(
+                                replay_details.get("modal_runtime")
+                            ),
                             "command": replay_details.get("command"),
                             "argv": replay_details.get("argv"),
                             "return_code": replay_details.get("return_code"),
@@ -2154,6 +2547,11 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                         # The client re-validates the envelope against the bytes it
                         # just stored.  A replay is CONFIRMED only when this
                         # validation passes.
+                        #
+                        # The function-call id of the evm_sandbox stage is the
+                        # anchor of the anti-replay check: the replay must have
+                        # run in a **fresh** invocation, not in the one of the
+                        # initial run.
                         replay_envelope_valid, replay_envelope_error = validate_replay_evidence_envelope(
                             {
                                 "replay_status": "CONFIRMED",
@@ -2165,6 +2563,11 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                                 "output_sha256": output_sha,
                             },
                             artifact_root=replay_artifact_dir,
+                            evm_sandbox_function_call_id=_runtime_function_call_id(
+                                verdict_dict.get("modal_runtime")
+                                if isinstance(verdict_dict, dict)
+                                else None
+                            ),
                         )
                         if not replay_envelope_valid:
                             replay_evidence["complete"] = False
@@ -2231,10 +2634,6 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             elif self.provider == "modal_t4":
                 modal_functions.append("DevReasoningAgent.generate_solidity_exploit")
             modal_functions.append("verify_exploit_remote")
-            if refinement_attempted and refinement_function_name:
-                modal_functions.append(refinement_function_name)
-                if refinement_verdict_dict is not None:
-                    modal_functions.append("verify_exploit_remote")
             if replay_attempted:
                 modal_functions.append("verify_replay_remote")
             if persistence_status == "persisted":
@@ -2308,18 +2707,14 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 write_stage_evidence_artifact,
             )
 
-            initial_evm_runtime = (
-                initial_verdict_dict.get("modal_runtime")
-                if isinstance(initial_verdict_dict, dict)
-                else None
-            )
+            evm_runtime = verdict_dict.get("modal_runtime")
             replay_runtime = replay_details.get("modal_runtime")
             # The runtime envelope of the inference stage is read from the
             # response it came from, and only when it really is an envelope:
             # a value that is not an object is not an envelope (Iteration 18).
             inference_runtime = (
-                initial_inference_response.get("modal_runtime")
-                if isinstance(initial_inference_response, dict)
+                inference_response.get("modal_runtime")
+                if isinstance(inference_response, dict)
                 else None
             )
             if not isinstance(inference_runtime, dict):
@@ -2341,10 +2736,10 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
             stage_captures: Dict[str, StageResponseCapture] = {
                 "inference": StageResponseCapture(
                     stage="inference",
-                    attempted=initial_inference_response is not None,
-                    executed=initial_inference_response is not None,
-                    response_received=initial_inference_response is not None,
-                    provider_response=initial_inference_response,
+                    attempted=inference_response is not None,
+                    executed=inference_response is not None,
+                    response_received=inference_response is not None,
+                    provider_response=inference_response,
                     runtime_identity=inference_runtime,
                     runtime_identity_source="modal_runtime",
                     response_source="the response of the inference worker this client invoked",
@@ -2355,8 +2750,8 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     attempted=True,
                     executed=True,
                     response_received=True,
-                    provider_response=initial_verdict_dict,
-                    runtime_identity=initial_evm_runtime if isinstance(initial_evm_runtime, dict) else None,
+                    provider_response=verdict_dict,
+                    runtime_identity=evm_runtime if isinstance(evm_runtime, dict) else None,
                     runtime_identity_source="modal_runtime",
                     response_source="the response of verify_exploit_remote",
                     requested_fields=MODAL_IDENTITY_FIELDS,
@@ -2388,43 +2783,6 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     requested_fields=(),
                 ),
             }
-            if refinement_attempted:
-                ref_runtime = (
-                    refinement_inference_response.get("modal_runtime")
-                    if isinstance(refinement_inference_response, dict)
-                    else None
-                )
-                if not isinstance(ref_runtime, dict):
-                    ref_runtime = None
-                stage_captures["refinement"] = StageResponseCapture(
-                    stage="refinement",
-                    attempted=True,
-                    executed=refinement_inference_response is not None,
-                    response_received=refinement_inference_response is not None,
-                    provider_response=refinement_inference_response,
-                    runtime_identity=ref_runtime,
-                    runtime_identity_source="modal_runtime",
-                    response_source="the response of the refinement worker this client invoked",
-                    requested_fields=MODAL_IDENTITY_FIELDS,
-                )
-                ref_evm_runtime = (
-                    refinement_verdict_dict.get("modal_runtime")
-                    if isinstance(refinement_verdict_dict, dict)
-                    else None
-                )
-                if not isinstance(ref_evm_runtime, dict):
-                    ref_evm_runtime = None
-                stage_captures["evm_sandbox_after_refinement"] = StageResponseCapture(
-                    stage="evm_sandbox_after_refinement",
-                    attempted=refinement_verdict_dict is not None,
-                    executed=refinement_verdict_dict is not None,
-                    response_received=refinement_verdict_dict is not None,
-                    provider_response=refinement_verdict_dict,
-                    runtime_identity=ref_evm_runtime,
-                    runtime_identity_source="modal_runtime",
-                    response_source="the response of verify_exploit_remote after refinement",
-                    requested_fields=MODAL_IDENTITY_FIELDS,
-                )
 
             # The captures are checked before anything is written. A capture
             # whose flags, its payload and its runtime envelope contradict each
@@ -2528,33 +2886,19 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     ),
                 },
             }
-            if refinement_attempted:
-                modal_invocation_provenance["stages"]["refinement"] = build_modal_stage_provenance(
-                    function_name=refinement_function_name,
-                    resource="H100" if self.provider == "modal_h100" else "DEV_GPU",
-                    attempted=stage_captures["refinement"].attempted,
-                    evidence_ref=stage_evidence["refinement"],
-                    **_stage_facts("refinement"),
-                )
-                modal_invocation_provenance["stages"]["evm_sandbox_after_refinement"] = (
-                    build_modal_stage_provenance(
-                        function_name=(
-                            "verify_exploit_remote"
-                            if stage_captures["evm_sandbox_after_refinement"].attempted
-                            else None
-                        ),
-                        resource="CPU",
-                        attempted=stage_captures["evm_sandbox_after_refinement"].attempted,
-                        evidence_ref=stage_evidence["evm_sandbox_after_refinement"],
-                        **_stage_facts("evm_sandbox_after_refinement"),
-                    )
-                )
             modal_invocation_provenance["persisted_path"] = persisted_path
 
             if is_verified:
-                observed_container = replay_details.get("container_id")
+                # The provider may name no container for the replay call. The
+                # anchor of the confirmation is then the function-call id the
+                # worker observed for its own invocation - never a string
+                # "None" and never an invented container id.
+                observed_anchor = (
+                    replay_details.get("container_id")
+                    or replay_evidence.get("function_call_id")
+                )
                 verdict_log = (
-                    f"Replay confirmed in fresh container {observed_container}: "
+                    f"Replay confirmed in fresh container {observed_anchor}: "
                     f"{replay_details.get('harness_verdict', 'EXPLOIT_CONFIRMED')}"
                 )
                 final_logs = [verdict_log]

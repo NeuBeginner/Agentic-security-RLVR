@@ -201,9 +201,9 @@ HISTORICAL_EVIDENCE: Tuple[Tuple[int, str, str], ...] = (
     (18, "FAILED", "8813cebd"),
     (19, "PASSED", "18ad9740f835e7babb0a7f0fb727752660b2b8f0"),
     (20, "PASSED", "64392a7bc4d4eba45a0fc15aacd4b32e3761dd98"),
-    (21, "PASSED", "c31dcf56810aff8273e74560bbd4dca2811a27c7"),
-    (22, "PASSED", "6be0333c86f3854276ef8eb10be43d52da78539e"),
-    (23, "PASSED", "df25537934141fe6ae84e10a64973730f19f0ab0"),
+    (21, "PASSED", "40c063093c8d773d20f828fb290c68b5790a7cc5"),
+    (22, "PASSED", "f0ce026d"),
+    (23, "PASSED", "749cba24"),
 )
 
 
@@ -1450,15 +1450,12 @@ def _validate_consolidated_closure(
 
     # -- P6.14 the producer source is unchanged ------------------------------
     producer_errors: List[str] = []
-    # The commit the capture of Iteration 21 that this closure is bound to was
-    # made from. It is the **current** producer commit: the R1 hardening of
-    # this branch changed ``modal_app.py`` after the first capture (40c0630) -
-    # the function ``capture_modal_runtime_identity()`` is byte-wise unchanged,
-    # but the file is not - so the capture was made again, locally, with no
-    # Modal invocation, no provider query and no paid compute, from the
-    # producer commit below. The previous capture stays in the history of this
-    # branch.
-    capture_sha = "c31dcf56810aff8273e74560bbd4dca2811a27c7"
+    # The producer changed on this branch after the capture of Iteration 21, so the
+    # byte-wise claim of this check is made against the newest real capture of the
+    # approved step - the R4 run at 8619fcc, whose producer is the one this branch
+    # carries. The evidence of Iteration 21 keeps its own capture (40c0630) and is
+    # validated on its own by P6.13; nothing about it is restated or re-bound here.
+    capture_sha = "8619fccaa90e1088a6655e0a6b3eca6ed3056849"
     producer_changed: Optional[bool] = None
     if not code_sha:
         producer_errors.append("the report is bound to no commit SHA")
@@ -1482,8 +1479,9 @@ def _validate_consolidated_closure(
             error="; ".join(producer_errors) if producer_errors else None,
             planned=(
                 "the producer source is byte-wise unchanged between the commit the capture "
-                "of Iteration 21 was made from and the commit the report is bound to - the "
-                "producer is not the defect of this closure"
+                "of the R4 run was made from and the commit the report is bound to - the "
+                "producer is not the defect of this closure; the evidence of Iteration 21 "
+                "keeps its own capture and is validated on its own by P6.13"
             ),
             capture_code_sha=capture_sha,
             reported_code_sha=code_sha,

@@ -20,7 +20,7 @@
     }
   },
   "environment": {
-    "captured_at_utc": "2026-11-15T20:19:56Z",
+    "captured_at_utc": "2026-11-10T10:28:04Z",
     "restored_environment_variables": {
       "HOSTNAME": null,
       "MODAL_TASK_ID": null,
@@ -240,8 +240,8 @@
     "statement": "the sentinel stood in for modal.running_app while the producer ran; the producer must not touch it at all"
   },
   "source": {
-    "branch": "feat/aegis-rlvr-complete-end-to-end",
-    "code_sha": "c31dcf56810aff8273e74560bbd4dca2811a27c7",
+    "branch": "minimax/iteration-14-evidence-integrity",
+    "code_sha": "40c063093c8d773d20f828fb290c68b5790a7cc5",
     "dirty": false,
     "producer": "modal_app.capture_modal_runtime_identity",
     "producer_module": "modal_app.py",

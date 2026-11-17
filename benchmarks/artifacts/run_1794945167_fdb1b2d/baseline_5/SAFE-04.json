@@ -1,0 +1,1036 @@
+{
+  "baseline_id": "baseline_5",
+  "target_id": "SAFE-04",
+  "target_name": "SecureOraclePool",
+  "status": "SUCCESS",
+  "unavailable_reason": null,
+  "detected": false,
+  "candidates_generated": 2,
+  "verified_breaches": 0,
+  "replayed_breaches": 0,
+  "duration_seconds": 10.385,
+  "cost_usd": null,
+  "security_verdict": "COMPILATION_ERROR",
+  "replay_status": "NOT_ELIGIBLE",
+  "persistence_status": "not_eligible",
+  "stdout_path": "benchmarks/artifacts/run_1794945167_fdb1b2d/baseline_5/SAFE-04_stdout.txt",
+  "stderr_path": "benchmarks/artifacts/run_1794945167_fdb1b2d/baseline_5/SAFE-04_stderr.txt",
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_sha256": "a099f17b38a5169e2fd777125aa93b359158880331efa674ee9d286e6b6c15fb",
+  "stdout_byte_length": 0,
+  "stderr_byte_length": 875,
+  "input_sha256": "eac7fee82da0091fede02e4bcd305dacb145d8f6b4700a24e3f62ae885986e7d",
+  "output_sha256": "6c1cd98c14ef4296c8d7f40ff669cdd30aef828de987c1eaf4499f690efb9666",
+  "process_exit_code": 1,
+  "utc_start_time": "2026-11-17T20:00:47Z",
+  "utc_end_time": "2026-11-17T20:01:12Z",
+  "tool_metadata": {
+    "remote_backend": "modal",
+    "modal_app": "aegis-rlvr-security",
+    "correlation_id": "corr-SAFE-04-1794945647-72126beb",
+    "modal_functions": [
+      "ProductionAuditAgent.generate_solidity_exploit",
+      "verify_exploit_remote"
+    ],
+    "remote_stages": {
+      "inference": "remote_gpu",
+      "evm_sandbox": "modal_cpu_worker",
+      "independent_replay": "not_attempted",
+      "trajectory_persistence": "not_eligible"
+    },
+    "inference_backend": "modal_h100",
+    "evm_sandbox_backend": "modal_cpu_worker",
+    "replay_backend": "not_attempted",
+    "trajectory_persistence_backend": "not_eligible",
+    "persisted_trajectory_path": null,
+    "persistence_status": "not_eligible",
+    "persistence_error": null,
+    "gpu_allocated": "H100",
+    "cpu_cores": 2.0,
+    "memory_mb": 2048,
+    "provider": "modal_h100",
+    "model_id": "qtum/Qwen3-Coder-30B-A3B-Audit",
+    "token_provenance": "model_generate",
+    "generated_tokens_count": 239,
+    "harness_verdict": "COMPILATION_ERROR",
+    "reward_score": -0.5,
+    "reward_components": {
+      "generation": 0.05,
+      "compilation": 0.0,
+      "verification": 0.0,
+      "invariant": 0.0,
+      "replay": 0.0
+    },
+    "reproduced": false,
+    "replay_details": {},
+    "replay_evidence": null,
+    "replay_artifacts": {},
+    "replay_envelope_valid": false,
+    "replay_envelope_error": null,
+    "remote_evm_provenance": {
+      "remote_os": {
+        "status": "OBSERVED",
+        "value": "Debian GNU/Linux 12 (bookworm)",
+        "source": "/etc/os-release:PRETTY_NAME"
+      },
+      "remote_platform": {
+        "status": "OBSERVED",
+        "value": "posix",
+        "source": "os.name"
+      },
+      "image_digest": {
+        "status": "OBSERVED",
+        "value": "im-QlahjLfoAw8a3el6KafUQC",
+        "source": "modal.config.image_id"
+      },
+      "forge_version": {
+        "status": "OBSERVED",
+        "value": "forge Version: 1.9.0\nCommit SHA: 6056c5845d34205a83cf7108042adb137325c9df\nBuild Timestamp: 2026-11-02T20:28:32.434285913Z (1793651312)\nBuild Profile: dist",
+        "source": "forge --version"
+      },
+      "solc_versions": {
+        "status": "OBSERVED",
+        "value": [
+          "0.8.20"
+        ],
+        "source": "forge config --json:solc"
+      },
+      "exact_forge_argv": {
+        "status": "OBSERVED",
+        "value": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "source": "the argv that was executed"
+      },
+      "working_directory": {
+        "status": "OBSERVED",
+        "value": "/tmp/tmp_yjjzh77",
+        "source": "the cwd of the forge process"
+      },
+      "compiler_settings": {
+        "status": "OBSERVED",
+        "value": {
+          "evm_version": "shanghai",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false,
+          "offline": true
+        },
+        "source": "forge config --json"
+      },
+      "observed_exit_code": {
+        "status": "OBSERVED",
+        "value": 1,
+        "source": "the exit code of the forge process"
+      },
+      "target_id": "SAFE-04"
+    },
+    "modal_invocation_provenance": {
+      "modal_app_id": {
+        "status": "NOT_AVAILABLE",
+        "value": null,
+        "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+        "absence_kind": "PROVIDER_FIELD_OMITTED",
+        "evidence_ref": {
+          "path": "SAFE-04_stage_evidence_evm_sandbox.json",
+          "sha256": "f18f8173f6bd4fd67c88eb1d4e2fdc5b23fdb9d3cd308f7951a22c5a196545e7",
+          "byte_length": 12839,
+          "description": "the exact response the evm_sandbox stage returned for this target"
+        }
+      },
+      "client_observed": {
+        "app_id": {
+          "status": "OBSERVED",
+          "value": "ap-P2HqbucGX4wdyBQc3287g7",
+          "source": "the provider-issued App.app_id of the running app (Modal SDK 1.5.5, client side)",
+          "observed_by": "client"
+        },
+        "app_page_url": {
+          "status": "OBSERVED",
+          "value": "https://modal.com/id/ap-P2HqbucGX4wdyBQc3287g7",
+          "source": "the provider's own dashboard URL of the running app (App.get_dashboard_url(), Modal SDK 1.5.5, client side)",
+          "observed_by": "client"
+        },
+        "container_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "the provider's call graph holds the input of the function call 'fc-01M7NHJQ4QMZY2DAWHZAQHTWYJ' but names no container for it: the provider clears the container of an input that has already finished, so the container of an invocation can only be read while that container is alive",
+          "observed_by": "client"
+        }
+      },
+      "target_id": "SAFE-04",
+      "correlation_id": "corr-SAFE-04-1794945647-72126beb",
+      "stages": {
+        "inference": {
+          "attempted": true,
+          "function_name": "ProductionAuditAgent.generate_solidity_exploit",
+          "resource": "H100",
+          "app_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the inference stage returned a response that carried no runtime-identity envelope, so this client holds no 'app_id' for this target",
+            "absence_kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_inference.json",
+              "sha256": "e597280cd11dca983c5ee428bdff3b1b6086acaca97ae4f8734cce8d2ecd6aae",
+              "byte_length": 11926,
+              "description": "the exact response the inference stage returned for this target"
+            }
+          },
+          "function_call_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the inference stage returned a response that carried no runtime-identity envelope, so this client holds no 'function_call_id' for this target",
+            "absence_kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_inference.json",
+              "sha256": "e597280cd11dca983c5ee428bdff3b1b6086acaca97ae4f8734cce8d2ecd6aae",
+              "byte_length": 11926,
+              "description": "the exact response the inference stage returned for this target"
+            }
+          },
+          "container_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the inference stage returned a response that carried no runtime-identity envelope, so this client holds no 'container_id' for this target",
+            "absence_kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_inference.json",
+              "sha256": "e597280cd11dca983c5ee428bdff3b1b6086acaca97ae4f8734cce8d2ecd6aae",
+              "byte_length": 11926,
+              "description": "the exact response the inference stage returned for this target"
+            }
+          },
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_inference.json",
+            "sha256": "e597280cd11dca983c5ee428bdff3b1b6086acaca97ae4f8734cce8d2ecd6aae",
+            "byte_length": 11926,
+            "description": "the exact response the inference stage returned for this target"
+          }
+        },
+        "evm_sandbox": {
+          "attempted": true,
+          "function_name": "verify_exploit_remote",
+          "resource": "CPU",
+          "app_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+            "absence_kind": "PROVIDER_FIELD_OMITTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_evm_sandbox.json",
+              "sha256": "f18f8173f6bd4fd67c88eb1d4e2fdc5b23fdb9d3cd308f7951a22c5a196545e7",
+              "byte_length": 12839,
+              "description": "the exact response the evm_sandbox stage returned for this target"
+            }
+          },
+          "function_call_id": {
+            "status": "OBSERVED",
+            "value": "fc-01M7NHJQ4QMZY2DAWHZAQHTWYJ",
+            "source": "modal.current_function_call_id()",
+            "observed_by": "worker"
+          },
+          "container_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "a Modal function container has no supported source of a provider-issued container id: the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) reports no container id, MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a generic container hostname, and MODAL_TASK_ID is read only by the internal, experimental module modal/experimental/flash.py. The provider-issued container id of this invocation is a client-side fact: the client resolves the function-call id this worker observed through the provider's own call graph and container listing.",
+            "absence_kind": "PROVIDER_FIELD_OMITTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_evm_sandbox.json",
+              "sha256": "f18f8173f6bd4fd67c88eb1d4e2fdc5b23fdb9d3cd308f7951a22c5a196545e7",
+              "byte_length": 12839,
+              "description": "the exact response the evm_sandbox stage returned for this target"
+            }
+          },
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_evm_sandbox.json",
+            "sha256": "f18f8173f6bd4fd67c88eb1d4e2fdc5b23fdb9d3cd308f7951a22c5a196545e7",
+            "byte_length": 12839,
+            "description": "the exact response the evm_sandbox stage returned for this target"
+          }
+        },
+        "independent_replay": {
+          "attempted": false,
+          "function_name": null,
+          "resource": "CPU",
+          "app_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the independent_replay stage was not attempted for this target, so no response was ever requested for 'app_id'",
+            "absence_kind": "STAGE_NOT_ATTEMPTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_independent_replay.json",
+              "sha256": "a7c8c25aafb980e2aac5bca94fea9e65b490c6154a5a5d2fea0d2c9aada10ffd",
+              "byte_length": 1311,
+              "description": "the exact response the independent_replay stage returned for this target"
+            }
+          },
+          "function_call_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the independent_replay stage was not attempted for this target, so no response was ever requested for 'function_call_id'",
+            "absence_kind": "STAGE_NOT_ATTEMPTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_independent_replay.json",
+              "sha256": "a7c8c25aafb980e2aac5bca94fea9e65b490c6154a5a5d2fea0d2c9aada10ffd",
+              "byte_length": 1311,
+              "description": "the exact response the independent_replay stage returned for this target"
+            }
+          },
+          "container_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the independent_replay stage was not attempted for this target, so no response was ever requested for 'container_id'",
+            "absence_kind": "STAGE_NOT_ATTEMPTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_independent_replay.json",
+              "sha256": "a7c8c25aafb980e2aac5bca94fea9e65b490c6154a5a5d2fea0d2c9aada10ffd",
+              "byte_length": 1311,
+              "description": "the exact response the independent_replay stage returned for this target"
+            }
+          },
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_independent_replay.json",
+            "sha256": "a7c8c25aafb980e2aac5bca94fea9e65b490c6154a5a5d2fea0d2c9aada10ffd",
+            "byte_length": 1311,
+            "description": "the exact response the independent_replay stage returned for this target"
+          }
+        },
+        "trajectory_persistence": {
+          "attempted": false,
+          "function_name": null,
+          "resource": "Storage",
+          "app_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the trajectory_persistence stage was not attempted for this target, so no response was ever requested for 'app_id'",
+            "absence_kind": "STAGE_NOT_ATTEMPTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_trajectory_persistence.json",
+              "sha256": "b5f4bc43861f09b47a20ddf3eec6196c5fe64e57273d4f690677171ae3bc4acd",
+              "byte_length": 1267,
+              "description": "the exact response the trajectory_persistence stage returned for this target"
+            }
+          },
+          "function_call_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the trajectory_persistence stage was not attempted for this target, so no response was ever requested for 'function_call_id'",
+            "absence_kind": "STAGE_NOT_ATTEMPTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_trajectory_persistence.json",
+              "sha256": "b5f4bc43861f09b47a20ddf3eec6196c5fe64e57273d4f690677171ae3bc4acd",
+              "byte_length": 1267,
+              "description": "the exact response the trajectory_persistence stage returned for this target"
+            }
+          },
+          "container_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the trajectory_persistence stage was not attempted for this target, so no response was ever requested for 'container_id'",
+            "absence_kind": "STAGE_NOT_ATTEMPTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_trajectory_persistence.json",
+              "sha256": "b5f4bc43861f09b47a20ddf3eec6196c5fe64e57273d4f690677171ae3bc4acd",
+              "byte_length": 1267,
+              "description": "the exact response the trajectory_persistence stage returned for this target"
+            }
+          },
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_trajectory_persistence.json",
+            "sha256": "b5f4bc43861f09b47a20ddf3eec6196c5fe64e57273d4f690677171ae3bc4acd",
+            "byte_length": 1267,
+            "description": "the exact response the trajectory_persistence stage returned for this target"
+          }
+        }
+      },
+      "persisted_path": null
+    },
+    "orchestration_status": "COMPLETED",
+    "generation_outcome": "CANDIDATE_GENERATED",
+    "evm_outcome": "COMPILATION_ERROR",
+    "cost_status": "unmeasured",
+    "command": "modal run modal_app.py --target-name SecureOraclePool --hypotheses=3 --provider=modal_h100 --model=qtum/Qwen3-Coder-30B-A3B-Audit",
+    "argv": [
+      "modal",
+      "run",
+      "modal_app.py",
+      "--target-name",
+      "SecureOraclePool",
+      "--hypotheses=3",
+      "--provider=modal_h100",
+      "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+    ],
+    "timeout_sec": 120,
+    "resource_budget": {
+      "timeout_sec": 120,
+      "max_hypotheses": 3,
+      "allowlist": [
+        "AccessControlVault",
+        "AuctionDoS",
+        "CrossContractBridge",
+        "ERC4626Vault",
+        "FeeShareYieldVault",
+        "FlashLoanRewardPool",
+        "LendingLiquidation",
+        "OracleLendingPool",
+        "PrecisionStakingPool",
+        "RewardDistributorLogic",
+        "SecureAccessControlVault",
+        "SecureERC4626Vault",
+        "SecureOraclePool",
+        "SecureVault",
+        "SignatureReplayWallet",
+        "Vault"
+      ]
+    },
+    "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+    "security_verdict": "COMPILATION_ERROR",
+    "replay_status": "NOT_ELIGIBLE",
+    "exit_code": 1,
+    "process_exit_code": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "a099f17b38a5169e2fd777125aa93b359158880331efa674ee9d286e6b6c15fb",
+    "stdout_byte_length": 0,
+    "stderr_byte_length": 875,
+    "stdout_digest_source": "worker_bytes",
+    "stderr_digest_source": "worker_bytes",
+    "input_sha256": "eac7fee82da0091fede02e4bcd305dacb145d8f6b4700a24e3f62ae885986e7d",
+    "output_sha256": "6c1cd98c14ef4296c8d7f40ff669cdd30aef828de987c1eaf4499f690efb9666",
+    "prompt_hash": "d4644341f549a08a10dec355d1ea1b88899aaec5295d355907456099009877de",
+    "utc_start_time": "2026-11-17T20:00:47Z",
+    "utc_end_time": "2026-11-17T20:01:12Z"
+  },
+  "raw_output": {
+    "category": "COMPILATION_ERROR",
+    "reward_score": -0.5,
+    "stdout": "",
+    "stderr": "Error: Compiler run failed:\nError (4247): Expression has to be an lvalue.\n  --> src/ExploitModule.sol:30:9:\n   |\n30 |         mockOracle.price = 2 * 1e18;\n   |         ^^^^^^^^^^^^^^^^\n\nError (7407): Type int_const 2000000000000000000 is not implicitly convertible to expected type function () view external returns (uint256).\n  --> src/ExploitModule.sol:30:28:\n   |\n30 |         mockOracle.price = 2 * 1e18;\n   |                            ^^^^^^^^\n\nError (4247): Expression has to be an lvalue.\n  --> test/ExploitModule.sol:30:9:\n   |\n30 |         mockOracle.price = 2 * 1e18;\n   |         ^^^^^^^^^^^^^^^^\n\nError (7407): Type int_const 2000000000000000000 is not implicitly convertible to expected type function () view external returns (uint256).\n  --> test/ExploitModule.sol:30:28:\n   |\n30 |         mockOracle.price = 2 * 1e18;\n   |                            ^^^^^^^^\n",
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "a099f17b38a5169e2fd777125aa93b359158880331efa674ee9d286e6b6c15fb",
+    "stdout_byte_length": 0,
+    "stderr_byte_length": 875,
+    "stdout_digest_source": "worker_bytes",
+    "stderr_digest_source": "worker_bytes",
+    "stdout_bytes_b64": "",
+    "stderr_bytes_b64": "RXJyb3I6IENvbXBpbGVyIHJ1biBmYWlsZWQ6CkVycm9yICg0MjQ3KTogRXhwcmVzc2lvbiBoYXMgdG8gYmUgYW4gbHZhbHVlLgogIC0tPiBzcmMvRXhwbG9pdE1vZHVsZS5zb2w6MzA6OToKICAgfAozMCB8ICAgICAgICAgbW9ja09yYWNsZS5wcmljZSA9IDIgKiAxZTE4OwogICB8ICAgICAgICAgXl5eXl5eXl5eXl5eXl5eXgoKRXJyb3IgKDc0MDcpOiBUeXBlIGludF9jb25zdCAyMDAwMDAwMDAwMDAwMDAwMDAwIGlzIG5vdCBpbXBsaWNpdGx5IGNvbnZlcnRpYmxlIHRvIGV4cGVjdGVkIHR5cGUgZnVuY3Rpb24gKCkgdmlldyBleHRlcm5hbCByZXR1cm5zICh1aW50MjU2KS4KICAtLT4gc3JjL0V4cGxvaXRNb2R1bGUuc29sOjMwOjI4OgogICB8CjMwIHwgICAgICAgICBtb2NrT3JhY2xlLnByaWNlID0gMiAqIDFlMTg7CiAgIHwgICAgICAgICAgICAgICAgICAgICAgICAgICAgXl5eXl5eXl4KCkVycm9yICg0MjQ3KTogRXhwcmVzc2lvbiBoYXMgdG8gYmUgYW4gbHZhbHVlLgogIC0tPiB0ZXN0L0V4cGxvaXRNb2R1bGUuc29sOjMwOjk6CiAgIHwKMzAgfCAgICAgICAgIG1vY2tPcmFjbGUucHJpY2UgPSAyICogMWUxODsKICAgfCAgICAgICAgIF5eXl5eXl5eXl5eXl5eXl4KCkVycm9yICg3NDA3KTogVHlwZSBpbnRfY29uc3QgMjAwMDAwMDAwMDAwMDAwMDAwMCBpcyBub3QgaW1wbGljaXRseSBjb252ZXJ0aWJsZSB0byBleHBlY3RlZCB0eXBlIGZ1bmN0aW9uICgpIHZpZXcgZXh0ZXJuYWwgcmV0dXJucyAodWludDI1NikuCiAgLS0+IHRlc3QvRXhwbG9pdE1vZHVsZS5zb2w6MzA6Mjg6CiAgIHwKMzAgfCAgICAgICAgIG1vY2tPcmFjbGUucHJpY2UgPSAyICogMWUxODsKICAgfCAgICAgICAgICAgICAgICAgICAgICAgICAgICBeXl5eXl5eXgo=",
+    "replay_details": {},
+    "replay_evidence": null,
+    "replay_artifacts": {},
+    "replay_envelope_valid": false,
+    "replay_envelope_error": null,
+    "remote_evm_provenance": {
+      "remote_os": {
+        "status": "OBSERVED",
+        "value": "Debian GNU/Linux 12 (bookworm)",
+        "source": "/etc/os-release:PRETTY_NAME"
+      },
+      "remote_platform": {
+        "status": "OBSERVED",
+        "value": "posix",
+        "source": "os.name"
+      },
+      "image_digest": {
+        "status": "OBSERVED",
+        "value": "im-QlahjLfoAw8a3el6KafUQC",
+        "source": "modal.config.image_id"
+      },
+      "forge_version": {
+        "status": "OBSERVED",
+        "value": "forge Version: 1.9.0\nCommit SHA: 6056c5845d34205a83cf7108042adb137325c9df\nBuild Timestamp: 2026-11-02T20:28:32.434285913Z (1793651312)\nBuild Profile: dist",
+        "source": "forge --version"
+      },
+      "solc_versions": {
+        "status": "OBSERVED",
+        "value": [
+          "0.8.20"
+        ],
+        "source": "forge config --json:solc"
+      },
+      "exact_forge_argv": {
+        "status": "OBSERVED",
+        "value": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ],
+        "source": "the argv that was executed"
+      },
+      "working_directory": {
+        "status": "OBSERVED",
+        "value": "/tmp/tmp_yjjzh77",
+        "source": "the cwd of the forge process"
+      },
+      "compiler_settings": {
+        "status": "OBSERVED",
+        "value": {
+          "evm_version": "shanghai",
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false,
+          "offline": true
+        },
+        "source": "forge config --json"
+      },
+      "observed_exit_code": {
+        "status": "OBSERVED",
+        "value": 1,
+        "source": "the exit code of the forge process"
+      },
+      "target_id": "SAFE-04"
+    },
+    "modal_invocation_provenance": {
+      "modal_app_id": {
+        "status": "NOT_AVAILABLE",
+        "value": null,
+        "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+        "absence_kind": "PROVIDER_FIELD_OMITTED",
+        "evidence_ref": {
+          "path": "SAFE-04_stage_evidence_evm_sandbox.json",
+          "sha256": "f18f8173f6bd4fd67c88eb1d4e2fdc5b23fdb9d3cd308f7951a22c5a196545e7",
+          "byte_length": 12839,
+          "description": "the exact response the evm_sandbox stage returned for this target"
+        }
+      },
+      "client_observed": {
+        "app_id": {
+          "status": "OBSERVED",
+          "value": "ap-P2HqbucGX4wdyBQc3287g7",
+          "source": "the provider-issued App.app_id of the running app (Modal SDK 1.5.5, client side)",
+          "observed_by": "client"
+        },
+        "app_page_url": {
+          "status": "OBSERVED",
+          "value": "https://modal.com/id/ap-P2HqbucGX4wdyBQc3287g7",
+          "source": "the provider's own dashboard URL of the running app (App.get_dashboard_url(), Modal SDK 1.5.5, client side)",
+          "observed_by": "client"
+        },
+        "container_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "the provider's call graph holds the input of the function call 'fc-01M7NHJQ4QMZY2DAWHZAQHTWYJ' but names no container for it: the provider clears the container of an input that has already finished, so the container of an invocation can only be read while that container is alive",
+          "observed_by": "client"
+        }
+      },
+      "target_id": "SAFE-04",
+      "correlation_id": "corr-SAFE-04-1794945647-72126beb",
+      "stages": {
+        "inference": {
+          "attempted": true,
+          "function_name": "ProductionAuditAgent.generate_solidity_exploit",
+          "resource": "H100",
+          "app_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the inference stage returned a response that carried no runtime-identity envelope, so this client holds no 'app_id' for this target",
+            "absence_kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_inference.json",
+              "sha256": "e597280cd11dca983c5ee428bdff3b1b6086acaca97ae4f8734cce8d2ecd6aae",
+              "byte_length": 11926,
+              "description": "the exact response the inference stage returned for this target"
+            }
+          },
+          "function_call_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the inference stage returned a response that carried no runtime-identity envelope, so this client holds no 'function_call_id' for this target",
+            "absence_kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_inference.json",
+              "sha256": "e597280cd11dca983c5ee428bdff3b1b6086acaca97ae4f8734cce8d2ecd6aae",
+              "byte_length": 11926,
+              "description": "the exact response the inference stage returned for this target"
+            }
+          },
+          "container_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the inference stage returned a response that carried no runtime-identity envelope, so this client holds no 'container_id' for this target",
+            "absence_kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_inference.json",
+              "sha256": "e597280cd11dca983c5ee428bdff3b1b6086acaca97ae4f8734cce8d2ecd6aae",
+              "byte_length": 11926,
+              "description": "the exact response the inference stage returned for this target"
+            }
+          },
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_inference.json",
+            "sha256": "e597280cd11dca983c5ee428bdff3b1b6086acaca97ae4f8734cce8d2ecd6aae",
+            "byte_length": 11926,
+            "description": "the exact response the inference stage returned for this target"
+          }
+        },
+        "evm_sandbox": {
+          "attempted": true,
+          "function_name": "verify_exploit_remote",
+          "resource": "CPU",
+          "app_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+            "absence_kind": "PROVIDER_FIELD_OMITTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_evm_sandbox.json",
+              "sha256": "f18f8173f6bd4fd67c88eb1d4e2fdc5b23fdb9d3cd308f7951a22c5a196545e7",
+              "byte_length": 12839,
+              "description": "the exact response the evm_sandbox stage returned for this target"
+            }
+          },
+          "function_call_id": {
+            "status": "OBSERVED",
+            "value": "fc-01M7NHJQ4QMZY2DAWHZAQHTWYJ",
+            "source": "modal.current_function_call_id()",
+            "observed_by": "worker"
+          },
+          "container_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "a Modal function container has no supported source of a provider-issued container id: the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) reports no container id, MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a generic container hostname, and MODAL_TASK_ID is read only by the internal, experimental module modal/experimental/flash.py. The provider-issued container id of this invocation is a client-side fact: the client resolves the function-call id this worker observed through the provider's own call graph and container listing.",
+            "absence_kind": "PROVIDER_FIELD_OMITTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_evm_sandbox.json",
+              "sha256": "f18f8173f6bd4fd67c88eb1d4e2fdc5b23fdb9d3cd308f7951a22c5a196545e7",
+              "byte_length": 12839,
+              "description": "the exact response the evm_sandbox stage returned for this target"
+            }
+          },
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_evm_sandbox.json",
+            "sha256": "f18f8173f6bd4fd67c88eb1d4e2fdc5b23fdb9d3cd308f7951a22c5a196545e7",
+            "byte_length": 12839,
+            "description": "the exact response the evm_sandbox stage returned for this target"
+          }
+        },
+        "independent_replay": {
+          "attempted": false,
+          "function_name": null,
+          "resource": "CPU",
+          "app_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the independent_replay stage was not attempted for this target, so no response was ever requested for 'app_id'",
+            "absence_kind": "STAGE_NOT_ATTEMPTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_independent_replay.json",
+              "sha256": "a7c8c25aafb980e2aac5bca94fea9e65b490c6154a5a5d2fea0d2c9aada10ffd",
+              "byte_length": 1311,
+              "description": "the exact response the independent_replay stage returned for this target"
+            }
+          },
+          "function_call_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the independent_replay stage was not attempted for this target, so no response was ever requested for 'function_call_id'",
+            "absence_kind": "STAGE_NOT_ATTEMPTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_independent_replay.json",
+              "sha256": "a7c8c25aafb980e2aac5bca94fea9e65b490c6154a5a5d2fea0d2c9aada10ffd",
+              "byte_length": 1311,
+              "description": "the exact response the independent_replay stage returned for this target"
+            }
+          },
+          "container_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the independent_replay stage was not attempted for this target, so no response was ever requested for 'container_id'",
+            "absence_kind": "STAGE_NOT_ATTEMPTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_independent_replay.json",
+              "sha256": "a7c8c25aafb980e2aac5bca94fea9e65b490c6154a5a5d2fea0d2c9aada10ffd",
+              "byte_length": 1311,
+              "description": "the exact response the independent_replay stage returned for this target"
+            }
+          },
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_independent_replay.json",
+            "sha256": "a7c8c25aafb980e2aac5bca94fea9e65b490c6154a5a5d2fea0d2c9aada10ffd",
+            "byte_length": 1311,
+            "description": "the exact response the independent_replay stage returned for this target"
+          }
+        },
+        "trajectory_persistence": {
+          "attempted": false,
+          "function_name": null,
+          "resource": "Storage",
+          "app_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the trajectory_persistence stage was not attempted for this target, so no response was ever requested for 'app_id'",
+            "absence_kind": "STAGE_NOT_ATTEMPTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_trajectory_persistence.json",
+              "sha256": "b5f4bc43861f09b47a20ddf3eec6196c5fe64e57273d4f690677171ae3bc4acd",
+              "byte_length": 1267,
+              "description": "the exact response the trajectory_persistence stage returned for this target"
+            }
+          },
+          "function_call_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the trajectory_persistence stage was not attempted for this target, so no response was ever requested for 'function_call_id'",
+            "absence_kind": "STAGE_NOT_ATTEMPTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_trajectory_persistence.json",
+              "sha256": "b5f4bc43861f09b47a20ddf3eec6196c5fe64e57273d4f690677171ae3bc4acd",
+              "byte_length": 1267,
+              "description": "the exact response the trajectory_persistence stage returned for this target"
+            }
+          },
+          "container_id": {
+            "status": "NOT_AVAILABLE",
+            "value": null,
+            "reason": "the trajectory_persistence stage was not attempted for this target, so no response was ever requested for 'container_id'",
+            "absence_kind": "STAGE_NOT_ATTEMPTED",
+            "evidence_ref": {
+              "path": "SAFE-04_stage_evidence_trajectory_persistence.json",
+              "sha256": "b5f4bc43861f09b47a20ddf3eec6196c5fe64e57273d4f690677171ae3bc4acd",
+              "byte_length": 1267,
+              "description": "the exact response the trajectory_persistence stage returned for this target"
+            }
+          },
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_trajectory_persistence.json",
+            "sha256": "b5f4bc43861f09b47a20ddf3eec6196c5fe64e57273d4f690677171ae3bc4acd",
+            "byte_length": 1267,
+            "description": "the exact response the trajectory_persistence stage returned for this target"
+          }
+        }
+      },
+      "persisted_path": null
+    }
+  },
+  "logs": [
+    "Execution Failed (exit code 1): Compilation Error: Error: Compiler run failed:\nError (4247): Expression has to be an lvalue.\n  --> src/ExploitModule.sol:30:9:\n   |\n30 |         mockOracle.price = 2 * 1e18;\n   |         ^^^^^^^^^^^^^^^^\n\nError (7407): Type int_const 2000000000000000000 is not implici"
+  ],
+  "argv": [
+    "modal",
+    "run",
+    "modal_app.py",
+    "--target-name",
+    "SecureOraclePool",
+    "--hypotheses=3",
+    "--provider=modal_h100",
+    "--model=qtum/Qwen3-Coder-30B-A3B-Audit"
+  ],
+  "timeout_sec": 120,
+  "resource_budget": {
+    "timeout_sec": 120,
+    "max_hypotheses": 3,
+    "allowlist": [
+      "AccessControlVault",
+      "AuctionDoS",
+      "CrossContractBridge",
+      "ERC4626Vault",
+      "FeeShareYieldVault",
+      "FlashLoanRewardPool",
+      "LendingLiquidation",
+      "OracleLendingPool",
+      "PrecisionStakingPool",
+      "RewardDistributorLogic",
+      "SecureAccessControlVault",
+      "SecureERC4626Vault",
+      "SecureOraclePool",
+      "SecureVault",
+      "SignatureReplayWallet",
+      "Vault"
+    ]
+  },
+  "effective_config_hash": "865e306dd6ca9d03dd7628b1117dcbd8edf1fe5832d9ffaeffdd36bb5d6e397e",
+  "prompt_hash": "d4644341f549a08a10dec355d1ea1b88899aaec5295d355907456099009877de",
+  "orchestration_status": "COMPLETED",
+  "generation_outcome": "CANDIDATE_GENERATED",
+  "evm_outcome": "COMPILATION_ERROR",
+  "replay_evidence": null,
+  "remote_evm_provenance": {
+    "remote_os": {
+      "status": "OBSERVED",
+      "value": "Debian GNU/Linux 12 (bookworm)",
+      "source": "/etc/os-release:PRETTY_NAME"
+    },
+    "remote_platform": {
+      "status": "OBSERVED",
+      "value": "posix",
+      "source": "os.name"
+    },
+    "image_digest": {
+      "status": "OBSERVED",
+      "value": "im-QlahjLfoAw8a3el6KafUQC",
+      "source": "modal.config.image_id"
+    },
+    "forge_version": {
+      "status": "OBSERVED",
+      "value": "forge Version: 1.9.0\nCommit SHA: 6056c5845d34205a83cf7108042adb137325c9df\nBuild Timestamp: 2026-11-02T20:28:32.434285913Z (1793651312)\nBuild Profile: dist",
+      "source": "forge --version"
+    },
+    "solc_versions": {
+      "status": "OBSERVED",
+      "value": [
+        "0.8.20"
+      ],
+      "source": "forge config --json:solc"
+    },
+    "exact_forge_argv": {
+      "status": "OBSERVED",
+      "value": [
+        "forge",
+        "test",
+        "--offline",
+        "--json",
+        "-vvvv"
+      ],
+      "source": "the argv that was executed"
+    },
+    "working_directory": {
+      "status": "OBSERVED",
+      "value": "/tmp/tmp_yjjzh77",
+      "source": "the cwd of the forge process"
+    },
+    "compiler_settings": {
+      "status": "OBSERVED",
+      "value": {
+        "evm_version": "shanghai",
+        "optimizer": true,
+        "optimizer_runs": 200,
+        "via_ir": false,
+        "offline": true
+      },
+      "source": "forge config --json"
+    },
+    "observed_exit_code": {
+      "status": "OBSERVED",
+      "value": 1,
+      "source": "the exit code of the forge process"
+    },
+    "target_id": "SAFE-04"
+  },
+  "modal_invocation_provenance": {
+    "modal_app_id": {
+      "status": "NOT_AVAILABLE",
+      "value": null,
+      "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+      "absence_kind": "PROVIDER_FIELD_OMITTED",
+      "evidence_ref": {
+        "path": "SAFE-04_stage_evidence_evm_sandbox.json",
+        "sha256": "f18f8173f6bd4fd67c88eb1d4e2fdc5b23fdb9d3cd308f7951a22c5a196545e7",
+        "byte_length": 12839,
+        "description": "the exact response the evm_sandbox stage returned for this target"
+      }
+    },
+    "client_observed": {
+      "app_id": {
+        "status": "OBSERVED",
+        "value": "ap-P2HqbucGX4wdyBQc3287g7",
+        "source": "the provider-issued App.app_id of the running app (Modal SDK 1.5.5, client side)",
+        "observed_by": "client"
+      },
+      "app_page_url": {
+        "status": "OBSERVED",
+        "value": "https://modal.com/id/ap-P2HqbucGX4wdyBQc3287g7",
+        "source": "the provider's own dashboard URL of the running app (App.get_dashboard_url(), Modal SDK 1.5.5, client side)",
+        "observed_by": "client"
+      },
+      "container_id": {
+        "status": "NOT_AVAILABLE",
+        "value": null,
+        "reason": "the provider's call graph holds the input of the function call 'fc-01M7NHJQ4QMZY2DAWHZAQHTWYJ' but names no container for it: the provider clears the container of an input that has already finished, so the container of an invocation can only be read while that container is alive",
+        "observed_by": "client"
+      }
+    },
+    "target_id": "SAFE-04",
+    "correlation_id": "corr-SAFE-04-1794945647-72126beb",
+    "stages": {
+      "inference": {
+        "attempted": true,
+        "function_name": "ProductionAuditAgent.generate_solidity_exploit",
+        "resource": "H100",
+        "app_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "the inference stage returned a response that carried no runtime-identity envelope, so this client holds no 'app_id' for this target",
+          "absence_kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_inference.json",
+            "sha256": "e597280cd11dca983c5ee428bdff3b1b6086acaca97ae4f8734cce8d2ecd6aae",
+            "byte_length": 11926,
+            "description": "the exact response the inference stage returned for this target"
+          }
+        },
+        "function_call_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "the inference stage returned a response that carried no runtime-identity envelope, so this client holds no 'function_call_id' for this target",
+          "absence_kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_inference.json",
+            "sha256": "e597280cd11dca983c5ee428bdff3b1b6086acaca97ae4f8734cce8d2ecd6aae",
+            "byte_length": 11926,
+            "description": "the exact response the inference stage returned for this target"
+          }
+        },
+        "container_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "the inference stage returned a response that carried no runtime-identity envelope, so this client holds no 'container_id' for this target",
+          "absence_kind": "STAGE_EXECUTED_NO_RUNTIME_ENVELOPE",
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_inference.json",
+            "sha256": "e597280cd11dca983c5ee428bdff3b1b6086acaca97ae4f8734cce8d2ecd6aae",
+            "byte_length": 11926,
+            "description": "the exact response the inference stage returned for this target"
+          }
+        },
+        "evidence_ref": {
+          "path": "SAFE-04_stage_evidence_inference.json",
+          "sha256": "e597280cd11dca983c5ee428bdff3b1b6086acaca97ae4f8734cce8d2ecd6aae",
+          "byte_length": 11926,
+          "description": "the exact response the inference stage returned for this target"
+        }
+      },
+      "evm_sandbox": {
+        "attempted": true,
+        "function_name": "verify_exploit_remote",
+        "resource": "CPU",
+        "app_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+          "absence_kind": "PROVIDER_FIELD_OMITTED",
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_evm_sandbox.json",
+            "sha256": "f18f8173f6bd4fd67c88eb1d4e2fdc5b23fdb9d3cd308f7951a22c5a196545e7",
+            "byte_length": 12839,
+            "description": "the exact response the evm_sandbox stage returned for this target"
+          }
+        },
+        "function_call_id": {
+          "status": "OBSERVED",
+          "value": "fc-01M7NHJQ4QMZY2DAWHZAQHTWYJ",
+          "source": "modal.current_function_call_id()",
+          "observed_by": "worker"
+        },
+        "container_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "a Modal function container has no supported source of a provider-issued container id: the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) reports no container id, MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a generic container hostname, and MODAL_TASK_ID is read only by the internal, experimental module modal/experimental/flash.py. The provider-issued container id of this invocation is a client-side fact: the client resolves the function-call id this worker observed through the provider's own call graph and container listing.",
+          "absence_kind": "PROVIDER_FIELD_OMITTED",
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_evm_sandbox.json",
+            "sha256": "f18f8173f6bd4fd67c88eb1d4e2fdc5b23fdb9d3cd308f7951a22c5a196545e7",
+            "byte_length": 12839,
+            "description": "the exact response the evm_sandbox stage returned for this target"
+          }
+        },
+        "evidence_ref": {
+          "path": "SAFE-04_stage_evidence_evm_sandbox.json",
+          "sha256": "f18f8173f6bd4fd67c88eb1d4e2fdc5b23fdb9d3cd308f7951a22c5a196545e7",
+          "byte_length": 12839,
+          "description": "the exact response the evm_sandbox stage returned for this target"
+        }
+      },
+      "independent_replay": {
+        "attempted": false,
+        "function_name": null,
+        "resource": "CPU",
+        "app_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "the independent_replay stage was not attempted for this target, so no response was ever requested for 'app_id'",
+          "absence_kind": "STAGE_NOT_ATTEMPTED",
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_independent_replay.json",
+            "sha256": "a7c8c25aafb980e2aac5bca94fea9e65b490c6154a5a5d2fea0d2c9aada10ffd",
+            "byte_length": 1311,
+            "description": "the exact response the independent_replay stage returned for this target"
+          }
+        },
+        "function_call_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "the independent_replay stage was not attempted for this target, so no response was ever requested for 'function_call_id'",
+          "absence_kind": "STAGE_NOT_ATTEMPTED",
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_independent_replay.json",
+            "sha256": "a7c8c25aafb980e2aac5bca94fea9e65b490c6154a5a5d2fea0d2c9aada10ffd",
+            "byte_length": 1311,
+            "description": "the exact response the independent_replay stage returned for this target"
+          }
+        },
+        "container_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "the independent_replay stage was not attempted for this target, so no response was ever requested for 'container_id'",
+          "absence_kind": "STAGE_NOT_ATTEMPTED",
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_independent_replay.json",
+            "sha256": "a7c8c25aafb980e2aac5bca94fea9e65b490c6154a5a5d2fea0d2c9aada10ffd",
+            "byte_length": 1311,
+            "description": "the exact response the independent_replay stage returned for this target"
+          }
+        },
+        "evidence_ref": {
+          "path": "SAFE-04_stage_evidence_independent_replay.json",
+          "sha256": "a7c8c25aafb980e2aac5bca94fea9e65b490c6154a5a5d2fea0d2c9aada10ffd",
+          "byte_length": 1311,
+          "description": "the exact response the independent_replay stage returned for this target"
+        }
+      },
+      "trajectory_persistence": {
+        "attempted": false,
+        "function_name": null,
+        "resource": "Storage",
+        "app_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "the trajectory_persistence stage was not attempted for this target, so no response was ever requested for 'app_id'",
+          "absence_kind": "STAGE_NOT_ATTEMPTED",
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_trajectory_persistence.json",
+            "sha256": "b5f4bc43861f09b47a20ddf3eec6196c5fe64e57273d4f690677171ae3bc4acd",
+            "byte_length": 1267,
+            "description": "the exact response the trajectory_persistence stage returned for this target"
+          }
+        },
+        "function_call_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "the trajectory_persistence stage was not attempted for this target, so no response was ever requested for 'function_call_id'",
+          "absence_kind": "STAGE_NOT_ATTEMPTED",
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_trajectory_persistence.json",
+            "sha256": "b5f4bc43861f09b47a20ddf3eec6196c5fe64e57273d4f690677171ae3bc4acd",
+            "byte_length": 1267,
+            "description": "the exact response the trajectory_persistence stage returned for this target"
+          }
+        },
+        "container_id": {
+          "status": "NOT_AVAILABLE",
+          "value": null,
+          "reason": "the trajectory_persistence stage was not attempted for this target, so no response was ever requested for 'container_id'",
+          "absence_kind": "STAGE_NOT_ATTEMPTED",
+          "evidence_ref": {
+            "path": "SAFE-04_stage_evidence_trajectory_persistence.json",
+            "sha256": "b5f4bc43861f09b47a20ddf3eec6196c5fe64e57273d4f690677171ae3bc4acd",
+            "byte_length": 1267,
+            "description": "the exact response the trajectory_persistence stage returned for this target"
+          }
+        },
+        "evidence_ref": {
+          "path": "SAFE-04_stage_evidence_trajectory_persistence.json",
+          "sha256": "b5f4bc43861f09b47a20ddf3eec6196c5fe64e57273d4f690677171ae3bc4acd",
+          "byte_length": 1267,
+          "description": "the exact response the trajectory_persistence stage returned for this target"
+        }
+      }
+    },
+    "persisted_path": null
+  },
+  "execution_status": "SUCCESS"
+}
