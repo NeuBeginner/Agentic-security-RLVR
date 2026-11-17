@@ -182,6 +182,11 @@ class ApprovedStep:
     policy: Any
     ledger: Any
     gate: Any
+    #: The addressing of the provider callables **of the run**. It is captured
+    #: while the run is in progress: the record is written after the run, and
+    #: the addressing mode of the record must be the one of the run, not the
+    #: one of the moment the record is written.
+    provider_addressing: str
 
     def to_record(self) -> Dict[str, Any]:
         """The record of the approval - what the run actually ran under."""
@@ -196,11 +201,7 @@ class ApprovedStep:
             "artifact_digest": self.claims.artifact_digest,
             "estimate_usd": self.policy.estimate_usd,
             "monetary_ceiling_usd": self.policy.monetary_ceiling_usd,
-            "provider_addressing": (
-                "deployed app by name (modal.Function.from_name / modal.Cls.from_name)"
-                if deployed_addressing_enabled()
-                else "local modal_app module"
-            ),
+            "provider_addressing": self.provider_addressing,
             "budget_ledger": {
                 "path": str(self.ledger.path),
                 "cap_usd": state.cap_usd,
@@ -254,6 +255,14 @@ def approved_step_run(
         budget_run_id=budget_run_id,
     ) as gate:
         with deployed_app_addressing():
+            # The addressing is captured **here**, while the run is in progress:
+            # the record of the run is written after it, and the mode of the
+            # record must be the mode of the run.
+            provider_addressing = (
+                "deployed app by name (modal.Function.from_name / modal.Cls.from_name)"
+                if deployed_addressing_enabled()
+                else "local modal_app module"
+            )
             yield ApprovedStep(
                 step_id=step_id,
                 artifact_path=str(approval_artifact_path),
@@ -261,6 +270,7 @@ def approved_step_run(
                 policy=policy,
                 ledger=ledger,
                 gate=gate,
+                provider_addressing=provider_addressing,
             )
 
 

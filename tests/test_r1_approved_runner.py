@@ -314,6 +314,28 @@ def test_an_unset_bound_of_the_policy_keeps_its_reason():
     assert policy.missing_fields() == ["monetary_ceiling_usd"]
 
 
+def test_the_record_states_the_addressing_of_the_run(tmp_path, monkeypatch):
+    """The record states the addressing **of the run**, not of the moment it is written.
+
+    The record is written after the run, when the addressing context has already
+    left: a record that asked the mode at that moment would state the opposite
+    of what the run did.
+    """
+    monkeypatch.setattr(r1_approval, "verify_artifact", lambda artifact: _FakeClaims())
+    artifact = _write_artifact(tmp_path, R4_PAYLOAD)
+
+    with approved_step_run(
+        str(artifact), step_id="R4", budget_ledger_path=str(tmp_path / "ledger.sqlite3")
+    ) as step:
+        record = step.to_record()
+        assert record["provider_addressing"] == (
+            "deployed app by name (modal.Function.from_name / modal.Cls.from_name)"
+        )
+
+    # The record of the run, written after the run: the same fact.
+    assert step.to_record()["provider_addressing"] == record["provider_addressing"]
+
+
 # --------------------------------------------------------------------------------------
 # the runner
 # --------------------------------------------------------------------------------------
