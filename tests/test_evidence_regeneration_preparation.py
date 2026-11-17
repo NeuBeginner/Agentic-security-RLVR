@@ -3,10 +3,11 @@ and the refusal of a fabricated Modal URI in a new run.
 
 The suite states four things:
 
-* the inventory of the published artifacts tree is **exactly** the 165
-  documented occurrences - 66 in the 16 target artifacts, 33 in the
-  reproducibility manifest, 33 in the summary of the run and 33 in the
-  root-level ``latest_summary.json``;
+* the inventory of the published artifacts tree is **exactly** the 132
+  occurrences the regeneration left behind - 66 in the 16 target artifacts,
+  33 in the reproducibility manifest and 33 in the summary of the published
+  run; the root-level ``latest_summary.json`` was replaced by the summary of
+  the new run and carries no fabricated URI any more;
 * every one of them sits in the legacy ``durable_log_ref`` field of a stage of
   the Modal invocation provenance;
 * the published run directory is **untouched**: its files still hash to the
@@ -35,6 +36,9 @@ from benchmarks.protocol import reject_synthetic_modal_uris
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PUBLISHED_RUN = REPO_ROOT / "benchmarks" / "artifacts" / "run_1794209615_70f5d22"
+REGENERATED_RUN = REPO_ROOT / "benchmarks" / "artifacts" / "run_1794935485_8619fcc"
+REGENERATED_RUN_DIR = "benchmarks/artifacts/run_1794935485_8619fcc"
+PUBLISHED_FIELD_MAP = REPO_ROOT / "benchmarks" / "evidence" / "evidence_regeneration_field_map.json"
 
 
 # --------------------------------------------------------------------------------------
@@ -42,15 +46,24 @@ PUBLISHED_RUN = REPO_ROOT / "benchmarks" / "artifacts" / "run_1794209615_70f5d22
 # --------------------------------------------------------------------------------------
 
 
-def test_the_inventory_is_exactly_the_165_documented_occurrences():
-    """165 occurrences in 19 files - the count of the plan, reproduced here."""
+def test_the_inventory_is_the_132_occurrences_of_the_immutable_published_run():
+    """The tree carries the 132 occurrences of the published run directory.
+
+    The preparation inventoried **165** occurrences: 132 in the published run
+    directory and 33 in the root-level ``latest_summary.json``. The
+    regeneration replaced the root-level summary with the summary of the new
+    run, so what is left in the tree is the historical record - the published
+    run directory, which keeps its bytes and its digests.
+    """
     inventory = prep.build_inventory()
-    assert inventory["total_occurrences"] == 165
-    assert inventory["files_with_occurrences"] == 19
+    assert inventory["total_occurrences"] == 132
+    assert inventory["files_with_occurrences"] == 18
+    for row in inventory["files"]:
+        assert row["file"].startswith(prep.PUBLISHED_RUN_DIR), row["file"]
 
 
 def test_the_inventory_has_the_documented_distribution():
-    """66 in the target artifacts, 33 in the manifest, 33 in the summary, 33 in latest_summary."""
+    """66 in the target artifacts, 33 in the manifest, 33 in the summary of the run."""
     inventory = prep.build_inventory()
     counts = {row["file"]: row["occurrences"] for row in inventory["files"]}
 
@@ -61,7 +74,9 @@ def test_the_inventory_has_the_documented_distribution():
     assert target_artifacts == 66
     assert counts[f"{run_dir}/reproducibility_manifest.json"] == 33
     assert counts[f"{run_dir}/summary.json"] == 33
-    assert counts[prep.PUBLISHED_LATEST_SUMMARY] == 33
+    # The root-level summary of the published tree was replaced by the summary
+    # of the new run: it carries no fabricated URI any more.
+    assert prep.PUBLISHED_LATEST_SUMMARY not in counts
 
 
 def test_every_occurrence_is_the_legacy_durable_log_ref_of_a_stage():
@@ -75,11 +90,18 @@ def test_every_occurrence_is_the_legacy_durable_log_ref_of_a_stage():
 
 
 def test_the_field_map_names_the_contract_of_a_new_run():
-    """Every occurrence of the map says what replaces it and what refuses it."""
+    """Every occurrence of the map says what replaces it and what refuses it.
+
+    The map is built from the **current** inventory of the tree: after the
+    regeneration the tree carries the 132 occurrences of the published run
+    directory. The published map of the preparation - the historical record -
+    keeps its own 165 entries; it is stated by
+    :func:`test_the_published_field_map_keeps_the_historical_record`.
+    """
     field_map = prep.build_field_map(prep.build_inventory())
-    assert field_map["total_occurrences"] == 165
+    assert field_map["total_occurrences"] == 132
     assert field_map["published_run_dir_is_immutable"] is True
-    assert len(field_map["field_map"]) == 165
+    assert len(field_map["field_map"]) == 132
     for entry in field_map["field_map"]:
         assert entry["replacement"]
         assert "reject_synthetic_modal_uris" in entry["refused_by"]
@@ -128,6 +150,63 @@ def test_the_published_files_still_hash_to_the_digests_of_the_manifest():
         assert row["sha256"] == recorded[relative], relative
         checked += 1
     assert checked >= 16
+
+
+def test_the_published_field_map_keeps_the_historical_record():
+    """The published map of the preparation is not rewritten by the regeneration.
+
+    It documents the **165** occurrences of the tree as it was before the
+    regeneration - 132 in the published run directory and 33 in the
+    root-level ``latest_summary.json`` that the new run replaced. The
+    regeneration does not touch it: the map stays the historical record of
+    the preparation.
+    """
+    published = json.loads(PUBLISHED_FIELD_MAP.read_text(encoding="utf-8"))
+    assert published["total_occurrences"] == 165
+    assert len(published["field_map"]) == 165
+    assert len(published["files"]) == 19
+    assert published["published_run_dir_is_immutable"] is True
+    assert published["status"].startswith("PREPARED")
+    # the map still names the root-level summary it has mapped - it is the
+    # historical record, not the state of the tree
+    assert any(
+        row["file"] == prep.PUBLISHED_LATEST_SUMMARY for row in published["files"]
+    )
+
+
+def test_the_regenerated_run_carries_no_fabricated_uri():
+    """The new run states the provider-issued reference - it fabricates no URI."""
+    assert REGENERATED_RUN.is_dir()
+    assert (REGENERATED_RUN / "summary.json").is_file()
+
+    inventory = prep.build_inventory()
+    files = {row["file"] for row in inventory["files"]}
+    offenders = sorted(
+        path for path in files if path.startswith(f"{REGENERATED_RUN_DIR}/")
+    )
+    assert offenders == []
+    # the root-level summary of the tree is the summary of the new run now
+    assert prep.PUBLISHED_LATEST_SUMMARY not in files
+
+    # and the run states the provider-issued function call ids of the run
+    payload = b"".join(
+        path.read_bytes() for path in sorted(REGENERATED_RUN.rglob("*.json"))
+    )
+    assert b"modal-app://" not in payload
+    assert b"fc-" in payload
+
+
+def test_the_regenerated_run_is_the_approved_step_r4():
+    """The published run is the run of the approved step R4."""
+    summary = json.loads(
+        (REGENERATED_RUN / "summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["run_id"] == "run_1794935485_8619fcc"
+    approval = summary["approval"]
+    assert approval["step_id"] == "R4"
+    assert approval["approved_by"] == "owner"
+    assert approval["policy_digest"]
+    assert approval["dispatch_envelope_digest"]
 
 
 # --------------------------------------------------------------------------------------
