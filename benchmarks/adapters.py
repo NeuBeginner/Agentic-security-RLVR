@@ -238,6 +238,105 @@ def provider_call_context():
         yield
 
 
+# --------------------------------------------------------------------------------------
+# The client-side observation of the deployed app and of the container of a call
+# --------------------------------------------------------------------------------------
+
+
+#: The provider-issued container ids this client correlated to a provider call,
+#: keyed by the function-call id. The provider names the container of an input
+#: only while that container exists, so the correlation is made **right after
+#: the call returned** - a correlation made at the end of the run finds nothing,
+#: because the container of the call is gone by then.
+_CLIENT_OBSERVED_CONTAINER_IDS: Dict[str, Dict[str, Any]] = {}
+
+#: The handle of the deployed application, resolved once per process.
+_DEPLOYED_APP_HANDLE: Optional[Any] = None
+
+
+def _deployed_app_handle() -> Tuple[Optional[Any], str]:
+    """The handle of the **deployed** application - resolved on the client side.
+
+    ``modal.App.lookup`` with ``create_if_missing=False`` only **reads**: the
+    provider resolves the existing app record and never creates one. The
+    lookup is awaited inside the SDK's own task context, the way the SDK's own
+    command line reaches the very same provider.
+
+    Returns the handle and an empty reason, or ``(None, reason)`` when the
+    provider could not be asked.
+    """
+    global _DEPLOYED_APP_HANDLE
+
+    if _DEPLOYED_APP_HANDLE is not None:
+        return _DEPLOYED_APP_HANDLE, ""
+
+    import modal
+
+    from core.config import config
+
+    try:
+        from modal._utils.async_utils import synchronizer
+
+        async def _lookup():
+            return await modal.App.lookup.aio(config.APP_NAME)
+
+        handle = synchronizer.wrap(_lookup)()
+    except Exception as exc:
+        return None, f": {type(exc).__name__}: {exc}"
+
+    _DEPLOYED_APP_HANDLE = handle
+    return handle, ""
+
+
+def _deployed_app_id() -> Tuple[Optional[str], str]:
+    """The provider-issued application id of the deployed application.
+
+    Two reads, in this order:
+
+    * the SDK's own lookup of the app name (``create_if_missing=False``), which
+      yields the handle of the deployed app; and
+    * the provider's own lookup of the app name, which yields the very same id
+      through the gRPC call the SDK sends for it.
+
+    Neither of them creates anything. The id is never invented: when the
+    provider names no application the caller states the absence.
+    """
+    handle, reason = _deployed_app_handle()
+    if handle is not None:
+        app_id = getattr(handle, "app_id", None)
+        if app_id:
+            return str(app_id), ""
+
+    from core.config import config
+
+    try:
+        from benchmarks.modal_provider import ModalProvider
+
+        app_id = ModalProvider().app_id_of_app_name(config.APP_NAME)
+        if app_id:
+            return app_id, ""
+    except Exception as exc:
+        reason = reason or f": {type(exc).__name__}: {exc}"
+    return None, reason
+
+
+def _runtime_function_call_id(runtime_identity: Any) -> Optional[str]:
+    """The provider-issued function-call id of a runtime envelope.
+
+    The envelope is the worker's own report: it names the function call the
+    worker executed. A value that is not an observed envelope names no call.
+    """
+    if not isinstance(runtime_identity, dict):
+        return None
+    fact = runtime_identity.get("function_call_id")
+    if not isinstance(fact, dict):
+        return None
+    value = fact.get("value")
+    if fact.get("status") != "OBSERVED" or not isinstance(value, str) or not value:
+        return None
+    return value
+
+
 def _client_observed_app_id() -> Dict[str, Any]:
     """
     The provider-issued application id of the running Modal app - observed on
@@ -248,6 +347,11 @@ def _client_observed_app_id() -> Dict[str, Any]:
     holds the provider-issued ``App.app_id`` of the app it ran - the SDK keeps
     it after the app has finished.
 
+    A run that addresses the **deployed** application by name never ran a local
+    app, so the local app object holds no id at all. The id of the deployed app
+    is read from the provider instead: the provider's own lookup of the app
+    name returns the provider-issued id of that very app.
+
     The fact is explicitly client-side: a client observation is never
     presented as a worker observation.
     """
@@ -257,6 +361,21 @@ def _client_observed_app_id() -> Dict[str, Any]:
         not_available,
         observed,
     )
+
+    if deployed_addressing_enabled():
+        app_id, reason = _deployed_app_id()
+        if app_id:
+            return observed(
+                app_id,
+                source=SOURCE_CLIENT_APP_ID,
+                observed_by=OBSERVATION_SIDE_CLIENT,
+            )
+        return not_available(
+            "the run addresses the deployed application by name, so no local app was run: the "
+            "provider-issued application id of the deployed app could not be resolved on the "
+            f"client side{reason}",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
 
     app_id = None
     try:
@@ -270,17 +389,6 @@ def _client_observed_app_id() -> Dict[str, Any]:
         return observed(
             str(app_id),
             source=SOURCE_CLIENT_APP_ID,
-            observed_by=OBSERVATION_SIDE_CLIENT,
-        )
-    if deployed_addressing_enabled():
-        # The run addresses the **deployed** application by name: the local app
-        # object was never run, so it holds no provider-issued id. The id of the
-        # deployed app is observed inside the remote worker (the stage facts),
-        # never on the client side - and it is never fabricated here.
-        return not_available(
-            "the run addresses the deployed application by name, so no local app was "
-            "run: the provider-issued application id of the deployed app is observed "
-            "inside the remote worker (stage facts), not on the client side",
             observed_by=OBSERVATION_SIDE_CLIENT,
         )
     return not_available(
@@ -298,6 +406,10 @@ def _client_observed_app_page_url() -> Dict[str, Any]:
     ``App.get_dashboard_url()`` is a supported public method of the SDK; it
     returns the provider's URL of the app it belongs to. A function container
     has no such API, so this fact is a client-side one.
+
+    A run that addresses the **deployed** application by name reads the URL
+    from the handle of that very app - the provider's URL of the deployed app,
+    not of a local app that was never run.
     """
     from benchmarks.evidence_integrity import (
         OBSERVATION_SIDE_CLIENT,
@@ -305,6 +417,29 @@ def _client_observed_app_page_url() -> Dict[str, Any]:
         not_available,
         observed,
     )
+
+    if deployed_addressing_enabled():
+        handle, reason = _deployed_app_handle()
+        app_page_url = None
+        failure = ""
+        if handle is not None:
+            try:
+                app_page_url = handle.get_dashboard_url()
+            except Exception as exc:
+                app_page_url = None
+                failure = f": {type(exc).__name__}: {exc}"
+        if app_page_url:
+            return observed(
+                str(app_page_url),
+                source=SOURCE_CLIENT_APP_PAGE_URL,
+                observed_by=OBSERVATION_SIDE_CLIENT,
+            )
+        return not_available(
+            "the run addresses the deployed application by name, so no local app was run: the "
+            "provider exposed no dashboard URL for the deployed app on the client side"
+            f"{failure or reason}",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
 
     app_page_url = None
     failure = ""
@@ -422,7 +557,17 @@ def _client_observed_container_id(
             observed_by=OBSERVATION_SIDE_CLIENT,
         )
 
-    container_ids = {item.container_id for item in matching}
+    named = [item for item in matching if item.container_id]
+    if not named:
+        return not_available(
+            f"the provider's call graph holds the input of the function call {call_id!r} but "
+            "names no container for it: the provider clears the container of an input that has "
+            "already finished, so the container of an invocation can only be read while that "
+            "container is alive",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+
+    container_ids = {item.container_id for item in named}
     if len(container_ids) != 1:
         return not_available(
             f"the provider's call graph of the function call {call_id!r} names "
@@ -482,7 +627,7 @@ def _client_observed_container_id(
             observed_by=OBSERVATION_SIDE_CLIENT,
         )
 
-    graph_input = matching[0]
+    graph_input = named[0]
     fact = observed(
         container_id,
         source=SOURCE_CLIENT_CONTAINER_ID,
@@ -511,6 +656,72 @@ def _client_observed_container_id(
     return fact
 
 
+def observe_container_id_of_call(
+    function_call_id: Any,
+    provider: Any = None,
+) -> Dict[str, Any]:
+    """
+    The provider-issued container id of **one** provider call - correlated now.
+
+    The provider names the container of an input only while that container
+    exists: a container that was reclaimed is named by nobody. The correlation
+    is therefore made **right after the call returned**, and the fact is kept
+    for the rest of the run - the report of the run is written long after the
+    last call, when every container of the run is gone.
+
+    The correlation never attaches a container that the provider does not tie
+    to this very call: the call graph, the container listing of the
+    application and the provider's own task record have to agree.
+    """
+    from benchmarks.evidence_integrity import (
+        OBSERVATION_SIDE_CLIENT,
+        SOURCE_CLIENT_CONTAINER_ID,
+        not_available,
+    )
+
+    call_id = _observed_value(function_call_id)
+    if not call_id:
+        return not_available(
+            "the container id of this invocation cannot be resolved on the client side: the "
+            "worker envelope holds no observed function-call id, and the provider's call graph "
+            "is keyed by the function call",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+
+    cached = _CLIENT_OBSERVED_CONTAINER_IDS.get(call_id)
+    if cached is not None:
+        return cached
+
+    fact = _client_observed_container_id(
+        function_call_id=call_id,
+        app_id=_client_observed_app_id(),
+        provider=provider,
+    )
+    _CLIENT_OBSERVED_CONTAINER_IDS[call_id] = fact
+    return fact
+
+
+def _observe_container_id_of_runtime(runtime_identity: Any) -> Dict[str, Any]:
+    """Correlate the container of the call a runtime envelope belongs to.
+
+    The envelope names the function call the worker executed; the container of
+    that call is correlated while that container is still alive.
+    """
+    call_id = _runtime_function_call_id(runtime_identity)
+    if not call_id:
+        from benchmarks.evidence_integrity import (
+            OBSERVATION_SIDE_CLIENT,
+            not_available,
+        )
+
+        return not_available(
+            "the worker envelope of this stage names no observed function-call id, so the "
+            "provider's call graph cannot be asked for the container of this invocation",
+            observed_by=OBSERVATION_SIDE_CLIENT,
+        )
+    return observe_container_id_of_call(call_id)
+
+
 def _client_observed_block(
     stage_facts: Optional[Dict[str, Any]] = None,
     provider: Any = None,
@@ -522,16 +733,25 @@ def _client_observed_block(
     in the stage facts of this run - it is a provider-observed, invocation-
     correlated fact, never a container that merely belongs to the same app.
 
+    A correlation that was already made - right after the call returned, while
+    the container was still alive - is reused: at the time the report is
+    written the container of the call is long gone, and the provider names it
+    to nobody.
+
     ``provider`` is the collaborator the provider is asked through. Without
     one the real :class:`benchmarks.modal_provider.ModalProvider` is used; a
     caller that must not reach the provider passes a provider that refuses.
     """
     app_id = _client_observed_app_id()
     function_call_id = (stage_facts or {}).get("function_call_id")
+    call_id = _observed_value(function_call_id)
+    cached = _CLIENT_OBSERVED_CONTAINER_IDS.get(call_id) if call_id else None
     return {
         "app_id": app_id,
         "app_page_url": _client_observed_app_page_url(),
-        "container_id": _client_observed_container_id(
+        "container_id": cached
+        if cached is not None
+        else _client_observed_container_id(
             function_call_id=function_call_id,
             app_id=app_id,
             provider=provider,
@@ -2012,6 +2232,10 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     target_dict,
                     payload_dict,
                 )
+                # The provider names the container of an input only while that
+                # container exists, so the correlation is made right here - right
+                # after the call returned - and not when the report is written.
+                _observe_container_id_of_runtime(verdict_dict.get("modal_runtime"))
                 verdict = VerificationVerdict(**verdict_dict)
                 elapsed = round(time.time() - start_time, 3)
 
@@ -2066,6 +2290,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                                 target_dict,
                                 payload_dict,
                             )
+                            _observe_container_id_of_runtime(verdict_dict.get("modal_runtime"))
                             verdict = VerificationVerdict(**verdict_dict)
                         else:
                             break
@@ -2095,6 +2320,22 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                         if isinstance(raw_replay, dict):
                             replay_details = dict(raw_replay)
                             is_replayed = bool(raw_replay.get("reproduced", False))
+                            # The container of the replay call is correlated
+                            # while that container is still alive: the provider
+                            # names the container of an input only while it
+                            # exists, so a correlation made when the report is
+                            # written finds nothing. A container that the
+                            # provider does not tie to this very call is never
+                            # attached - the absence is stated instead, and the
+                            # real function-call id stays the anchor of the
+                            # envelope.
+                            replay_container_fact = _observe_container_id_of_runtime(
+                                replay_details.get("modal_runtime")
+                            )
+                            observed_replay_container = _observed_value(replay_container_fact)
+                            if observed_replay_container:
+                                replay_details["container_id"] = observed_replay_container
+                            replay_details["client_observed_container_id"] = replay_container_fact
                         else:
                             # A non-dict replay response carries no evidence at all.
                             is_replayed = False
@@ -2236,6 +2477,13 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                                 + ", ".join(missing)
                             ),
                             "container_id": replay_details.get("container_id"),
+                            # The real function-call id of the replay call. It is
+                            # the anchor of the envelope: when the provider names
+                            # no container for that call, this id is what the
+                            # envelope states - never an invented container id.
+                            "function_call_id": _runtime_function_call_id(
+                                replay_details.get("modal_runtime")
+                            ),
                             "harness_verdict": replay_details.get("harness_verdict"),
                             "exit_code": replay_details.get("exit_code"),
                             "utc_start_time": replay_details.get("utc_start_time"),
@@ -2267,6 +2515,12 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                             "complete": True,
                             # Real container identity as observed by the replay worker.
                             "container_id": replay_details.get("container_id"),
+                            # The real function-call id of the replay call: the
+                            # anchor of the envelope when the provider names no
+                            # container for it.
+                            "function_call_id": _runtime_function_call_id(
+                                replay_details.get("modal_runtime")
+                            ),
                             "command": replay_details.get("command"),
                             "argv": replay_details.get("argv"),
                             "return_code": replay_details.get("return_code"),

@@ -109,6 +109,12 @@ class ModalProvider:
         real time (``modal/_functions.py``). An empty list is therefore a
         normal answer, not an error - it means the provider holds no record of
         this call, and the container id of the call is then simply unavailable.
+
+        An input whose ``task_id`` is empty is reported as it is: the provider
+        knows the input of the call but names no container for it - which is
+        what the provider answers for an input that has already finished. The
+        caller tells that apart from "the provider holds no input of this
+        call", and never reads an empty container id as a container.
         """
         from modal import FunctionCall
 
@@ -120,16 +126,42 @@ class ModalProvider:
             input_id = getattr(info, "input_id", None)
             call_id = getattr(info, "function_call_id", None)
             container_id = getattr(info, "task_id", None)
-            if not call_id or not container_id:
+            if not call_id:
                 continue
             inputs.append(
                 ProviderCallGraphInput(
                     input_id=str(input_id or ""),
                     function_call_id=str(call_id),
-                    container_id=str(container_id),
+                    container_id=str(container_id or ""),
                 )
             )
         return inputs
+
+    # -- the provider's application lookup ----------------------------------
+
+    def app_id_of_app_name(self, app_name: str, environment_name: str = "") -> Optional[str]:
+        """The provider-issued application id of a deployed application, by name.
+
+        The provider is asked through its own ``AppGetOrCreate`` call with the
+        **creation type unset** - exactly the request the SDK's own
+        ``App.lookup(create_if_missing=False)`` sends. With the creation type
+        unset the provider resolves the existing app record; it never creates
+        one, so this call only reads.
+
+        An application that does not exist is an absence, not an error: the
+        caller states the absence and never invents an id.
+        """
+        from modal_proto import api_pb2
+
+        response = self._stub_call(
+            "AppGetOrCreate",
+            api_pb2.AppGetOrCreateRequest(
+                app_name=app_name,
+                environment_name=environment_name,
+            ),
+        )
+        app_id = getattr(response, "app_id", None)
+        return str(app_id) if app_id else None
 
     # -- the provider's container listing -----------------------------------
 
