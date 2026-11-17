@@ -477,6 +477,30 @@ def validate_modal_invocation_provenance(
     )
 
 
+def reject_synthetic_modal_uris(artifact_dict: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """Refuse an artifact that carries a fabricated ``modal-app://`` URI.
+
+    The provenance validator refuses the **legacy** log-URI fields of a stage
+    (``durable_log_ref``, ``provider_log_uri``, ``log_uri``). A new run may
+    carry the fabricated URI in **any other** field, and the detector
+    (:func:`benchmarks.evidence_integrity.has_synthetic_modal_uri`) finds it
+    everywhere - so the refusal has to be top level as well.
+
+    The check is a refusal, never a repair: the artifact is not rewritten and
+    nothing is backfilled into it. The published evidence of the historical run
+    is not touched by this function - it is read, never written.
+    """
+    from benchmarks.evidence_integrity import has_synthetic_modal_uri as _detect
+
+    if _detect(artifact_dict):
+        return False, (
+            "the artifact carries a fabricated 'modal-app://' URI; a run states the "
+            "provider-issued reference or an explicit NOT_AVAILABLE fact with a reason "
+            "and an evidence reference"
+        )
+    return True, None
+
+
 def validate_stage_evidence_binding(
     stage_name: str,
     stage: Dict[str, Any],
