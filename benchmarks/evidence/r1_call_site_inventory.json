@@ -205,6 +205,14 @@
       ],
       "refused_by": "core.r1_bounds.assert_authorised_call_site (for R1 trace) / integrations.modal_mcp.modal_access.ModalAccess.call_function (CPU-only allowlist + aegis-cpu-audit-auth)",
       "test": "tests/test_modal_mcp.py::test_the_audit_service_is_called_with_the_shared_token"
+    },
+    "modal_app.py::verifier_fn::verify_train_exploit_remote": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The GRPO train-split Foundry verifier is not part of the authorised R1 evidence-regeneration trace (core.r1_bounds.UNAUTHORISED_CALL_SITES); the guard refuses the call site before any budget, bound or egress question is asked.",
+      "call_sites": [
+        "verify_train_exploit_remote"
+      ]
     }
   },
   "guard_implementation": {

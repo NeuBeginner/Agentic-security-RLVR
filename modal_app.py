@@ -69,6 +69,8 @@ app = modal.App(name=config.APP_NAME)
 # Persistent volume for caching model weights and GRPO training trajectories
 model_volume = modal.Volume.from_name(config.MODEL_VOLUME_NAME, create_if_missing=True)
 
+_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+
 # GPU Image for reasoning and exploit synthesis engine
 gpu_image = (
     modal.Image.debian_slim(python_version="3.10")
@@ -78,10 +80,31 @@ gpu_image = (
         "accelerate>=0.28.0",
         "peft>=0.14.0",
         "trl>=0.14.0",
+        "bitsandbytes>=0.45.0",
         "pydantic>=2.0.0",
         "google-genai>=2.0.0",
     )
-    .add_local_python_source("core", "sandbox")
+    .add_local_python_source("core", "sandbox", copy=True)
+    .add_local_file(
+        os.path.join(_REPO_ROOT, "benchmarks", "train_dataset.json"),
+        "/opt/aegis/benchmarks/train_dataset.json",
+        copy=True,
+    )
+    .add_local_file(
+        os.path.join(_REPO_ROOT, "benchmarks", "benchmark_dataset.json"),
+        "/opt/aegis/benchmarks/benchmark_dataset.json",
+        copy=True,
+    )
+    .add_local_dir(
+        os.path.join(_REPO_ROOT, "benchmarks", "targets", "solidity_train"),
+        "/opt/aegis/benchmarks/targets/solidity_train",
+        copy=True,
+    )
+    .add_local_dir(
+        os.path.join(_REPO_ROOT, "benchmarks", "targets", "solidity"),
+        "/opt/aegis/benchmarks/targets/solidity",
+        copy=True,
+    )
 )
 
 # =============================================================================
@@ -843,6 +866,19 @@ def run_slither_remote(target_dict: dict) -> list:
 @app.function(
     image=sandbox_image,
     timeout=r1.declared_timeout(r1.SANDBOX_CPU_PROFILE),
+    block_network=True,
+    **r1.SANDBOX_CPU_PROFILE.modal_kwargs(),
+)
+def verify_train_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
+    """Executes Foundry verification for isolated GRPO train targets on sandbox_image."""
+    target = TargetProgram(**target_dict)
+    payload = ExploitPayload(**payload_dict)
+    return run_payload_in_sandbox(target, payload, allow_train_split=True).model_dump()
+
+
+@app.function(
+    image=sandbox_image,
+    timeout=r1.declared_timeout(r1.SANDBOX_CPU_PROFILE),
     # D26/D27/D29: the explicit request/limit pair and the lifecycle bounds of the
     # sandbox class, the autoscaler policy of the deployment, and the
     # provider-enforced network blocking declaration of this exact function.
@@ -1028,18 +1064,22 @@ def record_trajectory_remote(trajectory_dict: dict) -> str:
 )
 def audit_volume_trajectories_remote() -> dict:
     """Read-only audit of stored trajectories in persistent Modal volume (Round 5.2)."""
+    try:
+        model_volume.reload()
+    except Exception:
+        pass
     from core.grpo_trainer import audit_trajectory_storage
     return audit_trajectory_storage(config.TRAJECTORY_DIR)
 
 
 @app.function(
-    gpu=config.DEV_GPU_TYPE,
+    gpu=config.GRPO_GPU_TYPE,
     image=gpu_image,
     volumes={"/vol/models": model_volume},
     timeout=600,
 )
 def diagnostic_grpo_forward_remote(
-    model_id: str = config.DEV_GPU_MODEL,
+    model_id: str = config.GRPO_BASE_MODEL,
     batch_group_size: int = 4
 ) -> dict:
     """
@@ -1062,16 +1102,23 @@ def diagnostic_grpo_forward_remote(
     )
 
     print(f"[Diagnostic Forward] Loading tokenizer and model: {model_id} on Modal GPU...")
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=config.MODEL_CACHE_DIR)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    dtype = torch.float16 if config.GRPO_GPU_TYPE == "T4" else torch.bfloat16
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        torch_dtype=torch.bfloat16,
-        device_map="cuda"
+        torch_dtype=dtype,
+        device_map="cuda",
+        cache_dir=config.MODEL_CACHE_DIR,
     )
     model.eval()
+
+    try:
+        model_volume.reload()
+    except Exception:
+        pass
 
     # Load trajectories with strict production allowlist and exact token lineage (Round 5.4)
     from core.grpo_trainer import load_production_trajectories
@@ -1136,13 +1183,13 @@ def diagnostic_grpo_forward_remote(
 
 
 @app.function(
-    gpu=config.DEV_GPU_TYPE,
+    gpu=config.GRPO_GPU_TYPE,
     image=gpu_image,
     volumes={"/vol/models": model_volume},
     timeout=1800,
 )
 def train_grpo_remote(
-    model_id: str,
+    model_id: str = config.GRPO_BASE_MODEL,
     num_steps: int = 5,
     learning_rate: float = 5e-6,
     batch_group_size: int = 4
@@ -1169,6 +1216,11 @@ def train_grpo_remote(
             f"(TRAINING_STATUS={os.environ.get('TRAINING_STATUS', '<unset>')}, "
             f"TRAINING_BLOCKED={os.environ.get('TRAINING_BLOCKED', '<unset>')})"
         )
+
+    try:
+        model_volume.reload()
+    except Exception:
+        pass
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from core.grpo_trainer import (
@@ -1200,13 +1252,12 @@ def train_grpo_remote(
         tokenizer.pad_token = tokenizer.eos_token
 
     print(f"[*] Loading base model weights on GPU...")
-    dtype = torch.float16 if config.DEV_GPU_TYPE == "T4" else torch.bfloat16
+    dtype = torch.float16 if config.GRPO_GPU_TYPE == "T4" else torch.bfloat16
     base_model = AutoModelForCausalLM.from_pretrained(
         model_id,
         torch_dtype=dtype,
-        device_map="auto",
         cache_dir=cache_dir
-    )
+    ).to("cuda")
 
     lora_model = setup_lora_model(
         base_model,
@@ -1246,6 +1297,157 @@ def train_grpo_remote(
         "checkpoint_path": save_path,
         "steps_completed": len(step_stats),
         "logs": [s.model_dump() for s in step_stats]
+    }
+
+
+@app.function(
+    gpu=config.GRPO_GPU_TYPE,
+    image=gpu_image,
+    volumes={"/vol/models": model_volume},
+    timeout=1800,
+)
+def collect_train_rollouts_remote(
+    model_id: str = config.GRPO_BASE_MODEL,
+    max_targets: Optional[int] = None,
+    group_size: int = 4,
+    temperatures: Optional[List[float]] = None,
+    max_new_tokens: int = 1536,
+    run_id: Optional[str] = None,
+) -> dict:
+    """
+    Collects GRPO training rollouts on disjoint train targets on Modal GPU worker.
+    STRICT DATA ISOLATION & ZERO-OVERLAP GUARANTEES:
+    - Loads ONLY disjoint train targets from benchmarks/train_dataset.json.
+    - Generates multi-candidate rollouts with base model across temperatures.
+    - Captures exact generated_token_ids and formatted ChatML prompt_text.
+    - Verifies candidates in isolated Foundry sandbox (allow_train_split=True).
+    - Persists valid trajectories to persistent Modal Volume.
+    - NO optimizer step, NO weight updates, NO checkpoint modifications.
+    """
+    import os
+    from pathlib import Path
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from core.train_rollout_collector import load_train_targets, collect_train_rollouts
+
+    try:
+        model_volume.reload()
+    except Exception:
+        pass
+
+    # 1. Load strictly isolated train targets
+    container_benchmarks = Path("/opt/aegis/benchmarks")
+    if (container_benchmarks / "train_dataset.json").is_file():
+        train_dataset_path = container_benchmarks / "train_dataset.json"
+        benchmark_dataset_path = container_benchmarks / "benchmark_dataset.json"
+        train_solidity_dir = container_benchmarks / "targets" / "solidity_train"
+        test_solidity_dir = container_benchmarks / "targets" / "solidity"
+        targets = load_train_targets(
+            train_dataset_path=train_dataset_path,
+            benchmark_dataset_path=benchmark_dataset_path,
+            train_solidity_dir=train_solidity_dir,
+            test_solidity_dir=test_solidity_dir,
+        )
+        collect_kwargs: Dict[str, Any] = {
+            "benchmark_dataset_path": benchmark_dataset_path,
+            "test_solidity_dir": test_solidity_dir,
+        }
+    else:
+        targets = load_train_targets()
+        collect_kwargs = {}
+
+    if max_targets is not None and max_targets > 0:
+        targets = targets[:max_targets]
+
+    # 2. Load model and tokenizer
+    cache_dir = config.MODEL_CACHE_DIR
+    print(f"[*] Loading tokenizer for {model_id}...")
+    tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=cache_dir)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    dtype = torch.float16 if config.GRPO_GPU_TYPE == "T4" else torch.bfloat16
+    print(f"[*] Loading model {model_id} on GPU ({dtype})...")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        torch_dtype=dtype,
+        cache_dir=cache_dir,
+    ).to("cuda")
+    model.eval()
+
+    # 3. Define generation function with ChatML formatting and exact token lineage
+    def generator_fn(target: TargetProgram, prompt_text: str, temperature: float, cand_idx: int) -> ExploitPayload:
+        messages = [
+            {"role": "system", "content": build_exploit_engineer_system_prompt(target.name)},
+            {"role": "user", "content": prompt_text},
+        ]
+        formatted_prompt = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        inputs = tokenizer(formatted_prompt, return_tensors="pt").to("cuda")
+        prompt_len = inputs["input_ids"].shape[1]
+
+        gen_kwargs: Dict[str, Any] = {
+            "max_new_tokens": max_new_tokens,
+            "pad_token_id": tokenizer.pad_token_id,
+            "eos_token_id": tokenizer.eos_token_id,
+        }
+        if temperature > 0:
+            gen_kwargs["do_sample"] = True
+            gen_kwargs["temperature"] = float(temperature)
+            gen_kwargs["top_p"] = 0.95
+        else:
+            gen_kwargs["do_sample"] = False
+
+        with torch.no_grad():
+            outputs = model.generate(
+                inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
+                **gen_kwargs,
+            )
+
+        generated_tokens = outputs[0, prompt_len:].tolist()
+        raw_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+        return parse_model_response(
+            target=target,
+            raw_text=raw_text,
+            attempt_idx=cand_idx + 1,
+            generated_token_ids=generated_tokens,
+            prompt_text=formatted_prompt,
+        )
+
+    # 4. Verifier function delegating Foundry execution to sandbox_image
+    def verifier_fn(tgt: TargetProgram, pld: ExploitPayload) -> ExecutionResult:
+        return ExecutionResult(**verify_train_exploit_remote.remote(tgt.model_dump(), pld.model_dump()))
+
+    # 5. Collect rollouts and persist valid trajectories
+    result = collect_train_rollouts(
+        targets=targets,
+        trajectory_dir=config.TRAJECTORY_DIR,
+        generator_fn=generator_fn,
+        verifier_fn=verifier_fn,
+        group_size=group_size,
+        temperatures=temperatures,
+        run_id=run_id,
+        **collect_kwargs,
+    )
+
+    # 6. Commit volume
+    try:
+        model_volume.commit()
+        print("[✓] Trajectories committed to persistent Modal volume.")
+    except Exception as e:
+        print(f"[!] Volume commit warning: {e}")
+
+    return {
+        "status": "success",
+        "run_id": result.run_id,
+        "persisted_count": result.persisted_count,
+        "excluded_infra_count": result.excluded_infra_count,
+        "category_counts": result.category_counts,
+        "group_spread": result.group_spread,
     }
 
 

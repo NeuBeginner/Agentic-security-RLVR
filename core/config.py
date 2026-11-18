@@ -102,6 +102,10 @@ class PipelineConfig:
     # skipped (fail closed) and counted in the diagnostics of the trainer.
     GRPO_MAX_SEQ_LEN: int = 4096
 
+    # GRPO GPU and Model Settings (PoC default to un-gated Qwen 1.5B on H100)
+    GRPO_GPU_TYPE: str = "H100"
+    GRPO_BASE_MODEL: str = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+
     # GRPO Policy Optimization Parameters
     GRPO_GROUP_SIZE: int = 4
     GRPO_LEARNING_RATE: float = 5e-6

@@ -734,3 +734,41 @@ def test_foundry_train_targets_and_harnesses_e2e():
             f"{target.name} noop did not yield SAFE_RUN: {safe_res.category} {safe_res.stderr}"
         )
         assert safe_res.harness_verdict == HarnessVerdict.NO_BREACH.value
+
+
+def test_load_train_targets_falls_back_to_train_solidity_dir_when_rel_source_missing(tmp_path):
+    """When REPO_ROOT / rel_source does not exist (e.g. inside Modal gpu_image), fall back to train_solidity_dir / f'{target_name}.sol'."""
+    train_data = json.loads(DEFAULT_TRAIN_DATASET_PATH.read_text(encoding="utf-8"))
+    first_entry = dict(train_data["classes"][0]["targets"][0])
+    target_name = str(first_entry["target_name"])
+    first_entry["source_file"] = "nonexistent/container_only/MissingSource.sol"
+
+    custom_train_json = tmp_path / "train_dataset.json"
+    custom_train_json.write_text(
+        json.dumps({"classes": [{"class_name": "TestClass", "targets": [first_entry]}]}),
+        encoding="utf-8",
+    )
+
+    fallback_dir = tmp_path / "solidity_train"
+    fallback_dir.mkdir(parents=True, exist_ok=True)
+    expected_sol = Path(LOCAL_TRAIN_HARNESSES_DIR) / f"{target_name}.sol"
+    (fallback_dir / f"{target_name}.sol").write_text(
+        expected_sol.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    targets = load_train_targets(
+        train_dataset_path=custom_train_json,
+        train_solidity_dir=fallback_dir,
+    )
+    assert len(targets) == 1
+    assert targets[0].name == target_name
+    assert targets[0].source_code == expected_sol.read_text(encoding="utf-8")
+
+    # If fallback file is also missing, FileNotFoundError is raised
+    (fallback_dir / f"{target_name}.sol").unlink()
+    with pytest.raises(FileNotFoundError, match="Train source contract missing"):
+        load_train_targets(
+            train_dataset_path=custom_train_json,
+            train_solidity_dir=fallback_dir,
+        )
