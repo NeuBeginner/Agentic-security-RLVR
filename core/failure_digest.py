@@ -252,6 +252,61 @@ def _failing_call(haystack: str) -> Optional[str]:
     return _clean_trace_line(chosen)
 
 
+def _is_json_line(line: str) -> bool:
+    """Return True when a line carries a Forge JSON object rather than plain trace text."""
+    stripped = line.strip()
+    if not stripped.startswith("{"):
+        return False
+    return bool(_iter_json_objects(stripped))
+
+
+def _extract_exploit_failed_from_json(text: str) -> Optional[str]:
+    """Extract the short EXPLOIT_FAILED message from Forge JSON without raw JSON blobs."""
+    for obj in _iter_json_objects(text):
+        for suite_val in obj.values():
+            if not isinstance(suite_val, dict):
+                continue
+            test_results = suite_val.get("test_results")
+            if not isinstance(test_results, dict):
+                continue
+            for test_val in test_results.values():
+                if not isinstance(test_val, dict):
+                    continue
+                reason = test_val.get("reason")
+                if isinstance(reason, str) and EXPLOIT_FAILED_MARKER in reason:
+                    return reason.strip()
+                for log_key in ("decoded_logs", "logs"):
+                    logs = test_val.get(log_key)
+                    if isinstance(logs, list):
+                        for entry in logs:
+                            if isinstance(entry, str) and EXPLOIT_FAILED_MARKER in entry:
+                                return entry.strip()
+                traces = test_val.get("traces")
+                if isinstance(traces, list):
+                    for item in traces:
+                        if not (isinstance(item, list) and len(item) == 2 and isinstance(item[1], dict)):
+                            continue
+                        arena = item[1].get("arena")
+                        if not isinstance(arena, list):
+                            continue
+                        for node in arena:
+                            if not isinstance(node, dict):
+                                continue
+                            trace = node.get("trace")
+                            if not isinstance(trace, dict):
+                                continue
+                            decoded = trace.get("decoded")
+                            if not isinstance(decoded, dict):
+                                continue
+                            ret = decoded.get("return_data")
+                            if isinstance(ret, str) and EXPLOIT_FAILED_MARKER in ret:
+                                return ret.strip()
+    match = re.search(r"EXPLOIT_FAILED[^\"\\\n\r}]*", text)
+    if match:
+        return match.group(0).strip()
+    return None
+
+
 def extract_failure_reason(
     stdout: str = "",
     stderr: str = "",
@@ -274,7 +329,14 @@ def extract_failure_reason(
 
     # 1. The message of the trusted harness: it names the invariant that held.
     for line in haystack.splitlines():
-        if EXPLOIT_FAILED_MARKER in line:
+        if EXPLOIT_FAILED_MARKER not in line:
+            continue
+        if _is_json_line(line):
+            extracted = _extract_exploit_failed_from_json(line)
+            if extracted:
+                parts.append(extracted)
+                break
+        else:
             parts.append(_clean_trace_line(line))
             break
 
@@ -284,9 +346,14 @@ def extract_failure_reason(
 
     # 3. OutOfFunds and its relatives.
     for line in haystack.splitlines():
-        if any(marker in line for marker in OUT_OF_FUNDS_MARKERS):
+        matched_marker = next((m for m in OUT_OF_FUNDS_MARKERS if m in line), None)
+        if matched_marker is None:
+            continue
+        if _is_json_line(line):
+            parts.append(matched_marker)
+        else:
             parts.append(_clean_trace_line(line))
-            break
+        break
 
     # 4. The call that failed: its address, its selector and its value.
     failing_call = _failing_call(haystack)
