@@ -160,3 +160,34 @@ def test_the_lending_contract_exposes_the_borrowers():
     assert "address[] public borrowers" in source
     assert "function getBorrowers()" in source
     assert "borrowers.push(msg.sender)" in source
+
+
+def test_prompts_forbid_value_zero_on_non_payable_functions():
+    """Rule #13 must not cause Error 7006 by attaching {value: 0} to non-payable calls."""
+    sys_prompt = build_exploit_engineer_system_prompt("RewardDistributorLogic")
+    assert "non-payable" in sys_prompt
+    assert "omit `{value: ...}`" in sys_prompt
+
+    target = TargetProgram(name="RewardDistributorLogic", source_code="contract RewardDistributorLogic {}")
+    analysis = build_analysis_prompt(target)
+    assert "non-payable" in analysis
+    assert "Scale awarded points" in analysis
+
+    refinement = build_refinement_prompt(target, "contract ExploitModule {}", "Error (7006)")
+    assert "Error 7006" in refinement
+    assert "Insufficient pool reserves" in refinement
+
+
+def test_prompts_cover_cycle5_fn_constraints_without_hardcoding_exploits():
+    """Prompts cover concise code, exact signature replay, credit bounds, borrower lookup, and vault donation."""
+    assert "WRITE CONCISE CODE" in EXPLOIT_ENGINEER_SYSTEM_PROMPT
+
+    sig_target = TargetProgram(name="SignatureReplayWallet", source_code="contract SignatureReplayWallet {}")
+    sig_analysis = build_analysis_prompt(sig_target)
+    assert "EXACT signed arguments" in sig_analysis
+
+    vault_target = TargetProgram(name="ERC4626Vault", source_code="contract ERC4626Vault {}")
+    vault_analysis = build_analysis_prompt(vault_target)
+    assert "donate ETH directly" in vault_analysis
+    assert "recorded credit" in vault_analysis
+    assert "borrowers(0)" in vault_analysis

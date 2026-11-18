@@ -3,6 +3,7 @@ from core.llm_generator import (
     analyze_contract_normalization,
     build_analysis_prompt,
     build_refinement_prompt,
+    extract_solidity_code,
     tokenize_solidity,
     validate_exploit_format,
 )
@@ -62,3 +63,61 @@ contract ExploitModule {
 """
     valid, reason = validate_exploit_format(code)
     assert valid, reason
+
+
+def test_extract_solidity_code_recovers_balanced_truncated_exploit_module():
+    truncated_but_balanced = """Here is the exploit:
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {PrecisionStakingPool} from "../src/PrecisionStakingPool.sol";
+
+contract ExploitModule {
+    PrecisionStakingPool public targetContract;
+
+    constructor(address _target) payable {
+        targetContract = PrecisionStakingPool(payable(_target));
+    }
+
+    function runExploit() external payable {
+        targetContract.depositWithFee{value: 1}();
+    }
+
+    receive() external payable {}
+}
+"""
+    extracted = extract_solidity_code(truncated_but_balanced)
+    assert "contract ExploitModule" in extracted
+    assert extracted.endswith("}")
+
+
+def test_extract_solidity_code_rejects_unbalanced_truncated_block():
+    truncated_mid_body = """```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {PrecisionStakingPool} from "../src/PrecisionStakingPool.sol";
+
+contract ExploitModule {
+    PrecisionStakingPool public targetContract;
+
+    constructor(address _target) payable {
+        targetContract = PrecisionStakingPool(payable(_target));
+    }
+
+    function runExploit() external payable {
+        // Deposit 1000000000000000000 wei
+        targetContract.depositWithFee{value: 1000000000000000000}();
+"""
+    assert extract_solidity_code(truncated_mid_body) == ""
+
+
+def test_extract_solidity_code_rejects_balanced_non_exploit_module_when_unclosed():
+    other_contract = """```solidity
+pragma solidity ^0.8.20;
+contract Helper {
+    function ping() external {}
+}
+"""
+    assert extract_solidity_code(other_contract) == ""
