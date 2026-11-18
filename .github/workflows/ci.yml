@@ -8,6 +8,10 @@ on:
       - 'integration/**'
       - 'feat/**'
       - 'codex/**'
+      # The merged result of a pull request has to be checked on the branch it
+      # lands on: without this the suite only ever runs on the pull request
+      # and on the topic branches, and a merge into main is never verified.
+      - 'main'
   pull_request:
     branches:
       - main
