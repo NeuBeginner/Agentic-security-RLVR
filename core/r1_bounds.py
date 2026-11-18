@@ -901,6 +901,16 @@ UNAUTHORISED_CALL_SITES: Dict[str, str] = {
         "to that separate deployment and is not an authorised step of the R1 trace, "
         "so it is refused at the call boundary"
     ),
+    "verify_train_exploit_remote": (
+        "the GRPO train-split Foundry verifier is not part of the authorised R1 "
+        "evidence-regeneration trace: it has no approved step policy, no egress "
+        "declaration, and requires separate maintainer approval"
+    ),
+    "collect_train_rollouts_remote": (
+        "the GRPO train-split rollout collector is not part of the authorised R1 "
+        "evidence-regeneration trace: it has no approved step policy, no declared "
+        "bounds, and requires separate maintainer approval"
+    ),
 }
 
 

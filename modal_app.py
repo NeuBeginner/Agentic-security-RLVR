@@ -866,6 +866,8 @@ def run_slither_remote(target_dict: dict) -> list:
 @app.function(
     image=sandbox_image,
     timeout=r1.declared_timeout(r1.SANDBOX_CPU_PROFILE),
+    block_network=True,
+    **r1.SANDBOX_CPU_PROFILE.modal_kwargs(),
 )
 def verify_train_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     """Executes Foundry verification for isolated GRPO train targets on sandbox_image."""
