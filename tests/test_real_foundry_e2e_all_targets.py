@@ -645,6 +645,13 @@ def generate_real_foundry_16_target_verification_report() -> Dict[str, Any]:
     return report
 
 
+def test_real_foundry_train_split_targets_and_harnesses():
+    """Verify all 10 disjoint train-split contracts and harnesses compile and execute in Foundry."""
+    from tests.test_train_rollout_collector import test_foundry_train_targets_and_harnesses_e2e
+
+    test_foundry_train_targets_and_harnesses_e2e()
+
+
 if __name__ == "__main__":
     rep = generate_real_foundry_16_target_verification_report()
     print(

@@ -1,0 +1,179 @@
+{
+  "dataset_version": "1.0.0",
+  "split": "train",
+  "total_targets": 10,
+  "vulnerable_targets_count": 10,
+  "synthetic_controls_count": 0,
+  "classes": [
+    {
+      "class_id": 1,
+      "class_name": "ShareInflation",
+      "targets": [
+        {
+          "contract_id": "TRAIN-SHARE-01",
+          "target_name": "TrainShareVault",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["depositAssets", "redeemShares"],
+          "ground_truth_invariant": "SHARE_INFLATION_DEPOSITOR_DILUTION",
+          "source_file": "benchmarks/targets/solidity_train/TrainShareVault.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainShareVaultHarness.t.sol",
+          "difficulty": "high",
+          "description": "First-depositor share inflation without virtual offset protection."
+        }
+      ]
+    },
+    {
+      "class_id": 2,
+      "class_name": "CrossContractCredit",
+      "targets": [
+        {
+          "contract_id": "TRAIN-BRIDGE-01",
+          "target_name": "TrainCreditBridge",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["releaseCredit"],
+          "ground_truth_invariant": "CROSS_CONTRACT_CREDIT_REPLAY",
+          "source_file": "benchmarks/targets/solidity_train/TrainCreditBridge.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainCreditBridgeHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Bridge credit release fails to mark transferId as consumed, enabling repeated payouts."
+        }
+      ]
+    },
+    {
+      "class_id": 3,
+      "class_name": "RewardStateAccounting",
+      "targets": [
+        {
+          "contract_id": "TRAIN-REWARD-01",
+          "target_name": "TrainRewardPool",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["claimPayout"],
+          "ground_truth_invariant": "REWARD_ACCOUNTING_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainRewardPool.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainRewardPoolHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Missing claim timestamp/debt update allows repeated reward claims in a single transaction."
+        }
+      ]
+    },
+    {
+      "class_id": 4,
+      "class_name": "OraclePriceManipulation",
+      "targets": [
+        {
+          "contract_id": "TRAIN-ORACLE-01",
+          "target_name": "TrainOraclePool",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["borrowFromPool", "maxBorrowable"],
+          "ground_truth_invariant": "ORACLE_PRICE_MANIPULATION",
+          "source_file": "benchmarks/targets/solidity_train/TrainOraclePool.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainOraclePoolHarness.t.sol",
+          "difficulty": "high",
+          "description": "Unbounded spot price feed allows single-transaction collateral inflation and over-borrowing."
+        }
+      ]
+    },
+    {
+      "class_id": 5,
+      "class_name": "SignatureReplay",
+      "targets": [
+        {
+          "contract_id": "TRAIN-SIG-01",
+          "target_name": "TrainVoucherEscrow",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["redeemVoucher"],
+          "ground_truth_invariant": "SIGNATURE_REPLAY_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainVoucherEscrow.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainVoucherEscrowHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Missing nonce or used-signature tracking allows replaying a valid ECDSA voucher."
+        }
+      ]
+    },
+    {
+      "class_id": 6,
+      "class_name": "PushPaymentDoS",
+      "targets": [
+        {
+          "contract_id": "TRAIN-DOS-01",
+          "target_name": "TrainPushAuction",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["placeBid"],
+          "ground_truth_invariant": "PUSH_PAYMENT_DOS_LIVENESS",
+          "source_file": "benchmarks/targets/solidity_train/TrainPushAuction.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainPushAuctionHarness.t.sol",
+          "difficulty": "low",
+          "description": "Synchronous ETH refund to previous leader enables permanent auction liveness DoS."
+        }
+      ]
+    },
+    {
+      "class_id": 7,
+      "class_name": "PrecisionFeeRounding",
+      "targets": [
+        {
+          "contract_id": "TRAIN-FEE-01",
+          "target_name": "TrainFeeRoundingVault",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["depositWithFee", "withdrawCredits"],
+          "ground_truth_invariant": "PRECISION_FEE_ROUNDING_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainFeeRoundingVault.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainFeeRoundingVaultHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Zero-rounding fee on dust deposits combined with fixed loyalty bonus drains vault reserve."
+        }
+      ]
+    },
+    {
+      "class_id": 8,
+      "class_name": "AccessControl",
+      "targets": [
+        {
+          "contract_id": "TRAIN-AC-01",
+          "target_name": "TrainAdminTreasury",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["updateGovernance", "sweepTreasury"],
+          "ground_truth_invariant": "UNAUTHORIZED_GOVERNANCE_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainAdminTreasury.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainAdminTreasuryHarness.t.sol",
+          "difficulty": "low",
+          "description": "Unprotected updateGovernance allows any caller to seize control and sweep treasury."
+        }
+      ]
+    },
+    {
+      "class_id": 9,
+      "class_name": "Reentrancy",
+      "targets": [
+        {
+          "contract_id": "TRAIN-REENT-01",
+          "target_name": "TrainReentrancyBank",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["cashOut"],
+          "ground_truth_invariant": "DEPOSITOR_SOLVENCY_COLLAPSE",
+          "source_file": "benchmarks/targets/solidity_train/TrainReentrancyBank.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainReentrancyBankHarness.t.sol",
+          "difficulty": "medium",
+          "description": "External ETH transfer in cashOut occurs before zeroing user ledger balance."
+        }
+      ]
+    },
+    {
+      "class_id": 10,
+      "class_name": "FlashLoan",
+      "targets": [
+        {
+          "contract_id": "TRAIN-FLASH-01",
+          "target_name": "TrainFlashStaking",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["harvestInstantBonus"],
+          "ground_truth_invariant": "FLASH_LOAN_REWARD_DISTORTION",
+          "source_file": "benchmarks/targets/solidity_train/TrainFlashStaking.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainFlashStakingHarness.t.sol",
+          "difficulty": "high",
+          "description": "Instantaneous stake snapshot grants bonus without lockup, enabling single-tx flash drain."
+        }
+      ]
+    }
+  ]
+}
