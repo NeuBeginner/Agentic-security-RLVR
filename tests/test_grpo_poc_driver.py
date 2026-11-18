@@ -22,15 +22,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _get_raw_callable(modal_fn):
-    """Unwrap Modal FunctionWrapper to its raw Python callable without network calls."""
-    if hasattr(modal_fn, "get_raw_f"):
-        return modal_fn.get_raw_f()
-    if hasattr(modal_fn, "_raw_f"):
-        return modal_fn._raw_f
-    return modal_fn
-
-
 def test_config_grpo_poc_settings_and_isolation():
     from core.config import config
 
@@ -86,7 +77,7 @@ def test_poc_train_grpo_fail_closed_when_training_blocked(monkeypatch):
     monkeypatch.delenv("TRAINING_STATUS", raising=False)
     monkeypatch.delenv("TRAINING_BLOCKED", raising=False)
 
-    raw_train = _get_raw_callable(modal_grpo_poc_app.poc_train_grpo)
+    raw_train = getattr(modal_grpo_poc_app.poc_train_grpo, "local", modal_grpo_poc_app.poc_train_grpo)
     with pytest.raises(RuntimeError, match="TRAINING_STATUS = BLOCKED"):
         raw_train()
 
