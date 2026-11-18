@@ -1,0 +1,131 @@
+{
+  "absence_records": [
+    {
+      "field": "app_id",
+      "kind": "PROVIDER_FIELD_OMITTED",
+      "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app."
+    },
+    {
+      "field": "container_id",
+      "kind": "PROVIDER_FIELD_OMITTED",
+      "reason": "a Modal function container has no supported source of a provider-issued container id: the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) reports no container id, MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a generic container hostname, and MODAL_TASK_ID is read only by the internal, experimental module modal/experimental/flash.py. The provider-issued container id of this invocation is a client-side fact: the client resolves the function-call id this worker observed through the provider's own call graph and container listing."
+    }
+  ],
+  "attempted": true,
+  "correlation_id": "corr-ERC4626-01-1795023893-9a8ca0dd",
+  "executed": true,
+  "provider_response": {
+    "breach_evidence_basis": "none",
+    "candidate_id": "1c4fcc60",
+    "candidate_index": 0,
+    "category": "GENERATION_FORMAT_ERROR",
+    "evidence": null,
+    "failure_reason": null,
+    "feedback": "GENERATION_FORMAT_ERROR: No Solidity code block extracted from model response | reward_spec=2.0.0 total=-0.35 penalty=-0.35 [generation=+0.00, compilation=+0.00, verification=+0.00, invariant=+0.00, replay=+0.00]",
+    "generation_iteration": 0,
+    "invariant_results": [],
+    "is_verified": false,
+    "modal_runtime": {
+      "app_id": {
+        "observed_by": "worker",
+        "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+        "status": "NOT_AVAILABLE",
+        "value": null
+      },
+      "app_page_url": {
+        "observed_by": "worker",
+        "reason": "the Modal runtime exposes no app page URL to a function container: the only candidate inside the container was modal.running_app, which is a module and not a callable in Modal SDK 1.5.5, while the supported App.get_dashboard_url() is a client-side API of the SDK. The app page URL of this run is a client-side fact of the provider.",
+        "status": "NOT_AVAILABLE",
+        "value": null
+      },
+      "container_id": {
+        "observed_by": "worker",
+        "reason": "a Modal function container has no supported source of a provider-issued container id: the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) reports no container id, MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a generic container hostname, and MODAL_TASK_ID is read only by the internal, experimental module modal/experimental/flash.py. The provider-issued container id of this invocation is a client-side fact: the client resolves the function-call id this worker observed through the provider's own call graph and container listing.",
+        "status": "NOT_AVAILABLE",
+        "value": null
+      },
+      "container_id_value": null,
+      "function_call_id": {
+        "observed_by": "worker",
+        "source": "modal.current_function_call_id()",
+        "status": "OBSERVED",
+        "value": "fc-01M7QWEVWFNP3R0BVPZ6WGDASM"
+      }
+    },
+    "observed_environment": null,
+    "poc_code": "// Error: No valid Solidity code generated\n",
+    "refinement_iteration": 99,
+    "replay_confirmed": false,
+    "replay_status": "NOT_ELIGIBLE",
+    "reproducible": false,
+    "reward_components": {
+      "compilation": 0.0,
+      "generation": 0.0,
+      "invariant": 0.0,
+      "replay": 0.0,
+      "verification": 0.0
+    },
+    "reward_penalty": -0.35,
+    "reward_score": -0.35,
+    "reward_spec_version": "2.0.0",
+    "run_id": "run-default",
+    "sandbox_returncode": -4,
+    "sandbox_stderr": "GENERATION_FORMAT_ERROR: No Solidity code block extracted from model response",
+    "sandbox_stderr_byte_length": null,
+    "sandbox_stderr_bytes_b64": null,
+    "sandbox_stderr_sha256": null,
+    "sandbox_stdout": "",
+    "sandbox_stdout_byte_length": null,
+    "sandbox_stdout_bytes_b64": null,
+    "sandbox_stdout_sha256": null,
+    "state_delta_verified": false,
+    "target_name": "ERC4626Vault",
+    "verification_result": null,
+    "vulnerability_type": "Web3Vulnerability"
+  },
+  "provider_response_metadata": {
+    "response_byte_length": 3191,
+    "response_sha256": "c368933a3953cb102482bfb016f334b102ffce6977f38f7a50e34ddbf487b7a4",
+    "response_source": "the response of verify_exploit_remote",
+    "runtime_identity_byte_length": 1879,
+    "runtime_identity_sha256": "0b450ba0d79610ae5efcd41be0fb12d6a739a9c17955ca13ba8620c5177519fa"
+  },
+  "requested_fields": [
+    "app_id",
+    "function_call_id",
+    "container_id"
+  ],
+  "response_received": true,
+  "runtime_envelope_received": true,
+  "runtime_identity": {
+    "app_id": {
+      "observed_by": "worker",
+      "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "app_page_url": {
+      "observed_by": "worker",
+      "reason": "the Modal runtime exposes no app page URL to a function container: the only candidate inside the container was modal.running_app, which is a module and not a callable in Modal SDK 1.5.5, while the supported App.get_dashboard_url() is a client-side API of the SDK. The app page URL of this run is a client-side fact of the provider.",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "container_id": {
+      "observed_by": "worker",
+      "reason": "a Modal function container has no supported source of a provider-issued container id: the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) reports no container id, MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a generic container hostname, and MODAL_TASK_ID is read only by the internal, experimental module modal/experimental/flash.py. The provider-issued container id of this invocation is a client-side fact: the client resolves the function-call id this worker observed through the provider's own call graph and container listing.",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "container_id_value": null,
+    "function_call_id": {
+      "observed_by": "worker",
+      "source": "modal.current_function_call_id()",
+      "status": "OBSERVED",
+      "value": "fc-01M7QWEVWFNP3R0BVPZ6WGDASM"
+    }
+  },
+  "runtime_identity_source": "modal_runtime",
+  "schema_version": "1.0.0",
+  "stage": "evm_sandbox",
+  "target_id": "ERC4626-01"
+}
