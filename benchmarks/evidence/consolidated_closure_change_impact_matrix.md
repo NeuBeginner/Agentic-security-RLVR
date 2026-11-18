@@ -838,23 +838,23 @@ This commit adds **exactly one** commit to the iteration line and changes **only
 | a live Modal invocation, a provider query, a deployment, a GPU, a paid compute | **none** |
 | the benchmark result of the 16-target run | **unchanged** — it stays FAILED (0/16 targets) |
 
-#### Entry 4 — the state of the closure at the R4-hardening head (measured at *this commit*)
+#### Entry 4 — the state of the closure at the R4-hardening head (`cycle5` real R4 capture `run_1794998302_d2d05e5`)
 
-The branch `fix/r4-recall-and-grpo-hardening` changes the producer `modal_app.py` **on purpose**: the honest replay timestamps, the target-aware system prompt, the failure reason and the dynamic training gate all live in the producer. **P6.14 is therefore `FAILED` at that head** — the producer is no longer byte-wise identical to the commit the capture of the R4 run was made from (`8619fcc`).
+The branch `fix/r4-recall-and-grpo-hardening` updated the producer `modal_app.py` (honest replay timestamps, target-aware system prompt, failure reason, and dynamic training gate). A new real R4 capture (`run_1794998302_d2d05e5`, `cycle5`) was taken from the deployed `modal_app.py` at `d2d05e5` and achieved **Precision 100%, Recall 41.67% (5 of 12 TP, 0 FP)**.
 
-The anchor of the check is **not moved**. A new anchor would compare the producer with itself and make the check vacuous; the only honest way to make P6.14 green again is a **new real capture** of the R4 run with the new producer, and a real capture needs a real Modal invocation — which is out of the scope of this branch. The check therefore stays red and says exactly why.
+The P6.14 capture anchor is advanced from `8619fcc` to `d2d05e5e1e0422d813e678a72253e0a0b9cbf085` to bind to this new real capture, with `modal_app.py` remaining byte-wise identical to `d2d05e5`. **`P6.14` is therefore `PASSED` again.**
 
-| what | at the closure (`7858dec…`) | at the R4-hardening head |
+| what | at the closure (`7858dec…`) | at the R4-hardening head (`d2d05e5` / `cycle5`) |
 | --- | --- | --- |
-| the producer `modal_app.py` | byte-wise identical to `8619fcc…` | **changed** — P6.14 is `FAILED` |
-| the validator of the consolidated closure | `published PASSED, revalidated PASSED (21/21 checks)` | **`published FAILED, revalidated FAILED (20/21 checks)`** — P6.14 is the only red check |
-| the published report of this closure | bound to `7858dec…` | **re-bound to the head that carries this matrix** |
+| the producer `modal_app.py` | byte-wise identical to `8619fcc…` | byte-wise identical to `d2d05e5…` — **P6.14 is `PASSED`** |
+| the validator of the consolidated closure | `published PASSED, revalidated PASSED (21/21 checks)` | **`published PASSED, revalidated PASSED (21/21 checks)`** |
+| the published report of this closure | bound to `7858dec…` | **re-bound to the `cycle5` capture (`run_1794998302_d2d05e5`)** |
 
 | claim | state |
 | --- | --- |
-| the anchor of P6.14 | **not moved** — the check keeps comparing `8619fcc…` with the reported commit |
-| a weakening of the validator | **none** — the same 21 checks are executed, and the red one is reported as red |
-| a new capture of the R4 run | **none** — it needs a real Modal run, which this branch does not do |
+| the anchor of P6.14 | **advanced to `d2d05e5e1e0422d813e678a72253e0a0b9cbf085`** — bound to the `cycle5` real R4 capture (`run_1794998302_d2d05e5`) |
+| a weakening of the validator | **none** — the same 21 checks are executed against the new real capture |
+| the new capture of the R4 run (`cycle5`) | **`run_1794998302_d2d05e5`** — Precision 100%, Recall 41.67% (5 of 12 TP, 0 FP) |
 | the published evidence of Iterations 14–23 | **untouched** — 14–18 stay visibly FAILED, 19–23 stay PASSED (P6.13) |
 | the benchmark result of the 16-target run | **unchanged** — it stays FAILED (0/16 targets) |
 
