@@ -555,7 +555,7 @@ Two of the findings deserve one more sentence each, because they are the ones th
 | a provider query | **none** |
 | a deployment, a redeployment, a worker restart | **none** |
 | a GPU (H100 / T4), a paid compute | **none** |
-| the producer `modal_app.py` | **unchanged** — P6.14 proves it byte-wise against the commit the capture of the R4 run was made from (8619fcc) |
+| the producer `modal_app.py` | **unchanged by the closure** — P6.14 proves it byte-wise against the commit the capture of the R4 run was made from (8619fcc); the state of the producer at the R4-hardening head is recorded in Entry 4 of §13.6 |
 | the historical 16-target benchmark evidence | **still visibly failed** — the validators of Iterations 14–18 report `FAILED (0/16 targets)` in CI |
 | the compatibility path | **unchanged** — the artifacts of Iterations 14–20 are read exactly as before, and no side is inferred or backfilled into any artifact |
 | a merge, a rebase of a shared branch | **none** — the merge of the upstream head was only *computed* with `git merge-tree`, which touches neither the working tree nor any branch |
@@ -730,7 +730,7 @@ The six Foundry tests that the *tests* job skips are executed by the **foundry**
 | claim | state |
 | --- | --- |
 | a live Modal invocation, a provider query, a deployment, a GPU, a paid compute | **none** |
-| the producer `modal_app.py` | **unchanged** — P6.14 proves it byte-wise against the commit the capture of the R4 run was made from (8619fcc) |
+| the producer `modal_app.py` | **unchanged by the follow-up** — P6.14 proves it byte-wise against the commit the capture of the R4 run was made from (8619fcc); the state of the producer at the R4-hardening head is recorded in Entry 4 of §13.6 |
 | the published evidence of Iterations 14–23 | **untouched** — 14–18 stay visibly FAILED, 19–23 stay PASSED (P6.13) |
 | the compatibility path (`strict_sources=False`) | **untouched** — the artifacts of Iterations 14–20 are read exactly as before, and no side is inferred and no value is backfilled into any artifact |
 | the registry of the observation sources | **untouched** |
@@ -836,5 +836,25 @@ This commit adds **exactly one** commit to the iteration line and changes **only
 | a published evidence file | **none** — the evidence stays bound to `690f39a12…` |
 | a merge, a rebase, a push to a shared branch | **none** — the merge of the upstream head was only *computed* with `git merge-tree`, which touches neither the working tree nor any branch |
 | a live Modal invocation, a provider query, a deployment, a GPU, a paid compute | **none** |
+| the benchmark result of the 16-target run | **unchanged** — it stays FAILED (0/16 targets) |
+
+#### Entry 4 — the state of the closure at the R4-hardening head (`cycle5` real R4 capture `run_1794998302_d2d05e5`)
+
+The branch `fix/r4-recall-and-grpo-hardening` updated the producer `modal_app.py` (honest replay timestamps, target-aware system prompt, failure reason, and dynamic training gate). A new real R4 capture (`run_1794998302_d2d05e5`, `cycle5`) was taken from the deployed `modal_app.py` at `d2d05e5` and achieved **Precision 100%, Recall 41.67% (5 of 12 TP, 0 FP)**.
+
+The P6.14 capture anchor is advanced from `8619fcc` to `d2d05e5e1e0422d813e678a72253e0a0b9cbf085` to bind to this new real capture, with `modal_app.py` remaining byte-wise identical to `d2d05e5`. **`P6.14` is therefore `PASSED` again.**
+
+| what | at the closure (`7858dec…`) | at the R4-hardening head (`d2d05e5` / `cycle5`) |
+| --- | --- | --- |
+| the producer `modal_app.py` | byte-wise identical to `8619fcc…` | byte-wise identical to `d2d05e5…` — **P6.14 is `PASSED`** |
+| the validator of the consolidated closure | `published PASSED, revalidated PASSED (21/21 checks)` | **`published PASSED, revalidated PASSED (21/21 checks)`** |
+| the published report of this closure | bound to `7858dec…` | **re-bound to the `cycle5` capture (`run_1794998302_d2d05e5`)** |
+
+| claim | state |
+| --- | --- |
+| the anchor of P6.14 | **advanced to `d2d05e5e1e0422d813e678a72253e0a0b9cbf085`** — bound to the `cycle5` real R4 capture (`run_1794998302_d2d05e5`) |
+| a weakening of the validator | **none** — the same 21 checks are executed against the new real capture |
+| the new capture of the R4 run (`cycle5`) | **`run_1794998302_d2d05e5`** — Precision 100%, Recall 41.67% (5 of 12 TP, 0 FP) |
+| the published evidence of Iterations 14–23 | **untouched** — 14–18 stay visibly FAILED, 19–23 stay PASSED (P6.13) |
 | the benchmark result of the 16-target run | **unchanged** — it stays FAILED (0/16 targets) |
 

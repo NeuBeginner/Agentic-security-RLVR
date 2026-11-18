@@ -204,13 +204,25 @@ def _mock_replay_response(payload_dict, *, container_id="hokkglpxczflmxlcnxxg"):
     Since Iteration 14 the client refuses to accept a replay that does not carry
     the byte-exact artifacts, the real container identity and replay-specific
     timestamps, so the mock has to be a faithful worker response.
+
+    The timestamps are the **current** time with the microsecond resolution the
+    real worker uses: the replay of a run happens after the initial EVM run of
+    that very run, and the client proves exactly that.
     """
     import base64
+    from datetime import datetime, timedelta, timezone
 
     candidate = (payload_dict.get("test_code") or "").encode("utf-8")
     harness = b"// repository-owned harness\ncontract VaultHarness {}\n"
     stdout = b'{"test/VaultHarness.t.sol:testExploit":{"status":"Success","reason":null}}\n'
     stderr = b""
+
+    # The replay of a run happens after the initial EVM run of that run. The
+    # stamps are the moments of the worker, and the client compares them with
+    # the moment it measured the end of the initial EVM run - across two
+    # machines, so the mock reproduces the order of the real run.
+    replay_started = datetime.now(timezone.utc) + timedelta(seconds=1)
+    replay_finished = replay_started + timedelta(seconds=1)
 
     return {
         "reproduced": True,
@@ -244,8 +256,8 @@ def _mock_replay_response(payload_dict, *, container_id="hokkglpxczflmxlcnxxg"):
         "stderr_b64": base64.b64encode(stderr).decode("ascii"),
         "candidate_b64": base64.b64encode(candidate).decode("ascii"),
         "harness_b64": base64.b64encode(harness).decode("ascii"),
-        "utc_start_time": "2026-11-09T03:17:41Z",
-        "utc_end_time": "2026-11-09T03:19:20Z",
+        "utc_start_time": replay_started.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "utc_end_time": replay_finished.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
     }
 
 

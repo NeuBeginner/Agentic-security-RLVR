@@ -1452,10 +1452,11 @@ def _validate_consolidated_closure(
     producer_errors: List[str] = []
     # The producer changed on this branch after the capture of Iteration 21, so the
     # byte-wise claim of this check is made against the newest real capture of the
-    # approved step - the R4 run at 8619fcc, whose producer is the one this branch
-    # carries. The evidence of Iteration 21 keeps its own capture (40c0630) and is
-    # validated on its own by P6.13; nothing about it is restated or re-bound here.
-    capture_sha = "8619fccaa90e1088a6655e0a6b3eca6ed3056849"
+    # approved step - the updated real R4 capture `run_1794998302_d2d05e5` (cycle5),
+    # taken from the deployed `modal_app.py` at d2d05e5. The evidence of Iteration 21
+    # keeps its own capture (40c0630) and is validated on its own by P6.13; nothing
+    # about it is restated or re-bound here.
+    capture_sha = "d2d05e5e1e0422d813e678a72253e0a0b9cbf085"
     producer_changed: Optional[bool] = None
     if not code_sha:
         producer_errors.append("the report is bound to no commit SHA")

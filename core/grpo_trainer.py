@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional, Tuple
 import torch
 import torch.nn.functional as F
 
-from core.config import config
+from core.config import config, is_training_blocked
 from core.schemas import GRPORollout, GRPOGroup, GRPOTrainingStepStats, RLVRTrajectory, ResultCategory
 from core.reward_shaping import (
     LEGACY_REWARD_SPEC_VERSION,
@@ -203,12 +203,58 @@ def compute_grpo_loss(
 # 2. EXACT TOKEN BOUNDARY ALIGNMENT & LOGPROBS (ROUND 4)
 # =============================================================================
 
+class UnsafeRolloutError(ValueError):
+    """
+    The rollout cannot be prepared safely, so it is never trained on.
+
+    A rollout that does not fit into the budget may not be truncated into a
+    lie: a prompt whose contract source was cut away teaches the model on
+    something that never happened in the EVM. The rollout is skipped (fail
+    closed) and the skip is counted in the diagnostics of the trainer.
+    """
+
+
+class RolloutTooLongError(UnsafeRolloutError):
+    """The rollout does not fit into ``max_seq_len`` and cannot be shortened safely."""
+
+
+#: The diagnostics of the skipped rollouts. The counter is the evidence that
+#: the trainer refused to train on a rollout it could not prepare.
+_OVERLENGTH_DIAGNOSTICS: Dict[str, Any] = {
+    "skipped_rollouts": 0,
+    "last_reason": None,
+    "reasons": {},
+}
+
+
+def overlength_diagnostics() -> Dict[str, Any]:
+    """A copy of the diagnostics of the rollouts that were skipped."""
+    snapshot = dict(_OVERLENGTH_DIAGNOSTICS)
+    snapshot["reasons"] = dict(_OVERLENGTH_DIAGNOSTICS["reasons"])
+    return snapshot
+
+
+def reset_overlength_diagnostics() -> None:
+    """Reset the diagnostics of the skipped rollouts (the test suite needs it)."""
+    _OVERLENGTH_DIAGNOSTICS["skipped_rollouts"] = 0
+    _OVERLENGTH_DIAGNOSTICS["last_reason"] = None
+    _OVERLENGTH_DIAGNOSTICS["reasons"] = {}
+
+
+def _record_overlength_skip(reason: str) -> None:
+    """Count one skipped rollout and remember why it was skipped."""
+    _OVERLENGTH_DIAGNOSTICS["skipped_rollouts"] += 1
+    _OVERLENGTH_DIAGNOSTICS["last_reason"] = reason
+    reasons = _OVERLENGTH_DIAGNOSTICS["reasons"]
+    reasons[reason] = reasons.get(reason, 0) + 1
+
+
 def prepare_rollout_tokens(
     prompt_str: str,
     completion_str: str,
     tokenizer: Any,
     device: str = "cuda",
-    max_seq_len: int = 1536,
+    max_seq_len: Optional[int] = None,
     stored_generated_token_ids: Optional[List[int]] = None
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -220,7 +266,19 @@ def prepare_rollout_tokens(
     
     Completion mask is 0.0 on prompt tokens and 1.0 on completion tokens.
     Empty completions yield an all-zero completion_mask.
+
+    The length budget is ``config.GRPO_MAX_SEQ_LEN`` unless the caller names
+    another one. A rollout that does not fit is **not** silently shortened: it
+    raises :class:`RolloutTooLongError` (or :class:`UnsafeRolloutError`), and the
+    caller skips the rollout instead of training on a truncated prompt.
     """
+    if max_seq_len is None:
+        max_seq_len = int(getattr(config, "GRPO_MAX_SEQ_LEN", 4096))
+    if max_seq_len <= 0:
+        raise UnsafeRolloutError(
+            f"The GRPO length budget must be positive, got max_seq_len={max_seq_len}"
+        )
+
     # Guard against duplicate BOS or special tokens if chat template is already applied
     has_chat_template = False
     if "<|im_start|>" in prompt_str:
@@ -231,6 +289,14 @@ def prepare_rollout_tokens(
     add_spec = not has_chat_template
     prompt_ids = tokenizer.encode(prompt_str, add_special_tokens=add_spec)
 
+    # A rollout without a prompt carries nothing to learn from: it is refused
+    # instead of being trained on an empty context.
+    if not prompt_ids:
+        raise UnsafeRolloutError(
+            "The rollout has no prompt tokens: the prompt is empty or the tokenizer "
+            "produced nothing. The rollout is skipped rather than trained on."
+        )
+
     if stored_generated_token_ids is not None:
         completion_ids = list(stored_generated_token_ids)
     else:
@@ -239,9 +305,10 @@ def prepare_rollout_tokens(
         else:
             completion_ids = tokenizer.encode(completion_str, add_special_tokens=False)
 
-    if tokenizer.eos_token_id is not None:
-        if completion_ids and completion_ids[-1] != tokenizer.eos_token_id:
-            completion_ids.append(tokenizer.eos_token_id)
+    eos_token_id = getattr(tokenizer, "eos_token_id", None)
+    if eos_token_id is not None:
+        if completion_ids and completion_ids[-1] != eos_token_id:
+            completion_ids.append(eos_token_id)
 
     total_len = len(prompt_ids) + len(completion_ids)
     if total_len > max_seq_len:
@@ -256,19 +323,19 @@ def prepare_rollout_tokens(
         if system_start >= 0:
             system_end = prompt_str.find("<|im_end|>", system_start)
             if system_end < 0:
-                raise ValueError(
+                raise RolloutTooLongError(
                     "Cannot safely truncate an overlength prompt: system message has no <|im_end|> boundary"
                 )
             system_end += len("<|im_end|>")
             system_prefix = prompt_str[:system_end]
             system_ids = tokenizer.encode(system_prefix, add_special_tokens=add_spec)
             if prompt_ids[:len(system_ids)] != system_ids:
-                raise ValueError(
+                raise RolloutTooLongError(
                     "Cannot safely truncate an overlength prompt: system token boundary is ambiguous"
                 )
 
         if len(system_ids) >= max_seq_len:
-            raise ValueError(
+            raise RolloutTooLongError(
                 "System prompt alone reaches the GRPO max_seq_len limit; refusing to truncate system instructions"
             )
 
@@ -277,14 +344,37 @@ def prepare_rollout_tokens(
         # as much of the newest non-system prompt context as will fit.
         completion_budget = max_seq_len - len(system_ids)
         if len(completion_ids) > completion_budget:
-            completion_ids = completion_ids[:completion_budget]
+            if eos_token_id is not None and completion_budget >= 1:
+                # The end-of-sequence token is the boundary of the completion:
+                # it is never cut away. One slot is reserved for it.
+                completion_ids = completion_ids[: completion_budget - 1] + [eos_token_id]
+            else:
+                completion_ids = completion_ids[:completion_budget]
 
         prompt_budget = max_seq_len - len(completion_ids)
         context_budget = max(0, prompt_budget - len(system_ids))
+        if context_budget == 0:
+            # The whole non-system context would be cut away. That context
+            # carries the contract source the candidate was written against;
+            # a rollout without it is not the rollout that was executed, so it
+            # is refused instead of trained on.
+            raise RolloutTooLongError(
+                "The rollout does not fit into the GRPO length budget without cutting the "
+                "context away (context_budget == 0): the contract source of the prompt "
+                "would be truncated, so the rollout is skipped rather than trained on. "
+                f"(prompt_tokens={len(prompt_ids)}, system_tokens={len(system_ids)}, "
+                f"completion_tokens={len(completion_ids)}, max_seq_len={max_seq_len})"
+            )
         context_ids = prompt_ids[len(system_ids):]
         if len(context_ids) > context_budget:
-            context_ids = context_ids[-context_budget:] if context_budget else []
+            context_ids = context_ids[-context_budget:]
         prompt_ids = system_ids + context_ids
+
+        if not prompt_ids:
+            raise UnsafeRolloutError(
+                "The rollout lost every prompt token during the preparation: it is skipped "
+                "rather than trained on."
+            )
 
     full_ids = prompt_ids + completion_ids
     input_ids = torch.tensor([full_ids], dtype=torch.long, device=device)
@@ -999,7 +1089,7 @@ def train_grpo_epochs(
     clip_eps: float = 0.2,
     beta_kl: float = 0.04,
     max_grad_norm: float = 1.0,
-    max_seq_len: int = 1536
+    max_seq_len: Optional[int] = None
 ) -> List[GRPOTrainingStepStats]:
     """
     Executes multiple GRPO optimization epochs over all rollout groups:
@@ -1009,14 +1099,20 @@ def train_grpo_epochs(
     3. Accumulates gradients with micro-batching across each candidate in the group.
     """
     # FAIL-CLOSED SECURITY GATE (Round 5.4)
-    # Strictly prevents execution if training status is BLOCKED
-    training_status = os.environ.get("TRAINING_STATUS", "BLOCKED")
-    if training_status == "BLOCKED" or getattr(config, "TRAINING_BLOCKED", True):
+    # Strictly prevents execution if training status is BLOCKED. The decision
+    # is read from the live environment at this very moment - the environment
+    # of the container is read when the container starts, and a value that was
+    # frozen at import time may no longer be the truth.
+    if is_training_blocked(config):
         raise RuntimeError(
             "FAIL-CLOSED SECURITY GATE: TRAINING_STATUS = BLOCKED. "
             "GRPO policy gradient updates and optimizer.step() are strictly prohibited by AI Supervisor. "
-            "Execution aborted fail-closed."
+            f"Execution aborted fail-closed. (TRAINING_STATUS={os.environ.get('TRAINING_STATUS', '<unset>')}, "
+            f"TRAINING_BLOCKED={os.environ.get('TRAINING_BLOCKED', '<unset>')})"
         )
+
+    if max_seq_len is None:
+        max_seq_len = int(getattr(config, "GRPO_MAX_SEQ_LEN", 4096))
 
     all_step_stats: List[GRPOTrainingStepStats] = []
     if not groups:
@@ -1045,14 +1141,25 @@ def train_grpo_epochs(
         group_items = []
         for r_item in group.rollouts:
             training_completion = r_item.full_completion_text or r_item.exploit_code
-            input_ids, attention_mask, completion_mask = prepare_rollout_tokens(
-                prompt_str=group.prompt,
-                completion_str=training_completion,
-                tokenizer=tokenizer,
-                device=device,
-                max_seq_len=max_seq_len,
-                stored_generated_token_ids=r_item.generated_token_ids
-            )
+            try:
+                input_ids, attention_mask, completion_mask = prepare_rollout_tokens(
+                    prompt_str=group.prompt,
+                    completion_str=training_completion,
+                    tokenizer=tokenizer,
+                    device=device,
+                    max_seq_len=max_seq_len,
+                    stored_generated_token_ids=r_item.generated_token_ids
+                )
+            except UnsafeRolloutError as exc:
+                # Fail closed: the rollout is skipped, never trained on in a
+                # truncated form. The skip is counted, so a run that silently
+                # dropped its rollouts cannot hide behind a green log.
+                _record_overlength_skip(str(exc))
+                print(
+                    f"[!] Fail-closed: rollout '{r_item.candidate_id}' of group {g_idx} was "
+                    f"SKIPPED (not trained on): {exc}"
+                )
+                continue
             # Fail-closed invariant checks (Round 5.2 Blocker 2)
             if input_ids.shape != attention_mask.shape or input_ids.shape != completion_mask.shape:
                 raise ValueError(
@@ -1077,6 +1184,18 @@ def train_grpo_epochs(
                 "reward": r_item.reward
             })
         prepared_groups.append((group, group_items))
+
+    # A group whose every rollout was skipped carries no signal at all: it is
+    # dropped instead of producing an all-zero policy gradient.
+    skipped_groups = [group for group, items in prepared_groups if not items]
+    if skipped_groups:
+        print(
+            f"[!] Fail-closed: {len(skipped_groups)} group(s) were dropped because every "
+            "rollout of theirs was skipped (the length budget did not allow a safe "
+            "preparation). The diagnostics of the skips: "
+            f"{overlength_diagnostics()}"
+        )
+    prepared_groups = [(group, items) for group, items in prepared_groups if items]
 
     # Step B: Optimization epochs
     global_step = 0

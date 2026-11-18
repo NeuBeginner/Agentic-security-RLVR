@@ -390,6 +390,10 @@ def verify_manifest_git_integrity(
 def validate_replay_evidence_envelope(
     artifact_dict: Dict[str, Any],
     artifact_root: Optional[Any] = None,
+    *,
+    evm_sandbox_function_call_id: Optional[str] = None,
+    initial_evm_start_utc: Optional[str] = None,
+    initial_evm_end_utc: Optional[str] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
     Validates the independent replay evidence envelope (Iteration 13 Requirement 2).
@@ -401,12 +405,21 @@ def validate_replay_evidence_envelope(
 
     ``artifact_root`` must point at the directory that holds the stored replay
     artifacts; without it a CONFIRMED replay can never be validated.
+
+    ``initial_evm_end_utc`` is the end of the primary evm_sandbox stage: the
+    replay must have started after it.
     """
     from benchmarks.evidence_integrity import (
         validate_replay_evidence_envelope as _validate,
     )
 
-    return _validate(artifact_dict, artifact_root=artifact_root)
+    return _validate(
+        artifact_dict,
+        artifact_root=artifact_root,
+        evm_sandbox_function_call_id=evm_sandbox_function_call_id,
+        initial_evm_start_utc=initial_evm_start_utc,
+        initial_evm_end_utc=initial_evm_end_utc,
+    )
 
 
 def validate_remote_evm_toolchain_provenance(

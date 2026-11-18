@@ -155,6 +155,11 @@ class ExecutionResult(BaseModel):
     # executed at all (infrastructure). It is NOT the same as a replay that ran
     # and did not reproduce: an infrastructure failure carries no reward.
     replay_error: Optional[str] = None
+    # The concrete reason why the execution failed, read out of the trace of
+    # the trusted harness (OutOfFunds, the failing call, the revert reason,
+    # the message of the harness). It is the evidence the refinement loop
+    # needs: a verdict without a reason leaves the next attempt guessing.
+    failure_reason: Optional[str] = None
     gas_used: Optional[int] = None
     state_delta: Dict[str, Any] = Field(default_factory=dict)
     evidence: Optional[ExecutionEvidence] = None

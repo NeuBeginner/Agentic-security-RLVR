@@ -225,9 +225,15 @@ def _install_producer_mocks(monkeypatch) -> None:
         }
 
     def mock_verify_replay_remote(target_dict, payload_dict):
+        from datetime import datetime, timedelta, timezone
+
         candidate = (payload_dict.get("test_code") or "").encode("utf-8")
         harness = b"// repository-owned harness\ncontract VaultHarness {}\n"
         stdout = b'{"test/VaultHarness.t.sol:testExploit":{"status":"Success","reason":null}}\n'
+        # The replay of a run happens after the initial EVM run of that run:
+        # the worker stamps the moments with the microsecond resolution.
+        replay_started = datetime.now(timezone.utc) + timedelta(seconds=1)
+        replay_finished = replay_started + timedelta(seconds=1)
         return {
             "reproduced": True,
             "container_id": CONTAINER_ID,
@@ -244,8 +250,8 @@ def _install_producer_mocks(monkeypatch) -> None:
             "stderr_b64": base64.b64encode(b"").decode("ascii"),
             "candidate_b64": base64.b64encode(candidate).decode("ascii"),
             "harness_b64": base64.b64encode(harness).decode("ascii"),
-            "utc_start_time": "2026-11-09T03:17:41Z",
-            "utc_end_time": "2026-11-09T03:19:20Z",
+            "utc_start_time": replay_started.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            "utc_end_time": replay_finished.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         }
 
     monkeypatch.setattr(

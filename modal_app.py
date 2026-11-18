@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any
 # Ensure local core and sandbox packages are in Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core.config import config
+from core.config import config, is_training_blocked
 from core import r1_bounds as r1
 from core.hypothesis_manager import HypothesisManager
 from core.schemas import (
@@ -40,12 +40,28 @@ from sandbox.runner import (
 )
 from core.llm_generator import (
     build_analysis_prompt,
+    build_exploit_engineer_system_prompt,
     build_refinement_prompt,
     parse_model_response,
     synthesize_exploit_gemini,
     SOLIDITY_SYSTEM_PROMPT,
     AUDIT_DETECTOR_SYSTEM_PROMPT
 )
+
+# =============================================================================
+# The timestamp of a stage - microsecond resolution, UTC, ISO-8601
+# =============================================================================
+# The stage timestamps are the evidence of the ORDER of the stages: the replay
+# must start after the initial EVM run ended. A resolution of one second cannot
+# express that order - a replay that starts in the same second as the initial
+# run is indistinguishable from it - so the resolution is the microsecond.
+
+def _utc_timestamp() -> str:
+    """The current UTC time as ISO-8601 with microseconds (``...Z``)."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
 
 # Initialize Modal Application
 app = modal.App(name=config.APP_NAME)
@@ -431,7 +447,7 @@ class ProductionAuditAgent:
     def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3, hypothesis_dict: Optional[dict] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> dict:
         import torch
         from core.schemas import TargetProgram, VulnerabilityHypothesis
-        from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_analysis_prompt, parse_model_response
+        from core.llm_generator import build_exploit_engineer_system_prompt, build_analysis_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
         hypothesis = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
@@ -439,7 +455,7 @@ class ProductionAuditAgent:
             target, hypothesis=hypothesis, previous_failures=previous_failures
         )
         messages = [
-            {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
+            {"role": "system", "content": build_exploit_engineer_system_prompt(target.name)},
             {"role": "user", "content": user_prompt}
         ]
         text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -469,7 +485,7 @@ class ProductionAuditAgent:
     def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str, hypothesis_dict: Optional[dict] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> dict:
         import torch
         from core.schemas import TargetProgram, VulnerabilityHypothesis
-        from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_refinement_prompt, parse_model_response
+        from core.llm_generator import build_exploit_engineer_system_prompt, build_refinement_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
         hypothesis = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
@@ -478,7 +494,7 @@ class ProductionAuditAgent:
             hypothesis=hypothesis, previous_failures=previous_failures
         )
         messages = [
-            {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
+            {"role": "system", "content": build_exploit_engineer_system_prompt(target.name)},
             {"role": "user", "content": prompt}
         ]
         text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -563,7 +579,7 @@ class DevReasoningAgent:
     def generate_solidity_exploit(self, target_dict: dict, temperature: float = 0.3, hypothesis_dict: Optional[dict] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> dict:
         import torch
         from core.schemas import TargetProgram, VulnerabilityHypothesis
-        from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_analysis_prompt, parse_model_response
+        from core.llm_generator import build_exploit_engineer_system_prompt, build_analysis_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
         hypothesis = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
@@ -571,7 +587,7 @@ class DevReasoningAgent:
             target, hypothesis=hypothesis, previous_failures=previous_failures
         )
         messages = [
-            {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
+            {"role": "system", "content": build_exploit_engineer_system_prompt(target.name)},
             {"role": "user", "content": user_prompt}
         ]
         text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -601,7 +617,7 @@ class DevReasoningAgent:
     def refine_solidity_exploit(self, target_dict: dict, failed_code: str, error_trace: str, hypothesis_dict: Optional[dict] = None, previous_failures: Optional[List[Dict[str, Any]]] = None) -> dict:
         import torch
         from core.schemas import TargetProgram, VulnerabilityHypothesis
-        from core.llm_generator import SOLIDITY_SYSTEM_PROMPT, build_refinement_prompt, parse_model_response
+        from core.llm_generator import build_exploit_engineer_system_prompt, build_refinement_prompt, parse_model_response
 
         target = TargetProgram(**target_dict)
         hypothesis = VulnerabilityHypothesis(**hypothesis_dict) if hypothesis_dict else None
@@ -610,7 +626,7 @@ class DevReasoningAgent:
             hypothesis=hypothesis, previous_failures=previous_failures
         )
         messages = [
-            {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
+            {"role": "system", "content": build_exploit_engineer_system_prompt(target.name)},
             {"role": "user", "content": prompt}
         ]
         text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -854,6 +870,11 @@ def verify_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
     res_dict["sandbox_stdout_bytes_b64"] = raw_result.stdout_bytes_b64
     res_dict["sandbox_stderr_bytes_b64"] = raw_result.stderr_bytes_b64
     res_dict["observed_environment"] = raw_result.observed_environment
+    # The concrete reason of a failed execution, read out of the trace of the
+    # trusted harness. It is the evidence the refinement loop needs: without it
+    # the next attempt would guess why the candidate did not breach the
+    # invariant.
+    res_dict["failure_reason"] = raw_result.failure_reason
     res_dict["modal_runtime"] = capture_modal_runtime_identity()
     return res_dict
 
@@ -875,12 +896,14 @@ def verify_replay_remote(target_dict: dict, payload_dict: dict) -> dict:
     payload = ExploitPayload(**payload_dict)
 
     # Replay-specific timestamps: measured inside the replay worker, never
-    # inherited from the initial run (Iteration 14 P0.2).
-    replay_started_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    # inherited from the initial run (Iteration 14 P0.2). The resolution is the
+    # microsecond: a replay that starts in the same **second** as the initial
+    # run must still be distinguishable from it.
+    replay_started_utc = _utc_timestamp()
 
     raw_result = verify_independent_replay_result(target, payload)
 
-    replay_finished_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    replay_finished_utc = _utc_timestamp()
 
     is_confirmed = (
         raw_result.harness_verdict == HARNESS_VERDICT_BREACH
@@ -1134,13 +1157,17 @@ def train_grpo_remote(
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
     # FAIL-CLOSED SECURITY GATE (Round 5.4)
-    # Strictly prevents direct remote invocation when TRAINING_STATUS = BLOCKED
-    training_status = os.environ.get("TRAINING_STATUS", "BLOCKED")
-    if training_status == "BLOCKED" or getattr(config, "TRAINING_BLOCKED", True):
+    # Strictly prevents direct remote invocation when the training is blocked.
+    # The state is read from the live environment at this very moment: the
+    # environment of the container is read when the container starts, and a
+    # value that was frozen at import time may no longer be the truth.
+    if is_training_blocked(config):
         raise RuntimeError(
             "FAIL-CLOSED SECURITY GATE: TRAINING_STATUS = BLOCKED. "
             "Direct remote invocation of train_grpo_remote is strictly prohibited by AI Supervisor. "
-            "Optimizer step, weight updates, and checkpoint writes are blocked."
+            "Optimizer step, weight updates, and checkpoint writes are blocked. "
+            f"(TRAINING_STATUS={os.environ.get('TRAINING_STATUS', '<unset>')}, "
+            f"TRAINING_BLOCKED={os.environ.get('TRAINING_BLOCKED', '<unset>')})"
         )
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -1867,7 +1894,7 @@ def main(
             resp = client.models.generate_content(
                 model=config.GEMINI_MODEL,
                 contents=ref_prompt,
-                config={"system_instruction": SOLIDITY_SYSTEM_PROMPT, "temperature": 0.1}
+                config={"system_instruction": build_exploit_engineer_system_prompt(target.name), "temperature": 0.1}
             )
             refined_payload = parse_model_response(
                 target,
