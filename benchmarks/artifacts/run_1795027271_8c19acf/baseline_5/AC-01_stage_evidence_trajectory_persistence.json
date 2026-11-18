@@ -1,0 +1,38 @@
+{
+  "absence_records": [
+    {
+      "field": "app_id",
+      "kind": "CLIENT_NEVER_CAPTURED_FIELD",
+      "reason": "this client never requested 'app_id' from the trajectory_persistence stage, so the field was never captured"
+    },
+    {
+      "field": "function_call_id",
+      "kind": "CLIENT_NEVER_CAPTURED_FIELD",
+      "reason": "this client never requested 'function_call_id' from the trajectory_persistence stage, so the field was never captured"
+    },
+    {
+      "field": "container_id",
+      "kind": "CLIENT_NEVER_CAPTURED_FIELD",
+      "reason": "this client never requested 'container_id' from the trajectory_persistence stage, so the field was never captured"
+    }
+  ],
+  "attempted": true,
+  "correlation_id": "corr-AC-01-1795027396-72aa6db2",
+  "executed": true,
+  "provider_response": "/vol/models/trajectories/traj_traj_run-default_954b0ed5.json",
+  "provider_response_metadata": {
+    "response_byte_length": 62,
+    "response_sha256": "d49826bfa24269df94c5c7f492bf018e8ce20f503c8fb95b35eff874c44e9688",
+    "response_source": "the response of record_trajectory_remote",
+    "runtime_identity_byte_length": null,
+    "runtime_identity_sha256": null
+  },
+  "requested_fields": [],
+  "response_received": true,
+  "runtime_envelope_received": false,
+  "runtime_identity": null,
+  "runtime_identity_source": "",
+  "schema_version": "1.0.0",
+  "stage": "trajectory_persistence",
+  "target_id": "AC-01"
+}
