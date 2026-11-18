@@ -50,10 +50,94 @@ CRITICAL EVM EXPLOIT SPECIFICATIONS:
 8. NEVER import `forge-std/Test.sol` or use `vm.*` cheatcodes. `ExploitModule` must be a realistic, unprivileged on-chain contract.
 9. Always use valid Solidity 0.8.20 syntax (`pragma solidity ^0.8.20;`).
 10. If attacking via callbacks or reentrancy, implement `receive() external payable` or `fallback() external payable`.
+11. MANDATORY `receive()`: `ExploitModule` MUST implement `receive() external payable {}`. The trusted harness and the target contracts send ETH to the exploit, and a contract without a `receive()` rejects that ETH - the exploit then reverts before it reaches the vulnerable code.
+12. NO HARDCODED AMOUNTS: never write a literal amount such as `1 ether`, `100 ether` or `0.5 ether` into a `{value: ...}` call. The amount of a call must come from the state of the execution: `msg.value`, the balance of the exploit (`address(this).balance`) or the balance of the target (`address(targetContract).balance`). A call that sends more ETH than the exploit holds reverts with `OutOfFunds` and never reaches the vulnerable code.
+13. WHEN THE BALANCE IS EMPTY, PASS 0 ETH: send `{value: 0}` instead of an amount that the contract does not have.
+14. BORROW, CLAIM AND PAYOUT AMOUNTS ARE BOUNDED: a borrow, a claim or a payout may never exceed `address(targetContract).balance`. Amounts that exceed the balance of the target revert, and the candidate never reaches the vulnerable code.
 """
 
 # Backwards compatibility alias
 SOLIDITY_SYSTEM_PROMPT = EXPLOIT_ENGINEER_SYSTEM_PROMPT
+
+
+#: The entrypoint the trusted harness of a target expects, the parameter
+#: **types** it supplies when it calls it, and the named signature it writes
+#: into the prompt. The **harness** decides how the candidate is called - not
+#: the model - so the prompt, the validator and the refinement loop must all
+#: speak about the same signature.
+TARGET_ENTRYPOINTS: Dict[str, Tuple[str, List[str]]] = {
+    "SignatureReplayWallet": ("runSignatureReplay", ["bytes32", "bytes32", "uint8"]),
+}
+
+#: The named signature of the entrypoint of a target, as the prompt writes it.
+TARGET_ENTRYPOINT_SIGNATURES: Dict[str, str] = {
+    "SignatureReplayWallet": "runSignatureReplay(bytes32 r, bytes32 s, uint8 v)",
+}
+
+#: The entrypoint every other target expects.
+DEFAULT_ENTRYPOINT_NAME = "runExploit"
+
+#: The parameter types every other target expects (none).
+DEFAULT_ENTRYPOINT_PARAM_TYPES: List[str] = []
+
+
+def required_entrypoint_for_target(target_name: Optional[str]) -> Tuple[str, List[str]]:
+    """
+    The entrypoint and its parameter types for a target.
+
+    ``SignatureReplayWallet`` is called by its harness as
+    ``runSignatureReplay(bytes32, bytes32, uint8)`` - the harness supplies the
+    signature values. Every other target is called as ``runExploit()``.
+    """
+    if target_name and target_name in TARGET_ENTRYPOINTS:
+        name, params = TARGET_ENTRYPOINTS[target_name]
+        return name, list(params)
+    return DEFAULT_ENTRYPOINT_NAME, list(DEFAULT_ENTRYPOINT_PARAM_TYPES)
+
+
+def entrypoint_signature_for_target(target_name: Optional[str]) -> str:
+    """The named signature of the entrypoint, as the prompt writes it."""
+    if target_name and target_name in TARGET_ENTRYPOINT_SIGNATURES:
+        return TARGET_ENTRYPOINT_SIGNATURES[target_name]
+    return "runExploit() external payable"
+
+
+def build_exploit_engineer_system_prompt(target_name: Optional[str] = None) -> str:
+    """
+    The system prompt of the exploit engineer - aware of the target.
+
+    The prompt states the **exact** entrypoint the trusted harness of this
+    target calls. Without it the model writes the generic ``runExploit()`` for
+    a target whose harness calls ``runSignatureReplay(...)``, and the candidate
+    is rejected by the format gate before it ever reaches the EVM.
+    """
+    entrypoint, params = required_entrypoint_for_target(target_name)
+    if params:
+        signature = f"{entrypoint}({', '.join(params)})"
+    else:
+        signature = f"{entrypoint}()"
+
+    named_signature = entrypoint_signature_for_target(target_name)
+
+    if target_name and target_name in TARGET_ENTRYPOINTS:
+        target_rule = (
+            f"5. THE ENTRYPOINT OF THIS TARGET IS `{named_signature}`. The trusted harness calls "
+            f"exactly this function and supplies the arguments itself - implement it with "
+            f"these exact parameter types. Do NOT rely on a generic `runExploit()` here: the "
+            f"harness of `{target_name}` never calls it. Declaring `runExploit()` as well is "
+            f"allowed, but it is not the entrypoint of this target."
+        )
+    else:
+        target_rule = (
+            f"5. THE ENTRYPOINT OF THIS TARGET IS `{named_signature}`. The trusted harness calls "
+            "exactly this function - implement it with these exact parameter types."
+        )
+
+    return EXPLOIT_ENGINEER_SYSTEM_PROMPT.replace(
+        "5. Implement exactly the target-specific entrypoint and parameter types supplied by the user prompt; "
+        "the trusted harness may require a name other than `runExploit`.",
+        target_rule,
+    )
 
 
 def build_auditor_prompt(target: TargetProgram) -> str:
@@ -120,12 +204,29 @@ Auditor Finding Hypothesis ({vulnerability_type} - {severity} Severity):
         if failure_lines:
             failure_context = "\nPREVIOUS FAILED CANDIDATES:\n" + "\n".join(failure_lines) + "\n"
 
-    if target.name == "SignatureReplayWallet":
-        entrypoint_doc = "6. Entrypoint signature: implement `function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external` exactly; the trusted harness supplies the signature values."
-        entrypoint_code = "    function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external {\n        // Replay the supplied signature against targetContract.executeWithSignature(...).\n    }"
+    entrypoint, entrypoint_params = required_entrypoint_for_target(target.name)
+    entrypoint_signature = entrypoint_signature_for_target(target.name)
+    if target.name in TARGET_ENTRYPOINTS:
+        entrypoint_doc = (
+            f"6. Entrypoint signature: implement `function {entrypoint_signature} external` "
+            f"exactly; the trusted harness supplies the signature values. Do NOT use a generic "
+            f"`runExploit()` as the entrypoint of this target."
+        )
+        entrypoint_code = (
+            f"    function {entrypoint}({', '.join(entrypoint_params)}) external {{\n"
+            f"        // Replay the supplied signature against targetContract.executeWithSignature(...).\n"
+            f"    }}"
+        )
     else:
-        entrypoint_doc = "6. Entrypoint: implement `function runExploit() external payable` exactly; put target-specific exploit logic inside it."
-        entrypoint_code = "    function runExploit() external payable {\n        // Execute the target-specific exploit here.\n    }"
+        entrypoint_doc = (
+            f"6. Entrypoint: implement `function {entrypoint_signature}` exactly; put the "
+            f"target-specific exploit logic inside it."
+        )
+        entrypoint_code = (
+            "    function runExploit() external payable {\n"
+            "        // Execute the target-specific exploit here.\n"
+            "    }"
+        )
 
     return f"""Target Contract File: src/{target.name}.sol
 Target Contract Name: {target.name}
@@ -147,9 +248,12 @@ Instructions:
 5. Declare the target variable `{target.name} public targetContract;` and initialize it in the constructor:
    `constructor(address _target) payable {{ targetContract = {target.name}(payable(_target)); }}`
 {entrypoint_doc}
-7. If attacking via callbacks or reentrancy, implement `receive() external payable` or other fallback handlers.
-8. Strictly unprivileged: Do NOT use Foundry cheatcodes (vm.*) or test harnesses.
-9. Return clean, compilable Solidity code in a single ```solidity ... ``` block.
+7. MANDATORY: implement `receive() external payable {{}}` in `ExploitModule` - the harness and the target send ETH to the exploit, and a contract without a `receive()` rejects it and reverts before the vulnerable code is reached.
+8. NEVER hardcode an amount such as `1 ether`, `100 ether` or `0.5 ether` into a `{{value: ...}}` call. Derive the amount from the state of the execution: `msg.value`, `address(this).balance` or `address(targetContract).balance`. A call that sends more ETH than the exploit holds reverts with `OutOfFunds` and never reaches the vulnerable code.
+9. When the balance is empty, send `{{value: 0}}` - never an amount the contract does not hold.
+10. A borrow, a claim or a payout may never exceed `address(targetContract).balance`; an amount above it reverts.
+11. Strictly unprivileged: Do NOT use Foundry cheatcodes (vm.*) or test harnesses.
+12. Return clean, compilable Solidity code in a single ```solidity ... ``` block.
 
 Standard structure:
 ```solidity
@@ -181,10 +285,15 @@ def build_refinement_prompt(target: TargetProgram, failed_code: str, error_feedb
     Target-agnostic and focused on compiler feedback and revert reasons.
     """
     invariants_text = "\n".join(f"- {inv}" for inv in target.invariants) if target.invariants else "- Security invariants"
-    if target.name == "SignatureReplayWallet":
-        entrypoint_doc = "function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external"
+    entrypoint, entrypoint_params = required_entrypoint_for_target(target.name)
+    entrypoint_doc = f"function {entrypoint_signature_for_target(target.name)} external"
+    if target.name in TARGET_ENTRYPOINTS:
+        entrypoint_rule = (
+            f"- The entrypoint of this target is `{entrypoint_doc}`. The harness supplies the "
+            "arguments; a generic `runExploit()` is NOT the entrypoint of this target."
+        )
     else:
-        entrypoint_doc = "function runExploit() external payable"
+        entrypoint_rule = f"- The entrypoint of this target is `{entrypoint_doc}`."
     hypothesis_context = ""
     if hypothesis:
         vulnerability_type = getattr(hypothesis, "vulnerability_type", None) or getattr(hypothesis, "vulnerability_class", "Unknown")
@@ -227,9 +336,12 @@ Previous Candidate ExploitModule:
 
 Refinement Guidelines:
 - The contract MUST be named `contract ExploitModule`.
+{entrypoint_rule}
+- The failure reason above is the EXACT reason the trusted harness reported - repair that reason, do not guess a different attack.
 - If Compilation Error: Check for undefined variables, incorrect function parameters, or redeclaration of imported types.
-- If EVM Runtime Revert: Check require statements, msg.value conditions, balance constraints, or call sequencing.
-- If Safe Run: The previous exploit did not violate the invariant. Adjust the attack mechanism (e.g. state timing, parameter amounts, reentrancy condition) to ensure the invariant is physically breached in EVM state.
+- If EVM Runtime Revert: Check require statements, msg.value conditions, balance constraints, or call sequencing. A revert with `OutOfFunds` means the call sent more ETH than the contract held - send `{{value: 0}}` or an amount taken from `address(this).balance` / `address(targetContract).balance` instead of a hardcoded one.
+- If Safe Run: The previous exploit did not violate the invariant. Adjust the attack mechanism (e.g. state timing, parameter amounts, reentrancy condition) to ensure the invariant is physically breached in EVM state. A borrow, a claim or a payout may never exceed `address(targetContract).balance`.
+- Keep `receive() external payable {{}}` in `ExploitModule`: the harness and the target send ETH to the exploit.
 - Strictly unprivileged: Do NOT use `vm.*` cheatcodes.
 
 Return the complete, corrected Solidity contract inside a single ```solidity ... ``` code block.
@@ -776,7 +888,8 @@ def normalize_exploit_contract_name(
 
 def validate_exploit_format(
     code: str,
-    entrypoint_name: str = "runExploit",
+    target_name: Optional[str] = None,
+    entrypoint_name: Optional[str] = None,
     entrypoint_param_types: Optional[List[str]] = None,
 ) -> Tuple[bool, str]:
     """
@@ -791,7 +904,20 @@ def validate_exploit_format(
     5. The target-specific required entrypoint and parameter types are strictly inside ExploitModule.
     6. Balanced braces throughout file.
     7. No forbidden cheatcodes (vm.*) or test harnesses.
+
+    The required entrypoint is derived from the **target** when the caller does
+    not name it: the harness of `SignatureReplayWallet` calls
+    `runSignatureReplay(bytes32, bytes32, uint8)` and never `runExploit()`, so a
+    validator that demanded `runExploit()` for that target would reject a
+    perfectly correct candidate.
     """
+    if entrypoint_name is None or entrypoint_param_types is None:
+        derived_name, derived_params = required_entrypoint_for_target(target_name)
+        if entrypoint_name is None:
+            entrypoint_name = derived_name
+        if entrypoint_param_types is None:
+            entrypoint_param_types = derived_params
+
     if not code or not code.strip():
         return False, "No Solidity code block extracted from model response"
 
@@ -1101,10 +1227,13 @@ def parse_model_response(
         was_renamed, original_name = False, ""
         normalization_reason = "disabled_by_configuration"
 
-    required_entrypoint = "runSignatureReplay" if target.name == "SignatureReplayWallet" else "runExploit"
-    required_entrypoint_params = ["bytes32", "bytes32", "uint8"] if target.name == "SignatureReplayWallet" else []
+    # The required entrypoint is a property of the **target** (the harness
+    # decides how the candidate is called), so it is derived from the target
+    # name and handed to the format gate together with it.
+    required_entrypoint, required_entrypoint_params = required_entrypoint_for_target(target.name)
     is_valid, format_reason = validate_exploit_format(
         code,
+        target_name=target.name,
         entrypoint_name=required_entrypoint,
         entrypoint_param_types=required_entrypoint_params,
     )

@@ -31,6 +31,7 @@ from core.evidence import (
     HARNESS_TEST_NAME,
     trusted_harness_suite_prefix,
 )
+from core.failure_digest import extract_failure_reason
 
 # Path to pre-baking script
 PREBAKE_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebake_solc.py")
@@ -1262,6 +1263,16 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
 
             inv_violated = harness_verdict == HARNESS_VERDICT_BREACH
 
+            # The concrete reason of the failure, read out of the trace of the
+            # trusted harness. It is the evidence the refinement loop needs: a
+            # verdict without a reason leaves the next attempt guessing.
+            failure_reason = extract_failure_reason(
+                stdout=raw_stdout,
+                stderr=raw_stderr,
+                revert_reason=effective_revert_reason,
+                decoded_logs=decoded_logs,
+            )
+
             # Classify outcome category
             if inv_violated:
                 category = ResultCategory.EXPLOIT_CONFIRMED
@@ -1288,6 +1299,7 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
                 revert_reason=effective_revert_reason,
                 decoded_logs=decoded_logs,
                 cheatcode_detected=False,
+                failure_reason=failure_reason or None,
                 verified_by_harness=harness_verdict in (
                     HARNESS_VERDICT_BREACH,
                     HARNESS_VERDICT_NO_BREACH,

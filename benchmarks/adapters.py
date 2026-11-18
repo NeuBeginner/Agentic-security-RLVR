@@ -55,6 +55,20 @@ _DEPLOYED_ADDRESSING: ContextVar[bool] = ContextVar(
 )
 
 
+def _utc_timestamp() -> str:
+    """
+    The current UTC time as ISO-8601 with microseconds (``2026-11-18T09:12:33.123456Z``).
+
+    The resolution of a **second** is not enough to express the order of the
+    stages: a replay that starts in the same second as the initial EVM run is
+    indistinguishable from it. The microsecond makes the order of the stages a
+    fact that can be checked.
+    """
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
 def dispatch_via_r1_gate(container_class: str, function_name: str, fn, *args, **kwargs):
     """Dispatch a Modal call through the R1 dispatch gate (plan D27).
 
@@ -834,6 +848,85 @@ def invoke_llm_provider(provider: str, model_id: str, prompt: str) -> str:
         return resp.choices[0].message.content or ""
     else:
         raise ValueError(f"Unsupported LLM provider: '{provider}'")
+
+
+#: The invariants of every target of the benchmark. They are the ground
+#: truth of the dataset (benchmarks/benchmark_dataset.json) and the semantics
+#: of the trusted harness of the target: the prompt names the invariant that
+#: the exploit has to breach, so a target without an entry would be attacked
+#: against a generic placeholder.
+TARGET_INVARIANTS: Dict[str, List[str]] = {
+    "Vault": [
+            "address(vault).balance >= balances[victim] (Depositor Solvency)",
+            "DEPOSITOR_SOLVENCY_COLLAPSE",
+        ],
+        "ERC4626Vault": [
+            "victimShares > 0 (No zero-share deposit robbery)",
+            "vault.convertToAssets(victimShares) >= 0.95 * VICTIM_DEPOSIT (Dilution Protection)",
+            "ERC4626_SHARE_DILUTION_OR_INFLATION",
+            "SHARE_INFLATION_DEPOSITOR_DILUTION",
+        ],
+        "AccessControlVault": [
+            "the owner of the vault may not be replaced by an unprivileged caller",
+            "the treasury of the vault may not be drained",
+            "UNAUTHORIZED_ADMIN_DRAIN",
+        ],
+        "OracleLendingPool": [
+            "the pool may not lose more than half of its liquidity to a manipulated oracle price",
+            "ORACLE_PRICE_MANIPULATION",
+        ],
+        "FlashLoanRewardPool": [
+            "the reward treasury may not fall below half of its value through a flash-loan claim",
+            "FLASH_LOAN_REWARD_DISTORTION",
+        ],
+        "SignatureReplayWallet": [
+            "the balance of the wallet may not fall below the deposited amount - a signature may not be replayed",
+            "SIGNATURE_REPLAY_DRAIN",
+        ],
+        "RewardDistributorLogic": [
+            "the distributor may not lose more than 0.1 ether of its pool balance",
+            "STATE_ACCOUNTING_INCONSISTENCY",
+        ],
+        "FeeShareYieldVault": [
+            "the vault may not lose its initial yield to an unprivileged fee claim",
+            "BUSINESS_LOGIC_FEE_DRAIN",
+        ],
+        "LendingLiquidation": [
+            "a liquidator may not seize the collateral of a borrower without repaying the debt",
+            "LIQUIDATION_ACCOUNTING_DEFECT",
+        ],
+        "CrossContractBridge": [
+            "the bridge may not lose more than 1 ether of its liquidity",
+            "CROSS_CONTRACT_DESYNCHRONIZATION",
+        ],
+        "AuctionDoS": [
+            "an honest bidder must still be able to bid - the auction may not be blocked forever",
+            "DENIAL_OF_SERVICE_LIVENESS",
+        ],
+        "PrecisionStakingPool": [
+            "a deposit with a fee may not leave the fee treasury empty while the pool holds funds",
+            "PRECISION_LOSS_FEE_BYPASS",
+        ],
+        # The synthetic controls: the same invariants, held by the
+        # repaired versions of the contracts.
+        "SecureVault": [
+            "every depositor keeps their own balance",
+            "INDIVIDUAL_DEPOSITOR_SOLVENCY",
+        ],
+        "SecureAccessControlVault": [
+            "the owner of the vault may not be replaced by an unprivileged caller",
+            "the treasury of the vault may not be drained",
+            "UNAUTHORIZED_ADMIN_DRAIN",
+        ],
+        "SecureERC4626Vault": [
+            "the victim must receive approximately their deposit back - no zero-share rounding",
+            "ERC4626_INFLATION_ROUNDING",
+        ],
+        "SecureOraclePool": [
+            "the pool may not lose more than the budget of the attacker to a manipulated oracle",
+            "ORACLE_MANIPULATION_DRAIN",
+        ],
+}
 
 
 class BaselineAdapter(ABC):
@@ -1711,7 +1804,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
             )
 
         start_time = time.time()
-        utc_start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start_time))
+        utc_start = _utc_timestamp()
         forge_ver = self.get_forge_version()
 
         try:
@@ -1751,8 +1844,11 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     f.write(source_code)
                 with open(os.path.join(test_dir, "ExploitModule.sol"), "w", encoding="utf-8") as f:
                     f.write(candidate_code)
-                with open(os.path.join(src_dir, "ExploitModule.sol"), "w", encoding="utf-8") as f:
-                    f.write(candidate_code)
+                # The candidate lives **only** under test/: a second copy in
+                # src/ would be a second compilation unit of the same contract
+                # and can shadow or duplicate the candidate during the source
+                # discovery of Foundry. The trusted harness imports it
+                # test-relative ("./ExploitModule.sol").
 
                 # Run forge
                 cmd = ["forge", "test", "--offline", "--json"]
@@ -1767,7 +1863,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                     timeout=effective_timeout,
                 )
                 elapsed = round(time.time() - start_time, 3)
-                utc_end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                utc_end = _utc_timestamp()
 
                 stdout_text = proc.stdout or ""
                 stderr_text = proc.stderr or ""
@@ -1916,7 +2012,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 )
 
         except subprocess.TimeoutExpired:
-            utc_end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            utc_end = _utc_timestamp()
             return TargetExecutionArtifact(
                 baseline_id=self.baseline_id,
                 target_id=target.contract_id,
@@ -1942,7 +2038,7 @@ class LLMNaiveFoundryBaselineAdapter(BaselineAdapter):
                 effective_config_hash=self.get_effective_config_hash(),
             )
         except Exception as e:
-            utc_end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            utc_end = _utc_timestamp()
             return TargetExecutionArtifact(
                 baseline_id=self.baseline_id,
                 target_id=target.contract_id,
@@ -2150,14 +2246,7 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                     if hf.exists():
                         harness_source = hf.read_text(encoding="utf-8")
 
-            invariants_map = {
-                "Vault": ["address(vault).balance >= balances[victim] (Depositor Solvency)"],
-                "ERC4626Vault": [
-                    "victimShares > 0 (No zero-share deposit robbery)",
-                    "vault.convertToAssets(victimShares) >= 0.95 * VICTIM_DEPOSIT (Dilution Protection)"
-                ]
-            }
-            target_invariants = invariants_map.get(target.target_name, ["Security invariant intact"])
+            target_invariants = TARGET_INVARIANTS.get(target.target_name, ["Security invariant intact"])
 
             target_prog = TargetProgram(
                 name=target.target_name,
@@ -2225,6 +2314,13 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 target_dict = target_prog.model_dump()
                 payload_dict = payload.model_dump() if payload else {}
 
+                # The boundaries of the **primary** evm_sandbox stage. They are
+                # measured here, strictly BEFORE the replay is requested, so the
+                # envelope of the replay can be compared against the end of the
+                # initial EVM run - and not against the end of the whole run,
+                # which is later than the replay itself.
+                initial_evm_start_utc = _utc_timestamp()
+
                 verdict_dict = dispatch_via_r1_gate(
                     "sandbox_cpu",
                     "verify_exploit_remote",
@@ -2252,6 +2348,20 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 ):
                     refinements_done += 1
                     err_trace = verdict.feedback or verdict.stderr or "Exploit candidate failed to breach invariant."
+                    # The concrete reason of the failure, read out of the trace of
+                    # the trusted harness (OutOfFunds, the failing call, the
+                    # revert reason, the message of the harness). It is handed to
+                    # the refinement loop verbatim, so the next attempt repairs
+                    # the reason instead of guessing.
+                    failure_reason = (
+                        verdict_dict.get("failure_reason")
+                        if isinstance(verdict_dict, dict)
+                        else None
+                    )
+                    if failure_reason and failure_reason not in err_trace:
+                        err_trace = (
+                            f"{err_trace}\nFailure reason from the Forge trace: {failure_reason}"
+                        )
                     try:
                         if self.provider == "modal_h100":
                             rp_dict = dispatch_via_r1_gate(
@@ -2296,6 +2406,13 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                             break
                     except Exception:
                         break
+
+                # The end of the primary evm_sandbox stage - measured after the
+                # last EVM execution of the candidate and strictly BEFORE the
+                # replay is requested. The envelope of the replay is compared
+                # against this moment: a replay that does not start after it
+                # cannot be the independent replay of this run.
+                initial_evm_end_utc = _utc_timestamp()
 
                 # 3. Independent remote replay verification on fresh Modal container
                 is_replayed = False
@@ -2432,8 +2549,8 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                 input_sha = hashlib.sha256(source_code.encode("utf-8")).hexdigest()
                 output_sha = hashlib.sha256((payload.test_code or "").encode("utf-8")).hexdigest() if payload else None
                 prompt_hash = hashlib.sha256(payload.prompt_text.encode("utf-8")).hexdigest() if (payload and payload.prompt_text) else None
-                utc_start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start_time))
-                utc_end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                utc_start = _utc_timestamp()
+                utc_end = _utc_timestamp()
 
                 # ------------------------------------------------------------------
                 # Replay evidence envelope (Iteration 14 P0.2)
@@ -2568,6 +2685,8 @@ class FullAegisRLVRBaselineAdapter(BaselineAdapter):
                                 if isinstance(verdict_dict, dict)
                                 else None
                             ),
+                            initial_evm_start_utc=initial_evm_start_utc,
+                            initial_evm_end_utc=initial_evm_end_utc,
                         )
                         if not replay_envelope_valid:
                             replay_evidence["complete"] = False

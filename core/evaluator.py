@@ -269,11 +269,20 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
         # replay confirmed the verdict (see core.candidate_lifecycle and the GPU
         # path in modal_app.py). A safe run reproduces no exploit, so the flag
         # stays false and the replay was never eligible for a confirmation.
+        safe_run_feedback = (
+            "Safe Execution: trusted harness completed its no-breach assertion."
+        )
+        if result.failure_reason:
+            # The reason is the evidence the refinement loop needs: without it
+            # the next attempt would guess why the invariant held.
+            safe_run_feedback = (
+                f"{safe_run_feedback} Failure reason from the trace: {result.failure_reason}"
+            )
         return build_verdict_from_result(
             payload,
             ResultCategory.SAFE_RUN,
             RewardEvidence(format_valid=True, compiled=True, executed=True),
-            "Safe Execution: trusted harness completed its no-breach assertion.",
+            safe_run_feedback,
             is_verified=False,
             reproducible=False,
             replay_status=REPLAY_STATUS_NOT_ELIGIBLE,
@@ -281,11 +290,20 @@ def evaluate_execution_trace(payload: ExploitPayload, result: ExecutionResult) -
         )
 
     if result.harness_verdict == HarnessVerdict.EXEC_REVERT.value:
+        revert_feedback = (
+            f"Execution Reverted: {result.revert_reason or 'trusted harness reported an exploit revert.'}"
+        )
+        if result.failure_reason:
+            # OutOfFunds, the failing call and the message of the harness: the
+            # concrete reason the candidate did not reach the vulnerable code.
+            revert_feedback = (
+                f"{revert_feedback} Failure reason from the trace: {result.failure_reason}"
+            )
         return build_verdict_from_result(
             payload,
             ResultCategory.RUNTIME_REVERT,
             RewardEvidence(format_valid=True, compiled=True, executed=False),
-            f"Execution Reverted: {result.revert_reason or 'trusted harness reported an exploit revert.'}",
+            revert_feedback,
             is_verified=False,
             reproducible=False,
         )

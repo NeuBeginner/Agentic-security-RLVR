@@ -59,6 +59,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -3430,11 +3431,35 @@ def _replay_anchor_is_sound(
     return True, None
 
 
+def _parse_utc_timestamp(value: Any) -> Optional[datetime]:
+    """
+    Parse an ISO-8601 UTC timestamp, with or without microseconds.
+
+    ``None`` is returned when the value is not a timestamp that can be read -
+    the caller decides what an unreadable timestamp means (for the replay
+    envelope: a refusal).
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def validate_replay_evidence_envelope(
     artifact: Dict[str, Any],
     *,
     artifact_root: Optional[os.PathLike | str] = None,
     evm_sandbox_function_call_id: Optional[str] = None,
+    initial_evm_start_utc: Optional[str] = None,
+    initial_evm_end_utc: Optional[str] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
     Validate the independent replay evidence envelope (Iteration 14 P0.2).
@@ -3454,6 +3479,13 @@ def validate_replay_evidence_envelope(
     confirmed on the **worker's own anchor**: the function-call id it observed
     for its own invocation, in a fresh invocation that is not the one of the
     initial run. See :func:`_replay_anchor_is_sound`.
+
+    ``initial_evm_end_utc`` is the moment the **primary** evm_sandbox stage
+    ended, measured by the client strictly before the replay was requested. It
+    is what the replay is compared against: the replay must have started
+    *after* the initial EVM run ended. The overall end of the run is later
+    than the replay itself and therefore says nothing about the order of the
+    two stages.
     """
     replay_status = artifact.get("replay_status")
     replayed_breaches = artifact.get("replayed_breaches", 0)
@@ -3532,6 +3564,43 @@ def validate_replay_evidence_envelope(
         return False, "Replay evidence reuses the initial run's start timestamp"
     if initial_end and utc_end == initial_end:
         return False, "Replay evidence reuses the initial run's end timestamp"
+
+    # 5b. The replay must have run in a FRESH invocation of the provider, and
+    # it must have STARTED after the primary evm_sandbox stage ended.
+    replay_call_id = replay_data.get("function_call_id")
+    if (
+        evm_sandbox_function_call_id
+        and isinstance(replay_call_id, str)
+        and replay_call_id
+        and replay_call_id == evm_sandbox_function_call_id
+    ):
+        return False, (
+            "Replay evidence reuses the function-call id of the initial evm_sandbox stage: "
+            "the replay did not run in a fresh provider invocation"
+        )
+
+    if initial_evm_end_utc is not None:
+        replay_start_at = _parse_utc_timestamp(utc_start)
+        evm_ended_at = _parse_utc_timestamp(initial_evm_end_utc)
+        if replay_start_at is None or evm_ended_at is None:
+            return False, (
+                "The start timestamp of the replay and the end of the initial evm_sandbox run "
+                "are not comparable ISO-8601 UTC timestamps: "
+                f"replay_start={utc_start!r}, initial_evm_end={initial_evm_end_utc!r}"
+            )
+        if replay_start_at <= evm_ended_at:
+            return False, (
+                "The replay did not start after the initial evm_sandbox run ended: "
+                f"replay_start={utc_start!r}, initial_evm_end={initial_evm_end_utc!r}"
+            )
+
+    if initial_evm_start_utc is not None:
+        evm_started_at = _parse_utc_timestamp(initial_evm_start_utc)
+        if evm_started_at is None:
+            return False, (
+                "The start timestamp of the initial evm_sandbox run is not a readable "
+                f"ISO-8601 UTC timestamp: {initial_evm_start_utc!r}"
+            )
 
     # 6. The stored replay artifacts must exist and their digests must match.
     if artifact_root is None:
