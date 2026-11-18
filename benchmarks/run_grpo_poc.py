@@ -57,8 +57,8 @@ def _validate_bounds(max_targets: int, group_size: int, max_new_tokens: int) -> 
     """Enforce hard PoC bounds before any execution."""
     if not (1 <= max_targets <= 10):
         raise ValueError(f"--max-targets must be between 1 and 10, got {max_targets}")
-    if not (2 <= group_size <= 8):
-        raise ValueError(f"--group-size must be between 2 and 8, got {group_size}")
+    if not (4 <= group_size <= 8):
+        raise ValueError(f"--group-size must be between 4 and 8, got {group_size}")
     if max_new_tokens <= 0:
         raise ValueError(f"--max-new-tokens must be positive, got {max_new_tokens}")
 
@@ -185,7 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--group-size",
         type=int,
         default=4,
-        help="Number of rollouts per target group (default: 4, range: 2..8).",
+        help="Number of rollouts per target group (default: 4, range: 4..8).",
     )
     parser.add_argument(
         "--max-new-tokens",

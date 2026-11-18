@@ -66,16 +66,17 @@ poc_gpu_image = (
 )
 
 
-def _resolve_train_dataset_paths() -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """Return container or local paths for train dataset and test-isolation checks."""
-    container_train = "/opt/aegis/benchmarks/train_dataset.json"
-    if os.path.exists(container_train):
+def _resolve_train_dataset_paths() -> tuple[Optional[Path], Optional[Path], Optional[Path], Optional[Path]]:
+    """Return container Path objects for train dataset and test-isolation checks."""
+    container_train = Path("/opt/aegis/benchmarks/train_dataset.json")
+    if container_train.exists():
         return (
             container_train,
-            "/opt/aegis/benchmarks/benchmark_dataset.json",
-            "/opt/aegis/benchmarks/targets/solidity",
+            Path("/opt/aegis/benchmarks/benchmark_dataset.json"),
+            Path("/opt/aegis/benchmarks/targets/solidity_train"),
+            Path("/opt/aegis/benchmarks/targets/solidity"),
         )
-    return None, None, None
+    return None, None, None, None
 
 
 @app.function(
@@ -113,7 +114,7 @@ def poc_collect_train_rollouts(
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    from core.prompts import build_exploit_engineer_system_prompt, parse_model_response
+    from core.llm_generator import build_exploit_engineer_system_prompt, parse_model_response
     from core.train_rollout_collector import collect_train_rollouts, load_train_targets
 
     try:
@@ -121,11 +122,12 @@ def poc_collect_train_rollouts(
     except Exception:
         pass
 
-    train_dataset_path, benchmark_dataset_path, test_solidity_dir = _resolve_train_dataset_paths()
+    train_dataset_path, benchmark_dataset_path, train_solidity_dir, test_solidity_dir = _resolve_train_dataset_paths()
     if train_dataset_path is not None:
         targets = load_train_targets(
             train_dataset_path=train_dataset_path,
             benchmark_dataset_path=benchmark_dataset_path,
+            train_solidity_dir=train_solidity_dir,
             test_solidity_dir=test_solidity_dir,
         )
         collect_kwargs: Dict[str, Any] = {
@@ -218,15 +220,15 @@ def poc_collect_train_rollouts(
         pass
 
     return {
-        "status": result.get("status", "SUCCESS"),
-        "run_id": result.get("run_id"),
+        "status": "success",
+        "run_id": result.run_id,
         "model_id": model_id,
         "gpu_type": config.GRPO_POC_GPU_TYPE,
         "trajectory_dir": trajectory_dir,
-        "persisted_count": result.get("persisted_count", 0),
-        "excluded_infra_count": result.get("excluded_infra_count", 0),
-        "category_counts": result.get("category_counts", {}),
-        "group_spread": result.get("group_spread", {}),
+        "persisted_count": result.persisted_count,
+        "excluded_infra_count": result.excluded_infra_count,
+        "category_counts": result.category_counts,
+        "group_spread": result.group_spread,
     }
 
 

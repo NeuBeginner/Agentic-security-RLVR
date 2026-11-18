@@ -151,3 +151,100 @@ def test_modal_app_diagnostic_grpo_forward_and_scaledown_fixes():
 
     # Verify --mode diagnostic-forward in main() does not default to AUDIT_GPU_MODEL
     assert "diag_model_id = config.DEV_GPU_MODEL if generator.lower() == \"dev\" else config.GRPO_BASE_MODEL" in src
+
+
+def test_run_grpo_poc_group_size_bounds():
+    from benchmarks.run_grpo_poc import _validate_bounds, run_dry_run
+
+    for bad_size in (2, 3):
+        with pytest.raises(ValueError, match="group-size"):
+            _validate_bounds(max_targets=4, group_size=bad_size, max_new_tokens=1536)
+        with pytest.raises(ValueError, match="group-size"):
+            run_dry_run(
+                stage="collect-and-diagnose",
+                max_targets=1,
+                group_size=bad_size,
+                max_new_tokens=1536,
+                model_id="Qwen/Qwen2.5-Coder-1.5B-Instruct",
+            )
+
+    _validate_bounds(max_targets=4, group_size=4, max_new_tokens=1536)
+
+
+def test_poc_collect_train_rollouts_mock_execution(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import modal_grpo_poc_app
+    from core.llm_generator import build_exploit_engineer_system_prompt, parse_model_response
+    from core.schemas import TargetProgram
+    from core.train_rollout_collector import TrainRolloutCollectionResult
+
+    assert callable(build_exploit_engineer_system_prompt)
+    assert callable(parse_model_response)
+
+    # Mock container dataset path existence so _resolve_train_dataset_paths returns 4 Path objects
+    orig_exists = Path.exists
+
+    def fake_exists(self: Path) -> bool:
+        if self.as_posix() == "/opt/aegis/benchmarks/train_dataset.json":
+            return True
+        return orig_exists(self)
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+    paths = modal_grpo_poc_app._resolve_train_dataset_paths()
+    assert len(paths) == 4
+    assert all(isinstance(p, Path) for p in paths)
+    assert paths[2] == Path("/opt/aegis/benchmarks/targets/solidity_train")
+
+    dummy_target = TargetProgram(
+        name="TrainShareVault",
+        source_code="// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract TrainShareVault {}",
+        invariants=["SOLVENCY"],
+    )
+    real_result = TrainRolloutCollectionResult(
+        run_id="poc-test-run",
+        trajectory_dir="/vol/models/trajectories_grpo_poc",
+        targets_processed=1,
+        candidates_generated=4,
+        persisted_count=4,
+        excluded_infra_count=0,
+        excluded_missing_tokens_count=0,
+        persisted_paths=["/vol/models/trajectories_grpo_poc/t1.json"],
+        category_counts={"EXPLOIT_CONFIRMED": 1, "REVERTED": 3},
+        group_spread={"total_groups": 1, "informative_groups": 1, "degenerate_groups": 0},
+    )
+
+    mock_tokenizer = MagicMock()
+    mock_tokenizer.pad_token = "<eos>"
+    mock_model = MagicMock()
+    mock_model.to.return_value = mock_model
+
+    with patch.object(modal_grpo_poc_app.model_volume, "reload"), \
+         patch.object(modal_grpo_poc_app.model_volume, "commit"), \
+         patch("core.train_rollout_collector.load_train_targets", return_value=[dummy_target]) as mock_load, \
+         patch("core.train_rollout_collector.collect_train_rollouts", return_value=real_result) as mock_collect, \
+         patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", return_value=mock_model):
+        fn = getattr(
+            modal_grpo_poc_app.poc_collect_train_rollouts,
+            "local",
+            modal_grpo_poc_app.poc_collect_train_rollouts,
+        )
+        out = fn(max_targets=1, group_size=4)
+
+    mock_load.assert_called_once_with(
+        train_dataset_path=Path("/opt/aegis/benchmarks/train_dataset.json"),
+        benchmark_dataset_path=Path("/opt/aegis/benchmarks/benchmark_dataset.json"),
+        train_solidity_dir=Path("/opt/aegis/benchmarks/targets/solidity_train"),
+        test_solidity_dir=Path("/opt/aegis/benchmarks/targets/solidity"),
+    )
+    assert mock_collect.call_args.kwargs["benchmark_dataset_path"] == Path("/opt/aegis/benchmarks/benchmark_dataset.json")
+    assert mock_collect.call_args.kwargs["test_solidity_dir"] == Path("/opt/aegis/benchmarks/targets/solidity")
+
+    assert out["status"] == "success"
+    assert out["run_id"] == "poc-test-run"
+    assert out["gpu_type"] == "L4"
+    assert out["persisted_count"] == 4
+    assert out["excluded_infra_count"] == 0
+    assert out["category_counts"] == {"EXPLOIT_CONFIRMED": 1, "REVERTED": 3}
+    assert out["group_spread"] == {"total_groups": 1, "informative_groups": 1, "degenerate_groups": 0}
