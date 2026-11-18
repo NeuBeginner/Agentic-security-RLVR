@@ -555,7 +555,7 @@ Two of the findings deserve one more sentence each, because they are the ones th
 | a provider query | **none** |
 | a deployment, a redeployment, a worker restart | **none** |
 | a GPU (H100 / T4), a paid compute | **none** |
-| the producer `modal_app.py` | **unchanged** — P6.14 proves it byte-wise against the commit the capture of the R4 run was made from (8619fcc) |
+| the producer `modal_app.py` | **unchanged by the closure** — P6.14 proves it byte-wise against the commit the capture of the R4 run was made from (8619fcc); the state of the producer at the R4-hardening head is recorded in Entry 4 of §13.6 |
 | the historical 16-target benchmark evidence | **still visibly failed** — the validators of Iterations 14–18 report `FAILED (0/16 targets)` in CI |
 | the compatibility path | **unchanged** — the artifacts of Iterations 14–20 are read exactly as before, and no side is inferred or backfilled into any artifact |
 | a merge, a rebase of a shared branch | **none** — the merge of the upstream head was only *computed* with `git merge-tree`, which touches neither the working tree nor any branch |
@@ -730,7 +730,7 @@ The six Foundry tests that the *tests* job skips are executed by the **foundry**
 | claim | state |
 | --- | --- |
 | a live Modal invocation, a provider query, a deployment, a GPU, a paid compute | **none** |
-| the producer `modal_app.py` | **unchanged** — P6.14 proves it byte-wise against the commit the capture of the R4 run was made from (8619fcc) |
+| the producer `modal_app.py` | **unchanged by the follow-up** — P6.14 proves it byte-wise against the commit the capture of the R4 run was made from (8619fcc); the state of the producer at the R4-hardening head is recorded in Entry 4 of §13.6 |
 | the published evidence of Iterations 14–23 | **untouched** — 14–18 stay visibly FAILED, 19–23 stay PASSED (P6.13) |
 | the compatibility path (`strict_sources=False`) | **untouched** — the artifacts of Iterations 14–20 are read exactly as before, and no side is inferred and no value is backfilled into any artifact |
 | the registry of the observation sources | **untouched** |
@@ -836,5 +836,25 @@ This commit adds **exactly one** commit to the iteration line and changes **only
 | a published evidence file | **none** — the evidence stays bound to `690f39a12…` |
 | a merge, a rebase, a push to a shared branch | **none** — the merge of the upstream head was only *computed* with `git merge-tree`, which touches neither the working tree nor any branch |
 | a live Modal invocation, a provider query, a deployment, a GPU, a paid compute | **none** |
+| the benchmark result of the 16-target run | **unchanged** — it stays FAILED (0/16 targets) |
+
+#### Entry 4 — the state of the closure at the R4-hardening head (measured at *this commit*)
+
+The branch `fix/r4-recall-and-grpo-hardening` changes the producer `modal_app.py` **on purpose**: the honest replay timestamps, the target-aware system prompt, the failure reason and the dynamic training gate all live in the producer. **P6.14 is therefore `FAILED` at that head** — the producer is no longer byte-wise identical to the commit the capture of the R4 run was made from (`8619fcc`).
+
+The anchor of the check is **not moved**. A new anchor would compare the producer with itself and make the check vacuous; the only honest way to make P6.14 green again is a **new real capture** of the R4 run with the new producer, and a real capture needs a real Modal invocation — which is out of the scope of this branch. The check therefore stays red and says exactly why.
+
+| what | at the closure (`7858dec…`) | at the R4-hardening head |
+| --- | --- | --- |
+| the producer `modal_app.py` | byte-wise identical to `8619fcc…` | **changed** — P6.14 is `FAILED` |
+| the validator of the consolidated closure | `published PASSED, revalidated PASSED (21/21 checks)` | **`published FAILED, revalidated FAILED (20/21 checks)`** — P6.14 is the only red check |
+| the published report of this closure | bound to `7858dec…` | **re-bound to the head that carries this matrix** |
+
+| claim | state |
+| --- | --- |
+| the anchor of P6.14 | **not moved** — the check keeps comparing `8619fcc…` with the reported commit |
+| a weakening of the validator | **none** — the same 21 checks are executed, and the red one is reported as red |
+| a new capture of the R4 run | **none** — it needs a real Modal run, which this branch does not do |
+| the published evidence of Iterations 14–23 | **untouched** — 14–18 stay visibly FAILED, 19–23 stay PASSED (P6.13) |
 | the benchmark result of the 16-target run | **unchanged** — it stays FAILED (0/16 targets) |
 
