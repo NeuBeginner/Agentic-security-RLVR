@@ -44,7 +44,7 @@ CRITICAL EVM EXPLOIT SPECIFICATIONS:
 3. MANDATORY CONTRACT NAME: The exploit contract MUST be named `ExploitModule`: `contract ExploitModule { ... }`.
    DO NOT name it `Attack`, `VaultExploit`, `ReentrancyDrain`, or any other name. The verification harness strictly requires `contract ExploitModule`.
 4. The constructor MUST accept the target address: `constructor(address _target) payable { ... }`.
-5. The attack entrypoint MUST be: `function runExploit() external payable { ... }`.
+5. Implement exactly the target-specific entrypoint and parameter types supplied by the user prompt; the trusted harness may require a name other than `runExploit`.
 6. Import the target contract using named import: `import { {target_name} } from "../src/{target_name}.sol";`.
 7. DO NOT re-declare `contract {target_name}` or its interface.
 8. NEVER import `forge-std/Test.sol` or use `vm.*` cheatcodes. `ExploitModule` must be a realistic, unprivileged on-chain contract.
@@ -121,11 +121,11 @@ Auditor Finding Hypothesis ({vulnerability_type} - {severity} Severity):
             failure_context = "\nPREVIOUS FAILED CANDIDATES:\n" + "\n".join(failure_lines) + "\n"
 
     if target.name == "SignatureReplayWallet":
-        entrypoint_doc = "6. Entrypoint signature: For SignatureReplayWallet, you MUST implement `function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external` that replays the given signature against `targetContract.executeWithSignature(...)` to drain wallet funds."
-        entrypoint_code = "    function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external {\n        // Replay signature against targetContract.executeWithSignature(...)\n    }"
+        entrypoint_doc = "6. Entrypoint signature: implement `function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external` exactly; the trusted harness supplies the signature values."
+        entrypoint_code = "    function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external {\n        // Replay the supplied signature against targetContract.executeWithSignature(...).\n    }"
     else:
-        entrypoint_doc = "6. Implement `function runExploit() external payable` that executes transactions with the target to breach the invariant."
-        entrypoint_code = "    function runExploit() external payable {\n        // Exploit transactions here\n    }"
+        entrypoint_doc = "6. Entrypoint: implement `function runExploit() external payable` exactly; put target-specific exploit logic inside it."
+        entrypoint_code = "    function runExploit() external payable {\n        // Execute the target-specific exploit here.\n    }"
 
     return f"""Target Contract File: src/{target.name}.sol
 Target Contract Name: {target.name}
@@ -181,6 +181,10 @@ def build_refinement_prompt(target: TargetProgram, failed_code: str, error_feedb
     Target-agnostic and focused on compiler feedback and revert reasons.
     """
     invariants_text = "\n".join(f"- {inv}" for inv in target.invariants) if target.invariants else "- Security invariants"
+    if target.name == "SignatureReplayWallet":
+        entrypoint_doc = "function runSignatureReplay(bytes32 r, bytes32 s, uint8 v) external"
+    else:
+        entrypoint_doc = "function runExploit() external payable"
     hypothesis_context = ""
     if hypothesis:
         vulnerability_type = getattr(hypothesis, "vulnerability_type", None) or getattr(hypothesis, "vulnerability_class", "Unknown")
@@ -212,6 +216,9 @@ Target Contract (src/{target.name}.sol):
 
 Security Invariants To Breach:
 {invariants_text}
+
+Required harness entrypoint (implement this exact signature):
+{entrypoint_doc}
 
 Previous Candidate ExploitModule:
 ```solidity
@@ -267,7 +274,7 @@ SOLIDITY_KEYWORDS = {
     "public", "external", "internal", "private",
     "pure", "view", "payable", "override", "virtual",
     "returns", "return", "is", "pragma", "import", "using",
-    "mapping", "address", "uint", "uint256", "int", "bool", "string", "bytes"
+    "mapping", "address", "uint", "uint256", "int", "bool", "string", "bytes", "revert"
 }
 
 
@@ -767,7 +774,11 @@ def normalize_exploit_contract_name(
     return code, False, ""
 
 
-def validate_exploit_format(code: str) -> Tuple[bool, str]:
+def validate_exploit_format(
+    code: str,
+    entrypoint_name: str = "runExploit",
+    entrypoint_param_types: Optional[List[str]] = None,
+) -> Tuple[bool, str]:
     """
     Validates that synthesized code strictly satisfies ExploitModule requirements
     using the lexical tokenizer and AST contract scope analyzer.
@@ -777,7 +788,7 @@ def validate_exploit_format(code: str) -> Tuple[bool, str]:
     2. No unclosed markdown blocks or unclosed strings/comments.
     3. Exactly ONE `contract ExploitModule` declared at top level.
     4. Constructor accepts address parameter inside ExploitModule.
-    5. Entrypoint `function runExploit() external/public` strictly inside ExploitModule.
+    5. The target-specific required entrypoint and parameter types are strictly inside ExploitModule.
     6. Balanced braces throughout file.
     7. No forbidden cheatcodes (vm.*) or test harnesses.
     """
@@ -955,7 +966,7 @@ def validate_exploit_format(code: str) -> Tuple[bool, str]:
     # Check runExploit inside ExploitModule
     run_exploit_indices = []
     for i, tok in enumerate(em_tokens):
-        if tok.value == "function" and i + 1 < len(em_tokens) and em_tokens[i + 1].value == "runExploit":
+        if tok.value == "function" and i + 1 < len(em_tokens) and em_tokens[i + 1].value == entrypoint_name:
             run_exploit_indices.append(i)
 
     if not run_exploit_indices:
@@ -964,19 +975,19 @@ def validate_exploit_format(code: str) -> Tuple[bool, str]:
         for cname, ctoks in contract_token_ranges.items():
             if cname != "ExploitModule":
                 for j, tok in enumerate(ctoks):
-                    if tok.value == "function" and j + 1 < len(ctoks) and ctoks[j + 1].value == "runExploit":
+                    if tok.value == "function" and j + 1 < len(ctoks) and ctoks[j + 1].value == entrypoint_name:
                         other_has_run_exploit = True
                         break
         if other_has_run_exploit:
             return (
                 False,
-                "ExploitModule is missing mandatory entrypoint: function runExploit() external within its contract scope "
-                "(runExploit was declared in a different contract)."
+                f"ExploitModule is missing mandatory entrypoint: function {entrypoint_name} within its contract scope "
+                f"({entrypoint_name} was declared in a different contract)."
             )
-        return False, "ExploitModule is missing mandatory entrypoint: function runExploit() within its contract scope"
+        return False, f"ExploitModule is missing mandatory entrypoint: function {entrypoint_name} within its contract scope"
 
     if len(run_exploit_indices) > 1:
-        return False, f"Duplicate runExploit functions detected in ExploitModule ({len(run_exploit_indices)} found)"
+        return False, f"Duplicate {entrypoint_name} functions detected in ExploitModule ({len(run_exploit_indices)} found)"
 
     fn_idx = run_exploit_indices[0]
     # Scan forward to find LPAREN '('
@@ -984,7 +995,7 @@ def validate_exploit_format(code: str) -> Tuple[bool, str]:
     while fn_paren_idx < len(em_tokens) and em_tokens[fn_paren_idx].type != SolidityTokenType.LPAREN:
         fn_paren_idx += 1
     if fn_paren_idx >= len(em_tokens):
-        return False, "ExploitModule function runExploit missing parameter list '('"
+        return False, f"ExploitModule function {entrypoint_name} missing parameter list '('"
 
     # Find matching RPAREN ')'
     fn_p_depth = 1
@@ -1001,17 +1012,39 @@ def validate_exploit_format(code: str) -> Tuple[bool, str]:
         fn_r_idx += 1
 
     if fn_p_depth != 0:
-        return False, "ExploitModule function runExploit parameter list unclosed (missing ')')'"
+        return False, f"ExploitModule function {entrypoint_name} parameter list unclosed"
 
-    # Parameter count check: runExploit must take NO parameters: function runExploit()
-    fn_param_words = [
-        t.value for t in fn_param_tokens
-        if t.type in (SolidityTokenType.IDENT, SolidityTokenType.KEYWORD)
-    ]
-    if fn_param_words:
+    # Validate the exact parameter types required by the target harness.
+    expected_param_types = entrypoint_param_types or []
+    actual_param_groups = []
+    current_param_group = []
+    for param_token in fn_param_tokens:
+        if param_token.value == ",":
+            if current_param_group:
+                actual_param_groups.append(current_param_group)
+                current_param_group = []
+        else:
+            current_param_group.append(param_token)
+    if current_param_group:
+        actual_param_groups.append(current_param_group)
+    actual_param_types = []
+    for group in actual_param_groups:
+        words = [
+            token.value for token in group
+            if token.type in (SolidityTokenType.IDENT, SolidityTokenType.KEYWORD)
+        ]
+        if not words:
+            return False, f"ExploitModule function {entrypoint_name} has an invalid parameter"
+        actual_param_types.append(words[0])
+    if actual_param_types != expected_param_types:
+        if not expected_param_types:
+            return (
+                False,
+                f"ExploitModule function '{entrypoint_name}' must take 0 parameters, got parameters in signature: {actual_param_types}"
+            )
         return (
             False,
-            f"ExploitModule function 'runExploit' must take 0 parameters, got parameters in signature: {fn_param_words}"
+            f"ExploitModule function {entrypoint_name} must accept {expected_param_types}, got {actual_param_types}"
         )
 
     # Check visibility after RPAREN up to LBRACE '{' or SEMICOLON ';'
@@ -1027,11 +1060,11 @@ def validate_exploit_format(code: str) -> Tuple[bool, str]:
         if run_exploit_visibility in ("internal", "private"):
             return (
                 False,
-                f"ExploitModule method 'runExploit' must have 'external' or 'public' visibility, got '{run_exploit_visibility}'"
+                f"ExploitModule method '{entrypoint_name}' must have 'external' or 'public' visibility, got '{run_exploit_visibility}'"
             )
         return (
             False,
-            "ExploitModule method 'runExploit' must have 'external' or 'public' visibility so harness can invoke it"
+            f"ExploitModule method '{entrypoint_name}' must have 'external' or 'public' visibility so harness can invoke it"
         )
 
     return True, ""
@@ -1068,7 +1101,13 @@ def parse_model_response(
         was_renamed, original_name = False, ""
         normalization_reason = "disabled_by_configuration"
 
-    is_valid, format_reason = validate_exploit_format(code)
+    required_entrypoint = "runSignatureReplay" if target.name == "SignatureReplayWallet" else "runExploit"
+    required_entrypoint_params = ["bytes32", "bytes32", "uint8"] if target.name == "SignatureReplayWallet" else []
+    is_valid, format_reason = validate_exploit_format(
+        code,
+        entrypoint_name=required_entrypoint,
+        entrypoint_param_types=required_entrypoint_params,
+    )
     if was_renamed:
         # The rename is a mechanical repair, not a validation failure: after it the
         # candidate satisfies the harness contract. The format error reason stays

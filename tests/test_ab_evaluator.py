@@ -48,5 +48,7 @@ def test_ab_evaluator_zero_baseline_handling():
 
     assert "N = 2" in table_md
     assert "0/2 (0.0%)" in table_md
-    # Table must state that Pass@N is 0% for both
-    assert "0% confirmed for both" in table_md
+    # The interpretation is derived from the observed zero counts, not a hardcoded table label.
+    assert "No confirmed exploits observed in either cohort" in table_md
+    assert "No confirmed exploit was observed in either cohort" in table_md
+    assert "Observed rates:" not in table_md

@@ -131,6 +131,16 @@ def format_ab_table_markdown(
     b_rew = f"{baseline_metrics['mean_reward']:.2f} ± {baseline_metrics['reward_sem']:.2f}"
     l_rew = f"{lora_metrics['mean_reward']:.2f} ± {lora_metrics['reward_sem']:.2f}"
 
+    if baseline_metrics["confirmed_exploit_count"] == 0 and lora_metrics["confirmed_exploit_count"] == 0:
+        exploit_note = "No confirmed exploits observed in either cohort"
+        interpretation = "- No confirmed exploit was observed in either cohort; the sample does not support a capability claim."
+    else:
+        exploit_note = (
+            f"Observed rates: baseline {baseline_metrics['confirmed_exploit_rate']*100:.1f}%, "
+            f"LoRA {lora_metrics['confirmed_exploit_rate']*100:.1f}%"
+        )
+        interpretation = "- Reported exploit rates are descriptive; statistical significance requires a separately computed test."
+
     lines = [
         f"### A/B Benchmark Summary (Model: {model_name})",
         "",
@@ -141,12 +151,12 @@ def format_ab_table_markdown(
         f"| **Evaluable Candidates (N_eval)** | **N = {b_n}** | **N = {l_n}** | Evaluated in EVM harness |",
         f"| **Valid Contract Format Rate** | {b_fmt} | {l_fmt} | ExploitModule interface adherence |",
         f"| **Solidity Compilation Rate** | {b_comp} | {l_comp} | Syntactically sound Solidity |",
-        f"| **Confirmed Exploit Rate (Pass@N)** | **{b_exp}** | **{l_exp}** | **0% confirmed for both** (No multiplicative claims) |",
+        f"| **Confirmed Exploit Rate (Pass@N)** | **{b_exp}** | **{l_exp}** | {exploit_note} |",
         f"| **Mean RLVR Reward (± SEM)** | {b_rew} | {l_rew} | Computed over evaluable candidates |",
         "",
         "**Statistical Interpretation**:",
-        f"- At sample size N_eval={b_n}, Pass@N is 0.0% for both baseline and LoRA models.",
-        "- No statistically significant difference in confirmed exploit capability can be claimed.",
-        "- LoRA demonstrated qualitative formatting emergence (1/2 valid format vs 0/2 for base), but logical exploit synthesis requires larger scale training with positive trajectories."
+        f"- Baseline evaluable sample: N={b_n}; LoRA evaluable sample: N={l_n}.",
+        interpretation,
+        "- Formatting, compilation, and exploit rates above are computed from the supplied candidate metrics."
     ]
     return "\n".join(lines)

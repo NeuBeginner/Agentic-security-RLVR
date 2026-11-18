@@ -74,6 +74,8 @@ def test_evaluator_unreplayed_breach_semantics():
     assert verdict.reward_score == config.REWARD_BREACH_NO_REPLAY  # +0.50
     assert verdict.is_verified is False
     assert verdict.reproducible is False
+    assert verdict.replay_status == "PENDING"
+    assert verdict.replay_confirmed is False
 
 
 def test_evaluator_replay_infrastructure_failure_semantics():

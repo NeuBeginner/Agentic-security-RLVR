@@ -212,7 +212,7 @@ def create_finalized_trajectory(
     candidate: CandidateRecord,
     target: TargetProgram,
     evaluator_version: str = "v2.0",
-    dataset_split: str = "train",
+    dataset_split: Optional[str] = None,
     dataset_partition: Optional[str] = None,
     is_synthetic: Optional[bool] = None,
     token_provenance: Optional[str] = None,
@@ -232,6 +232,8 @@ def create_finalized_trajectory(
     # Resolve provenance metadata
     part = dataset_partition if dataset_partition is not None else candidate.dataset_partition
     synth = is_synthetic if is_synthetic is not None else candidate.is_synthetic
+    if synth and part in (None, "production"):
+        part = "synthetic_control"
     
     # Token provenance resolution
     if token_provenance is not None:
@@ -250,6 +252,10 @@ def create_finalized_trajectory(
         is_trainable = False
     else:
         is_trainable = candidate.trainable
+
+    # Explicit caller overrides must never make synthetic data trainable.
+    if synth or candidate.verdict.category == ResultCategory.INFRA_ERROR:
+        is_trainable = False
 
     return RLVRTrajectory(
         trajectory_id=traj_id,

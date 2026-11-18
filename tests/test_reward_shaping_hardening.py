@@ -634,4 +634,9 @@ def test_trusted_harness_no_breach_is_a_safe_run_not_a_runtime_failure():
     assert verdict.category == ResultCategory.SAFE_RUN
     assert verdict.reward_score == config.REWARD_SAFE_RUN
     assert verdict.is_verified is False
-    assert verdict.reproducible is True
+    # A safe run reproduces no exploit: `reproducible` means that an
+    # INDEPENDENT replay confirmed the verdict, so it stays false here and the
+    # replay was never eligible for a confirmation.
+    assert verdict.reproducible is False
+    assert verdict.replay_status == "NOT_ELIGIBLE"
+    assert verdict.replay_confirmed is False

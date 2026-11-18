@@ -1,0 +1,20 @@
+{
+  "schema_version": "aegis-cpu-audit-poc-registry/1.0.0",
+  "description": "Repository-owned proof-of-concept candidates of the CPU-only audit service. A candidate is the ATTACKER's code that the immutable trusted harness evaluates inside the EVM; it never states a verdict. The expected outcome below is the maintainer's expectation and is used by the end-to-end test as a cross-check - the trusted harness, not this file, decides the actual verdict.",
+  "entries": [
+    {
+      "target_name": "Vault",
+      "poc_file": "VaultReentrancyExploit.sol",
+      "expected_vulnerability_class": "Reentrancy",
+      "expected_outcome": "BREACH",
+      "note": "Vulnerable target: withdrawAll() transfers value before it zeroes the depositor balance. The trusted harness must report a solvency breach."
+    },
+    {
+      "target_name": "SecureVault",
+      "poc_file": "VaultReentrancyExploit.sol",
+      "expected_vulnerability_class": "Reentrancy",
+      "expected_outcome": "NO_BREACH",
+      "note": "Negative control: the same candidate against the ReentrancyGuard-protected control. The trusted harness must NOT report a breach - this is the evidence that the service does not confirm vulnerabilities falsely."
+    }
+  ]
+}

@@ -245,13 +245,46 @@ def prepare_rollout_tokens(
 
     total_len = len(prompt_ids) + len(completion_ids)
     if total_len > max_seq_len:
-        excess = total_len - max_seq_len
-        if excess < len(prompt_ids):
-            # Truncate prompt from the left (keep the latest context)
-            prompt_ids = prompt_ids[excess:]
-        else:
-            completion_ids = completion_ids[:max(0, max_seq_len - 1)]
-            prompt_ids = prompt_ids[:1]
+        # Preserve the complete system message when the prompt uses the
+        # standard chat-template markers.  Only the non-system context may be
+        # shortened from the left.  If the system prefix cannot be mapped
+        # unambiguously to the tokenized prompt, fail closed rather than
+        # silently training on a prompt with its instructions removed.
+        system_ids = []
+        system_marker = "<|im_start|>system"
+        system_start = prompt_str.find(system_marker)
+        if system_start >= 0:
+            system_end = prompt_str.find("<|im_end|>", system_start)
+            if system_end < 0:
+                raise ValueError(
+                    "Cannot safely truncate an overlength prompt: system message has no <|im_end|> boundary"
+                )
+            system_end += len("<|im_end|>")
+            system_prefix = prompt_str[:system_end]
+            system_ids = tokenizer.encode(system_prefix, add_special_tokens=add_spec)
+            if prompt_ids[:len(system_ids)] != system_ids:
+                raise ValueError(
+                    "Cannot safely truncate an overlength prompt: system token boundary is ambiguous"
+                )
+
+        if len(system_ids) >= max_seq_len:
+            raise ValueError(
+                "System prompt alone reaches the GRPO max_seq_len limit; refusing to truncate system instructions"
+            )
+
+        # Reserve the full system prefix first. If the completion itself is
+        # too long, cap it only after reserving that prefix; otherwise retain
+        # as much of the newest non-system prompt context as will fit.
+        completion_budget = max_seq_len - len(system_ids)
+        if len(completion_ids) > completion_budget:
+            completion_ids = completion_ids[:completion_budget]
+
+        prompt_budget = max_seq_len - len(completion_ids)
+        context_budget = max(0, prompt_budget - len(system_ids))
+        context_ids = prompt_ids[len(system_ids):]
+        if len(context_ids) > context_budget:
+            context_ids = context_ids[-context_budget:] if context_budget else []
+        prompt_ids = system_ids + context_ids
 
     full_ids = prompt_ids + completion_ids
     input_ids = torch.tensor([full_ids], dtype=torch.long, device=device)
