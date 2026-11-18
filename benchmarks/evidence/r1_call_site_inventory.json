@@ -193,6 +193,18 @@
       ],
       "refused_by": "core.r1_bounds.assert_authorised_call_site / benchmarks.run_cpu_audit._assert_authorised",
       "test": "tests/test_r1_dispatch_contract.py::test_every_refused_call_site_is_in_the_refusal_registry"
+    },
+    "integrations/modal_mcp/modal_access.py::call_function::function": {
+      "count": 4,
+      "disposition": "refused",
+      "reason": "The Modal MCP server (integrations/modal_mcp) is a separate, CPU-only deployment that is not part of the authorised R1 evidence-regeneration trace: it has no approved step policy, no declared R1 bounds and no egress declaration. Inside ModalAccess.call_function, the server enforces a hardcoded CPU-only allowlist (CPU_ONLY_APPS / CPU_ONLY_FUNCTIONS, intersected with env settings) and explicitly invokes core.r1_bounds.assert_authorised_call_site(function_name) at the boundary so any R1 dispatchable function (FUNCTION_CLASS) or non-CPU call site is refused immediately. Only the three CPU-only functions of modal_cpu_audit_app.py (audit_contract, probe_environment, read_saved_result) may be invoked, and only under out-of-band maintainer credentials (static bearer token or OAuth 2.1 access token on the MCP server plus the shared token of Modal secret aegis-cpu-audit-auth checked by modal_cpu_audit_app.py on its own side).",
+      "call_sites": [
+        "audit_contract",
+        "probe_environment",
+        "read_saved_result"
+      ],
+      "refused_by": "core.r1_bounds.assert_authorised_call_site (for R1 trace) / integrations.modal_mcp.modal_access.ModalAccess.call_function (CPU-only allowlist + aegis-cpu-audit-auth)",
+      "test": "tests/test_modal_mcp.py::test_the_audit_service_is_called_with_the_shared_token"
     }
   },
   "guard_implementation": {
