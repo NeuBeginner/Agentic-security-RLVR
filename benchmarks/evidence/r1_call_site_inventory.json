@@ -213,6 +213,42 @@
       "call_sites": [
         "verify_train_exploit_remote"
       ]
+    },
+    "modal_grpo_poc_app.py::verifier_fn::poc_verify_train_exploit": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The Foundry verifier of the separate GRPO PoC app (modal_grpo_poc_app.py) is not part of the authorised R1 evidence-regeneration trace (core.r1_bounds.UNAUTHORISED_CALL_SITES); the separate app is only reachable under explicit maintainer approval.",
+      "call_sites": [
+        "poc_verify_train_exploit"
+      ],
+      "refused_by": "core.r1_bounds.UNAUTHORISED_CALL_SITES / benchmarks.run_grpo_poc._assert_authorised"
+    },
+    "benchmarks/run_grpo_poc.py::run_live_poc::collect_fn": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The rollout collector of the separate GRPO PoC app (modal_grpo_poc_app.py) is not part of the authorised R1 evidence-regeneration trace (core.r1_bounds.UNAUTHORISED_CALL_SITES); benchmarks/run_grpo_poc.py::_assert_authorised refuses live invocation unless AEGIS_APPROVE_GRPO_POC=1 is explicitly set.",
+      "call_sites": [
+        "poc_collect_train_rollouts"
+      ],
+      "refused_by": "core.r1_bounds.UNAUTHORISED_CALL_SITES / benchmarks.run_grpo_poc._assert_authorised"
+    },
+    "benchmarks/run_grpo_poc.py::run_live_poc::diag_fn": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The diagnostic forward pass of the separate GRPO PoC app (modal_grpo_poc_app.py) is not part of the authorised R1 evidence-regeneration trace (core.r1_bounds.UNAUTHORISED_CALL_SITES); benchmarks/run_grpo_poc.py::_assert_authorised refuses live invocation unless AEGIS_APPROVE_GRPO_POC=1 is explicitly set.",
+      "call_sites": [
+        "poc_diagnostic_grpo_forward"
+      ],
+      "refused_by": "core.r1_bounds.UNAUTHORISED_CALL_SITES / benchmarks.run_grpo_poc._assert_authorised"
+    },
+    "benchmarks/run_grpo_poc.py::run_live_poc::train_fn": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The LoRA GRPO training entry point of the separate GRPO PoC app (modal_grpo_poc_app.py) is not part of the authorised R1 evidence-regeneration trace (core.r1_bounds.UNAUTHORISED_CALL_SITES) and is additionally blocked on both client and server while TRAINING_STATUS=BLOCKED.",
+      "call_sites": [
+        "poc_train_grpo"
+      ],
+      "refused_by": "core.r1_bounds.UNAUTHORISED_CALL_SITES / benchmarks.run_grpo_poc._assert_authorised / core.config.is_training_blocked"
     }
   },
   "guard_implementation": {
