@@ -52,8 +52,9 @@ CRITICAL EVM EXPLOIT SPECIFICATIONS:
 10. If attacking via callbacks or reentrancy, implement `receive() external payable` or `fallback() external payable`.
 11. MANDATORY `receive()`: `ExploitModule` MUST implement `receive() external payable {}`. The trusted harness and the target contracts send ETH to the exploit, and a contract without a `receive()` rejects that ETH - the exploit then reverts before it reaches the vulnerable code.
 12. NO HARDCODED AMOUNTS: never write a literal amount such as `1 ether`, `100 ether` or `0.5 ether` into a `{value: ...}` call. The amount of a call must come from the state of the execution: `msg.value`, the balance of the exploit (`address(this).balance`) or the balance of the target (`address(targetContract).balance`). A call that sends more ETH than the exploit holds reverts with `OutOfFunds` and never reaches the vulnerable code.
-13. WHEN THE BALANCE IS EMPTY, PASS 0 ETH: send `{value: 0}` instead of an amount that the contract does not have.
-14. BORROW, CLAIM AND PAYOUT AMOUNTS ARE BOUNDED: a borrow, a claim or a payout may never exceed `address(targetContract).balance`. Amounts that exceed the balance of the target revert, and the candidate never reaches the vulnerable code.
+13. NEVER attach `{value: 0}` to non-payable functions; omit `{value: ...}` unless the target function is explicitly `payable`. When calling a payable function with an empty balance, pass `{value: 0}` instead of an amount that the contract does not hold.
+14. BORROW, CLAIM AND PAYOUT AMOUNTS ARE BOUNDED: a borrow, a claim, a withdrawal, or a point-based payout may never exceed `address(targetContract).balance`. Scale any awarded points, shares, or requested amounts so the resulting payout stays within `address(targetContract).balance` (or repeat smaller calls in a loop). Amounts that exceed the balance of the target revert, and the candidate never reaches the vulnerable code.
+15. WRITE CONCISE CODE: keep comments brief and never repeat identical comments or duplicate function calls; use a compact loop only when multiple iterations are actually required.
 """
 
 # Backwards compatibility alias
@@ -210,11 +211,13 @@ Auditor Finding Hypothesis ({vulnerability_type} - {severity} Severity):
         entrypoint_doc = (
             f"6. Entrypoint signature: implement `function {entrypoint_signature} external` "
             f"exactly; the trusted harness supplies the signature values. Do NOT use a generic "
-            f"`runExploit()` as the entrypoint of this target."
+            f"`runExploit()` as the entrypoint of this target. When replaying a supplied signature, "
+            f"pass the EXACT signed arguments (do not alter `to`, `value`, or `data` to e.g. "
+            f"`address(targetContract).balance`) and call the target function repeatedly."
         )
         entrypoint_code = (
             f"    function {entrypoint}({', '.join(entrypoint_params)}) external {{\n"
-            f"        // Replay the supplied signature against targetContract.executeWithSignature(...).\n"
+            f"        // Replay the supplied signature repeatedly with the exact signed payload.\n"
             f"    }}"
         )
     else:
@@ -249,11 +252,13 @@ Instructions:
    `constructor(address _target) payable {{ targetContract = {target.name}(payable(_target)); }}`
 {entrypoint_doc}
 7. MANDATORY: implement `receive() external payable {{}}` in `ExploitModule` - the harness and the target send ETH to the exploit, and a contract without a `receive()` rejects it and reverts before the vulnerable code is reached.
-8. NEVER hardcode an amount such as `1 ether`, `100 ether` or `0.5 ether` into a `{{value: ...}}` call. Derive the amount from the state of the execution: `msg.value`, `address(this).balance` or `address(targetContract).balance`. A call that sends more ETH than the exploit holds reverts with `OutOfFunds` and never reaches the vulnerable code.
-9. When the balance is empty, send `{{value: 0}}` - never an amount the contract does not hold.
-10. A borrow, a claim or a payout may never exceed `address(targetContract).balance`; an amount above it reverts.
-11. Strictly unprivileged: Do NOT use Foundry cheatcodes (vm.*) or test harnesses.
-12. Return clean, compilable Solidity code in a single ```solidity ... ``` block.
+8. NEVER hardcode an amount such as `1 ether`, `100 ether` or `0.5 ether` into a `{{value: ...}}` call. Derive the amount from the state of the execution: `msg.value`, `address(this).balance` or `address(targetContract).balance`. A call that sends more ETH than `address(this).balance` reverts with `OutOfFunds` and never reaches the vulnerable code (never call a `deposit{{value: ...}}` when `address(this).balance == 0` unless the exploit requires it and has funds).
+9. NEVER attach `{{value: 0}}` to non-payable functions; omit `{{value: ...}}` unless the target function is explicitly `payable`. When the balance is empty and calling a `payable` function, send `{{value: 0}}` instead of an amount the contract does not hold.
+10. A borrow, a claim, a withdrawal, or a point-based payout may never exceed `address(targetContract).balance` or your recorded credit/allowance. Scale awarded points/shares so payouts stay within `address(targetContract).balance`, query recorded credits before withdrawing, and repeat smaller calls in a loop if needed.
+11. Never hardcode a borrower or victim address such as `address(0)` — read existing addresses from the contract's public state or getter functions (e.g. `borrowers(0)`, `getBorrowers()`).
+12. For share-inflation / vault-dilution vulnerabilities: mint minimal shares (e.g. `1 wei`), donate ETH directly to the vault via `payable(address(targetContract)).call{{value: ...}}("")` (bounded by `address(this).balance`, noting that `1000` is wei, not ether), and keep the inflated state without withdrawing before subsequent depositors.
+13. Strictly unprivileged: Do NOT use Foundry cheatcodes (vm.*) or test harnesses.
+14. Write concise code without repetitive comment loops or duplicate calls, and return clean, compilable Solidity code in a single ```solidity ... ``` block.
 
 Standard structure:
 ```solidity
@@ -338,14 +343,38 @@ Refinement Guidelines:
 - The contract MUST be named `contract ExploitModule`.
 {entrypoint_rule}
 - The failure reason above is the EXACT reason the trusted harness reported - repair that reason, do not guess a different attack.
-- If Compilation Error: Check for undefined variables, incorrect function parameters, or redeclaration of imported types.
-- If EVM Runtime Revert: Check require statements, msg.value conditions, balance constraints, or call sequencing. A revert with `OutOfFunds` means the call sent more ETH than the contract held - send `{{value: 0}}` or an amount taken from `address(this).balance` / `address(targetContract).balance` instead of a hardcoded one.
-- If Safe Run: The previous exploit did not violate the invariant. Adjust the attack mechanism (e.g. state timing, parameter amounts, reentrancy condition) to ensure the invariant is physically breached in EVM state. A borrow, a claim or a payout may never exceed `address(targetContract).balance`.
+- If Compilation Error: Check for undefined variables, incorrect function parameters, or redeclaration of imported types. Never attach `{{value: 0}}` to non-payable functions (Error 7006); omit `{{value: ...}}` unless the target function is explicitly `payable`.
+- If EVM Runtime Revert: Check require statements, msg.value conditions, balance constraints, or call sequencing. A revert with `OutOfFunds` means the call sent more ETH than the contract held - omit `{{value: ...}}` on non-payable calls, or send `{{value: 0}}` / an amount taken from `address(this).balance` on payable calls instead of a hardcoded amount. If `"Insufficient pool reserves"` or `"No ledger credit"` occurred, scale points/payouts to stay within `address(targetContract).balance` and query/use your actual recorded credit per call in a loop. If `"Invalid signature"` occurred, replay the target function with the EXACT signed parameters (do not replace `value` with `address(targetContract).balance`). If a liquidation/borrower call reverted, read existing borrower addresses from public state/getters (e.g. `borrowers(0)`, `getBorrowers()`) instead of hardcoding `address(0)`.
+- If Safe Run: The previous exploit did not violate the invariant. Adjust the attack mechanism (e.g. state timing, parameter amounts, reentrancy condition) to ensure the invariant is physically breached in EVM state. For share-inflation / vault-dilution targets, mint minimal shares (`1 wei`), donate ETH directly to the vault (`call{{value: ...}}("")` bounded by `address(this).balance`), and keep the inflated state without withdrawing before subsequent depositors. A borrow, a claim or a payout may never exceed `address(targetContract).balance`.
 - Keep `receive() external payable {{}}` in `ExploitModule`: the harness and the target send ETH to the exploit.
 - Strictly unprivileged: Do NOT use `vm.*` cheatcodes.
+- Write concise code without repetitive comment loops or duplicate function calls.
 
 Return the complete, corrected Solidity contract inside a single ```solidity ... ``` code block.
 """
+
+
+def _is_balanced_exploit_module(code: str) -> bool:
+    """Return True iff code contains a complete, brace-balanced ExploitModule."""
+    tokens, err = tokenize_solidity(code)
+    if err or not tokens:
+        return False
+
+    brace_depth = 0
+    saw_brace = False
+    for tok in tokens:
+        if tok.type == SolidityTokenType.LBRACE:
+            brace_depth += 1
+            saw_brace = True
+        elif tok.type == SolidityTokenType.RBRACE:
+            brace_depth -= 1
+            if brace_depth < 0:
+                return False
+
+    if not saw_brace or brace_depth != 0:
+        return False
+
+    return extract_contract_body(code, "ExploitModule") is not None
 
 
 def extract_solidity_code(model_output: str) -> str:
@@ -354,6 +383,15 @@ def extract_solidity_code(model_output: str) -> str:
     matches = re.findall(pattern, model_output, re.DOTALL)
     if matches:
         return max(matches, key=len).strip()
+
+    # Fallback for responses truncated at token limit after an opening fence
+    # without closing ```: accept only if ExploitModule is present and all
+    # braces are completely balanced.
+    open_match = re.search(r"```(?:solidity|sol)?\s*\n(.*)", model_output, re.DOTALL)
+    if open_match:
+        candidate = open_match.group(1).strip()
+        if "contract ExploitModule" in candidate and _is_balanced_exploit_module(candidate):
+            return candidate
     return ""
 
 

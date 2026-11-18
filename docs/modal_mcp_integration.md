@@ -244,12 +244,9 @@ read-only tools are available through the developer mode, while the tools that
 change something stay in the hands of the workspace. The write tools of this
 server are switched off in any case, so nothing can be changed from a chat.
 
-The bearer token and the enrolment code are written into a protected file on
-the machine of the owner:
-
-```
-C:\Users\Telekom\.minimax\secrets\modal-mcp-credentials.txt
-```
+The bearer token and the enrolment code are written into a protected local
+credentials file outside the repository (for example in the owner's local
+secrets directory, `modal-mcp-credentials.txt`).
 
 The dedicated Modal token itself is **not** written there: it lives only in
 the Modal Secret `modal-mcp-credentials`.
@@ -278,17 +275,6 @@ server and not the behaviour of the API of Modal.
   of that service. Without that token the CPU tools refuse themselves with
   `CPU_AUTH_TOKEN_MISSING` - the server never invents a verdict and never
   pretends that the audit ran.
-* `modal_read_evidence` reads the artifact through the **API of the volume**,
-  not through the container of the audit service. The reason is a defect of
-  the CPU audit service that this integration found: `read_saved_result` reads
-  the volume without reloading it, and a container that was started before a
-  commit keeps the snapshot of the volume it was started with. A run that was
-  committed after that moment is invisible to such a container - it answers
-  `NOT_FOUND` although the artifact is in the volume. The read-back of the
-  service itself is reported next to the artifact, so that the disagreement
-  is visible instead of hidden. The fix on the side of the service is one
-  line (`volume.reload()` before the read); it belongs to the branch of the
-  CPU audit service, not to this one.
 * The credential of the server is the member token of the workspace profile.
   A **dedicated** Modal token (an own identity with its own rights) is the
   next step; the issuance of one needs a confirmation of the owner in the
