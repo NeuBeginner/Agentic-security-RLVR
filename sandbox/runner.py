@@ -95,6 +95,24 @@ TRUSTED_HARNESS_CONTRACTS = {
     "SecureOraclePool": "SecureOraclePoolHarness",
 }
 
+# Disjoint training-split trusted harness registry (never merged into TRUSTED_HARNESS_CONTRACTS).
+LOCAL_TRAIN_HARNESSES_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "benchmarks", "targets", "solidity_train")
+)
+TRAIN_TRUSTED_HARNESSES_DIR = "/opt/aegis/train_trusted_harnesses"
+TRAIN_TRUSTED_HARNESS_CONTRACTS = {
+    "TrainShareVault": "TrainShareVaultHarness",
+    "TrainCreditBridge": "TrainCreditBridgeHarness",
+    "TrainRewardPool": "TrainRewardPoolHarness",
+    "TrainOraclePool": "TrainOraclePoolHarness",
+    "TrainVoucherEscrow": "TrainVoucherEscrowHarness",
+    "TrainPushAuction": "TrainPushAuctionHarness",
+    "TrainFeeRoundingVault": "TrainFeeRoundingVaultHarness",
+    "TrainAdminTreasury": "TrainAdminTreasuryHarness",
+    "TrainReentrancyBank": "TrainReentrancyBankHarness",
+    "TrainFlashStaking": "TrainFlashStakingHarness",
+}
+
 # Optimized, Pinned Foundry + Solc + OpenZeppelin + Slither Execution Image for Modal
 sandbox_image = (
     modal.Image.debian_slim(python_version="3.10")
@@ -115,6 +133,7 @@ sandbox_image = (
     .env({"PATH": "/root/.foundry/bin:$PATH"})
     .pip_install("pydantic>=2.0.0", "slither-analyzer", "solc-select")
     .add_local_dir(LOCAL_TRUSTED_HARNESSES_DIR, remote_path=TRUSTED_HARNESSES_DIR, copy=True)
+    .add_local_dir(LOCAL_TRAIN_HARNESSES_DIR, remote_path=TRAIN_TRUSTED_HARNESSES_DIR, copy=True)
     # The repository's packages travel with the image. ``benchmarks`` is needed
     # as well: the verify functions report the provider-issued identity of the
     # container, and that report imports ``benchmarks.evidence_integrity``.
@@ -203,7 +222,23 @@ def is_safe_target_name(name: str) -> bool:
     return isinstance(name, str) and bool(_TARGET_NAME_RE.fullmatch(name))
 
 
-def load_trusted_harness_code(target_name: str, harness_dir=None) -> str:
+def _resolve_trusted_harness_contract(
+    target_name: str,
+    allow_train_split: bool = False,
+) -> Optional[str]:
+    """Resolve the allowlisted trusted harness contract name for a target."""
+    if target_name in TRUSTED_HARNESS_CONTRACTS:
+        return TRUSTED_HARNESS_CONTRACTS[target_name]
+    if allow_train_split and target_name in TRAIN_TRUSTED_HARNESS_CONTRACTS:
+        return TRAIN_TRUSTED_HARNESS_CONTRACTS[target_name]
+    return None
+
+
+def load_trusted_harness_code(
+    target_name: str,
+    harness_dir=None,
+    allow_train_split: bool = False,
+) -> str:
     """
     Load the immutable repository harness, never the value from TargetProgram.
 
@@ -212,10 +247,14 @@ def load_trusted_harness_code(target_name: str, harness_dir=None) -> str:
     """
     if not is_safe_target_name(target_name):
         raise ValueError("target name is not a safe Solidity identifier")
-    if target_name not in TRUSTED_HARNESS_CONTRACTS:
+
+    if target_name in TRUSTED_HARNESS_CONTRACTS:
+        default_dir = TRUSTED_HARNESSES_DIR if os.path.isdir(TRUSTED_HARNESSES_DIR) else LOCAL_TRUSTED_HARNESSES_DIR
+    elif allow_train_split and target_name in TRAIN_TRUSTED_HARNESS_CONTRACTS:
+        default_dir = TRAIN_TRUSTED_HARNESSES_DIR if os.path.isdir(TRAIN_TRUSTED_HARNESSES_DIR) else LOCAL_TRAIN_HARNESSES_DIR
+    else:
         raise FileNotFoundError(f"No allowlisted repository harness for target {target_name}")
 
-    default_dir = TRUSTED_HARNESSES_DIR if os.path.isdir(TRUSTED_HARNESSES_DIR) else LOCAL_TRUSTED_HARNESSES_DIR
     root = os.path.realpath(harness_dir or default_dir)
     harness_path = os.path.realpath(os.path.join(root, f"{target_name}Harness.t.sol"))
     if os.path.dirname(harness_path) != root:
@@ -537,15 +576,17 @@ def detect_prohibited_cheatcodes(code: str) -> bool:
 
 def extract_trusted_harness_evidence(
     structured_data,
-    target_name: str
+    target_name: str,
+    allow_train_split: bool = False,
 ):
     """
     Extract structured verdict, status, reason, deployed harness address,
     and raw EVM logs for exactly one repository-owned trusted harness suite.
     """
+    expected_contract = _resolve_trusted_harness_contract(target_name, allow_train_split=allow_train_split)
     if (
         not is_safe_target_name(target_name)
-        or target_name not in TRUSTED_HARNESS_CONTRACTS
+        or expected_contract is None
         or not isinstance(structured_data, dict)
     ):
         return HARNESS_VERDICT_UNKNOWN, "", None, None, None, []
@@ -560,7 +601,7 @@ def extract_trusted_harness_evidence(
         if (
             not separator
             or path != expected_path
-            or contract_name.strip() != TRUSTED_HARNESS_CONTRACTS[target_name]
+            or contract_name.strip() != expected_contract
         ):
             continue
         test_results = suite_val.get("test_results", {})
@@ -603,11 +644,12 @@ def extract_trusted_harness_evidence(
 
 def extract_trusted_harness_verdict(
     structured_data,
-    target_name: str
+    target_name: str,
+    allow_train_split: bool = False,
 ):
     """Read exactly one immutable repository harness and exact testExploit() result."""
     verdict, suite_path, status, reason, _, _ = extract_trusted_harness_evidence(
-        structured_data, target_name
+        structured_data, target_name, allow_train_split=allow_train_split
     )
     return verdict, suite_path, status, reason
 
@@ -991,7 +1033,11 @@ def run_slither_analysis(target: TargetProgram) -> list:
     return run_slither_analysis_detailed(target, include_version=False)["findings"]
 
 
-def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> ExecutionResult:
+def run_payload_in_sandbox(
+    target: TargetProgram,
+    payload: ExploitPayload,
+    allow_train_split: bool = False,
+) -> ExecutionResult:
     """
     Executes an exploit module against a trusted verification harness in Foundry.
     Zero trust in model-supplied assertions: verification is performed exclusively
@@ -1043,7 +1089,10 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
     # Trusted harness source is loaded from the image-bundled repository directory.
     # TargetProgram.trusted_harness_code is a deprecated untrusted input and is ignored.
     try:
-        trusted_harness_source = load_trusted_harness_code(target.name)
+        trusted_harness_source = load_trusted_harness_code(
+            target.name,
+            allow_train_split=allow_train_split,
+        )
     except (ValueError, FileNotFoundError, OSError) as exc:
         return ExecutionResult(
             return_code=-7,
@@ -1209,7 +1258,7 @@ def run_payload_in_sandbox(target: TargetProgram, payload: ExploitPayload) -> Ex
             # is therefore never used to decide whether an exploit succeeded -
             # `decoded_logs` is kept for diagnostics only.
             harness_verdict, harness_suite, verdict_status, verdict_reason, harness_addr, trusted_raw_logs = extract_trusted_harness_evidence(
-                structured_json, target.name
+                structured_json, target.name, allow_train_split=allow_train_split
             )
 
             # Fail-closed on an inconsistent trusted verdict: a breach that is not
