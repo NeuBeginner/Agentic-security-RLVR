@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "generator": "benchmarks/validate_consolidated_closure_evidence.py",
-  "code_sha": "7498436f1140b1188a11bb9e12a194f5d7cca6e4",
-  "generated_at_utc": "2026-11-18T09:20:31Z",
+  "code_sha": "b0aa56529e9c65efd984c4f89ada9354cf3a4831",
+  "generated_at_utc": "2026-11-18T11:31:47Z",
   "scope": {
     "closure": "consolidated architecture closure of PR #12",
     "purpose": "validate the fail-closed evaluator leak (P0) and the run-level observation-side gap (P1), and the evidence of the full-chain audit",
@@ -16,19 +16,11 @@
     "benchmark_run": "not touched - the 16-target run on disk still fails the Iteration 14-18 validators and this closure does not change that"
   },
   "git": {
-    "head": "7498436f1140b1188a11bb9e12a194f5d7cca6e4",
+    "head": "b0aa56529e9c65efd984c4f89ada9354cf3a4831",
     "branch": "fix/r4-recall-and-grpo-hardening",
     "dirty": false,
     "tracked_changes": [],
-    "untracked_paths": [
-      "benchmarks/evidence/cpu_audit/cpu-audit-20261115T064902Z_evidence.json",
-      "benchmarks/evidence/cpu_audit/cpu-audit-20261115T070501Z_evidence.json",
-      "benchmarks/evidence/cpu_audit/cpu-audit-20261115T071301Z_evidence.json",
-      "benchmarks/evidence/cpu_audit/cpu-audit-20261115T071357Z_evidence.json",
-      "benchmarks/evidence/cpu_audit/cpu-audit-20261115T071645Z_evidence.json",
-      "benchmarks/evidence/cpu_audit/cpu-audit-20261115T071737Z_evidence.json",
-      "benchmarks/evidence/cpu_audit/cpu-audit-20261115T071817Z_evidence.json"
-    ]
+    "untracked_paths": []
   },
   "checks": [
     {
@@ -971,14 +963,14 @@
     },
     {
       "check": "P6.14.the_producer_source_is_unchanged_since_the_capture",
-      "status": "FAILED",
-      "error": "the producer source changed between the commit the capture was made from and the reported commit: modal_app.py",
+      "status": "PASSED",
+      "error": null,
       "planned": "the producer source is byte-wise unchanged between the commit the capture of the R4 run was made from and the commit the report is bound to - the producer is not the defect of this closure; the evidence of Iteration 21 keeps its own capture and is validated on its own by P6.13",
       "attempted": true,
       "executed": true,
-      "capture_code_sha": "8619fccaa90e1088a6655e0a6b3eca6ed3056849",
-      "reported_code_sha": "7498436f1140b1188a11bb9e12a194f5d7cca6e4",
-      "producer_source_changed": true
+      "capture_code_sha": "d2d05e5e1e0422d813e678a72253e0a0b9cbf085",
+      "reported_code_sha": "b0aa56529e9c65efd984c4f89ada9354cf3a4831",
+      "producer_source_changed": false
     },
     {
       "check": "P6.15.the_digest_of_the_artifact_is_the_digest_of_the_bytes",
@@ -1526,12 +1518,10 @@
   ],
   "summary": {
     "checks_total": 21,
-    "checks_passed": 20,
-    "checks_failed": 1,
-    "failed_checks": [
-      "P6.14.the_producer_source_is_unchanged_since_the_capture"
-    ],
-    "overall_status": "FAILED"
+    "checks_passed": 21,
+    "checks_failed": 0,
+    "failed_checks": [],
+    "overall_status": "PASSED"
   },
   "interpretation": {
     "planned": "validate that the evaluator keeps a failed or unavailable run out of the negative findings, that the strict consumer side-checks the run-level application id, that the compatibility path keeps the side-less artifacts readable, that the report states the detection state of every target, that both vertical chains hold, that the pre-fix contracts reproduce the defects, that the historical evidence stays in its state and that the report is bound to the code SHA it was produced from",
