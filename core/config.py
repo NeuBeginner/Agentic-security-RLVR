@@ -87,6 +87,12 @@ class PipelineConfig:
     REWARD_PENALTY_SAFE_RUN: float = -0.35
     REWARD_PENALTY_BREACH: float = 0.0
 
+    # GRPO training remains blocked unless explicitly disabled by the operator.
+    # Parse common false spellings; every unknown/missing value fails closed.
+    TRAINING_BLOCKED: bool = os.getenv("TRAINING_BLOCKED", "true").strip().lower() not in {
+        "0", "false", "no", "off"
+    }
+
     # GRPO Policy Optimization Parameters
     GRPO_GROUP_SIZE: int = 4
     GRPO_LEARNING_RATE: float = 5e-6

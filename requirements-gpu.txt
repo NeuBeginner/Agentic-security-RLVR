@@ -1,0 +1,7 @@
+-r requirements.txt
+torch
+transformers>=4.40.0
+accelerate>=0.28.0
+peft>=0.14.0
+trl>=0.14.0
+google-genai>=2.0.0

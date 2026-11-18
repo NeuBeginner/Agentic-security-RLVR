@@ -17,3 +17,7 @@ benchmarks/benchmark_results.json
 .toolchain/
 # The probe directory of the consolidated closure validator
 benchmarks/evidence/_closure_probe/
+
+# Test reports and local evidence outputs
+test-results*.xml
+benchmarks/evidence/ci_modal_smoke/
