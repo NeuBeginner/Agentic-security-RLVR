@@ -223,3 +223,105 @@ def test_the_digest_extracts_decoded_delegatecall_fields_when_present():
     assert "DELEGATECALL ImplContract (0x2222222222222222222222222222222222222222)::execute(uint256)" in digest
     assert "status: Revert" in digest
     assert "revert: Unauthorized" in digest
+
+
+def test_the_digest_never_embeds_raw_forge_json_for_out_of_funds():
+    """Single-line Forge --json with OutOfFunds must emit a short marker and failing call, never raw JSON."""
+    forge_json = json.dumps({
+        "test/FeeShareYieldVaultHarness.t.sol:FeeShareYieldVaultHarness": {
+            "duration": "422us",
+            "test_results": {
+                "testExploit()": {
+                    "status": "Failure",
+                    "reason": "EvmError: Revert",
+                    "traces": [
+                        [
+                            "Execution",
+                            {
+                                "arena": [
+                                    {
+                                        "idx": 0,
+                                        "parent": None,
+                                        "children": [1],
+                                        "trace": {
+                                            "depth": 0,
+                                            "kind": "CALL",
+                                            "success": False,
+                                            "status": "Revert",
+                                            "address": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
+                                            "value": "0x0",
+                                            "data": "0xca1ba028",
+                                        },
+                                    },
+                                    {
+                                        "idx": 1,
+                                        "parent": 0,
+                                        "children": [],
+                                        "trace": {
+                                            "depth": 2,
+                                            "kind": "CALL",
+                                            "success": False,
+                                            "status": "OutOfFunds",
+                                            "address": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+                                            "value": "0xde0b6b3a7640000",
+                                            "data": "0xd0e30db0",
+                                        },
+                                    },
+                                ]
+                            },
+                        ]
+                    ],
+                }
+            },
+        }
+    })
+
+    digest = extract_failure_reason(stdout=forge_json, revert_reason="EvmError: Revert")
+    assert "{" not in digest
+    assert "OutOfFunds" in digest
+    assert "failing call: CALL 0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f::0xd0e30db0" in digest
+    assert "0xde0b6b3a7640000 (1000000000000000000 wei)" in digest
+    assert "status: OutOfFunds" in digest
+
+
+def test_the_digest_never_embeds_raw_forge_json_for_exploit_failed():
+    """Single-line Forge --json with EXPLOIT_FAILED must extract only the short message, never raw JSON."""
+    forge_json = json.dumps({
+        "test/FeeShareYieldVaultHarness.t.sol:FeeShareYieldVaultHarness": {
+            "duration": "300us",
+            "test_results": {
+                "testExploit()": {
+                    "status": "Failure",
+                    "reason": "EXPLOIT_FAILED: Yield fees protected",
+                    "traces": [
+                        [
+                            "Execution",
+                            {
+                                "arena": [
+                                    {
+                                        "idx": 0,
+                                        "parent": None,
+                                        "children": [],
+                                        "trace": {
+                                            "depth": 0,
+                                            "kind": "CALL",
+                                            "success": False,
+                                            "status": "Revert",
+                                            "address": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
+                                            "value": "0x0",
+                                            "data": "0xca1ba028",
+                                        },
+                                    },
+                                ]
+                            },
+                        ]
+                    ],
+                }
+            },
+        }
+    })
+
+    digest = extract_failure_reason(stdout=forge_json, revert_reason="EXPLOIT_FAILED: Yield fees protected")
+    assert "{" not in digest
+    assert "EXPLOIT_FAILED: Yield fees protected" in digest
+    assert "failing call: CALL 0x7fa9385be102ac3eac297483dd6233d62b3e1496::0xca1ba028" in digest

@@ -191,3 +191,22 @@ def test_prompts_cover_cycle5_fn_constraints_without_hardcoding_exploits():
     assert "donate ETH directly" in vault_analysis
     assert "recorded credit" in vault_analysis
     assert "borrowers(0)" in vault_analysis
+
+
+def test_prompts_cover_cycle6_fn_constraints_without_hardcoding_exploits():
+    """Prompts cover 0-ETH harness balance checks, DoS clean return, and exact signature replay args."""
+    assert "DOS / LIVENESS EXPLOITS" in EXPLOIT_ENGINEER_SYSTEM_PROMPT
+    assert "address(this).balance == 0" in EXPLOIT_ENGINEER_SYSTEM_PROMPT
+
+    dos_target = TargetProgram(name="AuctionDoS", source_code="contract AuctionDoS {}")
+    dos_analysis = build_analysis_prompt(dos_target)
+    assert "return cleanly from `runExploit()`" in dos_analysis
+    assert "skip optional deposits when `address(this).balance == 0`" in dos_analysis
+
+    sig_target = TargetProgram(name="SignatureReplayWallet", source_code="contract SignatureReplayWallet {}")
+    sig_analysis = build_analysis_prompt(sig_target)
+    assert "to = address(this)" in sig_analysis
+
+    refinement = build_refinement_prompt(dos_target, "contract ExploitModule {}", "Refund failed")
+    assert "Refund failed" in refinement
+    assert "return cleanly from `runExploit()`" in refinement
