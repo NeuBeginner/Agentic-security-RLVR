@@ -169,11 +169,15 @@ def load_train_targets(
         target_name = str(entry["target_name"])
         contract_id = entry.get("contract_id")
         rel_source = entry.get("source_file")
-        source_path = (
-            REPO_ROOT / rel_source
-            if rel_source
-            else train_solidity_dir / f"{target_name}.sol"
-        )
+        if rel_source:
+            candidate_path = REPO_ROOT / rel_source
+            source_path = (
+                candidate_path
+                if candidate_path.is_file()
+                else train_solidity_dir / f"{target_name}.sol"
+            )
+        else:
+            source_path = train_solidity_dir / f"{target_name}.sol"
         if not source_path.is_file():
             raise FileNotFoundError(f"Train source contract missing: {source_path}")
 

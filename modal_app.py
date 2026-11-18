@@ -69,6 +69,8 @@ app = modal.App(name=config.APP_NAME)
 # Persistent volume for caching model weights and GRPO training trajectories
 model_volume = modal.Volume.from_name(config.MODEL_VOLUME_NAME, create_if_missing=True)
 
+_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+
 # GPU Image for reasoning and exploit synthesis engine
 gpu_image = (
     modal.Image.debian_slim(python_version="3.10")
@@ -82,7 +84,27 @@ gpu_image = (
         "pydantic>=2.0.0",
         "google-genai>=2.0.0",
     )
-    .add_local_python_source("core", "sandbox")
+    .add_local_python_source("core", "sandbox", copy=True)
+    .add_local_file(
+        os.path.join(_REPO_ROOT, "benchmarks", "train_dataset.json"),
+        "/opt/aegis/benchmarks/train_dataset.json",
+        copy=True,
+    )
+    .add_local_file(
+        os.path.join(_REPO_ROOT, "benchmarks", "benchmark_dataset.json"),
+        "/opt/aegis/benchmarks/benchmark_dataset.json",
+        copy=True,
+    )
+    .add_local_dir(
+        os.path.join(_REPO_ROOT, "benchmarks", "targets", "solidity_train"),
+        "/opt/aegis/benchmarks/targets/solidity_train",
+        copy=True,
+    )
+    .add_local_dir(
+        os.path.join(_REPO_ROOT, "benchmarks", "targets", "solidity"),
+        "/opt/aegis/benchmarks/targets/solidity",
+        copy=True,
+    )
 )
 
 # =============================================================================
@@ -844,6 +866,17 @@ def run_slither_remote(target_dict: dict) -> list:
 @app.function(
     image=sandbox_image,
     timeout=r1.declared_timeout(r1.SANDBOX_CPU_PROFILE),
+)
+def verify_train_exploit_remote(target_dict: dict, payload_dict: dict) -> dict:
+    """Executes Foundry verification for isolated GRPO train targets on sandbox_image."""
+    target = TargetProgram(**target_dict)
+    payload = ExploitPayload(**payload_dict)
+    return run_payload_in_sandbox(target, payload, allow_train_split=True).model_dump()
+
+
+@app.function(
+    image=sandbox_image,
+    timeout=r1.declared_timeout(r1.SANDBOX_CPU_PROFILE),
     # D26/D27/D29: the explicit request/limit pair and the lifecycle bounds of the
     # sandbox class, the autoscaler policy of the deployment, and the
     # provider-enforced network blocking declaration of this exact function.
@@ -1290,10 +1323,10 @@ def collect_train_rollouts_remote(
     - NO optimizer step, NO weight updates, NO checkpoint modifications.
     """
     import os
+    from pathlib import Path
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from core.train_rollout_collector import load_train_targets, collect_train_rollouts
-    from sandbox.runner import run_payload_in_sandbox
 
     try:
         model_volume.reload()
@@ -1301,7 +1334,26 @@ def collect_train_rollouts_remote(
         pass
 
     # 1. Load strictly isolated train targets
-    targets = load_train_targets()
+    container_benchmarks = Path("/opt/aegis/benchmarks")
+    if (container_benchmarks / "train_dataset.json").is_file():
+        train_dataset_path = container_benchmarks / "train_dataset.json"
+        benchmark_dataset_path = container_benchmarks / "benchmark_dataset.json"
+        train_solidity_dir = container_benchmarks / "targets" / "solidity_train"
+        test_solidity_dir = container_benchmarks / "targets" / "solidity"
+        targets = load_train_targets(
+            train_dataset_path=train_dataset_path,
+            benchmark_dataset_path=benchmark_dataset_path,
+            train_solidity_dir=train_solidity_dir,
+            test_solidity_dir=test_solidity_dir,
+        )
+        collect_kwargs: Dict[str, Any] = {
+            "benchmark_dataset_path": benchmark_dataset_path,
+            "test_solidity_dir": test_solidity_dir,
+        }
+    else:
+        targets = load_train_targets()
+        collect_kwargs = {}
+
     if max_targets is not None and max_targets > 0:
         targets = targets[:max_targets]
 
@@ -1324,7 +1376,7 @@ def collect_train_rollouts_remote(
     # 3. Define generation function with ChatML formatting and exact token lineage
     def generator_fn(target: TargetProgram, prompt_text: str, temperature: float, cand_idx: int) -> ExploitPayload:
         messages = [
-            {"role": "system", "content": SOLIDITY_SYSTEM_PROMPT},
+            {"role": "system", "content": build_exploit_engineer_system_prompt(target.name)},
             {"role": "user", "content": prompt_text},
         ]
         formatted_prompt = tokenizer.apply_chat_template(
@@ -1364,9 +1416,9 @@ def collect_train_rollouts_remote(
             prompt_text=formatted_prompt,
         )
 
-    # 4. Verifier function ensuring allow_train_split=True
+    # 4. Verifier function delegating Foundry execution to sandbox_image
     def verifier_fn(tgt: TargetProgram, pld: ExploitPayload) -> ExecutionResult:
-        return run_payload_in_sandbox(tgt, pld, allow_train_split=True)
+        return ExecutionResult(**verify_train_exploit_remote.remote(tgt.model_dump(), pld.model_dump()))
 
     # 5. Collect rollouts and persist valid trajectories
     result = collect_train_rollouts(
@@ -1377,6 +1429,7 @@ def collect_train_rollouts_remote(
         group_size=group_size,
         temperatures=temperatures,
         run_id=run_id,
+        **collect_kwargs,
     )
 
     # 6. Commit volume

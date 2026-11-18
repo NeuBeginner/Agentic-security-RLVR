@@ -17,7 +17,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from core.config import config, is_training_blocked, PipelineConfig
-from core.schemas import TargetProgram
+from core.llm_generator import build_exploit_engineer_system_prompt
+from core.schemas import ExecutionResult, ResultCategory, TargetProgram
 from core.train_rollout_collector import (
     load_train_targets,
     validate_train_target_isolation,
@@ -116,13 +117,18 @@ def test_collect_train_rollouts_remote_train_isolation():
 
 
 def test_collect_train_rollouts_remote_mock_execution():
-    """Verify collect_train_rollouts_remote behavior, argument slicing, and return contract."""
+    """Verify collect_train_rollouts_remote behavior, argument slicing, verifier delegation, prompt, and gpu_image."""
+    import ast
+    from pathlib import Path
+    import torch
+
     fn = _get_raw_callable(modal_app.collect_train_rollouts_remote)
 
     with patch("core.train_rollout_collector.load_train_targets") as mock_load, \
          patch("transformers.AutoTokenizer.from_pretrained") as mock_tok, \
          patch("transformers.AutoModelForCausalLM.from_pretrained") as mock_model, \
          patch("core.train_rollout_collector.collect_train_rollouts") as mock_collect, \
+         patch.object(modal_app.verify_train_exploit_remote, "remote") as mock_verify_remote, \
          patch.object(modal_app.model_volume, "reload") as mock_reload, \
          patch.object(modal_app.model_volume, "commit") as mock_commit:
 
@@ -133,23 +139,58 @@ def test_collect_train_rollouts_remote_mock_execution():
         tok_mock = MagicMock()
         tok_mock.pad_token = None
         tok_mock.eos_token = "<eos>"
+        tok_mock.pad_token_id = 0
+        tok_mock.eos_token_id = 1
         tok_mock.apply_chat_template.return_value = "<chatml> prompt"
+        encoded_inputs = MagicMock()
+        encoded_inputs.__getitem__.side_effect = lambda k: torch.tensor([[10, 11]])
+        encoded_inputs.get.return_value = torch.tensor([[1, 1]])
+        encoded_inputs.to.return_value = encoded_inputs
+        tok_mock.return_value = encoded_inputs
+        tok_mock.decode.return_value = (
+            '{"vulnerability_type": "DoS", "reasoning_trace": "r", '
+            '"attack_vector": "v", "test_code": "contract ExploitModule { function runExploit() external payable {} }"}'
+        )
         mock_tok.return_value = tok_mock
 
         model_mock = MagicMock()
+        model_mock.generate.return_value = torch.tensor([[10, 11, 21, 22, 23]])
         mock_model.return_value.to.return_value = model_mock
 
-        mock_collect.return_value = TrainRolloutCollectionResult(
-            run_id="run_poc_test",
-            trajectory_dir=config.TRAJECTORY_DIR,
-            targets_processed=1,
-            candidates_generated=4,
-            persisted_count=3,
-            excluded_infra_count=1,
-            excluded_missing_tokens_count=0,
-            category_counts={"EXPLOIT_CONFIRMED": 1, "SAFE_RUN": 2},
-            group_spread={"group_count": 1, "informative_groups": 1},
-        )
+        mock_verify_remote.return_value = ExecutionResult(
+            return_code=0,
+            stdout="ok",
+            stderr="",
+            execution_time_sec=0.1,
+            category=ResultCategory.EXPLOIT_CONFIRMED,
+            invariant_violated=True,
+            test_status="Success",
+            verified_by_harness=True,
+        ).model_dump()
+
+        captured_messages = []
+        captured_exec_results = []
+
+        def _collect_side_effect(**kwargs):
+            gen_fn = kwargs["generator_fn"]
+            ver_fn = kwargs["verifier_fn"]
+            target = kwargs["targets"][0]
+            payload = gen_fn(target, "analyze this target", 0.7, 0)
+            captured_messages.append(tok_mock.apply_chat_template.call_args.args[0])
+            captured_exec_results.append((target, payload, ver_fn(target, payload)))
+            return TrainRolloutCollectionResult(
+                run_id="run_poc_test",
+                trajectory_dir=config.TRAJECTORY_DIR,
+                targets_processed=1,
+                candidates_generated=4,
+                persisted_count=3,
+                excluded_infra_count=1,
+                excluded_missing_tokens_count=0,
+                category_counts={"EXPLOIT_CONFIRMED": 1, "SAFE_RUN": 2},
+                group_spread={"group_count": 1, "informative_groups": 1},
+            )
+
+        mock_collect.side_effect = _collect_side_effect
 
         res = fn(max_targets=1, group_size=4)
 
@@ -165,6 +206,39 @@ def test_collect_train_rollouts_remote_mock_execution():
         passed_targets = mock_collect.call_args.kwargs["targets"]
         assert len(passed_targets) == 1
         assert passed_targets[0].name == "TrainPushAuction"
+
+        # Verify system prompt matches build_exploit_engineer_system_prompt(target.name)
+        assert len(captured_messages) == 1
+        assert captured_messages[0][0]["role"] == "system"
+        assert captured_messages[0][0]["content"] == build_exploit_engineer_system_prompt("TrainPushAuction")
+
+        # Verify verifier_fn delegates to verify_train_exploit_remote.remote
+        assert len(captured_exec_results) == 1
+        tgt_used, pld_used, exec_res = captured_exec_results[0]
+        mock_verify_remote.assert_called_once_with(tgt_used.model_dump(), pld_used.model_dump())
+        assert isinstance(exec_res, ExecutionResult)
+        assert exec_res.category == ResultCategory.EXPLOIT_CONFIRMED
+
+        # Verify gpu_image includes /opt/aegis/benchmarks/... files/dirs with copy=True
+        modal_app_path = Path(__file__).resolve().parents[1] / "modal_app.py"
+        tree = ast.parse(modal_app_path.read_text(encoding="utf-8"))
+        remote_paths = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "gpu_image":
+                        for child in ast.walk(node.value):
+                            if isinstance(child, ast.Call) and getattr(child.func, "attr", None) in ("add_local_file", "add_local_dir"):
+                                copy_kw = [kw.value.value for kw in child.keywords if kw.arg == "copy" and isinstance(kw.value, ast.Constant)]
+                                str_args = [a.value for a in child.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+                                if copy_kw == [True]:
+                                    remote_paths.update(str_args)
+        assert {
+            "/opt/aegis/benchmarks/train_dataset.json",
+            "/opt/aegis/benchmarks/benchmark_dataset.json",
+            "/opt/aegis/benchmarks/targets/solidity_train",
+            "/opt/aegis/benchmarks/targets/solidity",
+        }.issubset(remote_paths)
 
         # Verify model_volume reload and commit were invoked
         mock_reload.assert_called_once()
