@@ -121,3 +121,13 @@ contract Helper {
 }
 """
     assert extract_solidity_code(other_contract) == ""
+
+
+def test_refinement_prompt_formats_cleanly_and_enforces_compact_loops():
+    target = TargetProgram(name="RewardDistributorLogic", source_code="contract RewardDistributorLogic {}")
+    prompt = build_refinement_prompt(target, "contract ExploitModule {}", "Insufficient pool reserves")
+    assert "{value: ...}" in prompt
+    assert "Step 1 ... Step N" in prompt
+    assert "for (uint i = 0; i < N; i++)" in prompt
+    assert "OutOfFunds" in prompt
+    assert "Insufficient pool reserves" in prompt
