@@ -210,3 +210,23 @@ def test_prompts_cover_cycle6_fn_constraints_without_hardcoding_exploits():
     refinement = build_refinement_prompt(dos_target, "contract ExploitModule {}", "Refund failed")
     assert "Refund failed" in refinement
     assert "return cleanly from `runExploit()`" in refinement
+
+
+def test_prompts_cover_cycle7_fn_constraints_and_ban_unrolled_loops():
+    """Prompts stay compact, ban unrolled Step N loops, and cover cycle7 OutOfFunds/reserves/credit rules."""
+    assert len(EXPLOIT_ENGINEER_SYSTEM_PROMPT) < 3200
+    assert "repeat smaller calls in a loop" not in EXPLOIT_ENGINEER_SYSTEM_PROMPT
+
+    target = TargetProgram(name="Vault", source_code="contract Vault {}")
+    analysis = build_analysis_prompt(target)
+    refinement = build_refinement_prompt(target, "contract ExploitModule {}", "OutOfFunds")
+
+    for prompt in (EXPLOIT_ENGINEER_SYSTEM_PROMPT, analysis, refinement):
+        assert "Step 1 ... Step N" in prompt
+        assert "for (uint i = 0; i < N; i++)" in prompt
+        assert "repeat smaller calls in a loop" not in prompt
+
+    assert "strictly from `address(this).balance`" in refinement
+    assert "points * rewardPerPoint <= address(targetContract).balance" in refinement
+    assert "credits(address(this))" in refinement
+    assert "credits(address(this))" in analysis

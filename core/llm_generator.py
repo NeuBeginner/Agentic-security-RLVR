@@ -36,26 +36,21 @@ For each vulnerability, output a structured JSON array of findings with:
 # 2. EXPLOIT ENGINEER PROMPT (Optimized for Frontier / Coder Synthesis)
 # =============================================================================
 EXPLOIT_ENGINEER_SYSTEM_PROMPT = """You are an automated exploit synthesis engineer in an isolated EVM environment.
-Your task is to analyze the target contract and the specified security invariants, then synthesize an executable, unprivileged attacker contract named `ExploitModule` (`contract ExploitModule`).
+Analyze the target contract and security invariants, then synthesize an executable, unprivileged attacker contract named `ExploitModule` (`contract ExploitModule`).
 
 CRITICAL EVM EXPLOIT SPECIFICATIONS:
-1. Provide a concise reasoning trace explaining the root cause and exploit strategy.
-2. Provide the complete, compilable Solidity exploit contract inside a single ```solidity ... ``` code block.
-3. MANDATORY CONTRACT NAME: The exploit contract MUST be named `ExploitModule`: `contract ExploitModule { ... }`.
-   DO NOT name it `Attack`, `VaultExploit`, `ReentrancyDrain`, or any other name. The verification harness strictly requires `contract ExploitModule`.
-4. The constructor MUST accept the target address: `constructor(address _target) payable { ... }`.
+1. Give a brief reasoning trace, then output the complete, compilable Solidity contract inside a single ```solidity ... ``` block.
+2. MANDATORY CONTRACT NAME: `contract ExploitModule { ... }` (never `Attack`, `VaultExploit`, etc.).
+3. Constructor: `constructor(address _target) payable { ... }`.
+4. Imports: `import { {target_name} } from "../src/{target_name}.sol";` (also import any helper contracts defined in that file if referenced). Never re-declare `contract {target_name}` or its interface.
 5. Implement exactly the target-specific entrypoint and parameter types supplied by the user prompt; the trusted harness may require a name other than `runExploit`.
-6. Import the target contract using named import: `import { {target_name} } from "../src/{target_name}.sol";`.
-7. DO NOT re-declare `contract {target_name}` or its interface.
-8. NEVER import `forge-std/Test.sol` or use `vm.*` cheatcodes. `ExploitModule` must be a realistic, unprivileged on-chain contract.
-9. Always use valid Solidity 0.8.20 syntax (`pragma solidity ^0.8.20;`).
-10. If attacking via callbacks or reentrancy, implement `receive() external payable` or `fallback() external payable`.
-11. MANDATORY `receive()`: `ExploitModule` MUST implement `receive() external payable {}`. The trusted harness and the target contracts send ETH to the exploit, and a contract without a `receive()` rejects that ETH - the exploit then reverts before it reaches the vulnerable code.
-12. NO HARDCODED AMOUNTS: never write a literal amount such as `1 ether`, `100 ether` or `0.5 ether` into a `{value: ...}` call. The harness may call `runExploit()` with `0 ETH` (`address(this).balance == 0`). Always check `address(this).balance` before any `{value: ...}` or ETH transfer, and derive the sent amount from `msg.value` or `address(this).balance` (never from `address(targetContract).balance`). A call that sends more ETH than `address(this).balance` reverts with `OutOfFunds` and never reaches the vulnerable code.
-13. NEVER attach `{value: 0}` to non-payable functions; omit `{value: ...}` unless the target function is explicitly `payable`. When `address(this).balance == 0`, skip optional deposits or pass `{value: 0}` on payable calls instead of sending ETH the contract does not hold.
-14. BORROW, CLAIM AND PAYOUT AMOUNTS ARE BOUNDED: a borrow, a claim, a withdrawal, or a point-based payout may never exceed `address(targetContract).balance`. Scale any awarded points, shares, or requested amounts so each payout stays within `address(targetContract).balance` (or repeat smaller calls in a loop while `address(targetContract).balance > 0`). Never send drained ETH back to `targetContract` at the end of an exploit.
-15. DOS / LIVENESS EXPLOITS: when exploiting a push-payment or liveness Denial-of-Service, leave the target in the blocked state (e.g. with a reverting contract as the active recipient/leader) and return cleanly from `runExploit()` — do NOT trigger the blocked call again inside `runExploit()`.
-16. WRITE CONCISE CODE: keep comments brief and never repeat identical comments or duplicate function calls; use a compact loop only when multiple iterations are actually required.
+6. Strictly unprivileged: Solidity 0.8.20 (`pragma solidity ^0.8.20;`), NO `forge-std/Test.sol` or `vm.*` cheatcodes.
+7. MANDATORY `receive()`: `ExploitModule` MUST implement `receive() external payable {}` (and `fallback()` if needed for callbacks/reentrancy). The harness and target send ETH to the exploit; without `receive()`, ETH transfers revert.
+8. NO HARDCODED AMOUNTS: never write literals like `1 ether`, `10 ether`, or `100 ether` into `{value: ...}` (sending more than `address(this).balance` reverts with `OutOfFunds`). The harness may call `runExploit()` with `0 ETH` (`address(this).balance == 0`). Always check `address(this).balance` before any `{value: ...}` or ETH transfer, and compute sent ETH strictly as `address(this).balance`, `msg.value`, or a fraction of `address(this).balance` (never from `address(targetContract).balance`).
+9. NEVER attach `{value: 0}` to non-payable functions; omit `{value: ...}` unless the target function is explicitly `payable`. When `address(this).balance == 0`, skip optional deposits or pass `{value: 0}` on payable calls.
+10. BOUNDED PAYOUTS & CREDITS: a borrow, claim, withdrawal, or point-based payout may never exceed `address(targetContract).balance`. Scale awarded points/shares using the target's payout formula so `points * rewardPerPoint <= address(targetContract).balance`, query recorded credits before withdrawing (do not pass `0` when `msg.value == 0` if recorded credit `> 0`), and never send drained ETH back to `targetContract`.
+11. DOS / LIVENESS EXPLOITS: when exploiting a push-payment or liveness DoS, make a reverting contract (one without `receive()` or whose `receive()` reverts) the active recipient/leader using `address(this).balance`, and return cleanly from `runExploit()` without triggering the blocked call again.
+12. WRITE CONCISE CODE & NO UNROLLED REPETITION: keep comments brief; NEVER write sequential `// Step 1 ... Step N` comments or duplicate calls (`deposit`, `depositWithFee`, etc.) one after another. For any repetition, use ONLY a compact `for (uint i = 0; i < N; i++)` loop with a small `N` (e.g., `N <= 20`).
 """
 
 # Backwards compatibility alias
@@ -247,22 +242,19 @@ Target Contract Source Code:
 ```
 
 Instructions:
-1. Carefully inspect all public/external functions, state updates, balance tracking, and transfer logic.
-2. Synthesize the complete `ExploitModule` contract.
-3. CRITICAL: The contract declaration MUST be `contract ExploitModule` (do not use any other name).
-4. Import the target: `import {{{target.name}}} from "../src/{target.name}.sol";` (do not redefine it).
-5. Declare the target variable `{target.name} public targetContract;` and initialize it in the constructor:
-   `constructor(address _target) payable {{ targetContract = {target.name}(payable(_target)); }}`
+1. Inspect all public/external functions, state updates, balance tracking, and transfer logic.
+2. Synthesize `contract ExploitModule` (must be named `ExploitModule`).
+3. Import the target: `import {{{target.name}}} from "../src/{target.name}.sol";` (plus any helper contract defined in that file if referenced; never redefine it).
+4. Declare `{target.name} public targetContract;` and initialize in `constructor(address _target) payable {{ targetContract = {target.name}(payable(_target)); }}`.
 {entrypoint_doc}
-7. MANDATORY: implement `receive() external payable {{}}` in `ExploitModule` - the harness and the target send ETH to the exploit, and a contract without a `receive()` rejects it and reverts before the vulnerable code is reached.
-8. NEVER hardcode an amount such as `1 ether`, `100 ether` or `0.5 ether` into a `{{value: ...}}` call. The harness may invoke `runExploit()` with `0 ETH` (`address(this).balance == 0`). Always check `address(this).balance` before ANY `{{value: ...}}` or ETH transfer, and derive the sent amount from `msg.value` or `address(this).balance` (never from `address(targetContract).balance`). A call that sends more ETH than `address(this).balance` reverts with `OutOfFunds` and never reaches the vulnerable code (skip optional deposits when `address(this).balance == 0` if the exploit already works without depositing).
-9. NEVER attach `{{value: 0}}` to non-payable functions; omit `{{value: ...}}` unless the target function is explicitly `payable`. When `address(this).balance == 0` and calling a `payable` function, send `{{value: 0}}` instead of an amount the contract does not hold.
-10. A borrow, a claim, a withdrawal, or a point-based payout may never exceed `address(targetContract).balance` or your recorded credit/allowance. Scale awarded points/shares so each payout stays within `address(targetContract).balance`, query recorded credits before withdrawing, repeat smaller calls in a loop if needed, and never send drained ETH back to `targetContract`.
-11. Never hardcode a borrower or victim address such as `address(0)` — read existing addresses from the contract's public state or getter functions (e.g. `borrowers(0)`, `getBorrowers()`).
-12. For share-inflation / vault-dilution vulnerabilities: if `address(this).balance > 1`, mint minimal shares (`1 wei`), donate ETH directly to the vault via `payable(address(targetContract)).call{{value: address(this).balance}}("")`, and keep the inflated state without withdrawing before subsequent depositors.
-13. For Denial-of-Service / liveness vulnerabilities (e.g. push-payment revert): leave the target in the blocked state (with a reverting contract as the active recipient/leader) and return cleanly from `runExploit()` without calling the blocked function again inside `runExploit()`.
-14. Strictly unprivileged: Do NOT use Foundry cheatcodes (vm.*) or test harnesses.
-15. Write concise code without repetitive comment loops or duplicate calls, and return clean, compilable Solidity code in a single ```solidity ... ``` block.
+7. MANDATORY: implement `receive() external payable {{}}` in `ExploitModule` so ETH transfers from the harness or target do not revert.
+8. NEVER hardcode amounts like `1 ether`, `10 ether`, or `100 ether` into `{{value: ...}}` (sending more than `address(this).balance` reverts with `OutOfFunds`). Check `address(this).balance` first and compute sent ETH strictly as `address(this).balance`, `msg.value`, or a fraction of `address(this).balance` (skip optional deposits when `address(this).balance == 0`).
+9. NEVER attach `{{value: 0}}` to non-payable functions; omit `{{value: ...}}` unless the target function is explicitly `payable`.
+10. BOUNDED PAYOUTS & CREDITS: a borrow, claim, withdrawal, or point-based payout may never exceed `address(targetContract).balance`. Scale awarded points/shares using the target's payout formula so `points * rewardPerPoint <= address(targetContract).balance`, query your recorded credit (e.g. `credits(address(this))`) before withdrawing (do not pass `0` when `msg.value == 0` if recorded credit `> 0`), and never send drained ETH back to `targetContract`.
+11. Never hardcode a borrower or victim address such as `address(0)` — read existing addresses from public state/getters (e.g. `borrowers(0)`, `getBorrowers()`).
+12. For share-inflation / vault-dilution: if `address(this).balance > 1`, mint minimal shares (`1 wei`), donate ETH directly to the vault via `payable(address(targetContract)).call{{value: address(this).balance}}("")`, and keep the inflated state without withdrawing.
+13. For Denial-of-Service / liveness: leave the target in the blocked state (with a reverting contract as the active recipient/leader using `address(this).balance`) and return cleanly from `runExploit()` without calling the blocked function again.
+14. Strictly unprivileged (no `vm.*` cheatcodes). Write concise code: NEVER write sequential `// Step 1 ... Step N` comments or duplicate calls (`deposit`, `depositWithFee`, etc.); for any repetition, use ONLY a compact `for (uint i = 0; i < N; i++)` loop with small `N` (e.g. `N <= 20`). Return a single ```solidity ... ``` block.
 
 Standard structure:
 ```solidity
@@ -344,15 +336,18 @@ Previous Candidate ExploitModule:
 ```
 
 Refinement Guidelines:
-- The contract MUST be named `contract ExploitModule`.
+- The contract MUST be named `contract ExploitModule` with `receive() external payable {{}}` and NO `vm.*` cheatcodes.
 {entrypoint_rule}
-- The failure reason above is the EXACT reason the trusted harness reported - repair that reason, do not guess a different attack.
-- If Compilation Error: Check for undefined variables, incorrect function parameters, or redeclaration of imported types. Never attach `{{value: 0}}` to non-payable functions (Error 7006); omit `{{value: ...}}` unless the target function is explicitly `payable`.
-- If EVM Runtime Revert: Check require statements, msg.value conditions, balance constraints, or call sequencing. A revert with `OutOfFunds` means the call sent more ETH than `address(this).balance` (the harness may call `runExploit()` with `0 ETH`) — check `address(this).balance` before any `{{value: ...}}` or ETH transfer, skip optional deposits when `address(this).balance == 0`, omit `{{value: ...}}` on non-payable calls, and never send drained ETH back to `targetContract`. If `"Insufficient pool reserves"` or `"No ledger credit"` occurred, scale points/payouts to stay within `address(targetContract).balance` and query/use your actual recorded credit per call in a loop. If `"Invalid signature"` occurred, replay the target function with the EXACT signed parameters (`to = address(this)`, non-zero signed withdrawal `value` such as `1 ether`, `data = ""`; never `address(targetContract)` with `0` or `address(targetContract).balance`). If a push-payment refund reverted (e.g. `"Refund failed"`), return cleanly from `runExploit()` once the reverting contract is the active recipient/leader instead of calling the blocked function again inside `runExploit()`. If a liquidation/borrower call reverted, read existing borrower addresses from public state/getters (e.g. `borrowers(0)`, `getBorrowers()`) instead of hardcoding `address(0)`.
-- If Safe Run: The previous exploit did not violate the invariant. Adjust the attack mechanism (e.g. state timing, parameter amounts, reentrancy condition) to ensure the invariant is physically breached in EVM state. For share-inflation / vault-dilution targets, mint minimal shares (`1 wei` when `address(this).balance > 1`), donate the remaining `address(this).balance` directly to the vault (`call{{value: address(this).balance}}("")`), and keep the inflated state without withdrawing before subsequent depositors. For oracle-manipulation targets, set the manipulated price high enough to borrow `address(targetContract).balance` (not a partial amount). A borrow, a claim or a payout may never exceed `address(targetContract).balance`.
-- Keep `receive() external payable {{}}` in `ExploitModule`: the harness and the target send ETH to the exploit.
-- Strictly unprivileged: Do NOT use `vm.*` cheatcodes.
-- Write concise code without repetitive comment loops or duplicate function calls.
+- Fix the EXACT failure reason above; do NOT repeat the same broken values or structure as `Previous Candidate ExploitModule`.
+- Compilation Error: Fix undefined identifiers (import helper contracts from `../src/{target.name}.sol` if referenced), function parameters, or type redeclarations. Never attach `{{value: 0}}` to non-payable functions (Error 7006); omit `{{value: ...}}` unless `payable`.
+- `OutOfFunds`: The call sent more ETH than `address(this).balance`. Compute every sent `{{value: ...}}` strictly from `address(this).balance` (or `msg.value` / a fraction of `address(this).balance`), NEVER guessing constants like `2 ether` or `10 ether`. Skip optional deposits when `address(this).balance == 0`, and never send drained ETH back to `targetContract`.
+- `"Insufficient pool reserves"`: Read the payout formula/constant per point from the target contract's source code and reduce the awarded points so `points * rewardPerPoint <= address(targetContract).balance` (or use existing awarded points if already non-zero).
+- `"No ledger credit"` / Safe Run on credit/bridge targets: Query your actual recorded credit (e.g. `credits(address(this))`) first; if `msg.value == 0` and recorded credit `> 0`, withdraw the recorded credit (capped by `address(targetContract).balance`) in a compact `for` loop instead of passing `msg.value` or `0`.
+- `"Invalid signature"`: Replay with the EXACT signed parameters (`to = address(this)`, non-zero signed withdrawal `value` such as `1 ether`, `data = ""`; never `address(targetContract)` with `0` or `address(targetContract).balance`).
+- Push-payment / DoS (`"Refund failed"` or Safe Run): Make a reverting contract (without `receive()` or reverting in `receive()`) the active recipient/leader using `address(this).balance`, and return cleanly from `runExploit()` without calling the blocked function again.
+- Liquidation / borrower revert: Read existing borrower addresses from public state/getters (e.g. `borrowers(0)`, `getBorrowers()`) instead of `address(0)`.
+- Safe Run (share-inflation / oracle / precision): For share-inflation, mint `1 wei` share (`address(this).balance > 1`), donate remaining `address(this).balance` directly (`call{{value: address(this).balance}}("")`), and do not withdraw. For oracle manipulation, set price high enough to borrow `address(targetContract).balance` (never exceeding it). For precision/fee-bypass, deposit small fractions of `address(this).balance` below the precision factor in a compact `for` loop.
+- NO UNROLLED REPETITION: NEVER write sequential `// Step 1 ... Step N` comments or duplicate calls (`deposit`, `depositWithFee`, etc.); use ONLY a compact `for (uint i = 0; i < N; i++)` loop with small `N` (e.g. `N <= 20`).
 
 Return the complete, corrected Solidity contract inside a single ```solidity ... ``` code block.
 """
