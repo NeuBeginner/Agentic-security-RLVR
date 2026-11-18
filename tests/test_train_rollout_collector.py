@@ -32,6 +32,7 @@ from core.schemas import (
 from core.train_rollout_collector import (
     DEFAULT_BENCHMARK_DATASET_PATH,
     DEFAULT_TRAIN_DATASET_PATH,
+    _normalize_payload,
     collect_train_rollouts,
     load_train_targets,
     validate_train_target_isolation,
@@ -307,6 +308,225 @@ def test_train_rollout_collector_produces_non_degenerate_grpo_groups(tmp_path):
     spread = diagnose_group_spread(groups)
     assert spread["total_groups"] == 2
     assert spread["informative_groups"] == 2
+
+
+def test_normalize_payload_preserves_prompt_text():
+    """Unit test _normalize_payload effective prompt calculation."""
+    target = TargetProgram(name="TrainShareVault", source_code="// code", language="solidity")
+    base = ExploitPayload(
+        target_name=target.name,
+        hypothesis=AttackHypothesis(
+            vulnerability_type="Reentrancy",
+            reasoning_trace="trace",
+            attack_vector="vector",
+        ),
+        test_code="contract ExploitModule {}",
+        generated_token_ids=[1, 2, 3],
+    )
+
+    # 1. Non-empty ChatML prompt is preserved
+    chatml = "<|im_start|>system\nYou are an auditor.<|im_end|>\n<|im_start|>assistant\n"
+    p1 = base.model_copy(update={"prompt_text": chatml})
+    norm1 = _normalize_payload(p1, target, "RAW_FALLBACK", "run_id", 0)
+    assert norm1.prompt_text == chatml
+
+    # 2. None (e.g. from model_construct) falls back to raw prompt
+    p2 = ExploitPayload.model_construct(
+        target_name=target.name,
+        hypothesis=base.hypothesis,
+        test_code=base.test_code,
+        prompt_text=None,
+    )
+    norm2 = _normalize_payload(p2, target, "RAW_FALLBACK", "run_id", 1)
+    assert norm2.prompt_text == "RAW_FALLBACK"
+
+    # 3. Empty string falls back to raw prompt
+    p3 = base.model_copy(update={"prompt_text": ""})
+    norm3 = _normalize_payload(p3, target, "RAW_FALLBACK", "run_id", 2)
+    assert norm3.prompt_text == "RAW_FALLBACK"
+
+    # 4. Whitespace-only string falls back to raw prompt
+    p4 = base.model_copy(update={"prompt_text": "   \n\t  "})
+    norm4 = _normalize_payload(p4, target, "RAW_FALLBACK", "run_id", 3)
+    assert norm4.prompt_text == "RAW_FALLBACK"
+
+
+def test_train_rollout_collector_preserves_generator_prompt_text(tmp_path):
+    """
+    Ensure collector preserves generator_fn's formatted prompt_text (e.g. ChatML) in traj.prompt_used,
+    falling back to prompt_builder(target) only when payload.prompt_text is empty or None.
+    """
+    train_targets = load_train_targets()[:2]
+    assert len(train_targets) == 2
+    target_formatted = train_targets[0]
+    target_fallback = train_targets[1]
+
+    raw_prompts = {
+        target_formatted.name: f"PROMPT_BUILDER_RAW_STUB_FOR_{target_formatted.name}",
+        target_fallback.name: f"PROMPT_BUILDER_RAW_STUB_FOR_{target_fallback.name}",
+    }
+
+    formatted_chatml = (
+        "<|im_start|>system\nYou are an autonomous exploit generation assistant.<|im_end|>\n"
+        f"<|im_start|>user\nAnalyze contract {target_formatted.name} and produce PoC.<|im_end|>\n"
+        "<|im_start|>assistant\n"
+    )
+
+    def custom_prompt_builder(target: TargetProgram) -> str:
+        return raw_prompts[target.name]
+
+    def mock_generator(
+        target: TargetProgram,
+        prompt_text: str,
+        temperature: float,
+        cand_idx: int,
+    ) -> ExploitPayload:
+        if target.name == target_formatted.name:
+            return ExploitPayload(
+                target_name=target.name,
+                hypothesis=AttackHypothesis(
+                    vulnerability_type=target.invariants[0] if target.invariants else "Logic",
+                    reasoning_trace=f"reasoning cand={cand_idx}",
+                    attack_vector="vector",
+                ),
+                test_code=(
+                    f"// candidate {cand_idx}\n"
+                    "contract ExploitModule {\n"
+                    "    constructor(address) payable {}\n"
+                    "    function runExploit() external payable {}\n"
+                    "    receive() external payable {}\n"
+                    "}"
+                ),
+                prompt_text=formatted_chatml,
+                format_valid=True,
+                raw_model_response="response",
+                generated_token_ids=[100 + cand_idx, 200 + cand_idx, 300 + cand_idx],
+                candidate_index=cand_idx,
+            )
+
+        # Fallback target: test None (via model_construct), empty string, whitespace, and omitted prompt_text
+        hyp = AttackHypothesis(
+            vulnerability_type=target.invariants[0] if target.invariants else "Logic",
+            reasoning_trace=f"reasoning fallback cand={cand_idx}",
+            attack_vector="vector",
+        )
+        test_code = (
+            f"// fallback candidate {cand_idx}\n"
+            "contract ExploitModule {\n"
+            "    constructor(address) payable {}\n"
+            "    function runExploit() external payable {}\n"
+            "    receive() external payable {}\n"
+            "}"
+        )
+        if cand_idx == 0:
+            # Explicit None via model_construct
+            return ExploitPayload.model_construct(
+                target_name=target.name,
+                hypothesis=hyp,
+                test_code=test_code,
+                prompt_text=None,
+                format_valid=True,
+                raw_model_response="response",
+                generated_token_ids=[100 + cand_idx, 200 + cand_idx, 300 + cand_idx],
+                candidate_index=cand_idx,
+            )
+        if cand_idx == 1:
+            # Explicit empty string
+            return ExploitPayload(
+                target_name=target.name,
+                hypothesis=hyp,
+                test_code=test_code,
+                prompt_text="",
+                format_valid=True,
+                raw_model_response="response",
+                generated_token_ids=[100 + cand_idx, 200 + cand_idx, 300 + cand_idx],
+                candidate_index=cand_idx,
+            )
+        if cand_idx == 2:
+            # Whitespace string
+            return ExploitPayload(
+                target_name=target.name,
+                hypothesis=hyp,
+                test_code=test_code,
+                prompt_text="   \n\t ",
+                format_valid=True,
+                raw_model_response="response",
+                generated_token_ids=[100 + cand_idx, 200 + cand_idx, 300 + cand_idx],
+                candidate_index=cand_idx,
+            )
+        # cand_idx == 3: default omitted prompt_text (defaults to "")
+        return ExploitPayload(
+            target_name=target.name,
+            hypothesis=hyp,
+            test_code=test_code,
+            format_valid=True,
+            raw_model_response="response",
+            generated_token_ids=[100 + cand_idx, 200 + cand_idx, 300 + cand_idx],
+            candidate_index=cand_idx,
+        )
+
+    def mock_verifier(target: TargetProgram, payload: ExploitPayload) -> ExecutionResult:
+        return ExecutionResult(
+            return_code=0,
+            stdout="",
+            stderr="",
+            execution_time_sec=0.1,
+            category=ResultCategory.SAFE_RUN,
+            invariant_violated=False,
+            test_status="Failure",
+            revert_reason="EXPLOIT_FAILED: invariant held",
+            verified_by_harness=True,
+            harness_verdict=HarnessVerdict.NO_BREACH.value,
+        )
+
+    summary = collect_train_rollouts(
+        targets=train_targets,
+        trajectory_dir=str(tmp_path),
+        generator_fn=mock_generator,
+        verifier_fn=mock_verifier,
+        prompt_builder=custom_prompt_builder,
+        group_size=4,
+        temperatures=[0.2, 0.4, 0.6, 0.8],
+        run_id="run_prompt_preservation",
+    )
+
+    assert summary.targets_processed == 2
+    assert summary.persisted_count == 8
+
+    # (a) Check saved traj_*.json files directly
+    traj_files = list(tmp_path.glob("traj_*.json"))
+    assert len(traj_files) == 8
+
+    formatted_files = []
+    fallback_files = []
+
+    for fpath in traj_files:
+        data = json.loads(fpath.read_text(encoding="utf-8"))
+        if data["target_name"] == target_formatted.name:
+            formatted_files.append(data)
+        else:
+            fallback_files.append(data)
+
+    assert len(formatted_files) == 4
+    assert len(fallback_files) == 4
+
+    for rec in formatted_files:
+        # (a) Must exactly match generator_fn's ChatML prompt and NOT raw prompt_builder output
+        assert rec["prompt_used"] == formatted_chatml
+        assert rec["prompt_used"] != raw_prompts[target_formatted.name]
+
+    for rec in fallback_files:
+        # (b) Empty/None/whitespace must fallback to prompt_builder(target)
+        assert rec["prompt_used"] == raw_prompts[target_fallback.name]
+
+    # Verify via load_production_trajectories
+    loaded = load_production_trajectories(str(tmp_path), target_split="train")
+    assert len(loaded) == 8
+    for rec in loaded:
+        if rec["target_name"] == target_formatted.name:
+            assert rec["prompt_used"] == formatted_chatml
+        else:
+            assert rec["prompt_used"] == raw_prompts[target_fallback.name]
 
 
 # =============================================================================

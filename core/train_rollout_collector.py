@@ -222,13 +222,18 @@ def _normalize_payload(
     candidate_index: int,
 ) -> ExploitPayload:
     cand_id = payload.candidate_id or f"{run_id}_{target.name}_c{candidate_index}_{uuid.uuid4().hex[:6]}"
+    effective_prompt = (
+        payload.prompt_text
+        if (payload.prompt_text and payload.prompt_text.strip())
+        else prompt_text
+    )
     return payload.model_copy(
         update={
             "target_name": target.name,
             "candidate_id": cand_id,
             "run_id": run_id,
             "candidate_index": candidate_index,
-            "prompt_text": prompt_text,
+            "prompt_text": effective_prompt,
         }
     )
 
@@ -348,7 +353,7 @@ def collect_train_rollouts(
                 target=target,
                 payload=payload,
                 verdict=verdict,
-                prompt_used=prompt_text,
+                prompt_used=payload.prompt_text or prompt_text,
                 dataset_split="train",
                 dataset_partition="production",
                 is_synthetic=False,
