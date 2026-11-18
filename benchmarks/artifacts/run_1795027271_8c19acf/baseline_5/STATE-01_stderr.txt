@@ -1,0 +1,11 @@
+Error: Compiler run failed:
+Error (7398): Explicit type conversion not allowed from non-payable "address" to "contract RewardDistributorLogic", which has a payable fallback function.
+  --> test/ExploitModule.sol:10:18:
+   |
+10 |         target = RewardDistributorLogic(_target);
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Did you mean to declare this variable as "address payable"?
+ --> test/ExploitModule.sol:9:17:
+  |
+9 |     constructor(address _target) payable {
+  |                 ^^^^^^^^^^^^^^^

