@@ -1,8 +1,9 @@
 # GRPO Readiness Audit & Compute Grant Plan
 
-> **Audit Scope & Status**: `$0.00` Modal spend (read-only code audit + local verification only).  
-> **Training Gate**: `TRAINING_STATUS = BLOCKED` (fail-closed in `core/config.py`, `core/grpo_trainer.py`, and `modal_app.py`).  
-> **Reference Benchmark Artifact**: `benchmarks/artifacts/run_1795027271_8c19acf` (`cycle8`, `baseline_5`).
+> **Audit Scope & Status**: `$0.00` Modal spend across PR #30–#34 (code audit, isolated PoC contour, and local verification only).  
+> **Training Gate**: `TRAINING_STATUS = BLOCKED` (fail-closed in `core/config.py`, `core/grpo_trainer.py`, `modal_app.py`, `modal_grpo_poc_app.py`, and `benchmarks/run_grpo_poc.py`).  
+> **Reference Benchmark Artifact**: `benchmarks/artifacts/run_1795027271_8c19acf` (`cycle8`, `baseline_5`).  
+> **Metered Modal Balance**: `$15.8675` spent of `$20.00` initial credit after `cycle8`; **`$4.1325` remaining**.
 
 ---
 
@@ -12,9 +13,9 @@ The offline GRPO trainer (`core/grpo_trainer.py`), trajectory schema (`core/eval
 
 However, **real GRPO training cannot be executed yet** due to three concrete technical blockers and a depleted initial credit balance (`$4.13` remaining of `$20.00`):
 
-1. **Data Isolation & Degenerate Groups (`benchmarks/adapters.py`)**: Only `is_verified` benchmark runs are persisted, and they are hardcoded to `dataset_split="test"`, `dataset_partition="test"`, `trainable=False`. No `train` contract split or multi-candidate (`G >= 4`) rollout collection with reward variance exists.
-2. **GPU Tier & Base Model Accessibility (`core/config.py`, `modal_app.py`)**: `train_grpo_remote` and `diagnostic_grpo_forward_remote` are bound to `DEV_GPU_TYPE = "T4"` (16 GB VRAM), `gpu_image` lacks `bitsandbytes` for QLoRA, and `AUDIT_GPU_MODEL` (`qtum/Qwen3-Coder-30B-A3B-Audit`) returns `401` on Hugging Face (only cached in the Modal Volume).
-3. **Fail-Closed Training Gate & Budget (`core/config.py`, `modal_app.py`)**: `TRAINING_STATUS=BLOCKED` prevents any `optimizer.step()`, and the remaining `$4.13` Modal balance is insufficient for production 27B–35B GRPO training + post-training R4 evaluation.
+1. **Data Isolation & `G >= 4` Rollout Collection — RESOLVED in code (PR #31)**: Added 10 disjoint `train` contracts in `benchmarks/targets/solidity_train/`, `benchmarks/train_dataset.json`, and `core/train_rollout_collector.py` with strict test-overlap checks and a `G >= 4` temperature schedule.
+2. **GPU Tier & Base Model Accessibility — RESOLVED in code (PR #32 + PR #33)**: Set `GRPO_BASE_MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"`, added `bitsandbytes` alongside `peft`/`trl` in GPU images, preserved `GRPO_GPU_TYPE = "H100"` for production, and added the isolated L4 PoC app (`modal_grpo_poc_app.py`) with `GRPO_POC_GPU_TYPE = "L4"` and `scaledown_window=60`.
+3. **Fail-Closed Training Gate & Budget — INTENTIONALLY ACTIVE**: `TRAINING_STATUS = BLOCKED` remains strictly enforced; actual metered Modal spend after `cycle8` is `$15.8675 / $20.00` (remaining balance strictly `$4.1325`; PR #30–#34 spent `$0.00`), which is sufficient for a 1.5B L4 micro-PoC (`< $1` Stage 1) but insufficient for production multi-GPU-hour GRPO training + post-training R4 evaluation without a compute grant.
 
 ---
 
@@ -33,40 +34,26 @@ A local `$0.00` compatibility check was executed against all 16 target stage-evi
 
 ---
 
-## 3. Technical Blockers Before GRPO Execution
+## 3. Technical Blockers & Resolution Status
 
-### Blocker 1: `train` / `test` Data Isolation & Non-Degenerate Groups (`informative_groups`)
+### Blocker 1: `train` / `test` Data Isolation & Non-Degenerate Groups (`informative_groups`) — **RESOLVED in code (PR #31)**
 
-- **Current Code Behavior**:
-  - `benchmarks/adapters.py:L2724-L2734`: Trajectory persistence runs **only** inside `if is_verified:` (6/16 targets in `cycle8`; the other 10 targets have `persistence_status="not_eligible"`). Even for those 6, `create_trajectory_record` is called with `dataset_split="test"`, `dataset_partition="test"`, `is_synthetic=False`, `trainable=False`.
-  - `core/grpo_trainer.py:L737-L742`: `evaluate_trajectory_eligibility` requires `dataset_partition == "production"`, `trainable is True`, and `dataset_split == "train"`.
-  - `core/grpo_trainer.py:L529-L533`: `group_rollouts_by_prompt` requires `len(chunk) >= 2` (default `GRPO_GROUP_SIZE = 4` in `core/config.py:L106`).
-  - `core/grpo_trainer.py:L432-L478` & `L1124-L1133`: `diagnose_group_spread` and `train_grpo_epochs` fail closed (`ValueError`) when `informative_groups == 0` (i.e., `std_reward < 1e-6` across every group, yielding zero policy gradient).
-  - `modal_app.py:L1183-L1194`: `train_grpo_remote` loads `target_split="train"` and exits early if no groups with `>= 2` candidates exist.
-- **Required Fix**:
-  1. Introduce a dedicated `train` split of Solidity contracts **disjoint from the 16 benchmark targets** in `baseline_5` (preventing train/test leakage).
-  2. Persist **both** successful (`EXPLOIT_CONFIRMED`, `+1.0`) and failed rollouts (`SAFE_RUN` `-0.10`, `RUNTIME_REVERT` `-0.25`, `COMPILATION_ERROR` `-0.50`, `GENERATION_FORMAT_ERROR` `-0.35`, excluding `INFRA_ERROR`) during training rollout collection, with `G >= 4` candidates per prompt (`temperature > 0`) so `diagnose_group_spread` yields `informative_groups > 0`.
-  3. Tag training rollouts with `dataset_partition="production"`, `dataset_split="train"`, `trainable=True`, `is_synthetic=False`, and `token_provenance="model_generate"` with non-empty `generated_token_ids`.
+- **Implemented Solution**:
+  1. Added a dedicated `train` split of 10 Solidity contracts in `benchmarks/targets/solidity_train/` and `benchmarks/train_dataset.json`, **disjoint from the 16 benchmark targets** in `baseline_5` (enforced by `core/train_rollout_collector.py::validate_train_target_isolation`).
+  2. `core/train_rollout_collector.py::collect_train_rollouts` persists both verified exploits and failed rollouts (excluding `INFRA_ERROR`) with a `G >= 4` temperature schedule (`4 <= group_size <= 8`) and computes `diagnose_group_spread(groups)`.
+  3. Training rollouts are tagged with `dataset_partition="production"`, `dataset_split="train"`, `trainable=True`, `is_synthetic=False`, `token_provenance="model_generate"`, and non-empty `generated_token_ids`.
 
-### Blocker 2: GPU Hardware (`T4` vs `H100`) & Base Model Availability (`401`)
+### Blocker 2: GPU Hardware (`T4` vs `L4` / `H100`) & Base Model Availability — **RESOLVED in code (PR #32 + PR #33)**
 
-- **Current Code Behavior**:
-  - `core/config.py:L19-L24`:
-    - `AUDIT_GPU_MODEL = "qtum/Qwen3-Coder-30B-A3B-Audit"`, `AUDIT_GPU_TYPE = "H100"` (80 GB VRAM; ~61 GB cached weights noted in `modal_app.py:L97`).
-    - `DEV_GPU_MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"`, `DEV_GPU_TYPE = "T4"` (16 GB VRAM).
-  - `modal_app.py:L1138-L1143`: `train_grpo_remote` is decorated with `gpu=config.DEV_GPU_TYPE` (`"T4"`), which only fits `Qwen2.5-Coder-1.5B-Instruct`, not 27B–35B models.
-  - `modal_app.py:L1035-L1073`: `diagnostic_grpo_forward_remote` is also decorated with `gpu=config.DEV_GPU_TYPE` (`"T4"`), yet loads `torch_dtype=torch.bfloat16` (`L1071`, unsupported natively on T4 Turing) and can be invoked with `config.AUDIT_GPU_MODEL` (`L1679`, 30B -> OOM on 16 GB T4).
-  - `modal_app.py:L73-L85`: `gpu_image` installs `transformers>=4.40.0`, `accelerate>=0.28.0`, `peft>=0.14.0`, `trl>=0.14.0`, and **does not include `bitsandbytes`** (needed for 4-bit QLoRA).
-  - **Hugging Face `401` on `qtum/Qwen3-Coder-30B-A3B-Audit`**: The repository is inaccessible/private on Hugging Face (`401`), surviving only in the Modal Volume cache (`/vol/models/huggingface`).
-- **Required Fix**:
-  1. Split PoC vs. Production training configs:
-     - **PoC (1.5B)**: `Qwen/Qwen2.5-Coder-1.5B-Instruct` on `T4` (`fp16`) or `A10G` (`bf16`).
-     - **Production (27B–35B)**: Upgrade `train_grpo_remote` and `diagnostic_grpo_forward_remote` to `H100` (80 GB VRAM, `bf16`) with gradient checkpointing (`setup_lora_model` in `core/grpo_trainer.py:L1047-L1052`) and optional `bitsandbytes` QLoRA if optimizer/activation memory at `GRPO_MAX_SEQ_LEN=4096` exceeds 80 GB.
-  2. Migrate `AUDIT_GPU_MODEL` to an open, publicly reproducible Hugging Face checkpoint (e.g., `Qwen/Qwen3.8-27B` or `Qwen/Qwen3.6-35B-A3B`) and pin the compatible `transformers` version in `modal_app.py:gpu_image`.
+- **Implemented Solution**:
+  1. `core/config.py` configures `GRPO_BASE_MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"` (publicly accessible, un-gated), `GRPO_GPU_TYPE = "H100"` for production GRPO, and isolated PoC settings `GRPO_POC_GPU_TYPE = "L4"`, `GRPO_POC_TRAJECTORY_DIR = "/vol/models/trajectories_grpo_poc"`, `GRPO_POC_CHECKPOINT_DIR = "/vol/models/checkpoints_grpo_poc"`.
+  2. Both `modal_app.py::gpu_image` and `modal_grpo_poc_app.py::poc_gpu_image` include `torch`, `transformers>=4.40.0`, `accelerate>=0.28.0`, `peft>=0.14.0`, `trl>=0.14.0`, and `bitsandbytes>=0.45.0`.
+  3. `modal_grpo_poc_app.py` (`aegis-rlvr-grpo-poc`) isolates L4 PoC execution from the R1-guarded production `modal_app.py`, with `min_containers=0, buffer_containers=0, scaledown_window=60` on all GPU functions and `block_network=True` on `poc_verify_train_exploit`.
 
-### Blocker 3: Fail-Closed Security Gate (`TRAINING_STATUS = BLOCKED`)
+### Blocker 3: Fail-Closed Security Gate (`TRAINING_STATUS = BLOCKED`) & Budget — **INTENTIONALLY ACTIVE**
 
-- `core/config.py:L98, L139-L140`, `core/grpo_trainer.py:L1106-L1112`, and `modal_app.py:L1164-L1171` enforce `is_training_blocked(config)` at call time. Both `TRAINING_STATUS` (must be `UNBLOCKED`/`ENABLED`/`RUNNING`) and `TRAINING_BLOCKED` (must be explicit false) are required before `train_grpo_epochs` or `train_grpo_remote` can execute. This gate remains **BLOCKED** until budget and Blocker 1/2 are resolved.
+- `core/config.py`, `core/grpo_trainer.py`, `modal_app.py`, `modal_grpo_poc_app.py`, and `benchmarks/run_grpo_poc.py` enforce `is_training_blocked(config)` fail-closed at both client and server boundaries.
+- Actual metered Modal spend after `cycle8` is **`$15.8675 / $20.00`** (remaining balance strictly **`$4.1325`**; PR #30–#34 spent `$0.00`). Training remains **BLOCKED** until Stage 1 PoC diagnostics (`informative_groups > 0`) and explicit budget/grant approval are obtained.
 
 ---
 
@@ -85,22 +72,18 @@ A local `$0.00` compatibility check was executed against all 16 target stage-evi
 - **Observed Modal Billing Facts**:
   - Initial Modal credit: `$20.00`.
   - Observed cost per full R4 benchmark run (`baseline_5`, 16 targets): `$1.11–$1.38`.
-  - Remaining Modal credit: `$4.13`.
+  - Actual metered spend after `cycle8`: `$15.8675` (`$4.1325` remaining; PR #30–#34 spent `$0.00`).
 
 ### 4.2 Compute Budget Plan
 
-#### (A) PoC GRPO on `1.5B` (`Qwen2.5-Coder-1.5B-Instruct` on `T4` / `A10G`)
-- **Goal**: End-to-end validation of non-degenerate `train` rollout collection (`G = 4`), `diagnostic_grpo_forward_remote`, and 2–3 epochs of LoRA GRPO (`r=16, alpha=32`) before spending H100 grant funds.
-- **Estimated Compute**:
-  - Rollout collection (e.g., 15–25 `train` contracts × `G = 4` candidates = 60–100 rollouts + Foundry verification): ~0.3–0.6 T4/A10G GPU-hours + sandbox CPU time.
-  - GRPO training (`train_grpo_remote`, 2–3 epochs, `GRPO_MAX_SEQ_LEN=4096`): ~0.2–0.4 T4/A10G GPU-hours.
-  - Post-PoC R4 evaluation (1–2 runs at `$1.11–$1.38`/run): `$1.11–$2.76`.
-- **Feasibility**: Fits within the remaining `$4.13` Modal credit if scoped strictly to 1.5B PoC + 1 R4 check, leaving minimal margin for retries.
+#### (A) Stage 1 & Stage 2 Micro-PoC on `L4` (`Qwen/Qwen2.5-Coder-1.5B-Instruct`, isolated `aegis-rlvr-grpo-poc`)
+- **Stage 1 (`collect-and-diagnose`, `TRAINING_STATUS = BLOCKED`)**: Run `modal_grpo_poc_app.py` via `benchmarks/run_grpo_poc.py --stage collect-and-diagnose` on 2–4 disjoint `train` contracts (`group_size=4`) to verify `informative_groups > 0` and finite `diagnostic_loss` with zero weight updates. Estimated cost: **`< $1` (`~$0.35–$0.80`)** from the remaining `$4.1325` balance.
+- **Stage 2 (Micro LoRA GRPO, gated on Stage 1 `informative_groups > 0` + explicit unblock)**: 2–3 LoRA GRPO steps (`r=16, alpha=32`) on `L4` (`bf16`) writing only to `/vol/models/checkpoints_grpo_poc`, followed by 1 optional R4 evaluation (`$1.11–$1.38`) if budget permits.
 
-#### (B) Production GRPO on `27B–35B` (`Qwen/Qwen3.8-27B` or `Qwen/Qwen3.6-35B-A3B` on `H100 80 GB`)
-- **Goal**: Improve `baseline_5` recall beyond the `50.00%` (`6/12`) ceiling while preserving `100.00%` precision (`0 FP`) and `100.00%` independent replay.
+#### (B) Production GRPO on `H100 80 GB` (Grant Application Scope)
+- **Goal**: Scale GRPO LoRA/QLoRA training to a public, reproducible 14B–32B coding/reasoning checkpoint (e.g., `Qwen/Qwen2.5-Coder-14B-Instruct` or `Qwen/Qwen2.5-Coder-32B-Instruct`, or cached `AUDIT_GPU_MODEL` in Modal Volume) to push `baseline_5` recall beyond the `50.00%` (`6/12`) ceiling while preserving `100.00%` precision (`0 FP`) and `100.00%` independent replay.
 - **Estimated Compute (Grant Sizing)**:
-  - **Model Prefetch & Validation**: 1× cold download of open 27B–35B checkpoint to Modal Volume + `diagnostic_grpo_forward_remote` on `H100`.
+  - **Model Prefetch & Validation**: 1× cold download of public checkpoint to Modal Volume + `diagnostic_grpo_forward_remote` on `H100`.
   - **Training Rollout Collection**: 40–60 disjoint `train` contracts × `G = 4–8` candidates (160–480 rollouts) at ~33.55s/target baseline inference+sandbox cadence -> ~1.5–4.5 `H100` GPU-hours (plus CPU Foundry replay).
   - **GRPO LoRA/QLoRA Training**: 2–3 epochs over informative groups (`GRPO_GROUP_SIZE=4`, `GRPO_MAX_SEQ_LEN=4096`, `old_logprobs` + `ref_logprobs` pre-pass + backward pass) -> ~2–4 `H100` GPU-hours per training experiment (budgeting 3–5 iterations/ablations = ~6–20 `H100` GPU-hours).
   - **Evaluation Runs**: 5–10 R4 benchmark runs (`$1.11–$1.38` observed each) -> `$5.55–$13.80`.
@@ -108,9 +91,12 @@ A local `$0.00` compatibility check was executed against all 16 target stage-evi
 
 ---
 
-## 5. Local Verification Results (`$0.00`)
+## 5. Current Implementation & Preflight Verification Status (`$0.00`)
 
-Executed locally on `docs/grpo-readiness-audit`:
-
-1. `python -m pytest -q tests/test_grpo.py tests/test_grpo_integrity.py tests/test_round5_2_data_isolation.py tests/test_round5_4_security_gates.py tests/test_trajectory_integrity.py` -> **27 passed** (`1.90s`).
-2. `python -m benchmarks.validate_consolidated_closure_evidence --check` -> **21/21 PASSED**.
+- **Disjoint Train Split & Collector**: `benchmarks/train_dataset.json`, `benchmarks/targets/solidity_train/`, and `core/train_rollout_collector.py` (10 train contracts validated with zero overlap against the 16 `baseline_5` test targets).
+- **Isolated L4 PoC App & Fail-Closed Driver**: `modal_grpo_poc_app.py` (`aegis-rlvr-grpo-poc`) and `benchmarks/run_grpo_poc.py` (requires `AEGIS_APPROVE_GRPO_POC=1` for live calls; `--stage train` blocked client- and server-side while `TRAINING_STATUS = BLOCKED`; `scaledown_window=60`, `min_containers=0`, `buffer_containers=0`).
+- **Zero-Cost Preflight Commands**:
+  - `python -m benchmarks.run_grpo_poc --dry-run` (validates all 10 train targets locally and prints the L4 execution plan for `$0.00`).
+  - `python -m pytest -q tests/test_grpo_poc_driver.py tests/test_grpo_modal_prep.py tests/test_r1_dispatch_contract.py tests/test_r1_bounds_contract.py tests/test_train_rollout_collector.py`
+  - `python -m benchmarks.validate_consolidated_closure_evidence --check`
+- *Note: No live Modal PoC run (`modal deploy` / `run_grpo_poc.py` without `--dry-run`) has been executed yet; Stage 1 on L4 remains pending explicit budget approval.*

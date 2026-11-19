@@ -248,3 +248,213 @@ def test_poc_collect_train_rollouts_mock_execution(monkeypatch):
     assert out["excluded_infra_count"] == 0
     assert out["category_counts"] == {"EXPLOIT_CONFIRMED": 1, "REVERTED": 3}
     assert out["group_spread"] == {"total_groups": 1, "informative_groups": 1, "degenerate_groups": 0}
+
+
+def _make_dummy_grpo_group():
+    from core.schemas import AttackHypothesis, GRPOGroup, GRPORollout, ResultCategory
+
+    hyp = AttackHypothesis(
+        vulnerability_type="Reentrancy",
+        reasoning_trace="trace",
+        attack_vector="withdraw()",
+    )
+    rollouts = [
+        GRPORollout(
+            candidate_id=f"cand-{i}",
+            hypothesis=hyp,
+            full_completion_text=f"exploit-{i}",
+            exploit_code=f"exploit-{i}",
+            reward=1.0 if i == 0 else -0.25,
+            category=ResultCategory.EXPLOIT_CONFIRMED if i == 0 else ResultCategory.RUNTIME_REVERT,
+            is_verified=(i == 0),
+            reproduced=(i == 0),
+            feedback="ok",
+            advantage=1.5 if i == 0 else -0.5,
+            generated_token_ids=[10, 11, 12],
+            reward_spec_version="2.0.0",
+        )
+        for i in range(4)
+    ]
+    return GRPOGroup(
+        group_id="grp-1",
+        target_name="TrainShareVault",
+        prompt="prompt-text",
+        system_prompt="sys-prompt",
+        rollouts=rollouts,
+        mean_reward=0.0625,
+        std_reward=0.54,
+        reward_spec_version="2.0.0",
+    )
+
+
+def test_poc_diagnostic_grpo_forward_happy_and_empty_paths():
+    import math
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import torch
+
+    import modal_grpo_poc_app
+
+    group = _make_dummy_grpo_group()
+    inp_ids = torch.tensor([[1, 2, 3, 4, 5]], dtype=torch.long)
+    att_mask = torch.ones_like(inp_ids)
+    comp_mask = torch.tensor([[0, 0, 1, 1, 1]], dtype=torch.float32)
+
+    class _StubModel:
+        device = "cpu"
+
+        def eval(self):
+            return self
+
+        def __call__(self, input_ids, attention_mask=None):
+            batch, seq_len = input_ids.shape
+            logits = torch.zeros((batch, seq_len, 16), dtype=torch.float32)
+            return SimpleNamespace(logits=logits)
+
+    mock_tokenizer = MagicMock()
+    mock_tokenizer.pad_token = "<eos>"
+    stub_model = _StubModel()
+
+    fn = getattr(
+        modal_grpo_poc_app.poc_diagnostic_grpo_forward,
+        "local",
+        modal_grpo_poc_app.poc_diagnostic_grpo_forward,
+    )
+
+    with patch.object(modal_grpo_poc_app.model_volume, "reload"), \
+         patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", return_value=stub_model), \
+         patch("core.grpo_trainer.load_production_trajectories", return_value=[{"id": 1}]), \
+         patch("core.grpo_trainer.group_rollouts_by_prompt", return_value=[group]), \
+         patch("core.grpo_trainer.prepare_rollout_tokens", return_value=(inp_ids, att_mask, comp_mask)) as mock_prep:
+        res = fn(batch_group_size=4)
+
+    assert mock_prep.call_count == 4
+    mock_prep.assert_any_call(
+        "prompt-text",
+        "exploit-0",
+        mock_tokenizer,
+        device="cuda",
+        stored_generated_token_ids=[10, 11, 12],
+    )
+    assert res["status"] == "SUCCESS"
+    assert res["gpu_type"] == "L4"
+    assert math.isfinite(res["diagnostic_loss"])
+    assert res["group_spread"]["informative_groups"] == 1
+    assert res["optimizer_step_executed"] is False
+    assert res["weights_updated"] is False
+    assert res["checkpoints_created"] is False
+
+    # Empty-path: 0 trajectories -> NO_PRODUCTION_TRAJECTORIES
+    with patch.object(modal_grpo_poc_app.model_volume, "reload"), \
+         patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", return_value=stub_model), \
+         patch("core.grpo_trainer.load_production_trajectories", return_value=[]):
+        empty_res = fn(batch_group_size=4)
+
+    assert empty_res["status"] == "NO_PRODUCTION_TRAJECTORIES"
+    assert empty_res["eligible_count"] == 0
+
+
+def test_poc_train_grpo_unblocked_happy_path(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import torch
+
+    import modal_grpo_poc_app
+    from core.schemas import GRPOTrainingStepStats
+
+    monkeypatch.setattr(modal_grpo_poc_app, "is_training_blocked", lambda _cfg: False)
+
+    group = _make_dummy_grpo_group()
+    step_stats = [
+        GRPOTrainingStepStats(
+            step=1,
+            loss=0.42,
+            mean_reward=0.0625,
+            mean_advantage=0.0,
+            kl_divergence=0.01,
+            learning_rate=5e-6,
+        ),
+        GRPOTrainingStepStats(
+            step=2,
+            loss=0.31,
+            mean_reward=0.125,
+            mean_advantage=0.0,
+            kl_divergence=0.02,
+            learning_rate=5e-6,
+        ),
+    ]
+
+    tiny_linear = torch.nn.Linear(4, 4)
+    mock_tokenizer = MagicMock()
+    mock_tokenizer.pad_token = "<eos>"
+    mock_base_model = MagicMock()
+    mock_base_model.to.return_value = mock_base_model
+
+    fn = getattr(
+        modal_grpo_poc_app.poc_train_grpo,
+        "local",
+        modal_grpo_poc_app.poc_train_grpo,
+    )
+
+    with patch.object(modal_grpo_poc_app.model_volume, "reload"), \
+         patch.object(modal_grpo_poc_app.model_volume, "commit") as mock_commit, \
+         patch("core.grpo_trainer.load_production_trajectories", return_value=[{"id": 1}]), \
+         patch("core.grpo_trainer.group_rollouts_by_prompt", return_value=[group]), \
+         patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", return_value=mock_base_model), \
+         patch("core.grpo_trainer.setup_lora_model", return_value=tiny_linear), \
+         patch("core.grpo_trainer.train_grpo_epochs", return_value=step_stats), \
+         patch("core.grpo_trainer.save_lora_checkpoint", return_value="/vol/models/checkpoints_grpo_poc/step_2"):
+        out = fn(num_steps=2, batch_group_size=4)
+
+    mock_commit.assert_called_once()
+    assert out["status"] == "success"
+    assert out["gpu_type"] == "L4"
+    assert out["steps_completed"] == 2
+    assert out["checkpoint_path"] == "/vol/models/checkpoints_grpo_poc/step_2"
+    assert len(out["logs"]) == 2
+    assert out["logs"][0]["step"] == 1
+    assert out["logs"][1]["loss"] == 0.31
+
+
+def test_run_live_poc_collect_and_diagnose_with_mock_modal(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from benchmarks.run_grpo_poc import APPROVAL_ENV_VAR, run_live_poc
+
+    monkeypatch.setenv(APPROVAL_ENV_VAR, "1")
+
+    collect_remote = MagicMock(return_value={"status": "success", "persisted_count": 16})
+    diag_remote = MagicMock(return_value={"status": "SUCCESS", "diagnostic_loss": 1.23})
+    mapping = {
+        ("aegis-rlvr-grpo-poc", "poc_collect_train_rollouts"): SimpleNamespace(remote=collect_remote),
+        ("aegis-rlvr-grpo-poc", "poc_diagnostic_grpo_forward"): SimpleNamespace(remote=diag_remote),
+    }
+
+    from_name_mock = MagicMock(side_effect=lambda app_name, fn_name: mapping[(app_name, fn_name)])
+    fake_modal = SimpleNamespace(Function=SimpleNamespace(from_name=from_name_mock))
+
+    with patch.dict(sys.modules, {"modal": fake_modal}):
+        res = run_live_poc(
+            stage="collect-and-diagnose",
+            max_targets=4,
+            group_size=4,
+            output_dir=str(tmp_path),
+        )
+
+    from_name_mock.assert_any_call("aegis-rlvr-grpo-poc", "poc_collect_train_rollouts")
+    from_name_mock.assert_any_call("aegis-rlvr-grpo-poc", "poc_diagnostic_grpo_forward")
+    collect_remote.assert_called_once()
+    diag_remote.assert_called_once()
+    assert res["collect"]["persisted_count"] == 16
+    assert res["diagnose"]["diagnostic_loss"] == 1.23
+
+    artifact_path = Path(res["artifact_file"])
+    assert artifact_path.exists()
+    assert artifact_path.parent == tmp_path
+    loaded = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert loaded["stage"] == "collect-and-diagnose"
