@@ -911,6 +911,26 @@ UNAUTHORISED_CALL_SITES: Dict[str, str] = {
         "evidence-regeneration trace: it has no approved step policy, no declared "
         "bounds, and requires separate maintainer approval"
     ),
+    "poc_verify_train_exploit": (
+        "the Foundry verifier of the separate GRPO PoC app (modal_grpo_poc_app.py) "
+        "is not part of the authorised R1 evidence-regeneration trace; it is only "
+        "reachable through that separate app under explicit maintainer approval"
+    ),
+    "poc_collect_train_rollouts": (
+        "the rollout collector of the separate GRPO PoC app (modal_grpo_poc_app.py) "
+        "is not part of the authorised R1 evidence-regeneration trace; its live "
+        "invocation is refused without separate maintainer approval"
+    ),
+    "poc_diagnostic_grpo_forward": (
+        "the diagnostic forward pass of the separate GRPO PoC app (modal_grpo_poc_app.py) "
+        "is not part of the authorised R1 evidence-regeneration trace; its live "
+        "invocation is refused without separate maintainer approval"
+    ),
+    "poc_train_grpo": (
+        "the LoRA GRPO training entry point of the separate GRPO PoC app "
+        "(modal_grpo_poc_app.py) is not part of the authorised R1 evidence-regeneration "
+        "trace and is additionally blocked when TRAINING_STATUS=BLOCKED"
+    ),
 }
 
 

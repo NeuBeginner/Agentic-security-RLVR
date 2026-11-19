@@ -1077,6 +1077,9 @@ def audit_volume_trajectories_remote() -> dict:
     image=gpu_image,
     volumes={"/vol/models": model_volume},
     timeout=600,
+    min_containers=0,
+    buffer_containers=0,
+    scaledown_window=60,
 )
 def diagnostic_grpo_forward_remote(
     model_id: str = config.GRPO_BASE_MODEL,
@@ -1096,10 +1099,16 @@ def diagnostic_grpo_forward_remote(
     from core.grpo_trainer import (
         load_trajectories_from_directory,
         group_rollouts_by_prompt,
+        diagnose_group_spread,
         prepare_rollout_tokens,
         compute_group_advantages,
         get_token_logprobs
     )
+
+    try:
+        model_volume.reload()
+    except Exception:
+        pass
 
     print(f"[Diagnostic Forward] Loading tokenizer and model: {model_id} on Modal GPU...")
     tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=config.MODEL_CACHE_DIR)
@@ -1114,11 +1123,6 @@ def diagnostic_grpo_forward_remote(
         cache_dir=config.MODEL_CACHE_DIR,
     )
     model.eval()
-
-    try:
-        model_volume.reload()
-    except Exception:
-        pass
 
     # Load trajectories with strict production allowlist and exact token lineage (Round 5.4)
     from core.grpo_trainer import load_production_trajectories
@@ -1141,6 +1145,7 @@ def diagnostic_grpo_forward_remote(
             "eligible_count": len(traj_records)
         }
 
+    spread = diagnose_group_spread(groups)
     test_group = groups[0]
     rollout_tensors = []
     for r in test_group.rollouts:
@@ -1176,6 +1181,7 @@ def diagnostic_grpo_forward_remote(
         "prompt_tokens": int(first_inp.shape[1] - completion_token_count),
         "completion_tokens": int(completion_token_count),
         "diagnostic_loss": float(diagnostic_loss),
+        "group_spread": spread,
         "optimizer_step_executed": False,
         "weights_updated": False,
         "checkpoints_created": False
@@ -1187,6 +1193,9 @@ def diagnostic_grpo_forward_remote(
     image=gpu_image,
     volumes={"/vol/models": model_volume},
     timeout=1800,
+    min_containers=0,
+    buffer_containers=0,
+    scaledown_window=60,
 )
 def train_grpo_remote(
     model_id: str = config.GRPO_BASE_MODEL,
@@ -1305,6 +1314,9 @@ def train_grpo_remote(
     image=gpu_image,
     volumes={"/vol/models": model_volume},
     timeout=1800,
+    min_containers=0,
+    buffer_containers=0,
+    scaledown_window=60,
 )
 def collect_train_rollouts_remote(
     model_id: str = config.GRPO_BASE_MODEL,
@@ -1878,7 +1890,7 @@ def main(
         print("\n" + "=" * 78)
         print("🧪 EXECUTING DIAGNOSTIC GRPO FORWARD PASS (NO WEIGHT UPDATES / NO OPTIMIZER STEP)")
         print("=" * 78)
-        diag_model_id = config.DEV_GPU_MODEL if generator.lower() == "dev" or target_name == "Vault" else config.AUDIT_GPU_MODEL
+        diag_model_id = config.DEV_GPU_MODEL if generator.lower() == "dev" else config.GRPO_BASE_MODEL
         diag_res = diagnostic_grpo_forward_remote.remote(model_id=diag_model_id, batch_group_size=num_candidates)
         print(json.dumps(diag_res, indent=2))
         print("=" * 78 + "\n")

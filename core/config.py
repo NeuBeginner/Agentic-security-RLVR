@@ -106,6 +106,11 @@ class PipelineConfig:
     GRPO_GPU_TYPE: str = "H100"
     GRPO_BASE_MODEL: str = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 
+    # Isolated 1.5B GRPO PoC settings (L4 + dedicated volume directories)
+    GRPO_POC_GPU_TYPE: str = "L4"
+    GRPO_POC_TRAJECTORY_DIR: str = "/vol/models/trajectories_grpo_poc"
+    GRPO_POC_CHECKPOINT_DIR: str = "/vol/models/checkpoints_grpo_poc"
+
     # GRPO Policy Optimization Parameters
     GRPO_GROUP_SIZE: int = 4
     GRPO_LEARNING_RATE: float = 5e-6
