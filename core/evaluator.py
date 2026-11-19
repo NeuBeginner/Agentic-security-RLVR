@@ -440,7 +440,8 @@ def create_trajectory_record(
     dataset_partition: str = "production",
     is_synthetic: bool = False,
     token_provenance: str = "model_generate",
-    trainable: bool = True
+    trainable: bool = True,
+    model_id: Optional[str] = None,
 ) -> RLVRTrajectory:
     """Packages the verified execution trajectory for GRPO fine-tuning (Round 4/5.2)."""
     cand_id = payload.candidate_id or (verdict.candidate_id or str(uuid.uuid4())[:8])
@@ -469,6 +470,7 @@ def create_trajectory_record(
         trajectory_id=f"traj_{run_id}_{cand_id}",
         candidate_id=cand_id,
         run_id=run_id,
+        model_id=model_id or "default",
         timestamp=time.time(),
         target_name=target.name,
         target_code=target.source_code,

@@ -12,7 +12,10 @@ completely untouched.
 from __future__ import annotations
 
 import os
+import posixpath
 import sys
+import uuid
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -24,7 +27,7 @@ if _REPO_ROOT not in sys.path:
 
 from core import r1_bounds as r1
 from core.config import config, is_training_blocked
-from core.schemas import ExecutionResult, ExploitPayload, TargetProgram
+from core.schemas import ExecutionResult, ExploitPayload, ResultCategory, TargetProgram
 from sandbox.runner import run_payload_in_sandbox, sandbox_image
 
 app = modal.App("aegis-rlvr-grpo-poc")
@@ -64,6 +67,14 @@ poc_gpu_image = (
         copy=True,
     )
 )
+
+
+def _reload_volume_with_warning(volume: modal.Volume) -> None:
+    """Reload Modal volume snapshot, emitting a warning instead of silent swallow on failure."""
+    try:
+        volume.reload()
+    except Exception as exc:
+        warnings.warn(f"modal volume reload failed: {exc}", RuntimeWarning, stacklevel=2)
 
 
 def _resolve_train_dataset_paths() -> tuple[Optional[Path], Optional[Path], Optional[Path], Optional[Path]]:
@@ -109,6 +120,7 @@ def poc_collect_train_rollouts(
     max_new_tokens: int = 1536,
     run_id: Optional[str] = None,
     trajectory_dir: str = config.GRPO_POC_TRAJECTORY_DIR,
+    target_names: Optional[List[str]] = None,
 ) -> dict:
     """Collects GRPO PoC rollouts on disjoint train targets using L4 GPU."""
     import torch
@@ -117,10 +129,7 @@ def poc_collect_train_rollouts(
     from core.llm_generator import build_exploit_engineer_system_prompt, parse_model_response
     from core.train_rollout_collector import collect_train_rollouts, load_train_targets
 
-    try:
-        model_volume.reload()
-    except Exception:
-        pass
+    _reload_volume_with_warning(model_volume)
 
     train_dataset_path, benchmark_dataset_path, train_solidity_dir, test_solidity_dir = _resolve_train_dataset_paths()
     if train_dataset_path is not None:
@@ -138,8 +147,20 @@ def poc_collect_train_rollouts(
         targets = load_train_targets()
         collect_kwargs = {}
 
-    if max_targets is not None and max_targets > 0:
+    if target_names:
+        by_name = {t.name: t for t in targets}
+        unknown = [name for name in target_names if name not in by_name]
+        if unknown:
+            raise ValueError(
+                f"Unknown or non-train target_names requested: {unknown}. "
+                f"Available train targets: {sorted(by_name)}"
+            )
+        targets = [by_name[name] for name in target_names]
+    elif max_targets is not None and max_targets > 0:
         targets = targets[:max_targets]
+
+    active_run_id = run_id or f"poc_run_{uuid.uuid4().hex[:8]}"
+    run_trajectory_dir = posixpath.join(trajectory_dir.rstrip("/"), active_run_id)
 
     cache_dir = config.MODEL_CACHE_DIR
     tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=cache_dir)
@@ -168,7 +189,11 @@ def poc_collect_train_rollouts(
             tokenize=False,
             add_generation_prompt=True,
         )
-        inputs = tokenizer(formatted_prompt, return_tensors="pt").to("cuda")
+        inputs = tokenizer(
+            formatted_prompt,
+            return_tensors="pt",
+            add_special_tokens=False,
+        ).to("cuda")
         prompt_len = inputs["input_ids"].shape[1]
 
         gen_kwargs: Dict[str, Any] = {
@@ -201,30 +226,37 @@ def poc_collect_train_rollouts(
         )
 
     def verifier_fn(tgt: TargetProgram, pld: ExploitPayload) -> ExecutionResult:
+        if not pld.format_valid:
+            return ExecutionResult(
+                return_code=-4,
+                stdout="",
+                stderr=f"GENERATION_FORMAT_ERROR: {pld.format_error_reason or 'invalid format'}",
+                execution_time_sec=0.0,
+                category=ResultCategory.GENERATION_FORMAT_ERROR,
+                invariant_violated=False,
+            )
         return ExecutionResult(**poc_verify_train_exploit.remote(tgt.model_dump(), pld.model_dump()))
 
     result = collect_train_rollouts(
         targets=targets,
-        trajectory_dir=trajectory_dir,
+        trajectory_dir=run_trajectory_dir,
         generator_fn=generator_fn,
         verifier_fn=verifier_fn,
         group_size=group_size,
         temperatures=temperatures,
-        run_id=run_id,
+        run_id=active_run_id,
+        model_id=model_id,
         **collect_kwargs,
     )
 
-    try:
-        model_volume.commit()
-    except Exception:
-        pass
+    model_volume.commit()
 
     return {
         "status": "success",
-        "run_id": result.run_id,
+        "run_id": active_run_id,
         "model_id": model_id,
         "gpu_type": config.GRPO_POC_GPU_TYPE,
-        "trajectory_dir": trajectory_dir,
+        "trajectory_dir": run_trajectory_dir,
         "persisted_count": result.persisted_count,
         "excluded_infra_count": result.excluded_infra_count,
         "category_counts": result.category_counts,
@@ -251,16 +283,14 @@ def poc_diagnostic_grpo_forward(
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     from core.grpo_trainer import (
+        UnsafeRolloutError,
         diagnose_group_spread,
         group_rollouts_by_prompt,
         load_production_trajectories,
         prepare_rollout_tokens,
     )
 
-    try:
-        model_volume.reload()
-    except Exception:
-        pass
+    _reload_volume_with_warning(model_volume)
 
     tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=config.MODEL_CACHE_DIR)
     if tokenizer.pad_token is None:
@@ -302,16 +332,38 @@ def poc_diagnostic_grpo_forward(
 
     test_group = groups[0]
     rollout_tensors = []
+    skipped_overlength_count = 0
     for r in test_group.rollouts:
         c_str = r.full_completion_text or r.exploit_code
-        inp_ids, att_mask, comp_mask = prepare_rollout_tokens(
-            test_group.prompt,
-            c_str,
-            tokenizer,
-            device="cuda",
-            stored_generated_token_ids=r.generated_token_ids,
-        )
+        try:
+            inp_ids, att_mask, comp_mask = prepare_rollout_tokens(
+                test_group.prompt,
+                c_str,
+                tokenizer,
+                max_seq_len=config.GRPO_MAX_SEQ_LEN,
+                device="cuda",
+                stored_generated_token_ids=r.generated_token_ids,
+            )
+        except UnsafeRolloutError:
+            skipped_overlength_count += 1
+            continue
+        if comp_mask[:, 1:].sum().item() <= 0:
+            skipped_overlength_count += 1
+            continue
         rollout_tensors.append((inp_ids, att_mask, comp_mask))
+
+    if not rollout_tensors:
+        return {
+            "status": "ALL_ROLLOUTS_UNSAFE",
+            "message": "No valid rollouts with completion_tokens > 0 remained after safety/length checks.",
+            "eligible_count": len(traj_records),
+            "skipped_overlength_count": skipped_overlength_count,
+            "trajectory_dir": trajectory_dir,
+            "group_spread": spread,
+            "optimizer_step_executed": False,
+            "weights_updated": False,
+            "checkpoints_created": False,
+        }
 
     with torch.no_grad():
         first_inp, first_att, first_comp = rollout_tensors[0]
@@ -333,6 +385,7 @@ def poc_diagnostic_grpo_forward(
         "trajectory_dir": trajectory_dir,
         "device": str(model.device),
         "eligible_count": len(traj_records),
+        "skipped_overlength_count": skipped_overlength_count,
         "group_spread": spread,
         "input_shape": list(first_inp.shape),
         "mask_shape": list(first_comp.shape),
@@ -385,10 +438,7 @@ def poc_train_grpo(
 
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-    try:
-        model_volume.reload()
-    except Exception:
-        pass
+    _reload_volume_with_warning(model_volume)
 
     trajectories = load_production_trajectories(trajectory_dir, target_split="train")
     groups = group_rollouts_by_prompt(trajectories, group_size=batch_group_size)
@@ -434,10 +484,7 @@ def poc_train_grpo(
     )
 
     save_path = save_lora_checkpoint(lora_model, tokenizer, checkpoint_dir, step=len(step_stats))
-    try:
-        model_volume.commit()
-    except Exception:
-        pass
+    model_volume.commit()
 
     return {
         "status": "success",
