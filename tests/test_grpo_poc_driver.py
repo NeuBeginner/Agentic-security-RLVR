@@ -240,9 +240,12 @@ def test_poc_collect_train_rollouts_mock_execution(monkeypatch):
     )
     assert mock_collect.call_args.kwargs["benchmark_dataset_path"] == Path("/opt/aegis/benchmarks/benchmark_dataset.json")
     assert mock_collect.call_args.kwargs["test_solidity_dir"] == Path("/opt/aegis/benchmarks/targets/solidity")
+    assert mock_collect.call_args.kwargs["model_id"] == "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+    assert mock_collect.call_args.kwargs["run_id"].startswith("poc_run_")
+    assert out["trajectory_dir"] == f"/vol/models/trajectories_grpo_poc/{out['run_id']}"
 
     assert out["status"] == "success"
-    assert out["run_id"] == "poc-test-run"
+    assert out["run_id"] == out["run_id"]
     assert out["gpu_type"] == "L4"
     assert out["persisted_count"] == 4
     assert out["excluded_infra_count"] == 0
@@ -330,21 +333,40 @@ def test_poc_diagnostic_grpo_forward_happy_and_empty_paths():
          patch("core.grpo_trainer.prepare_rollout_tokens", return_value=(inp_ids, att_mask, comp_mask)) as mock_prep:
         res = fn(batch_group_size=4)
 
+    from core.config import config
+
     assert mock_prep.call_count == 4
     mock_prep.assert_any_call(
         "prompt-text",
         "exploit-0",
         mock_tokenizer,
+        max_seq_len=config.GRPO_MAX_SEQ_LEN,
         device="cuda",
         stored_generated_token_ids=[10, 11, 12],
     )
     assert res["status"] == "SUCCESS"
     assert res["gpu_type"] == "L4"
+    assert res["skipped_overlength_count"] == 0
     assert math.isfinite(res["diagnostic_loss"])
     assert res["group_spread"]["informative_groups"] == 1
     assert res["optimizer_step_executed"] is False
     assert res["weights_updated"] is False
     assert res["checkpoints_created"] is False
+
+    # All rollouts unsafe/overlength -> ALL_ROLLOUTS_UNSAFE
+    from core.grpo_trainer import UnsafeRolloutError
+
+    with patch.object(modal_grpo_poc_app.model_volume, "reload"), \
+         patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", return_value=stub_model), \
+         patch("core.grpo_trainer.load_production_trajectories", return_value=[{"id": 1}]), \
+         patch("core.grpo_trainer.group_rollouts_by_prompt", return_value=[group]), \
+         patch("core.grpo_trainer.prepare_rollout_tokens", side_effect=UnsafeRolloutError("too long")):
+        unsafe_res = fn(batch_group_size=4)
+
+    assert unsafe_res["status"] == "ALL_ROLLOUTS_UNSAFE"
+    assert unsafe_res["skipped_overlength_count"] == 4
+    assert unsafe_res["optimizer_step_executed"] is False
 
     # Empty-path: 0 trajectories -> NO_PRODUCTION_TRAJECTORIES
     with patch.object(modal_grpo_poc_app.model_volume, "reload"), \
@@ -428,7 +450,14 @@ def test_run_live_poc_collect_and_diagnose_with_mock_modal(monkeypatch, tmp_path
 
     monkeypatch.setenv(APPROVAL_ENV_VAR, "1")
 
-    collect_remote = MagicMock(return_value={"status": "success", "persisted_count": 16})
+    collect_remote = MagicMock(
+        return_value={
+            "status": "success",
+            "run_id": "poc_run_abc123",
+            "trajectory_dir": "/vol/models/trajectories_grpo_poc/poc_run_abc123",
+            "persisted_count": 16,
+        }
+    )
     diag_remote = MagicMock(return_value={"status": "SUCCESS", "diagnostic_loss": 1.23})
     mapping = {
         ("aegis-rlvr-grpo-poc", "poc_collect_train_rollouts"): SimpleNamespace(remote=collect_remote),
@@ -444,12 +473,18 @@ def test_run_live_poc_collect_and_diagnose_with_mock_modal(monkeypatch, tmp_path
             max_targets=4,
             group_size=4,
             output_dir=str(tmp_path),
+            target_names="TrainPushAuction,TrainRewardPool",
+            run_id="poc_run_abc123",
         )
 
     from_name_mock.assert_any_call("aegis-rlvr-grpo-poc", "poc_collect_train_rollouts")
     from_name_mock.assert_any_call("aegis-rlvr-grpo-poc", "poc_diagnostic_grpo_forward")
     collect_remote.assert_called_once()
+    assert collect_remote.call_args.kwargs["target_names"] == ["TrainPushAuction", "TrainRewardPool"]
+    assert collect_remote.call_args.kwargs["run_id"] == "poc_run_abc123"
     diag_remote.assert_called_once()
+    assert diag_remote.call_args.kwargs["trajectory_dir"] == "/vol/models/trajectories_grpo_poc/poc_run_abc123"
+    assert res["trajectory_dir"] == "/vol/models/trajectories_grpo_poc/poc_run_abc123"
     assert res["collect"]["persisted_count"] == 16
     assert res["diagnose"]["diagnostic_loss"] == 1.23
 
@@ -458,3 +493,120 @@ def test_run_live_poc_collect_and_diagnose_with_mock_modal(monkeypatch, tmp_path
     assert artifact_path.parent == tmp_path
     loaded = json.loads(artifact_path.read_text(encoding="utf-8"))
     assert loaded["stage"] == "collect-and-diagnose"
+
+
+def test_run_grpo_poc_target_names_and_cli_flags(capsys):
+    from benchmarks.run_grpo_poc import main, run_dry_run
+
+    with pytest.raises(ValueError, match="Unknown or non-train target_names"):
+        run_dry_run(
+            stage="collect",
+            max_targets=4,
+            group_size=4,
+            max_new_tokens=1536,
+            model_id="Qwen/Qwen2.5-Coder-1.5B-Instruct",
+            target_names="Vault",
+        )
+
+    with pytest.raises(ValueError, match="Unknown or non-train target_names"):
+        run_dry_run(
+            stage="collect",
+            max_targets=4,
+            group_size=4,
+            max_new_tokens=1536,
+            model_id="Qwen/Qwen2.5-Coder-1.5B-Instruct",
+            target_names="NonExistentContract",
+        )
+
+    with patch.dict(sys.modules, {"modal": None}):
+        code = main([
+            "--dry-run",
+            "--target-names", "TrainPushAuction,TrainAdminTreasury",
+            "--run-id", "poc_run_custom",
+            "--num-steps", "3",
+            "--learning-rate", "1e-5",
+        ])
+    assert code == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["selected_targets"] == ["TrainPushAuction", "TrainAdminTreasury"]
+    assert plan["selected_target_count"] == 2
+    assert plan["run_id"] == "poc_run_custom"
+    assert plan["trajectory_dir"] == "/vol/models/trajectories_grpo_poc/poc_run_custom"
+    assert plan["num_steps"] == 3
+    assert plan["learning_rate"] == 1e-5
+
+
+def test_poc_collect_skips_remote_verifier_on_invalid_format_and_propagates_commit_error():
+    from unittest.mock import MagicMock
+
+    import modal_grpo_poc_app
+    from core.schemas import AttackHypothesis, ExploitPayload, ResultCategory, TargetProgram
+
+    dummy_target = TargetProgram(
+        name="TrainShareVault",
+        source_code="// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract TrainShareVault {}",
+        invariants=["SOLVENCY"],
+    )
+    mock_tokenizer = MagicMock()
+    mock_tokenizer.pad_token = "<eos>"
+    mock_model = MagicMock()
+    mock_model.to.return_value = mock_model
+
+    captured_verifier = {}
+
+    def fake_collect(**kwargs):
+        captured_verifier["fn"] = kwargs["verifier_fn"]
+        bad_payload = ExploitPayload(
+            target_name=dummy_target.name,
+            hypothesis=AttackHypothesis(
+                vulnerability_type="Reentrancy",
+                reasoning_trace="bad",
+                attack_vector="none",
+            ),
+            test_code="",
+            format_valid=False,
+            format_error_reason="missing solidity block",
+            generated_token_ids=[1, 2],
+        )
+        res = kwargs["verifier_fn"](dummy_target, bad_payload)
+        assert res.category == ResultCategory.GENERATION_FORMAT_ERROR
+        assert res.return_code == -4
+        raise RuntimeError("stop_after_check")
+
+    fn = getattr(
+        modal_grpo_poc_app.poc_collect_train_rollouts,
+        "local",
+        modal_grpo_poc_app.poc_collect_train_rollouts,
+    )
+
+    with patch.object(modal_grpo_poc_app.model_volume, "reload"), \
+         patch.object(modal_grpo_poc_app.poc_verify_train_exploit, "remote") as mock_remote, \
+         patch("core.train_rollout_collector.load_train_targets", return_value=[dummy_target]), \
+         patch("core.train_rollout_collector.collect_train_rollouts", side_effect=fake_collect), \
+         patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", return_value=mock_model):
+        with pytest.raises(RuntimeError, match="stop_after_check"):
+            fn(target_names=["TrainShareVault"])
+
+    mock_remote.assert_not_called()
+
+    # Verify model_volume.commit() failure is NOT swallowed
+    from core.train_rollout_collector import TrainRolloutCollectionResult
+
+    ok_result = TrainRolloutCollectionResult(
+        run_id="poc_run_commit_err",
+        trajectory_dir="/vol/models/trajectories_grpo_poc/poc_run_commit_err",
+        targets_processed=1,
+        candidates_generated=4,
+        persisted_count=4,
+        excluded_infra_count=0,
+        excluded_missing_tokens_count=0,
+    )
+    with patch.object(modal_grpo_poc_app.model_volume, "reload"), \
+         patch.object(modal_grpo_poc_app.model_volume, "commit", side_effect=OSError("volume commit failed")), \
+         patch("core.train_rollout_collector.load_train_targets", return_value=[dummy_target]), \
+         patch("core.train_rollout_collector.collect_train_rollouts", return_value=ok_result), \
+         patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", return_value=mock_model):
+        with pytest.raises(OSError, match="volume commit failed"):
+            fn(target_names=["TrainShareVault"])

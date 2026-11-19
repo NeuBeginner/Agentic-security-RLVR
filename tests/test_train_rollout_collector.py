@@ -772,3 +772,52 @@ def test_load_train_targets_falls_back_to_train_solidity_dir_when_rel_source_mis
             train_dataset_path=custom_train_json,
             train_solidity_dir=fallback_dir,
         )
+
+
+def test_collect_train_rollouts_sets_model_id_and_single_traj_prefix(tmp_path):
+    """Ensure model_id is persisted into RLVRTrajectory and filenames avoid traj_traj_ duplication."""
+    target = load_train_targets()[0]
+
+    def mock_generator(tgt: TargetProgram, prompt_text: str, temp: float, cand_idx: int) -> ExploitPayload:
+        return ExploitPayload(
+            target_name=tgt.name,
+            hypothesis=AttackHypothesis(
+                vulnerability_type=tgt.invariants[0] if tgt.invariants else "Logic",
+                reasoning_trace=f"reasoning {cand_idx}",
+                attack_vector="vector",
+            ),
+            test_code="contract ExploitModule { function runExploit() external payable {} }",
+            prompt_text=prompt_text,
+            format_valid=True,
+            raw_model_response="resp",
+            generated_token_ids=[10 + cand_idx, 20 + cand_idx],
+            candidate_index=cand_idx,
+        )
+
+    def mock_verifier(tgt: TargetProgram, pld: ExploitPayload) -> ExecutionResult:
+        return ExecutionResult(
+            return_code=1,
+            stdout="",
+            stderr="revert",
+            execution_time_sec=0.1,
+            category=ResultCategory.RUNTIME_REVERT,
+            invariant_violated=False,
+        )
+
+    res = collect_train_rollouts(
+        targets=[target],
+        trajectory_dir=str(tmp_path),
+        generator_fn=mock_generator,
+        verifier_fn=mock_verifier,
+        group_size=4,
+        run_id="poc_run_test01",
+        model_id="Qwen/Qwen2.5-Coder-1.5B-Instruct",
+    )
+
+    assert res.persisted_count == 4
+    for path_str in res.persisted_paths:
+        p = Path(path_str)
+        assert p.name.startswith("traj_poc_run_test01_")
+        assert not p.name.startswith("traj_traj_")
+        record = json.loads(p.read_text(encoding="utf-8"))
+        assert record["model_id"] == "Qwen/Qwen2.5-Coder-1.5B-Instruct"

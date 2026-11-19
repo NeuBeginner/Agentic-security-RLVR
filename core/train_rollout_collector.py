@@ -293,6 +293,7 @@ def collect_train_rollouts(
     prompt_builder: Callable[[TargetProgram], str] = build_analysis_prompt,
     benchmark_dataset_path: Path = DEFAULT_BENCHMARK_DATASET_PATH,
     test_solidity_dir: Path = Path(LOCAL_TRUSTED_HARNESSES_DIR),
+    model_id: Optional[str] = None,
 ) -> TrainRolloutCollectionResult:
     """
     Collect `G >= 4` GRPO training rollouts per train target and persist eligible
@@ -363,9 +364,15 @@ def collect_train_rollouts(
                 is_synthetic=False,
                 token_provenance="model_generate",
                 trainable=True,
+                model_id=model_id,
             )
 
-            out_path = os.path.join(trajectory_dir, f"traj_{traj.trajectory_id}.json")
+            filename = (
+                f"{traj.trajectory_id}.json"
+                if traj.trajectory_id.startswith("traj_")
+                else f"traj_{traj.trajectory_id}.json"
+            )
+            out_path = os.path.join(trajectory_dir, filename)
             with open(out_path, "w", encoding="utf-8") as handle:
                 json.dump(traj.model_dump(), handle, indent=2)
             persisted_paths.append(out_path)

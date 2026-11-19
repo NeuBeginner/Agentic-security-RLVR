@@ -15,10 +15,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import posixpath
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
@@ -53,7 +54,13 @@ def _assert_authorised() -> None:
     )
 
 
-def _validate_bounds(max_targets: int, group_size: int, max_new_tokens: int) -> None:
+def _validate_bounds(
+    max_targets: int,
+    group_size: int,
+    max_new_tokens: int,
+    num_steps: int = 2,
+    learning_rate: float = 5e-6,
+) -> None:
     """Enforce hard PoC bounds before any execution."""
     if not (1 <= max_targets <= 10):
         raise ValueError(f"--max-targets must be between 1 and 10, got {max_targets}")
@@ -61,6 +68,45 @@ def _validate_bounds(max_targets: int, group_size: int, max_new_tokens: int) -> 
         raise ValueError(f"--group-size must be between 4 and 8, got {group_size}")
     if max_new_tokens <= 0:
         raise ValueError(f"--max-new-tokens must be positive, got {max_new_tokens}")
+    if num_steps <= 0:
+        raise ValueError(f"--num-steps must be positive, got {num_steps}")
+    if learning_rate <= 0:
+        raise ValueError(f"--learning-rate must be positive, got {learning_rate}")
+
+
+def _parse_target_names(raw: Optional[Sequence[str] | str]) -> Optional[List[str]]:
+    """Parse comma-separated or sequence target names into a deduplicated list."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        items = [part.strip() for part in raw.split(",") if part.strip()]
+    else:
+        items = [str(part).strip() for part in raw if str(part).strip()]
+    return items or None
+
+
+def _select_and_validate_train_targets(
+    max_targets: int,
+    target_names: Optional[List[str]] = None,
+):
+    """Load train targets, enforce zero test-split overlap, and apply selection."""
+    all_targets = load_train_targets()
+    for target in all_targets:
+        validate_train_target_isolation(target)
+
+    if target_names:
+        by_name = {t.name: t for t in all_targets}
+        unknown = [name for name in target_names if name not in by_name]
+        if unknown:
+            raise ValueError(
+                f"Unknown or non-train target_names requested: {unknown}. "
+                f"Available train targets: {sorted(by_name)}"
+            )
+        selected = [by_name[name] for name in target_names]
+    else:
+        selected = all_targets[:max_targets]
+
+    return all_targets, selected
 
 
 def run_dry_run(
@@ -69,15 +115,30 @@ def run_dry_run(
     group_size: int,
     max_new_tokens: int,
     model_id: str,
+    target_names: Optional[Sequence[str] | str] = None,
+    run_id: Optional[str] = None,
+    num_steps: int = 2,
+    learning_rate: float = 5e-6,
 ) -> Dict[str, Any]:
     """Validate local train targets ($0) and return the execution plan."""
-    _validate_bounds(max_targets=max_targets, group_size=group_size, max_new_tokens=max_new_tokens)
+    parsed_names = _parse_target_names(target_names)
+    _validate_bounds(
+        max_targets=max_targets,
+        group_size=group_size,
+        max_new_tokens=max_new_tokens,
+        num_steps=num_steps,
+        learning_rate=learning_rate,
+    )
 
-    all_targets = load_train_targets()
-    for target in all_targets:
-        validate_train_target_isolation(target)
-
-    selected = all_targets[:max_targets]
+    all_targets, selected = _select_and_validate_train_targets(
+        max_targets=max_targets,
+        target_names=parsed_names,
+    )
+    resolved_traj_dir = (
+        posixpath.join(config.GRPO_POC_TRAJECTORY_DIR.rstrip("/"), run_id)
+        if run_id
+        else config.GRPO_POC_TRAJECTORY_DIR
+    )
     return {
         "mode": "dry-run",
         "cost_usd": 0.0,
@@ -85,14 +146,18 @@ def run_dry_run(
         "stage": stage,
         "gpu_type": config.GRPO_POC_GPU_TYPE,
         "model_id": model_id,
-        "trajectory_dir": config.GRPO_POC_TRAJECTORY_DIR,
+        "run_id": run_id,
+        "trajectory_dir": resolved_traj_dir,
         "checkpoint_dir": config.GRPO_POC_CHECKPOINT_DIR,
         "training_blocked": is_training_blocked(config),
         "total_train_targets_validated": len(all_targets),
         "selected_target_count": len(selected),
         "selected_targets": [t.name for t in selected],
+        "target_names": parsed_names,
         "group_size": group_size,
         "max_new_tokens": max_new_tokens,
+        "num_steps": num_steps,
+        "learning_rate": learning_rate,
     }
 
 
@@ -105,16 +170,28 @@ def run_live_poc(
     output_dir: str = DEFAULT_OUTPUT_DIR,
     num_steps: int = 2,
     learning_rate: float = 5e-6,
+    target_names: Optional[Sequence[str] | str] = None,
+    run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute the approved live GRPO PoC stage on Modal."""
     _assert_authorised()
-    _validate_bounds(max_targets=max_targets, group_size=group_size, max_new_tokens=max_new_tokens)
+    parsed_names = _parse_target_names(target_names)
+    _validate_bounds(
+        max_targets=max_targets,
+        group_size=group_size,
+        max_new_tokens=max_new_tokens,
+        num_steps=num_steps,
+        learning_rate=learning_rate,
+    )
 
     if stage == "train" and is_training_blocked(config):
         raise RuntimeError(
             "FAIL-CLOSED SECURITY GATE: TRAINING_STATUS = BLOCKED. "
             "GRPO training stage is strictly blocked on the client before contacting Modal."
         )
+
+    if parsed_names is not None:
+        _select_and_validate_train_targets(max_targets=max_targets, target_names=parsed_names)
 
     import modal  # noqa: E402 — imported ONLY after fail-closed authorisation gates
 
@@ -123,6 +200,7 @@ def run_live_poc(
         "stage": stage,
         "gpu_type": config.GRPO_POC_GPU_TYPE,
         "model_id": model_id,
+        "run_id": run_id,
         "trajectory_dir": config.GRPO_POC_TRAJECTORY_DIR,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
     }
@@ -134,15 +212,24 @@ def run_live_poc(
             max_targets=max_targets,
             group_size=group_size,
             max_new_tokens=max_new_tokens,
+            run_id=run_id,
             trajectory_dir=config.GRPO_POC_TRAJECTORY_DIR,
+            target_names=parsed_names,
         )
+
+    active_traj_dir = config.GRPO_POC_TRAJECTORY_DIR
+    if stage == "collect-and-diagnose" and isinstance(results.get("collect"), dict):
+        active_traj_dir = results["collect"].get("trajectory_dir") or config.GRPO_POC_TRAJECTORY_DIR
+    elif run_id:
+        active_traj_dir = posixpath.join(config.GRPO_POC_TRAJECTORY_DIR.rstrip("/"), run_id)
+    results["trajectory_dir"] = active_traj_dir
 
     if stage in ("diagnose", "collect-and-diagnose"):
         diag_fn = modal.Function.from_name(APP_NAME, "poc_diagnostic_grpo_forward")
         results["diagnose"] = diag_fn.remote(
             model_id=model_id,
             batch_group_size=group_size,
-            trajectory_dir=config.GRPO_POC_TRAJECTORY_DIR,
+            trajectory_dir=active_traj_dir,
         )
 
     if stage == "train":
@@ -152,7 +239,7 @@ def run_live_poc(
             num_steps=num_steps,
             learning_rate=learning_rate,
             batch_group_size=group_size,
-            trajectory_dir=config.GRPO_POC_TRAJECTORY_DIR,
+            trajectory_dir=active_traj_dir,
             checkpoint_dir=config.GRPO_POC_CHECKPOINT_DIR,
         )
 
@@ -208,6 +295,28 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_OUTPUT_DIR,
         help=f"Directory to store live PoC JSON artifacts (default: {DEFAULT_OUTPUT_DIR}).",
     )
+    parser.add_argument(
+        "--target-names",
+        default=None,
+        help="Optional comma-separated list of disjoint train target names.",
+    )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Optional run_id for per-run trajectory directory isolation.",
+    )
+    parser.add_argument(
+        "--num-steps",
+        type=int,
+        default=2,
+        help="Number of LoRA GRPO steps for --stage train (default: 2).",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=5e-6,
+        help="Learning rate for --stage train (default: 5e-6).",
+    )
     return parser
 
 
@@ -222,6 +331,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             group_size=args.group_size,
             max_new_tokens=args.max_new_tokens,
             model_id=args.model_id,
+            target_names=args.target_names,
+            run_id=args.run_id,
+            num_steps=args.num_steps,
+            learning_rate=args.learning_rate,
         )
         print(json.dumps(plan, indent=2))
         return 0
@@ -233,6 +346,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         max_new_tokens=args.max_new_tokens,
         model_id=args.model_id,
         output_dir=args.output_dir,
+        num_steps=args.num_steps,
+        learning_rate=args.learning_rate,
+        target_names=args.target_names,
+        run_id=args.run_id,
     )
     print(json.dumps(res, indent=2))
     return 0
