@@ -26,6 +26,7 @@ contract TrainRewardPrecisionCollapseHarness is Test {
         vm.deal(address(this), ATTACKER_BUDGET);
         exploit.runExploit{value: ATTACKER_BUDGET}();
 
+        vm.deal(address(this), DISTRIBUTED_REWARD);
         pool.distributeReward{value: DISTRIBUTED_REWARD}();
 
         uint256 pending = pool.pendingReward(staker);
