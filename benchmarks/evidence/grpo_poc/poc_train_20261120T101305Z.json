@@ -1,0 +1,51 @@
+{
+  "app_name": "aegis-rlvr-grpo-poc",
+  "stage": "train",
+  "gpu_type": "L4",
+  "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+  "run_id": "poc_run_7543d0db",
+  "trajectory_dir": "/vol/models/trajectories_grpo_poc/poc_run_7543d0db",
+  "timestamp_utc": "2026-11-20T10:06:54.533638+00:00",
+  "train": {
+    "status": "success",
+    "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+    "gpu_type": "L4",
+    "trajectory_dir": "/vol/models/trajectories_grpo_poc/poc_run_7543d0db",
+    "checkpoint_path": "/vol/models/checkpoints_grpo_poc/checkpoint-step-4",
+    "steps_completed": 4,
+    "logs": [
+      {
+        "step": 1,
+        "loss": 0.0,
+        "mean_reward": -0.35,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0,
+        "learning_rate": 5e-06
+      },
+      {
+        "step": 2,
+        "loss": -4.470348358154297e-08,
+        "mean_reward": 0.725,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0,
+        "learning_rate": 5e-06
+      },
+      {
+        "step": 3,
+        "loss": -0.0006795972585678101,
+        "mean_reward": -0.3,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00038683193997712806,
+        "learning_rate": 5e-06
+      },
+      {
+        "step": 4,
+        "loss": 7.450822465671081e-06,
+        "mean_reward": -0.25,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00018608883874549065,
+        "learning_rate": 5e-06
+      }
+    ]
+  }
+}
