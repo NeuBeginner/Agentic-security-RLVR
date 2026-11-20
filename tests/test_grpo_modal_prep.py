@@ -97,7 +97,7 @@ def test_train_grpo_remote_fail_closed_on_contradictory_env():
 def test_collect_train_rollouts_remote_train_isolation():
     """Verify that train targets have zero overlap with test targets and test targets are refused."""
     train_targets = load_train_targets()
-    assert len(train_targets) == 10
+    assert len(train_targets) == 20
 
     test_target_names = set(TRUSTED_HARNESS_CONTRACTS.keys())
     assert len(test_target_names) == 16
