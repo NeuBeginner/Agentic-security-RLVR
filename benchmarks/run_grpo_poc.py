@@ -234,6 +234,17 @@ def run_live_poc(
 
     if stage == "train":
         train_fn = modal.Function.from_name(APP_NAME, "poc_train_grpo")
+        if hasattr(train_fn, "with_options") and hasattr(getattr(modal, "Secret", None), "from_dict"):
+            train_fn = train_fn.with_options(
+                secrets=[
+                    modal.Secret.from_dict(
+                        {
+                            "TRAINING_STATUS": os.environ["TRAINING_STATUS"],
+                            "TRAINING_BLOCKED": os.environ["TRAINING_BLOCKED"],
+                        }
+                    )
+                ]
+            )
         results["train"] = train_fn.remote(
             model_id=model_id,
             num_steps=num_steps,

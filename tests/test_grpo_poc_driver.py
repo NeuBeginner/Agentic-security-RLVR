@@ -610,3 +610,66 @@ def test_poc_collect_skips_remote_verifier_on_invalid_format_and_propagates_comm
          patch("transformers.AutoModelForCausalLM.from_pretrained", return_value=mock_model):
         with pytest.raises(OSError, match="volume commit failed"):
             fn(target_names=["TrainShareVault"])
+
+
+def test_run_live_poc_train_forwards_unblock_secrets_and_remains_fail_closed(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from benchmarks.run_grpo_poc import APPROVAL_ENV_VAR, run_live_poc
+
+    monkeypatch.setenv(APPROVAL_ENV_VAR, "1")
+    monkeypatch.delenv("TRAINING_STATUS", raising=False)
+    monkeypatch.delenv("TRAINING_BLOCKED", raising=False)
+
+    # Without unblock env vars, --stage train must remain fail-closed before touching Modal.
+    with patch.dict(sys.modules, {"modal": None}):
+        with pytest.raises(RuntimeError, match="TRAINING_STATUS = BLOCKED"):
+            run_live_poc(stage="train", output_dir=str(tmp_path))
+
+    # With TRAINING_STATUS=UNBLOCKED and TRAINING_BLOCKED=false, secrets are forwarded via with_options.
+    monkeypatch.setenv("TRAINING_STATUS", "UNBLOCKED")
+    monkeypatch.setenv("TRAINING_BLOCKED", "false")
+
+    train_remote = MagicMock(
+        return_value={
+            "status": "success",
+            "steps_completed": 1,
+            "checkpoint_path": "/vol/models/checkpoints_grpo_poc/step_1",
+            "logs": [{"step": 1, "loss": 0.12, "kl_divergence": 0.01}],
+        }
+    )
+    wrapped_fn = SimpleNamespace(remote=train_remote)
+    with_options_mock = MagicMock(return_value=wrapped_fn)
+    base_train_fn = SimpleNamespace(
+        with_options=with_options_mock,
+        remote=MagicMock(side_effect=AssertionError("expected wrapped train_fn.remote to be called")),
+    )
+    from_name_mock = MagicMock(return_value=base_train_fn)
+    from_dict_mock = MagicMock(side_effect=lambda d: {"secret_dict": d})
+    fake_modal = SimpleNamespace(
+        Function=SimpleNamespace(from_name=from_name_mock),
+        Secret=SimpleNamespace(from_dict=from_dict_mock),
+    )
+
+    with patch.dict(sys.modules, {"modal": fake_modal}):
+        res = run_live_poc(
+            stage="train",
+            num_steps=1,
+            group_size=4,
+            run_id="poc_run_7543d0db",
+            output_dir=str(tmp_path),
+        )
+
+    from_name_mock.assert_called_once_with("aegis-rlvr-grpo-poc", "poc_train_grpo")
+    from_dict_mock.assert_called_once_with(
+        {"TRAINING_STATUS": "UNBLOCKED", "TRAINING_BLOCKED": "false"}
+    )
+    with_options_mock.assert_called_once_with(
+        secrets=[{"secret_dict": {"TRAINING_STATUS": "UNBLOCKED", "TRAINING_BLOCKED": "false"}}]
+    )
+    train_remote.assert_called_once()
+    assert train_remote.call_args.kwargs["num_steps"] == 1
+    assert res["train"]["status"] == "success"
+    assert res["train"]["steps_completed"] == 1
+
