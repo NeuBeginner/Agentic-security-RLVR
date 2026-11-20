@@ -67,7 +67,7 @@ def test_run_grpo_poc_dry_run_validates_10_train_targets_without_modal(capsys):
     assert plan["cost_usd"] == 0.0
     assert plan["gpu_type"] == "L4"
     assert plan["training_blocked"] is True
-    assert plan["total_train_targets_validated"] == 30
+    assert plan["total_train_targets_validated"] == 40
     assert plan["selected_target_count"] == 4
 
 

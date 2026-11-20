@@ -1,8 +1,8 @@
 {
   "dataset_version": "1.0.0",
   "split": "train",
-  "total_targets": 30,
-  "vulnerable_targets_count": 30,
+  "total_targets": 40,
+  "vulnerable_targets_count": 40,
   "synthetic_controls_count": 0,
   "classes": [
     {
@@ -512,6 +512,176 @@
           "harness_file": "benchmarks/targets/solidity_train/TrainStaleDebtIndexHarness.t.sol",
           "difficulty": "high",
           "description": "withdrawCollateral checks stale cachedDebt instead of liveDebt, allowing full collateral withdrawal after borrowing."
+        }
+      ]
+    },
+    {
+      "class_id": 31,
+      "class_name": "ERC721SafeMintReentrancy",
+      "targets": [
+        {
+          "contract_id": "TRAIN-ERC721-01",
+          "target_name": "TrainERC721CallbackLender",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["mintPosition", "borrow"],
+          "ground_truth_invariant": "ERC721_SAFE_MINT_REENTRANCY_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainERC721CallbackLender.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainERC721CallbackLenderHarness.t.sol",
+          "difficulty": "high",
+          "description": "onERC721Received callback executes before positionsMinted is incremented, allowing repeated minting and over-borrowing."
+        }
+      ]
+    },
+    {
+      "class_id": 32,
+      "class_name": "MulticallDelegatecallMsgValue",
+      "targets": [
+        {
+          "contract_id": "TRAIN-MULTICALL-01",
+          "target_name": "TrainMulticallValueReuse",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["multicall", "deposit"],
+          "ground_truth_invariant": "MULTICALL_DELEGATECALL_MSG_VALUE_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainMulticallValueReuse.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainMulticallValueReuseHarness.t.sol",
+          "difficulty": "high",
+          "description": "Payable multicall uses delegatecall in a loop, reusing msg.value across every subcall."
+        }
+      ]
+    },
+    {
+      "class_id": 33,
+      "class_name": "VaultAsymmetricRounding",
+      "targets": [
+        {
+          "contract_id": "TRAIN-VAULTROUND-01",
+          "target_name": "TrainERC4626RoundMismatch",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["deposit", "redeem"],
+          "ground_truth_invariant": "VAULT_ASYMMETRIC_ROUNDING_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainERC4626RoundMismatch.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainERC4626RoundMismatchHarness.t.sol",
+          "difficulty": "high",
+          "description": "Vault rounds minted shares up on deposit while redeeming at full pro-rata value, draining reserves."
+        }
+      ]
+    },
+    {
+      "class_id": 34,
+      "class_name": "ArraySwapAndPopDesync",
+      "targets": [
+        {
+          "contract_id": "TRAIN-SWAPPOP-01",
+          "target_name": "TrainSwapAndPopQueue",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["leave"],
+          "ground_truth_invariant": "ARRAY_SWAP_AND_POP_DESYNC",
+          "source_file": "benchmarks/targets/solidity_train/TrainSwapAndPopQueue.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainSwapAndPopQueueHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Swap-and-pop leave() fails to clear indexOf/deposits and desyncs array indices, enabling repeated withdrawals."
+        }
+      ]
+    },
+    {
+      "class_id": 35,
+      "class_name": "OracleStaleOrZeroPrice",
+      "targets": [
+        {
+          "contract_id": "TRAIN-STALEORACLE-01",
+          "target_name": "TrainStaleOracleFeed",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["borrow"],
+          "ground_truth_invariant": "ORACLE_STALE_OR_ZERO_PRICE_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainStaleOracleFeed.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainStaleOracleFeedHarness.t.sol",
+          "difficulty": "high",
+          "description": "Lending pool ignores updatedAt staleness from latestRoundData(), allowing borrows against stale inflated prices."
+        }
+      ]
+    },
+    {
+      "class_id": 36,
+      "class_name": "AMMFlashSwapInvariantBypass",
+      "targets": [
+        {
+          "contract_id": "TRAIN-FLASHSWAP-01",
+          "target_name": "TrainFlashSwapKInvariant",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["flashSwap"],
+          "ground_truth_invariant": "AMM_FLASH_SWAP_K_INVARIANT_BYPASS",
+          "source_file": "benchmarks/targets/solidity_train/TrainFlashSwapKInvariant.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainFlashSwapKInvariantHarness.t.sol",
+          "difficulty": "high",
+          "description": "flashSwap verifies k-invariant against stale storage reserve0 instead of live contract balance."
+        }
+      ]
+    },
+    {
+      "class_id": 37,
+      "class_name": "InlineAssemblyDirtyBits",
+      "targets": [
+        {
+          "contract_id": "TRAIN-DIRTYBITS-01",
+          "target_name": "TrainAssemblyDirtyBits",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["claim"],
+          "ground_truth_invariant": "INLINE_ASSEMBLY_DIRTY_BITS_BYPASS",
+          "source_file": "benchmarks/targets/solidity_train/TrainAssemblyDirtyBits.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainAssemblyDirtyBitsHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Inline assembly calldataload(4) preserves dirty upper 96 bits in claimed key while Solidity masks address to 160 bits."
+        }
+      ]
+    },
+    {
+      "class_id": 38,
+      "class_name": "TimelockZeroEtaBypass",
+      "targets": [
+        {
+          "contract_id": "TRAIN-TIMELOCK-01",
+          "target_name": "TrainTimelockBypass",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["execute"],
+          "ground_truth_invariant": "TIMELOCK_ZERO_ETA_BYPASS",
+          "source_file": "benchmarks/targets/solidity_train/TrainTimelockBypass.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainTimelockBypassHarness.t.sol",
+          "difficulty": "high",
+          "description": "Timelock execute() omits eta[txId] != 0 check, allowing immediate execution of unqueued transactions."
+        }
+      ]
+    },
+    {
+      "class_id": 39,
+      "class_name": "OrderPartialFillReplay",
+      "targets": [
+        {
+          "contract_id": "TRAIN-ORDER-01",
+          "target_name": "TrainOrderPartialReplay",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["fillOrder"],
+          "ground_truth_invariant": "ORDER_PARTIAL_FILL_REPLAY_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainOrderPartialReplay.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainOrderPartialReplayHarness.t.sol",
+          "difficulty": "high",
+          "description": "Order book checks per-call fillAmount <= maxAmount instead of cumulative filled[orderHash]."
+        }
+      ]
+    },
+    {
+      "class_id": 40,
+      "class_name": "RewardPrecisionDivisionLoss",
+      "targets": [
+        {
+          "contract_id": "TRAIN-REWARDPREC-01",
+          "target_name": "TrainRewardPrecisionCollapse",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["distributeReward"],
+          "ground_truth_invariant": "REWARD_PRECISION_DIVISION_LOSS",
+          "source_file": "benchmarks/targets/solidity_train/TrainRewardPrecisionCollapse.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainRewardPrecisionCollapseHarness.t.sol",
+          "difficulty": "high",
+          "description": "Unscaled integer division msg.value / totalStaked truncates rewardPerToken delta to zero when totalStaked > msg.value."
         }
       ]
     }
