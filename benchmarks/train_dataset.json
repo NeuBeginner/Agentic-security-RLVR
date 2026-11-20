@@ -1,8 +1,8 @@
 {
   "dataset_version": "1.0.0",
   "split": "train",
-  "total_targets": 20,
-  "vulnerable_targets_count": 20,
+  "total_targets": 30,
+  "vulnerable_targets_count": 30,
   "synthetic_controls_count": 0,
   "classes": [
     {
@@ -342,6 +342,176 @@
           "harness_file": "benchmarks/targets/solidity_train/TrainSelfLiquidationPoolHarness.t.sol",
           "difficulty": "high",
           "description": "Self-liquidation pays 20% collateral bonus and clears borrower debt without repayment."
+        }
+      ]
+    },
+    {
+      "class_id": 21,
+      "class_name": "FeeOnTransferAccounting",
+      "targets": [
+        {
+          "contract_id": "TRAIN-FOT-01",
+          "target_name": "TrainFeeOnTransferVault",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["deposit", "withdraw"],
+          "ground_truth_invariant": "FEE_ON_TRANSFER_ACCOUNTING_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainFeeOnTransferVault.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainFeeOnTransferVaultHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Vault credits pre-fee deposit amount instead of actual post-fee balance delta."
+        }
+      ]
+    },
+    {
+      "class_id": 22,
+      "class_name": "ERC2771CalldataSpoof",
+      "targets": [
+        {
+          "contract_id": "TRAIN-ERC2771-01",
+          "target_name": "TrainERC2771Forwarder",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["relay"],
+          "ground_truth_invariant": "ERC2771_CALLDATA_SPOOF_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainERC2771Forwarder.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainERC2771ForwarderHarness.t.sol",
+          "difficulty": "high",
+          "description": "Forwarder relays raw calldata without appending msg.sender, allowing trailing 20-byte _msgSender() spoofing."
+        }
+      ]
+    },
+    {
+      "class_id": 23,
+      "class_name": "MerkleClaimReplay",
+      "targets": [
+        {
+          "contract_id": "TRAIN-MERKLE-01",
+          "target_name": "TrainMerkleDrop",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["claim"],
+          "ground_truth_invariant": "MERKLE_CLAIM_REPLAY_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainMerkleDrop.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainMerkleDropHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Merkle airdrop verifies proof without marking claim as consumed, enabling repeated payouts."
+        }
+      ]
+    },
+    {
+      "class_id": 24,
+      "class_name": "ZeroSharesRoundingDrain",
+      "targets": [
+        {
+          "contract_id": "TRAIN-ROUND0-01",
+          "target_name": "TrainRoundingZeroVault",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["withdrawAssets"],
+          "ground_truth_invariant": "ZERO_SHARES_ROUNDING_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainRoundingZeroVault.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainRoundingZeroVaultHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Asset withdrawal rounds sharesToBurn down to zero without reverting, draining vault reserves."
+        }
+      ]
+    },
+    {
+      "class_id": 25,
+      "class_name": "ReadOnlyReentrancyLending",
+      "targets": [
+        {
+          "contract_id": "TRAIN-ROREENT-01",
+          "target_name": "TrainReadOnlyReentrancy",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["removeLiquidity", "borrowWithLpCollateral"],
+          "ground_truth_invariant": "READ_ONLY_REENTRANCY_PRICE_INFLATION",
+          "source_file": "benchmarks/targets/solidity_train/TrainReadOnlyReentrancy.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainReadOnlyReentrancyHarness.t.sol",
+          "difficulty": "high",
+          "description": "Read-only reentrancy during removeLiquidity inflates getSharePrice() for borrowWithLpCollateral."
+        }
+      ]
+    },
+    {
+      "class_id": 26,
+      "class_name": "UninitializedAdminTakeover",
+      "targets": [
+        {
+          "contract_id": "TRAIN-UNINIT-01",
+          "target_name": "TrainUninitializedVault",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["initialize", "drain"],
+          "ground_truth_invariant": "UNINITIALIZED_ADMIN_TAKEOVER",
+          "source_file": "benchmarks/targets/solidity_train/TrainUninitializedVault.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainUninitializedVaultHarness.t.sol",
+          "difficulty": "high",
+          "description": "Unprotected one-time initialize() lets any caller seize admin and drain vault."
+        }
+      ]
+    },
+    {
+      "class_id": 27,
+      "class_name": "SignatureMalleabilityReplay",
+      "targets": [
+        {
+          "contract_id": "TRAIN-MALLEABLE-01",
+          "target_name": "TrainSigMalleability",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["claim"],
+          "ground_truth_invariant": "SIGNATURE_MALLEABILITY_REPLAY_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainSigMalleability.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainSigMalleabilityHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Tracks (v, r, s) without enforcing low-s, allowing s-flipped ECDSA signature replay."
+        }
+      ]
+    },
+    {
+      "class_id": 28,
+      "class_name": "FallbackPhantomPermit",
+      "targets": [
+        {
+          "contract_id": "TRAIN-PHANTOM-01",
+          "target_name": "TrainPhantomPermit",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["depositWithPermit"],
+          "ground_truth_invariant": "FALLBACK_PHANTOM_PERMIT_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainPhantomPermit.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainPhantomPermitHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Low-level permit() succeeds silently on fallback token, enabling transferFrom of pre-approved funds."
+        }
+      ]
+    },
+    {
+      "class_id": 29,
+      "class_name": "UncheckedTransferReturn",
+      "targets": [
+        {
+          "contract_id": "TRAIN-UNCHECKED-01",
+          "target_name": "TrainUncheckedTransferPool",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["deposit", "withdraw"],
+          "ground_truth_invariant": "UNCHECKED_TRANSFER_RETURN_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainUncheckedTransferPool.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainUncheckedTransferPoolHarness.t.sol",
+          "difficulty": "medium",
+          "description": "Pool ignores boolean false return from transferFrom() and credits unbacked deposit."
+        }
+      ]
+    },
+    {
+      "class_id": 30,
+      "class_name": "StaleDebtAccrualWithdraw",
+      "targets": [
+        {
+          "contract_id": "TRAIN-STALEDEBTS-01",
+          "target_name": "TrainStaleDebtIndex",
+          "is_vulnerable": true,
+          "vulnerable_functions": ["borrow", "withdrawCollateral"],
+          "ground_truth_invariant": "STALE_DEBT_ACCRUAL_DRAIN",
+          "source_file": "benchmarks/targets/solidity_train/TrainStaleDebtIndex.sol",
+          "harness_file": "benchmarks/targets/solidity_train/TrainStaleDebtIndexHarness.t.sol",
+          "difficulty": "high",
+          "description": "withdrawCollateral checks stale cachedDebt instead of liveDebt, allowing full collateral withdrawal after borrowing."
         }
       ]
     }

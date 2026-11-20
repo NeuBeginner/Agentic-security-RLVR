@@ -121,6 +121,16 @@ TRAIN_TRUSTED_HARNESS_CONTRACTS = {
     "TrainGovernanceQuorum": "TrainGovernanceQuorumHarness",
     "TrainCallbackPool": "TrainCallbackPoolHarness",
     "TrainSelfLiquidationPool": "TrainSelfLiquidationPoolHarness",
+    "TrainFeeOnTransferVault": "TrainFeeOnTransferVaultHarness",
+    "TrainERC2771Forwarder": "TrainERC2771ForwarderHarness",
+    "TrainMerkleDrop": "TrainMerkleDropHarness",
+    "TrainRoundingZeroVault": "TrainRoundingZeroVaultHarness",
+    "TrainReadOnlyReentrancy": "TrainReadOnlyReentrancyHarness",
+    "TrainUninitializedVault": "TrainUninitializedVaultHarness",
+    "TrainSigMalleability": "TrainSigMalleabilityHarness",
+    "TrainPhantomPermit": "TrainPhantomPermitHarness",
+    "TrainUncheckedTransferPool": "TrainUncheckedTransferPoolHarness",
+    "TrainStaleDebtIndex": "TrainStaleDebtIndexHarness",
 }
 
 # Optimized, Pinned Foundry + Solc + OpenZeppelin + Slither Execution Image for Modal
