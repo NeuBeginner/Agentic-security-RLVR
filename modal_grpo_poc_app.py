@@ -121,6 +121,7 @@ def poc_collect_train_rollouts(
     run_id: Optional[str] = None,
     trajectory_dir: str = config.GRPO_POC_TRAJECTORY_DIR,
     target_names: Optional[List[str]] = None,
+    adapter_path: Optional[str] = None,
 ) -> dict:
     """Collects GRPO PoC rollouts on disjoint train targets using L4 GPU."""
     import torch
@@ -172,6 +173,10 @@ def poc_collect_train_rollouts(
         torch_dtype=torch.bfloat16,
         cache_dir=cache_dir,
     ).to("cuda")
+    if adapter_path:
+        from peft import PeftModel
+
+        model = PeftModel.from_pretrained(model, adapter_path)
     model.eval()
 
     def generator_fn(
@@ -255,6 +260,7 @@ def poc_collect_train_rollouts(
         "status": "success",
         "run_id": active_run_id,
         "model_id": model_id,
+        "adapter_path": adapter_path,
         "gpu_type": config.GRPO_POC_GPU_TYPE,
         "trajectory_dir": run_trajectory_dir,
         "persisted_count": result.persisted_count,
@@ -402,7 +408,7 @@ def poc_diagnostic_grpo_forward(
     gpu=config.GRPO_POC_GPU_TYPE,
     image=poc_gpu_image,
     volumes={"/vol/models": model_volume},
-    timeout=1800,
+    timeout=3600,
     min_containers=0,
     buffer_containers=0,
     scaledown_window=60,
@@ -414,6 +420,7 @@ def poc_train_grpo(
     batch_group_size: int = 4,
     trajectory_dir: str = config.GRPO_POC_TRAJECTORY_DIR,
     checkpoint_dir: str = config.GRPO_POC_CHECKPOINT_DIR,
+    informative_only: bool = False,
 ) -> dict:
     """Executes fail-closed LoRA GRPO PoC training on L4 GPU."""
     if is_training_blocked(config):
@@ -442,11 +449,24 @@ def poc_train_grpo(
 
     trajectories = load_production_trajectories(trajectory_dir, target_split="train")
     groups = group_rollouts_by_prompt(trajectories, group_size=batch_group_size)
+    total_groups_count = len(groups)
+    informative_groups = [
+        g for g in groups if len({round(float(r.reward), 8) for r in g.rollouts}) > 1
+    ]
+    informative_groups_count = len(informative_groups)
+    if informative_only:
+        groups = informative_groups
     if not groups:
         return {
             "status": "skipped",
-            "message": f"No rollout groups found in {trajectory_dir}.",
+            "message": (
+                "No informative rollout groups found."
+                if informative_only
+                else f"No rollout groups found in {trajectory_dir}."
+            ),
             "steps_completed": 0,
+            "total_groups_count": total_groups_count,
+            "informative_groups_count": informative_groups_count,
         }
 
     tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=config.MODEL_CACHE_DIR)
@@ -493,5 +513,7 @@ def poc_train_grpo(
         "trajectory_dir": trajectory_dir,
         "checkpoint_path": save_path,
         "steps_completed": len(step_stats),
+        "total_groups_count": total_groups_count,
+        "informative_groups_count": informative_groups_count,
         "logs": [s.model_dump() for s in step_stats],
     }

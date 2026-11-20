@@ -670,6 +670,205 @@ def test_run_live_poc_train_forwards_unblock_secrets_and_remains_fail_closed(mon
     )
     train_remote.assert_called_once()
     assert train_remote.call_args.kwargs["num_steps"] == 1
+    assert train_remote.call_args.kwargs["checkpoint_dir"] == "/vol/models/checkpoints_grpo_poc/poc_run_7543d0db"
+    assert train_remote.call_args.kwargs["informative_only"] is False
+    assert res["checkpoint_dir"] == "/vol/models/checkpoints_grpo_poc/poc_run_7543d0db"
     assert res["train"]["status"] == "success"
     assert res["train"]["steps_completed"] == 1
+
+
+def test_run_dry_run_isolates_checkpoint_dir_and_reflects_new_flags():
+    from benchmarks.run_grpo_poc import run_dry_run
+
+    plan = run_dry_run(
+        stage="train",
+        max_targets=4,
+        group_size=4,
+        max_new_tokens=1536,
+        model_id="Qwen/Qwen3-4B-Instruct-2507",
+        run_id="poc_test_40t",
+        adapter_path="/vol/models/checkpoints_grpo_poc/poc_test_40t/checkpoint-step-1",
+        informative_only=True,
+    )
+    assert plan["cost_usd"] == 0.0
+    assert plan["trajectory_dir"] == "/vol/models/trajectories_grpo_poc/poc_test_40t"
+    assert plan["checkpoint_dir"] == "/vol/models/checkpoints_grpo_poc/poc_test_40t"
+    assert plan["adapter_path"] == "/vol/models/checkpoints_grpo_poc/poc_test_40t/checkpoint-step-1"
+    assert plan["informative_only"] is True
+
+
+def test_run_live_poc_collect_forwards_adapter_path_and_poc_collect_loads_peft(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import modal_grpo_poc_app
+    from benchmarks.run_grpo_poc import APPROVAL_ENV_VAR, run_live_poc
+    from core.schemas import TargetProgram
+    from core.train_rollout_collector import TrainRolloutCollectionResult
+
+    monkeypatch.setenv(APPROVAL_ENV_VAR, "1")
+    adapter = "/vol/models/checkpoints_grpo_poc/poc_test_40t/checkpoint-step-1"
+
+    collect_remote = MagicMock(
+        return_value={
+            "status": "success",
+            "run_id": "poc_eval",
+            "adapter_path": adapter,
+            "trajectory_dir": "/vol/models/trajectories_grpo_poc/poc_eval",
+            "persisted_count": 4,
+        }
+    )
+    from_name_mock = MagicMock(return_value=SimpleNamespace(remote=collect_remote))
+    fake_modal = SimpleNamespace(Function=SimpleNamespace(from_name=from_name_mock))
+
+    with patch.dict(sys.modules, {"modal": fake_modal}):
+        res = run_live_poc(
+            stage="collect",
+            run_id="poc_eval",
+            adapter_path=adapter,
+            output_dir=str(tmp_path),
+        )
+
+    from_name_mock.assert_called_once_with("aegis-rlvr-grpo-poc", "poc_collect_train_rollouts")
+    assert collect_remote.call_args.kwargs["adapter_path"] == adapter
+    assert res["adapter_path"] == adapter
+
+    # Now verify poc_collect_train_rollouts itself attaches PeftModel when adapter_path is set.
+    fn = getattr(
+        modal_grpo_poc_app.poc_collect_train_rollouts,
+        "local",
+        modal_grpo_poc_app.poc_collect_train_rollouts,
+    )
+    dummy_target = TargetProgram(
+        name="TrainShareVault",
+        source_code="contract TrainShareVault {}",
+        invariants=["SHARE_INFLATION_DEPOSITOR_DILUTION"],
+    )
+    mock_tokenizer = MagicMock()
+    mock_tokenizer.pad_token = "<pad>"
+    mock_base_model = MagicMock()
+    mock_base_model.to.return_value = mock_base_model
+    mock_peft_model = MagicMock()
+    ok_result = TrainRolloutCollectionResult(
+        run_id="poc_eval",
+        trajectory_dir="/vol/models/trajectories_grpo_poc/poc_eval",
+        targets_processed=1,
+        candidates_generated=4,
+        persisted_count=4,
+        excluded_infra_count=0,
+        excluded_missing_tokens_count=0,
+    )
+    fake_peft_mod = SimpleNamespace(
+        PeftModel=SimpleNamespace(from_pretrained=MagicMock(return_value=mock_peft_model))
+    )
+
+    with patch.dict(sys.modules, {"peft": fake_peft_mod}), \
+         patch.object(modal_grpo_poc_app.model_volume, "reload"), \
+         patch.object(modal_grpo_poc_app.model_volume, "commit"), \
+         patch("core.train_rollout_collector.load_train_targets", return_value=[dummy_target]), \
+         patch("core.train_rollout_collector.collect_train_rollouts", return_value=ok_result), \
+         patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", return_value=mock_base_model):
+        out = fn(target_names=["TrainShareVault"], adapter_path=adapter, run_id="poc_eval")
+
+    fake_peft_mod.PeftModel.from_pretrained.assert_called_once_with(mock_base_model, adapter)
+    mock_peft_model.eval.assert_called_once()
+    assert out["adapter_path"] == adapter
+
+
+def test_run_live_poc_train_forwards_informative_only_and_poc_train_filters_groups(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import modal_grpo_poc_app
+    from benchmarks.run_grpo_poc import APPROVAL_ENV_VAR, run_live_poc
+
+    monkeypatch.setenv(APPROVAL_ENV_VAR, "1")
+    monkeypatch.setenv("TRAINING_STATUS", "UNBLOCKED")
+    monkeypatch.setenv("TRAINING_BLOCKED", "false")
+
+    train_remote = MagicMock(
+        return_value={
+            "status": "success",
+            "steps_completed": 2,
+            "total_groups_count": 4,
+            "informative_groups_count": 2,
+            "logs": [],
+        }
+    )
+    wrapped_fn = SimpleNamespace(remote=train_remote)
+    base_train_fn = SimpleNamespace(with_options=MagicMock(return_value=wrapped_fn))
+    fake_modal = SimpleNamespace(
+        Function=SimpleNamespace(from_name=MagicMock(return_value=base_train_fn)),
+        Secret=SimpleNamespace(from_dict=MagicMock(side_effect=lambda d: d)),
+    )
+
+    with patch.dict(sys.modules, {"modal": fake_modal}):
+        run_live_poc(
+            stage="train",
+            run_id="poc_inf",
+            informative_only=True,
+            output_dir=str(tmp_path),
+        )
+
+    assert train_remote.call_args.kwargs["informative_only"] is True
+    assert train_remote.call_args.kwargs["checkpoint_dir"] == "/vol/models/checkpoints_grpo_poc/poc_inf"
+
+    # Now test poc_train_grpo group filtering directly.
+    fn = getattr(
+        modal_grpo_poc_app.poc_train_grpo,
+        "local",
+        modal_grpo_poc_app.poc_train_grpo,
+    )
+
+    def _group(rewards):
+        return SimpleNamespace(rollouts=[SimpleNamespace(reward=r) for r in rewards])
+
+    degenerate_group = _group([-0.25, -0.25, -0.25, -0.25])
+    informative_group = _group([1.0, -0.25, -0.10, -0.25])
+
+    # Case 1: all groups degenerate with informative_only=True -> skipped before model load.
+    with patch.object(modal_grpo_poc_app.model_volume, "reload"), \
+         patch("core.grpo_trainer.load_production_trajectories", return_value=["t1"]), \
+         patch("core.grpo_trainer.group_rollouts_by_prompt", return_value=[degenerate_group]), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", side_effect=AssertionError("should not load model")):
+        skipped = fn(trajectory_dir="/vol/models/trajectories_grpo_poc/poc_inf", informative_only=True)
+
+    assert skipped["status"] == "skipped"
+    assert skipped["message"] == "No informative rollout groups found."
+    assert skipped["steps_completed"] == 0
+    assert skipped["total_groups_count"] == 1
+    assert skipped["informative_groups_count"] == 0
+
+    # Case 2: mixed groups with informative_only=True -> only informative_group passed to train_grpo_epochs.
+    mock_tokenizer = MagicMock()
+    mock_tokenizer.pad_token = "<pad>"
+    mock_base_model = MagicMock()
+    mock_base_model.to.return_value = mock_base_model
+    mock_lora_model = MagicMock()
+    mock_lora_model.parameters.return_value = [MagicMock(requires_grad=True)]
+    step_stat = SimpleNamespace(model_dump=lambda: {"step": 1, "loss": 0.1})
+    train_epochs_mock = MagicMock(return_value=[step_stat])
+
+    with patch.object(modal_grpo_poc_app.model_volume, "reload"), \
+         patch.object(modal_grpo_poc_app.model_volume, "commit"), \
+         patch("core.grpo_trainer.load_production_trajectories", return_value=["t1", "t2"]), \
+         patch("core.grpo_trainer.group_rollouts_by_prompt", return_value=[degenerate_group, informative_group]), \
+         patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", return_value=mock_base_model), \
+         patch("core.grpo_trainer.setup_lora_model", return_value=mock_lora_model), \
+         patch("core.grpo_trainer.train_grpo_epochs", train_epochs_mock), \
+         patch("core.grpo_trainer.save_lora_checkpoint", return_value="/vol/models/checkpoints_grpo_poc/poc_inf/checkpoint-step-1"), \
+         patch("torch.optim.AdamW", return_value=MagicMock()):
+        res = fn(
+            trajectory_dir="/vol/models/trajectories_grpo_poc/poc_inf",
+            checkpoint_dir="/vol/models/checkpoints_grpo_poc/poc_inf",
+            informative_only=True,
+        )
+
+    assert train_epochs_mock.call_args.kwargs["groups"] == [informative_group]
+    assert res["status"] == "success"
+    assert res["total_groups_count"] == 2
+    assert res["informative_groups_count"] == 1
+
 

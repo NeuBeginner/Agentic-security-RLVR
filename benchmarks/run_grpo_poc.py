@@ -119,6 +119,8 @@ def run_dry_run(
     run_id: Optional[str] = None,
     num_steps: int = 2,
     learning_rate: float = 5e-6,
+    adapter_path: Optional[str] = None,
+    informative_only: bool = False,
 ) -> Dict[str, Any]:
     """Validate local train targets ($0) and return the execution plan."""
     parsed_names = _parse_target_names(target_names)
@@ -139,6 +141,11 @@ def run_dry_run(
         if run_id
         else config.GRPO_POC_TRAJECTORY_DIR
     )
+    resolved_ckpt_dir = (
+        posixpath.join(config.GRPO_POC_CHECKPOINT_DIR.rstrip("/"), run_id)
+        if run_id
+        else config.GRPO_POC_CHECKPOINT_DIR
+    )
     return {
         "mode": "dry-run",
         "cost_usd": 0.0,
@@ -146,9 +153,11 @@ def run_dry_run(
         "stage": stage,
         "gpu_type": config.GRPO_POC_GPU_TYPE,
         "model_id": model_id,
+        "adapter_path": adapter_path,
+        "informative_only": informative_only,
         "run_id": run_id,
         "trajectory_dir": resolved_traj_dir,
-        "checkpoint_dir": config.GRPO_POC_CHECKPOINT_DIR,
+        "checkpoint_dir": resolved_ckpt_dir,
         "training_blocked": is_training_blocked(config),
         "total_train_targets_validated": len(all_targets),
         "selected_target_count": len(selected),
@@ -172,6 +181,8 @@ def run_live_poc(
     learning_rate: float = 5e-6,
     target_names: Optional[Sequence[str] | str] = None,
     run_id: Optional[str] = None,
+    adapter_path: Optional[str] = None,
+    informative_only: bool = False,
 ) -> Dict[str, Any]:
     """Execute the approved live GRPO PoC stage on Modal."""
     _assert_authorised()
@@ -195,13 +206,22 @@ def run_live_poc(
 
     import modal  # noqa: E402 — imported ONLY after fail-closed authorisation gates
 
+    active_ckpt_dir = (
+        posixpath.join(config.GRPO_POC_CHECKPOINT_DIR.rstrip("/"), run_id)
+        if run_id
+        else config.GRPO_POC_CHECKPOINT_DIR
+    )
+
     results: Dict[str, Any] = {
         "app_name": APP_NAME,
         "stage": stage,
         "gpu_type": config.GRPO_POC_GPU_TYPE,
         "model_id": model_id,
+        "adapter_path": adapter_path,
+        "informative_only": informative_only,
         "run_id": run_id,
         "trajectory_dir": config.GRPO_POC_TRAJECTORY_DIR,
+        "checkpoint_dir": active_ckpt_dir,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -215,6 +235,7 @@ def run_live_poc(
             run_id=run_id,
             trajectory_dir=config.GRPO_POC_TRAJECTORY_DIR,
             target_names=parsed_names,
+            adapter_path=adapter_path,
         )
 
     active_traj_dir = config.GRPO_POC_TRAJECTORY_DIR
@@ -251,7 +272,8 @@ def run_live_poc(
             learning_rate=learning_rate,
             batch_group_size=group_size,
             trajectory_dir=active_traj_dir,
-            checkpoint_dir=config.GRPO_POC_CHECKPOINT_DIR,
+            checkpoint_dir=active_ckpt_dir,
+            informative_only=informative_only,
         )
 
     out_path = Path(output_dir)
@@ -328,6 +350,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=5e-6,
         help="Learning rate for --stage train (default: 5e-6).",
     )
+    parser.add_argument(
+        "--adapter-path",
+        default=None,
+        help="Optional LoRA adapter checkpoint path on Modal volume for collect evaluation.",
+    )
+    parser.add_argument(
+        "--informative-only",
+        action="store_true",
+        help="Filter out degenerate rollout groups before --stage train.",
+    )
     return parser
 
 
@@ -346,6 +378,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             run_id=args.run_id,
             num_steps=args.num_steps,
             learning_rate=args.learning_rate,
+            adapter_path=args.adapter_path,
+            informative_only=args.informative_only,
         )
         print(json.dumps(plan, indent=2))
         return 0
@@ -361,6 +395,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         learning_rate=args.learning_rate,
         target_names=args.target_names,
         run_id=args.run_id,
+        adapter_path=args.adapter_path,
+        informative_only=args.informative_only,
     )
     print(json.dumps(res, indent=2))
     return 0
