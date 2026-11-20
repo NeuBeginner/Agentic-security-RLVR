@@ -3,7 +3,7 @@
 > **Audit Scope & Status**: `$0.00` Modal spend across PR #30–#34 (code audit, isolated PoC contour, and local verification); **`$0.26` live Modal `L4` PoC spend** across Stage 1 (`$0.24`) + Stage 2 (`$0.02`) on `poc_run_7543d0db` (`Qwen/Qwen3-4B-Instruct-2507`).  
 > **Training Gate**: `TRAINING_STATUS = BLOCKED` by default in `core/config.py`, `core/grpo_trainer.py`, `modal_app.py`, `modal_grpo_poc_app.py`, and `benchmarks/run_grpo_poc.py` (temporarily unblocked only for the isolated 4-step `L4` Stage 2 PoC via `with_options(secrets=...)`, remaining fail-closed by default).  
 > **Reference Benchmark Artifact**: `benchmarks/artifacts/run_1795027271_8c19acf` (`cycle8`, `baseline_5`).  
-> **Metered Modal Balance**: **`$13.43` credits used** of `$20.00` total credit (`$6.57` remaining; total cost of live `L4` Stage 1+2 PoC = `$0.26`).
+> **Metered Modal Balance**: **`$13.43` credits used** of `$30.00` starting credit limit (`~$16.57` / `~$16` remaining; total cost of live `L4` Stage 1+2 PoC = `$0.26`).
 
 ---
 
@@ -11,11 +11,11 @@
 
 The offline GRPO trainer (`core/grpo_trainer.py`), trajectory schema (`core/evaluator.py`, `core/schemas.py`), and evidence-scoped Reward v2.0.0 (`core/config.py`, `core/reward_shaping.py`) are **structurally compatible** with the inference and sandbox payloads produced in `cycle8` (`run_1795027271_8c19acf`).
 
-However, **production H100 GRPO training still requires a compute grant** (`$6.57` remaining of `$20.00` credit after `$13.43` total used), while **end-to-end `L4` PoC feasibility (Stage 1 + Stage 2) is now empirically verified**:
+However, **production H100 GRPO training still requires a compute grant** (`~$16.57` / `~$16` remaining of `$30.00` starting credit after `$13.43` total used), while **end-to-end `L4` PoC feasibility (Stage 1 + Stage 2) is now empirically verified**:
 
 1. **Data Isolation & `G >= 4` Rollout Collection — RESOLVED & VERIFIED (PR #31 + Stage 1 PoC `poc_run_7543d0db`)**: Added 40 disjoint `train` contracts in `benchmarks/targets/solidity_train/`, `benchmarks/train_dataset.json`, and `core/train_rollout_collector.py` with strict test-overlap checks and a `G >= 4` temperature schedule. Live Stage 1 on `L4` persisted `16/16` rollouts (`0` `INFRA_ERROR`, `3` `EXPLOIT_CONFIRMED` via Foundry, `2/4` `informative_groups`).
 2. **GPU Tier & Base Model Accessibility — RESOLVED & VERIFIED (PR #32 + PR #33 + Stage 2 PoC `poc_run_7543d0db`)**: Configured `bitsandbytes` alongside `peft`/`trl` in GPU images, preserved `GRPO_GPU_TYPE = "H100"` for production, and verified `modal_grpo_poc_app.py` (`L4`, `scaledown_window=60`) end-to-end with `Qwen/Qwen3-4B-Instruct-2507` (Stage 2 LoRA GRPO completed `steps_completed=4`).
-3. **Fail-Closed Training Gate & Budget — INTENTIONALLY ACTIVE**: `TRAINING_STATUS = BLOCKED` remains strictly enforced by default (`core/config.py`); actual metered Modal billing is **`$13.43` used / `$20.00` (`$6.57` remaining; live `L4` Stage 1+2 PoC cost `$0.26`)**, which is insufficient for production `H100` multi-GPU-hour GRPO training + post-training R4 evaluation without a compute grant.
+3. **Fail-Closed Training Gate & Budget — INTENTIONALLY ACTIVE**: `TRAINING_STATUS = BLOCKED` remains strictly enforced by default (`core/config.py`); actual metered Modal billing is **`$13.43` used / `$30.00` (`~$16.57` / `~$16` remaining; live `L4` Stage 1+2 PoC cost `$0.26`)**, which is insufficient for production `H100` multi-GPU-hour GRPO training + post-training R4 evaluation without a compute grant.
 
 ---
 
@@ -53,7 +53,7 @@ A local `$0.00` compatibility check was executed against all 16 target stage-evi
 ### Blocker 3: Fail-Closed Security Gate (`TRAINING_STATUS = BLOCKED`) & Budget — **INTENTIONALLY ACTIVE**
 
 - `core/config.py`, `core/grpo_trainer.py`, `modal_app.py`, `modal_grpo_poc_app.py`, and `benchmarks/run_grpo_poc.py` enforce `is_training_blocked(config)` fail-closed at both client and server boundaries by default.
-- Actual metered Modal billing is **`$13.43 / $20.00`** used (**`$6.57` remaining**; live `L4` Stage 1+2 PoC total cost = **`$0.26`**). Production `H100` training remains **BLOCKED** by default until explicit budget/grant approval is obtained.
+- Actual metered Modal billing is **`$13.43 / $30.00`** used (**`~$16.57` / `~$16` remaining**; live `L4` Stage 1+2 PoC total cost = **`$0.26`**). Production `H100` training remains **BLOCKED** by default until explicit budget/grant approval is obtained.
 
 ---
 
@@ -70,10 +70,10 @@ A local `$0.00` compatibility check was executed against all 16 target stage-evi
 | `cycle8` | `run_1795027271_8c19acf` | 6 / 12 | 4 / 4 | 0 | 50.00% | 100.00% | 0.6667 | 100.00% | 33.55s |
 
 - **Observed Modal Billing Facts**:
-  - Total Modal credit: `$20.00`.
+  - Starting Modal credit limit: `$30.00`.
   - Observed cost per full R4 benchmark run (`baseline_5`, 16 targets): `$1.11–$1.38`.
   - Observed cost of live `L4` Stage 1 + Stage 2 PoC (`poc_run_7543d0db`, `Qwen/Qwen3-4B-Instruct-2507`): **`$0.26`** (`$0.24` Stage 1 + `$0.02` Stage 2).
-  - Current metered billing: **`$13.43` credits used** (**`$6.57` remaining** of `$20.00`).
+  - Current metered billing: **`$13.43` credits used** (**`~$16.57` / `~$16` remaining** of `$30.00`).
 
 ### 4.2 Compute Budget Plan & Verified L4 PoC Results
 
