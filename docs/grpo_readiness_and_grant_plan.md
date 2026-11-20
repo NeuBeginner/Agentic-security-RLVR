@@ -13,7 +13,7 @@ The offline GRPO trainer (`core/grpo_trainer.py`), trajectory schema (`core/eval
 
 However, **production H100 GRPO training still requires a compute grant** (`$6.57` remaining of `$20.00` credit after `$13.43` total used), while **end-to-end `L4` PoC feasibility (Stage 1 + Stage 2) is now empirically verified**:
 
-1. **Data Isolation & `G >= 4` Rollout Collection — RESOLVED & VERIFIED (PR #31 + Stage 1 PoC `poc_run_7543d0db`)**: Added 30 disjoint `train` contracts in `benchmarks/targets/solidity_train/`, `benchmarks/train_dataset.json`, and `core/train_rollout_collector.py` with strict test-overlap checks and a `G >= 4` temperature schedule. Live Stage 1 on `L4` persisted `16/16` rollouts (`0` `INFRA_ERROR`, `3` `EXPLOIT_CONFIRMED` via Foundry, `2/4` `informative_groups`).
+1. **Data Isolation & `G >= 4` Rollout Collection — RESOLVED & VERIFIED (PR #31 + Stage 1 PoC `poc_run_7543d0db`)**: Added 40 disjoint `train` contracts in `benchmarks/targets/solidity_train/`, `benchmarks/train_dataset.json`, and `core/train_rollout_collector.py` with strict test-overlap checks and a `G >= 4` temperature schedule. Live Stage 1 on `L4` persisted `16/16` rollouts (`0` `INFRA_ERROR`, `3` `EXPLOIT_CONFIRMED` via Foundry, `2/4` `informative_groups`).
 2. **GPU Tier & Base Model Accessibility — RESOLVED & VERIFIED (PR #32 + PR #33 + Stage 2 PoC `poc_run_7543d0db`)**: Configured `bitsandbytes` alongside `peft`/`trl` in GPU images, preserved `GRPO_GPU_TYPE = "H100"` for production, and verified `modal_grpo_poc_app.py` (`L4`, `scaledown_window=60`) end-to-end with `Qwen/Qwen3-4B-Instruct-2507` (Stage 2 LoRA GRPO completed `steps_completed=4`).
 3. **Fail-Closed Training Gate & Budget — INTENTIONALLY ACTIVE**: `TRAINING_STATUS = BLOCKED` remains strictly enforced by default (`core/config.py`); actual metered Modal billing is **`$13.43` used / `$20.00` (`$6.57` remaining; live `L4` Stage 1+2 PoC cost `$0.26`)**, which is insufficient for production `H100` multi-GPU-hour GRPO training + post-training R4 evaluation without a compute grant.
 
@@ -97,10 +97,10 @@ A local `$0.00` compatibility check was executed against all 16 target stage-evi
 
 ## 5. Current Implementation & Preflight Verification Status (`$0.00`)
 
-- **Disjoint Train Split & Collector**: `benchmarks/train_dataset.json`, `benchmarks/targets/solidity_train/`, and `core/train_rollout_collector.py` (30 train contracts validated with zero overlap against the 16 `baseline_5` test targets).
+- **Disjoint Train Split & Collector**: `benchmarks/train_dataset.json`, `benchmarks/targets/solidity_train/`, and `core/train_rollout_collector.py` (40 train contracts validated with zero overlap against the 16 `baseline_5` test targets).
 - **Isolated L4 PoC App & Fail-Closed Driver**: `modal_grpo_poc_app.py` (`aegis-rlvr-grpo-poc`) and `benchmarks/run_grpo_poc.py` (requires `AEGIS_APPROVE_GRPO_POC=1` for live calls; `--stage train` blocked client- and server-side while `TRAINING_STATUS = BLOCKED`; `scaledown_window=60`, `min_containers=0`, `buffer_containers=0`).
 - **Zero-Cost Preflight Commands**:
-  - `python -m benchmarks.run_grpo_poc --dry-run` (validates all 30 train targets locally and prints the L4 execution plan for `$0.00`).
+  - `python -m benchmarks.run_grpo_poc --dry-run` (validates all 40 train targets locally and prints the L4 execution plan for `$0.00`).
   - `python -m pytest -q tests/test_grpo_poc_driver.py tests/test_grpo_modal_prep.py tests/test_r1_dispatch_contract.py tests/test_r1_bounds_contract.py tests/test_train_rollout_collector.py`
   - `python -m benchmarks.validate_consolidated_closure_evidence --check`
 - *Verified Live `L4` PoC Artifacts (`poc_run_7543d0db`, `$0.26` total)*:
