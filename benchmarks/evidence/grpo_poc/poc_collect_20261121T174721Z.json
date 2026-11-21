@@ -1,0 +1,46 @@
+{
+  "app_name": "aegis-rlvr-grpo-poc",
+  "stage": "collect",
+  "gpu_type": "L4",
+  "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+  "adapter_path": null,
+  "informative_only": false,
+  "run_id": "poc_40t_train32",
+  "trajectory_dir": "/vol/models/trajectories_grpo_poc/poc_40t_train32",
+  "checkpoint_dir": "/vol/models/checkpoints_grpo_poc/poc_40t_train32",
+  "timestamp_utc": "2026-11-21T17:28:18.421439+00:00",
+  "collect": {
+    "status": "success",
+    "run_id": "poc_40t_train32",
+    "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+    "adapter_path": null,
+    "gpu_type": "L4",
+    "trajectory_dir": "/vol/models/trajectories_grpo_poc/poc_40t_train32",
+    "persisted_count": 16,
+    "excluded_infra_count": 0,
+    "category_counts": {
+      "GENERATION_FORMAT_ERROR": 7,
+      "SAFE_RUN": 4,
+      "COMPILATION_ERROR": 5
+    },
+    "group_spread": {
+      "total_groups": 24,
+      "degenerate_groups": 8,
+      "informative_groups": 16,
+      "degenerate_ratio": 0.3333333333333333,
+      "mean_group_std": 0.10085650277402158,
+      "mean_abs_advantage": 0.6016477680107674,
+      "total_rollouts": 96,
+      "degenerate_group_ids": [
+        "3cce02e2-3edd-4075-8e88-8eb24a5cdf3b",
+        "f44f6d0c-4718-47cd-aa04-68fb84575b83",
+        "fb30b580-dbcb-4fe3-a925-b386b0438e93",
+        "e5f6ad0a-1cf6-41db-b579-f3d08e10f4ff",
+        "8fb7cc3d-d002-4cff-b369-9ff9a11b21e2",
+        "13574c77-fe21-4111-a430-720d3fdaee1e",
+        "fe1df025-73c8-4164-a64d-837f50aa2ae1",
+        "b2a15f0c-cbdf-4083-9a8f-5c576ff527f5"
+      ]
+    }
+  }
+}
