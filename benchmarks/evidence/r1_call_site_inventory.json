@@ -249,6 +249,33 @@
         "poc_train_grpo"
       ],
       "refused_by": "core.r1_bounds.UNAUTHORISED_CALL_SITES / benchmarks.run_grpo_poc._assert_authorised / core.config.is_training_blocked"
+    },
+    "modal_grpo_poc_app.py::red_verifier::poc_verify_train_exploit": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The Red precondition verifier of the separate GRPO PoC app (modal_grpo_poc_app.py) is not part of the authorised R1 evidence-regeneration trace (core.r1_bounds.UNAUTHORISED_CALL_SITES); only reachable under explicit maintainer approval.",
+      "call_sites": [
+        "poc_verify_train_exploit"
+      ],
+      "refused_by": "core.r1_bounds.UNAUTHORISED_CALL_SITES / benchmarks.run_patch_poc._assert_authorised"
+    },
+    "modal_grpo_poc_app.py::patch_runner::poc_verify_train_patch": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The Blue patch verifier of the separate GRPO PoC app (modal_grpo_poc_app.py) is not part of the authorised R1 evidence-regeneration trace (core.r1_bounds.UNAUTHORISED_CALL_SITES); only reachable under explicit maintainer approval.",
+      "call_sites": [
+        "poc_verify_train_patch"
+      ],
+      "refused_by": "core.r1_bounds.UNAUTHORISED_CALL_SITES / benchmarks.run_patch_poc._assert_authorised"
+    },
+    "benchmarks/run_patch_poc.py::run_live_patch_poc::fn": {
+      "count": 1,
+      "disposition": "refused",
+      "reason": "The dual-loop patch PoC driver of the separate GRPO PoC app (modal_grpo_poc_app.py) is not part of the authorised R1 evidence-regeneration trace (core.r1_bounds.UNAUTHORISED_CALL_SITES); benchmarks/run_patch_poc.py::_assert_authorised refuses live invocation unless AEGIS_APPROVE_GRPO_POC=1 is explicitly set.",
+      "call_sites": [
+        "poc_run_dual_loop_patches"
+      ],
+      "refused_by": "core.r1_bounds.UNAUTHORISED_CALL_SITES / benchmarks.run_patch_poc._assert_authorised"
     }
   },
   "guard_implementation": {
