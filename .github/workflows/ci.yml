@@ -216,6 +216,7 @@ jobs:
         run: |
           forge --version
           python -m pytest -v -rA tests/test_real_foundry_e2e_all_targets.py --junitxml=test-results-foundry-e2e.xml
+          python -m pytest -v -rA tests/test_patch_verifier.py
 
       - name: Validate Iteration 14 billing join table and evidence binding
         env:
