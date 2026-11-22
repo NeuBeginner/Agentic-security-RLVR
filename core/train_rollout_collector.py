@@ -34,12 +34,13 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 from core.config import config
 from core.evaluator import create_trajectory_record, evaluate_execution_trace
 from core.evidence import HarnessVerdict, is_trusted_breach_verdict
+from core.failure_digest import extract_failure_reason
 from core.grpo_trainer import (
     diagnose_group_spread,
     group_rollouts_by_prompt,
     load_production_trajectories,
 )
-from core.llm_generator import build_analysis_prompt
+from core.llm_generator import build_analysis_prompt, build_refinement_prompt
 from core.schemas import (
     ExecutionResult,
     ExploitPayload,
@@ -78,6 +79,7 @@ class TrainRolloutCollectionResult:
     persisted_paths: List[str] = field(default_factory=list)
     category_counts: Dict[str, int] = field(default_factory=dict)
     group_spread: Dict[str, Any] = field(default_factory=dict)
+    improved_by_refinement_count: int = 0
 
 
 def _sha256_text(text: str) -> str:
@@ -282,6 +284,22 @@ def _run_independent_replay_if_needed(
     return exec_result.model_copy(update={"reproducibility_confirmed": reproduced})
 
 
+def _build_refinement_feedback(exec_result: ExecutionResult, fallback_reason: str) -> str:
+    """Assemble concise, trace-grounded feedback for a refinement round."""
+    digest = extract_failure_reason(
+        stdout=exec_result.stdout,
+        stderr=exec_result.stderr,
+        revert_reason=exec_result.revert_reason,
+        decoded_logs=exec_result.decoded_logs,
+    )
+    raw_err = (exec_result.stderr or exec_result.stdout or fallback_reason or "").strip()
+    if digest and raw_err:
+        combined = f"{digest}\n{raw_err}"
+    else:
+        combined = digest or raw_err or "Execution failed without diagnostic output."
+    return combined[:1200]
+
+
 def collect_train_rollouts(
     targets: Iterable[TargetProgram],
     trajectory_dir: str,
@@ -294,6 +312,7 @@ def collect_train_rollouts(
     benchmark_dataset_path: Path = DEFAULT_BENCHMARK_DATASET_PATH,
     test_solidity_dir: Path = Path(LOCAL_TRUSTED_HARNESSES_DIR),
     model_id: Optional[str] = None,
+    max_refinement_rounds: int = 0,
 ) -> TrainRolloutCollectionResult:
     """
     Collect `G >= 4` GRPO training rollouts per train target and persist eligible
@@ -323,6 +342,7 @@ def collect_train_rollouts(
     persisted_count = 0
     excluded_infra_count = 0
     excluded_missing_tokens_count = 0
+    improved_by_refinement_count = 0
     persisted_paths: List[str] = []
     category_counts: Dict[str, int] = {}
 
@@ -345,6 +365,57 @@ def collect_train_rollouts(
                 target, payload, exec_result, active_verifier
             )
             verdict = evaluate_execution_trace(payload, exec_result)
+
+            if (
+                max_refinement_rounds > 0
+                and verdict.category not in (ResultCategory.EXPLOIT_CONFIRMED, ResultCategory.INFRA_ERROR)
+            ):
+                best_payload = payload
+                best_verdict = verdict
+                best_exec = exec_result
+                history: List[Dict[str, Any]] = []
+                for round_idx in range(1, max_refinement_rounds + 1):
+                    feedback = _build_refinement_feedback(best_exec, best_verdict.category.value)
+                    history.append(
+                        {
+                            "candidate_id": best_payload.candidate_id,
+                            "category": best_verdict.category.value,
+                            "feedback": feedback,
+                        }
+                    )
+                    refine_prompt = build_refinement_prompt(
+                        target,
+                        failed_code=best_payload.test_code or best_payload.raw_model_response or "",
+                        error_feedback=feedback,
+                        previous_failures=history,
+                    )
+                    raw_ref = generator_fn(target, refine_prompt, temp, cand_idx)
+                    ref_payload = _normalize_payload(
+                        raw_ref, target, refine_prompt, active_run_id, cand_idx
+                    ).model_copy(update={"attempt_number": round_idx + 1})
+                    if not ref_payload.generated_token_ids:
+                        break
+                    ref_exec = active_verifier(target, ref_payload)
+                    ref_exec = _run_independent_replay_if_needed(
+                        target, ref_payload, ref_exec, active_verifier
+                    )
+                    ref_verdict = evaluate_execution_trace(ref_payload, ref_exec)
+                    if ref_verdict.category == ResultCategory.INFRA_ERROR:
+                        break
+                    if (
+                        ref_verdict.category == ResultCategory.EXPLOIT_CONFIRMED
+                        or ref_verdict.reward_score > best_verdict.reward_score
+                    ):
+                        best_payload = ref_payload
+                        best_verdict = ref_verdict
+                        best_exec = ref_exec
+                    if best_verdict.category == ResultCategory.EXPLOIT_CONFIRMED:
+                        break
+                payload = best_payload
+                verdict = best_verdict
+                exec_result = best_exec
+                if payload.attempt_number > 1:
+                    improved_by_refinement_count += 1
 
             cat_name = verdict.category.value
             category_counts[cat_name] = category_counts.get(cat_name, 0) + 1
@@ -393,4 +464,5 @@ def collect_train_rollouts(
         persisted_paths=persisted_paths,
         category_counts=category_counts,
         group_spread=spread,
+        improved_by_refinement_count=improved_by_refinement_count,
     )

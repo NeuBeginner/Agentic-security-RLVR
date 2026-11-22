@@ -122,6 +122,7 @@ def poc_collect_train_rollouts(
     trajectory_dir: str = config.GRPO_POC_TRAJECTORY_DIR,
     target_names: Optional[List[str]] = None,
     adapter_path: Optional[str] = None,
+    max_refinement_rounds: int = 0,
 ) -> dict:
     """Collects GRPO PoC rollouts on disjoint train targets using L4 GPU."""
     import torch
@@ -251,6 +252,7 @@ def poc_collect_train_rollouts(
         temperatures=temperatures,
         run_id=active_run_id,
         model_id=model_id,
+        max_refinement_rounds=max_refinement_rounds,
         **collect_kwargs,
     )
 
@@ -267,6 +269,7 @@ def poc_collect_train_rollouts(
         "excluded_infra_count": result.excluded_infra_count,
         "category_counts": result.category_counts,
         "group_spread": result.group_spread,
+        "improved_by_refinement_count": getattr(result, "improved_by_refinement_count", 0),
     }
 
 
