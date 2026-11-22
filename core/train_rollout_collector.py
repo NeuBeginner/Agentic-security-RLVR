@@ -373,6 +373,7 @@ def collect_train_rollouts(
                 best_payload = payload
                 best_verdict = verdict
                 best_exec = exec_result
+                improved_in_refinement = False
                 history: List[Dict[str, Any]] = []
                 for round_idx in range(1, max_refinement_rounds + 1):
                     feedback = _build_refinement_feedback(best_exec, best_verdict.category.value)
@@ -409,12 +410,13 @@ def collect_train_rollouts(
                         best_payload = ref_payload
                         best_verdict = ref_verdict
                         best_exec = ref_exec
+                        improved_in_refinement = True
                     if best_verdict.category == ResultCategory.EXPLOIT_CONFIRMED:
                         break
                 payload = best_payload
                 verdict = best_verdict
                 exec_result = best_exec
-                if payload.attempt_number > 1:
+                if improved_in_refinement:
                     improved_by_refinement_count += 1
 
             cat_name = verdict.category.value

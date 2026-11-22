@@ -1,0 +1,237 @@
+{
+  "experiment": "dev_eval_8_three_way_progression",
+  "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+  "gpu_type": "L4",
+  "checkpoint_path": "/vol/models/checkpoints_grpo_poc/poc_40t_train32/checkpoint-step-69",
+  "targets": [
+    "TrainTxOriginWallet",
+    "TrainReentrancyBank",
+    "TrainSlippageVault",
+    "TrainMsgValueBatch",
+    "TrainFeeOnTransferVault",
+    "TrainShareVault",
+    "TrainFlashStaking",
+    "TrainERC4626RoundMismatch"
+  ],
+  "pre_grpo_r0": {
+    "rollout_count": 32,
+    "category_counts": {
+      "GENERATION_FORMAT_ERROR": 13,
+      "SAFE_RUN": 6,
+      "RUNTIME_REVERT": 10,
+      "COMPILATION_ERROR": 1,
+      "EXPLOIT_CONFIRMED": 2
+    },
+    "valid_compilable_count": 18,
+    "valid_compilable_rate": 0.5625,
+    "exploit_confirmed_rollouts": 2,
+    "pass_at_4_targets": [
+      "TrainSlippageVault",
+      "TrainShareVault"
+    ],
+    "pass_at_4_count": 2,
+    "mean_reward_v2": -0.192187,
+    "improved_by_refinement_actual": 0,
+    "exploits_from_r1": 0
+  },
+  "post_grpo_r0": {
+    "rollout_count": 32,
+    "category_counts": {
+      "SAFE_RUN": 9,
+      "RUNTIME_REVERT": 12,
+      "COMPILATION_ERROR": 6,
+      "EXPLOIT_CONFIRMED": 3,
+      "GENERATION_FORMAT_ERROR": 2
+    },
+    "valid_compilable_count": 24,
+    "valid_compilable_rate": 0.75,
+    "exploit_confirmed_rollouts": 3,
+    "pass_at_4_targets": [
+      "TrainShareVault",
+      "TrainERC4626RoundMismatch"
+    ],
+    "pass_at_4_count": 2,
+    "mean_reward_v2": -0.14375,
+    "improved_by_refinement_actual": 0,
+    "exploits_from_r1": 0
+  },
+  "post_grpo_r1": {
+    "rollout_count": 32,
+    "category_counts": {
+      "RUNTIME_REVERT": 16,
+      "GENERATION_FORMAT_ERROR": 3,
+      "SAFE_RUN": 5,
+      "COMPILATION_ERROR": 3,
+      "EXPLOIT_CONFIRMED": 5
+    },
+    "valid_compilable_count": 26,
+    "valid_compilable_rate": 0.8125,
+    "exploit_confirmed_rollouts": 5,
+    "pass_at_4_targets": [
+      "TrainSlippageVault",
+      "TrainShareVault"
+    ],
+    "pass_at_4_count": 2,
+    "mean_reward_v2": -0.064063,
+    "improved_by_refinement_actual": 3,
+    "exploits_from_r1": 2
+  },
+  "r1_batch_artifacts": [
+    "benchmarks/evidence/grpo_poc/poc_collect_20261122T101228Z.json",
+    "benchmarks/evidence/grpo_poc/poc_collect_20261122T103634Z.json",
+    "benchmarks/evidence/grpo_poc/poc_collect_20261122T105543Z.json"
+  ],
+  "per_target": [
+    {
+      "target_name": "TrainTxOriginWallet",
+      "pre_categories": {
+        "SAFE_RUN": 3,
+        "GENERATION_FORMAT_ERROR": 1
+      },
+      "pre_mean_reward": -0.1625,
+      "post_r0_categories": {
+        "SAFE_RUN": 3,
+        "GENERATION_FORMAT_ERROR": 1
+      },
+      "post_r0_mean_reward": -0.1625,
+      "post_r1_categories": {
+        "SAFE_RUN": 4
+      },
+      "post_r1_mean_reward": -0.1,
+      "post_r1_exploits_from_refinement": 0
+    },
+    {
+      "target_name": "TrainReentrancyBank",
+      "pre_categories": {
+        "RUNTIME_REVERT": 3,
+        "GENERATION_FORMAT_ERROR": 1
+      },
+      "pre_mean_reward": -0.275,
+      "post_r0_categories": {
+        "RUNTIME_REVERT": 4
+      },
+      "post_r0_mean_reward": -0.25,
+      "post_r1_categories": {
+        "RUNTIME_REVERT": 4
+      },
+      "post_r1_mean_reward": -0.25,
+      "post_r1_exploits_from_refinement": 0
+    },
+    {
+      "target_name": "TrainSlippageVault",
+      "pre_categories": {
+        "SAFE_RUN": 1,
+        "EXPLOIT_CONFIRMED": 1,
+        "RUNTIME_REVERT": 2
+      },
+      "pre_mean_reward": 0.1,
+      "post_r0_categories": {
+        "RUNTIME_REVERT": 3,
+        "COMPILATION_ERROR": 1
+      },
+      "post_r0_mean_reward": -0.3125,
+      "post_r1_categories": {
+        "RUNTIME_REVERT": 3,
+        "EXPLOIT_CONFIRMED": 1
+      },
+      "post_r1_mean_reward": 0.0625,
+      "post_r1_exploits_from_refinement": 1
+    },
+    {
+      "target_name": "TrainMsgValueBatch",
+      "pre_categories": {
+        "GENERATION_FORMAT_ERROR": 3,
+        "RUNTIME_REVERT": 1
+      },
+      "pre_mean_reward": -0.325,
+      "post_r0_categories": {
+        "SAFE_RUN": 2,
+        "RUNTIME_REVERT": 2
+      },
+      "post_r0_mean_reward": -0.175,
+      "post_r1_categories": {
+        "RUNTIME_REVERT": 3,
+        "SAFE_RUN": 1
+      },
+      "post_r1_mean_reward": -0.2125,
+      "post_r1_exploits_from_refinement": 0
+    },
+    {
+      "target_name": "TrainFeeOnTransferVault",
+      "pre_categories": {
+        "GENERATION_FORMAT_ERROR": 3,
+        "COMPILATION_ERROR": 1
+      },
+      "pre_mean_reward": -0.3875,
+      "post_r0_categories": {
+        "COMPILATION_ERROR": 4
+      },
+      "post_r0_mean_reward": -0.5,
+      "post_r1_categories": {
+        "GENERATION_FORMAT_ERROR": 2,
+        "COMPILATION_ERROR": 2
+      },
+      "post_r1_mean_reward": -0.425,
+      "post_r1_exploits_from_refinement": 0
+    },
+    {
+      "target_name": "TrainShareVault",
+      "pre_categories": {
+        "SAFE_RUN": 2,
+        "RUNTIME_REVERT": 1,
+        "EXPLOIT_CONFIRMED": 1
+      },
+      "pre_mean_reward": 0.1375,
+      "post_r0_categories": {
+        "EXPLOIT_CONFIRMED": 2,
+        "SAFE_RUN": 2
+      },
+      "post_r0_mean_reward": 0.45,
+      "post_r1_categories": {
+        "EXPLOIT_CONFIRMED": 4
+      },
+      "post_r1_mean_reward": 1.0,
+      "post_r1_exploits_from_refinement": 1
+    },
+    {
+      "target_name": "TrainFlashStaking",
+      "pre_categories": {
+        "GENERATION_FORMAT_ERROR": 4
+      },
+      "pre_mean_reward": -0.35,
+      "post_r0_categories": {
+        "RUNTIME_REVERT": 1,
+        "COMPILATION_ERROR": 1,
+        "GENERATION_FORMAT_ERROR": 1,
+        "SAFE_RUN": 1
+      },
+      "post_r0_mean_reward": -0.3,
+      "post_r1_categories": {
+        "RUNTIME_REVERT": 3,
+        "GENERATION_FORMAT_ERROR": 1
+      },
+      "post_r1_mean_reward": -0.275,
+      "post_r1_exploits_from_refinement": 0
+    },
+    {
+      "target_name": "TrainERC4626RoundMismatch",
+      "pre_categories": {
+        "RUNTIME_REVERT": 3,
+        "GENERATION_FORMAT_ERROR": 1
+      },
+      "pre_mean_reward": -0.275,
+      "post_r0_categories": {
+        "SAFE_RUN": 1,
+        "RUNTIME_REVERT": 2,
+        "EXPLOIT_CONFIRMED": 1
+      },
+      "post_r0_mean_reward": 0.1,
+      "post_r1_categories": {
+        "RUNTIME_REVERT": 3,
+        "COMPILATION_ERROR": 1
+      },
+      "post_r1_mean_reward": -0.3125,
+      "post_r1_exploits_from_refinement": 0
+    }
+  ]
+}
