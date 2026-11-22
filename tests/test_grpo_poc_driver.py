@@ -872,3 +872,51 @@ def test_run_live_poc_train_forwards_informative_only_and_poc_train_filters_grou
     assert res["informative_groups_count"] == 1
 
 
+def test_run_grpo_poc_max_refinement_rounds_bounds_and_forwarding(monkeypatch, tmp_path):
+    """Ensure --max-refinement-rounds is bounded (0..3), visible in dry-run, and forwarded to Modal."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+    import benchmarks.run_grpo_poc as driver
+
+    plan = driver.run_dry_run(
+        stage="collect-and-diagnose",
+        max_targets=4,
+        group_size=4,
+        max_new_tokens=1536,
+        model_id="Qwen/Qwen3-4B-Instruct-2507",
+        max_refinement_rounds=2,
+    )
+    assert plan["max_refinement_rounds"] == 2
+
+    with pytest.raises(ValueError, match="--max-refinement-rounds must be between 0 and 3"):
+        driver.run_dry_run(
+            stage="collect-and-diagnose",
+            max_targets=4,
+            group_size=4,
+            max_new_tokens=1536,
+            model_id="Qwen/Qwen3-4B-Instruct-2507",
+            max_refinement_rounds=4,
+        )
+
+    monkeypatch.setenv("AEGIS_APPROVE_GRPO_POC", "1")
+    collect_remote = MagicMock(return_value={"status": "success", "trajectory_dir": "/vol/models/trajectories_grpo_poc/r"})
+    diag_remote = MagicMock(return_value={"status": "SUCCESS"})
+
+    def fake_from_name(app_name, fn_name):
+        return SimpleNamespace(remote=collect_remote if fn_name == "poc_collect_train_rollouts" else diag_remote)
+
+    with patch("modal.Function.from_name", side_effect=fake_from_name):
+        driver.run_live_poc(
+            stage="collect-and-diagnose",
+            max_targets=4,
+            group_size=4,
+            max_new_tokens=1536,
+            model_id="Qwen/Qwen3-4B-Instruct-2507",
+            output_dir=str(tmp_path),
+            run_id="poc_ref_01",
+            max_refinement_rounds=2,
+        )
+
+    assert collect_remote.call_args.kwargs["max_refinement_rounds"] == 2
+
+

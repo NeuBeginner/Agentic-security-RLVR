@@ -1287,3 +1287,80 @@ def test_collect_train_rollouts_sets_model_id_and_single_traj_prefix(tmp_path):
         assert not p.name.startswith("traj_traj_")
         record = json.loads(p.read_text(encoding="utf-8"))
         assert record["model_id"] == "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+
+
+def test_collect_train_rollouts_multiturn_refinement_recovers_revert(tmp_path):
+    """When max_refinement_rounds > 0, failed candidates receive Foundry failure digest and can recover to EXPLOIT_CONFIRMED."""
+    target = load_train_targets()[0]
+    seen_prompts = []
+
+    def mock_generator(tgt: TargetProgram, prompt_text: str, temp: float, cand_idx: int) -> ExploitPayload:
+        seen_prompts.append((cand_idx, prompt_text))
+        is_refinement = "FOUNDRY EVM EXECUTION FEEDBACK" in prompt_text
+        code = (
+            "contract ExploitModule { function runExploit() external payable { /* fixed */ } }"
+            if is_refinement
+            else f"contract ExploitModule {{ function runExploit() external payable {{ /* v0 {cand_idx} */ }} }}"
+        )
+        return ExploitPayload(
+            target_name=tgt.name,
+            hypothesis=AttackHypothesis(
+                vulnerability_type=tgt.invariants[0] if tgt.invariants else "Logic",
+                reasoning_trace=f"reasoning {cand_idx}",
+                attack_vector="vector",
+            ),
+            test_code=code,
+            prompt_text=prompt_text,
+            format_valid=True,
+            raw_model_response=code,
+            generated_token_ids=[100 + cand_idx] if is_refinement else [10 + cand_idx],
+            candidate_index=cand_idx,
+        )
+
+    def mock_verifier(tgt: TargetProgram, pld: ExploitPayload) -> ExecutionResult:
+        if "/* fixed */" in pld.test_code:
+            return ExecutionResult(
+                return_code=0,
+                stdout="EXPLOIT_SUCCESS",
+                stderr="",
+                execution_time_sec=0.1,
+                category=ResultCategory.EXPLOIT_CONFIRMED,
+                invariant_violated=True,
+                test_status="Success",
+                verified_by_harness=True,
+                reproducibility_confirmed=True,
+                harness_verdict=HarnessVerdict.BREACH.value,
+                harness_suite=f"test/{tgt.name}Harness.t.sol",
+            )
+        return ExecutionResult(
+            return_code=1,
+            stdout="",
+            stderr="revert OutOfFunds",
+            revert_reason="OutOfFunds",
+            execution_time_sec=0.1,
+            category=ResultCategory.RUNTIME_REVERT,
+            invariant_violated=False,
+        )
+
+    res = collect_train_rollouts(
+        targets=[target],
+        trajectory_dir=str(tmp_path),
+        generator_fn=mock_generator,
+        verifier_fn=mock_verifier,
+        group_size=4,
+        run_id="poc_refine_test",
+        max_refinement_rounds=1,
+    )
+
+    assert res.persisted_count == 4
+    assert res.improved_by_refinement_count == 4
+    assert res.category_counts.get("EXPLOIT_CONFIRMED") == 4
+    # Every refinement prompt must include the concrete failure digest and previous code
+    refinement_prompts = [p for _, p in seen_prompts if "FOUNDRY EVM EXECUTION FEEDBACK" in p]
+    assert len(refinement_prompts) == 4
+    assert all("OutOfFunds" in p for p in refinement_prompts)
+    # Persisted trajectories must match the exact refinement prompt that produced their tokens
+    for path_str in res.persisted_paths:
+        record = json.loads(Path(path_str).read_text(encoding="utf-8"))
+        assert "FOUNDRY EVM EXECUTION FEEDBACK" in record["prompt_used"]
+        assert record["generated_token_ids"][0] >= 100

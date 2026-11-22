@@ -60,6 +60,7 @@ def _validate_bounds(
     max_new_tokens: int,
     num_steps: int = 2,
     learning_rate: float = 5e-6,
+    max_refinement_rounds: int = 0,
 ) -> None:
     """Enforce hard PoC bounds before any execution."""
     if not (1 <= max_targets <= 10):
@@ -72,6 +73,8 @@ def _validate_bounds(
         raise ValueError(f"--num-steps must be positive, got {num_steps}")
     if learning_rate <= 0:
         raise ValueError(f"--learning-rate must be positive, got {learning_rate}")
+    if not (0 <= max_refinement_rounds <= 3):
+        raise ValueError(f"--max-refinement-rounds must be between 0 and 3, got {max_refinement_rounds}")
 
 
 def _parse_target_names(raw: Optional[Sequence[str] | str]) -> Optional[List[str]]:
@@ -121,6 +124,7 @@ def run_dry_run(
     learning_rate: float = 5e-6,
     adapter_path: Optional[str] = None,
     informative_only: bool = False,
+    max_refinement_rounds: int = 0,
 ) -> Dict[str, Any]:
     """Validate local train targets ($0) and return the execution plan."""
     parsed_names = _parse_target_names(target_names)
@@ -130,6 +134,7 @@ def run_dry_run(
         max_new_tokens=max_new_tokens,
         num_steps=num_steps,
         learning_rate=learning_rate,
+        max_refinement_rounds=max_refinement_rounds,
     )
 
     all_targets, selected = _select_and_validate_train_targets(
@@ -167,6 +172,7 @@ def run_dry_run(
         "max_new_tokens": max_new_tokens,
         "num_steps": num_steps,
         "learning_rate": learning_rate,
+        "max_refinement_rounds": max_refinement_rounds,
     }
 
 
@@ -183,6 +189,7 @@ def run_live_poc(
     run_id: Optional[str] = None,
     adapter_path: Optional[str] = None,
     informative_only: bool = False,
+    max_refinement_rounds: int = 0,
 ) -> Dict[str, Any]:
     """Execute the approved live GRPO PoC stage on Modal."""
     _assert_authorised()
@@ -193,6 +200,7 @@ def run_live_poc(
         max_new_tokens=max_new_tokens,
         num_steps=num_steps,
         learning_rate=learning_rate,
+        max_refinement_rounds=max_refinement_rounds,
     )
 
     if stage == "train" and is_training_blocked(config):
@@ -236,6 +244,7 @@ def run_live_poc(
             trajectory_dir=config.GRPO_POC_TRAJECTORY_DIR,
             target_names=parsed_names,
             adapter_path=adapter_path,
+            max_refinement_rounds=max_refinement_rounds,
         )
 
     active_traj_dir = config.GRPO_POC_TRAJECTORY_DIR
@@ -360,6 +369,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Filter out degenerate rollout groups before --stage train.",
     )
+    parser.add_argument(
+        "--max-refinement-rounds",
+        type=int,
+        default=0,
+        help="Verifier-guided multi-turn refinement rounds per failed candidate (0..3, default: 0).",
+    )
     return parser
 
 
@@ -380,6 +395,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             learning_rate=args.learning_rate,
             adapter_path=args.adapter_path,
             informative_only=args.informative_only,
+            max_refinement_rounds=args.max_refinement_rounds,
         )
         print(json.dumps(plan, indent=2))
         return 0
@@ -397,6 +413,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         run_id=args.run_id,
         adapter_path=args.adapter_path,
         informative_only=args.informative_only,
+        max_refinement_rounds=args.max_refinement_rounds,
     )
     print(json.dumps(res, indent=2))
     return 0
