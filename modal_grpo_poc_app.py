@@ -11,6 +11,7 @@ completely untouched.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 import os
 import posixpath
 import sys
@@ -28,7 +29,8 @@ if _REPO_ROOT not in sys.path:
 from core import r1_bounds as r1
 from core.config import config, is_training_blocked
 from core.schemas import ExecutionResult, ExploitPayload, ResultCategory, TargetProgram
-from sandbox.runner import run_payload_in_sandbox, sandbox_image
+from sandbox.patch_runner import LOCAL_TRAIN_FUNCTIONAL_TESTS_DIR, PatchSandboxResult, run_patch_in_sandbox
+from sandbox.runner import LOCAL_TRAIN_HARNESSES_DIR, TRAIN_TRUSTED_HARNESSES_DIR, run_payload_in_sandbox, sandbox_image
 
 app = modal.App("aegis-rlvr-grpo-poc")
 
@@ -88,6 +90,13 @@ def _resolve_train_dataset_paths() -> tuple[Optional[Path], Optional[Path], Opti
             Path("/opt/aegis/benchmarks/targets/solidity"),
         )
     return None, None, None, None
+
+
+poc_patch_sandbox_image = sandbox_image.add_local_dir(
+    os.path.join(_REPO_ROOT, "benchmarks", "targets", "solidity_train_functional"),
+    "/opt/aegis/benchmarks/targets/solidity_train_functional",
+    copy=True,
+)
 
 
 @app.function(
@@ -520,3 +529,159 @@ def poc_train_grpo(
         "informative_groups_count": informative_groups_count,
         "logs": [s.model_dump() for s in step_stats],
     }
+
+
+@app.function(
+    image=poc_patch_sandbox_image,
+    timeout=r1.declared_timeout(r1.SANDBOX_CPU_PROFILE),
+    block_network=True,
+    **r1.SANDBOX_CPU_PROFILE.modal_kwargs(),
+)
+def poc_verify_train_patch(target_name: str, patched_source: str, exploit_code: str) -> dict:
+    """Execute isolated Foundry functional + security verification for a candidate patch."""
+    container_func = "/opt/aegis/benchmarks/targets/solidity_train_functional"
+    func_dir = container_func if os.path.isdir(container_func) else LOCAL_TRAIN_FUNCTIONAL_TESTS_DIR
+    harnesses_dir = TRAIN_TRUSTED_HARNESSES_DIR if os.path.isdir(TRAIN_TRUSTED_HARNESSES_DIR) else LOCAL_TRAIN_HARNESSES_DIR
+    return asdict(
+        run_patch_in_sandbox(
+            target_name,
+            patched_source,
+            exploit_code,
+            functional_tests_dir=func_dir,
+            harnesses_dir=harnesses_dir,
+        )
+    )
+
+
+@app.function(
+    gpu=config.GRPO_POC_GPU_TYPE,
+    image=poc_gpu_image,
+    volumes={"/vol/models": model_volume},
+    timeout=1800,
+    min_containers=0,
+    buffer_containers=0,
+    scaledown_window=60,
+)
+def poc_run_dual_loop_patches(
+    model_id: str = "Qwen/Qwen3-4B-Instruct-2507",
+    target_names: Optional[List[str]] = None,
+    red_trajectory_dirs: Optional[List[str]] = None,
+    run_id: Optional[str] = None,
+    group_size: int = 4,
+    max_new_tokens: int = 1536,
+    max_refinement_rounds: int = 1,
+    adapter_path: Optional[str] = None,
+    red_exploits_override: Optional[Dict[str, Dict[str, str]]] = None,
+) -> dict:
+    """Run E2E Red LLM Exploit -> Blue LLM Verified Patch on L4 GPU + Foundry CPU sandboxes."""
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    from core.patch_generator import (
+        build_patch_system_prompt,
+        collect_blue_patch_rollouts,
+        load_confirmed_red_exploits_from_dirs,
+    )
+    from core.train_rollout_collector import load_train_targets
+
+    _reload_volume_with_warning(model_volume)
+
+    train_dataset_path, benchmark_dataset_path, train_solidity_dir, test_solidity_dir = _resolve_train_dataset_paths()
+    if train_dataset_path is not None:
+        all_targets = load_train_targets(
+            train_dataset_path=train_dataset_path,
+            benchmark_dataset_path=benchmark_dataset_path,
+            train_solidity_dir=train_solidity_dir,
+            test_solidity_dir=test_solidity_dir,
+        )
+    else:
+        all_targets = load_train_targets()
+
+    wanted_names = target_names or ["TrainAdminTreasury", "TrainShareVault", "TrainUninitializedVault"]
+    by_name = {t.name: t for t in all_targets}
+    unknown = [n for n in wanted_names if n not in by_name]
+    if unknown:
+        raise ValueError(f"Unknown train targets requested for dual-loop patch PoC: {unknown}")
+    targets = [by_name[n] for n in wanted_names]
+
+    if red_exploits_override is not None:
+        red_exploits = red_exploits_override
+    else:
+        traj_dirs = red_trajectory_dirs or [
+            "/vol/models/trajectories_grpo_poc/poc_40t_dev_post_r1",
+            "/vol/models/trajectories_grpo_poc/poc_40t_train32",
+        ]
+        red_exploits = load_confirmed_red_exploits_from_dirs(traj_dirs, wanted_names)
+
+    missing_red = [n for n in wanted_names if n not in red_exploits]
+    if missing_red:
+        raise ValueError(f"Missing confirmed Red exploits for targets {missing_red} in {red_trajectory_dirs}")
+
+    active_run_id = run_id or f"dual_loop_{uuid.uuid4().hex[:8]}"
+    output_dir = posixpath.join("/vol/models/dual_loop_poc", active_run_id)
+
+    cache_dir = config.MODEL_CACHE_DIR
+    tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=cache_dir)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        torch_dtype=torch.bfloat16,
+        cache_dir=cache_dir,
+    ).to("cuda")
+    if adapter_path:
+        from peft import PeftModel
+
+        model = PeftModel.from_pretrained(model, adapter_path)
+    model.eval()
+
+    sys_prompt = build_patch_system_prompt()
+
+    def generator_fn(tgt: TargetProgram, prompt_text: str, temp: float, cand_idx: int) -> str:
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": prompt_text},
+        ]
+        formatted = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        inputs = tokenizer(formatted, return_tensors="pt", add_special_tokens=False).to("cuda")
+        prompt_len = inputs["input_ids"].shape[1]
+        gen_kwargs: Dict[str, Any] = {
+            "max_new_tokens": max_new_tokens,
+            "pad_token_id": tokenizer.pad_token_id,
+            "eos_token_id": tokenizer.eos_token_id,
+        }
+        if temp > 0:
+            gen_kwargs["do_sample"] = True
+            gen_kwargs["temperature"] = float(temp)
+            gen_kwargs["top_p"] = 0.95
+        else:
+            gen_kwargs["do_sample"] = False
+        with torch.no_grad():
+            outputs = model.generate(inputs["input_ids"], attention_mask=inputs.get("attention_mask"), **gen_kwargs)
+        gen_tokens = outputs[0, prompt_len:].tolist()
+        return tokenizer.decode(gen_tokens, skip_special_tokens=True)
+
+    def red_verifier(tgt: TargetProgram, pld: ExploitPayload) -> ExecutionResult:
+        return ExecutionResult(**poc_verify_train_exploit.remote(tgt.model_dump(), pld.model_dump()))
+
+    def patch_runner(tname: str, psrc: str, ecode: str) -> PatchSandboxResult:
+        return PatchSandboxResult(**poc_verify_train_patch.remote(tname, psrc, ecode))
+
+    summary = collect_blue_patch_rollouts(
+        targets=targets,
+        red_exploits=red_exploits,
+        output_dir=output_dir,
+        generator_fn=generator_fn,
+        red_verifier=red_verifier,
+        patch_runner=patch_runner,
+        group_size=group_size,
+        max_refinement_rounds=max_refinement_rounds,
+        run_id=active_run_id,
+    )
+    model_volume.commit()
+
+    summary["model_id"] = model_id
+    summary["adapter_path"] = adapter_path
+    summary["gpu_type"] = config.GRPO_POC_GPU_TYPE
+    return summary
