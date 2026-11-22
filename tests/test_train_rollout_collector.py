@@ -1364,3 +1364,81 @@ def test_collect_train_rollouts_multiturn_refinement_recovers_revert(tmp_path):
         record = json.loads(Path(path_str).read_text(encoding="utf-8"))
         assert "FOUNDRY EVM EXECUTION FEEDBACK" in record["prompt_used"]
         assert record["generated_token_ids"][0] >= 100
+
+
+def test_collect_train_rollouts_improved_by_refinement_count_regression(tmp_path):
+    """Ensure attempt_number = cand_idx + 1 on Round 0 does not inflate improved_by_refinement_count."""
+    target = load_train_targets()[0]
+
+    def make_gen(improve_cand_idx=None):
+        def _gen(tgt: TargetProgram, prompt_text: str, temp: float, cand_idx: int) -> ExploitPayload:
+            is_ref = "FOUNDRY EVM EXECUTION FEEDBACK" in prompt_text
+            tag = "/* fixed */" if (is_ref and cand_idx == improve_cand_idx) else "/* v0 */"
+            return ExploitPayload(
+                target_name=tgt.name,
+                hypothesis=AttackHypothesis(
+                    vulnerability_type=tgt.invariants[0] if tgt.invariants else "Logic",
+                    reasoning_trace=f"reasoning {cand_idx}",
+                    attack_vector="vector",
+                ),
+                test_code=f"contract ExploitModule {{ function runExploit() external payable {{ {tag} }} }}",
+                prompt_text=prompt_text,
+                format_valid=True,
+                raw_model_response="resp",
+                generated_token_ids=[10 + cand_idx],
+                candidate_index=cand_idx,
+                attempt_number=cand_idx + 1,  # mimics parse_model_response(attempt_idx=cand_idx + 1)
+            )
+        return _gen
+
+    def mock_verifier(tgt: TargetProgram, pld: ExploitPayload) -> ExecutionResult:
+        if "/* fixed */" in pld.test_code:
+            return ExecutionResult(
+                return_code=0,
+                stdout="EXPLOIT_SUCCESS",
+                stderr="",
+                execution_time_sec=0.1,
+                category=ResultCategory.EXPLOIT_CONFIRMED,
+                invariant_violated=True,
+                test_status="Success",
+                verified_by_harness=True,
+                reproducibility_confirmed=True,
+                harness_verdict=HarnessVerdict.BREACH.value,
+                harness_suite=f"test/{tgt.name}Harness.t.sol",
+            )
+        return ExecutionResult(
+            return_code=1,
+            stdout="",
+            stderr="revert OutOfFunds",
+            revert_reason="OutOfFunds",
+            execution_time_sec=0.1,
+            category=ResultCategory.RUNTIME_REVERT,
+            invariant_violated=False,
+        )
+
+    # Case 1: 0 improvements in Round 1 -> count must be strictly 0 despite attempt_number > 1 on Round 0
+    res_none = collect_train_rollouts(
+        targets=[target],
+        trajectory_dir=str(tmp_path / "none"),
+        generator_fn=make_gen(improve_cand_idx=None),
+        verifier_fn=mock_verifier,
+        group_size=4,
+        run_id="poc_refine_none",
+        max_refinement_rounds=1,
+    )
+    assert res_none.persisted_count == 4
+    assert res_none.improved_by_refinement_count == 0
+
+    # Case 2: exactly 1 candidate improves in Round 1 -> count must be strictly 1
+    res_one = collect_train_rollouts(
+        targets=[target],
+        trajectory_dir=str(tmp_path / "one"),
+        generator_fn=make_gen(improve_cand_idx=2),
+        verifier_fn=mock_verifier,
+        group_size=4,
+        run_id="poc_refine_one",
+        max_refinement_rounds=1,
+    )
+    assert res_one.persisted_count == 4
+    assert res_one.improved_by_refinement_count == 1
+    assert res_one.category_counts.get("EXPLOIT_CONFIRMED") == 1
