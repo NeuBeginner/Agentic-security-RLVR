@@ -49,11 +49,67 @@ flowchart TD
 
 ---
 
-## 📊 Benchmark Evidence Status
+## 📊 Aegis-EVM-Bench (56 Verified Contracts) & Benchmark Evidence
 
-The repository contains Solidity benchmark targets and trusted Foundry harnesses, but this branch does **not** publish a completed five-baseline empirical comparison. Precision, recall, runtime, cost, and replay-rate figures must only be reported after the corresponding baselines have actually run against the dataset with retained execution evidence.
+The repository packages **Aegis-EVM-Bench**, a 56-contract deterministic Solidity verification corpus with cryptographic train/test isolation (`SHA-256 overlap = 0`):
+- **Frozen `test` split (16 targets)**: 12 vulnerable DeFi targets + 4 `SYNTHETIC_SAFE_CONTROL` contracts (`benchmarks/benchmark_dataset.json`, `benchmarks/targets/solidity/`).
+- **Disjoint `train` split (40 targets)**: 40 DeFi vulnerability classes (`benchmarks/train_dataset.json`, `benchmarks/targets/solidity_train/`).
+- **Dual-Loop Patch Pilots (5 targets)**: trusted functional regression suites (`benchmarks/targets/solidity_train_functional/`) for Red+Blue RLVR.
 
-The trusted verification path uses the structured result of the repository-owned harness suite. Candidate-controlled log markers are diagnostic output only and never establish a breach.
+> Note: This repository reports verified `baseline_5` progression (`cycle4`–`cycle8`) and controlled `L4` mini-GRPO + refinement experiments rather than a full 5-baseline comparative sweep. Every figure below is backed by retained execution artifacts.
+
+### 1. Frozen `test` Split (`baseline_5`, 16 Targets: 12 Vulnerable + 4 Safe Controls)
+
+| Cycle | Run ID | TP / Vuln | TN / Safe | FP | Recall | Precision | F1 | Replay Rate |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `cycle4` | `run_1794945167_fdb1b2d` | 3 / 12 | 4 / 4 | 0 | 25.00% | 100.00% | 0.4000 | 100.00% |
+| `cycle5` | `run_1794998302_d2d05e5` | 5 / 12 | 4 / 4 | 0 | 41.67% | 100.00% | 0.5883 | 100.00% |
+| `cycle6` | `run_1795014999_12a1178` | 5 / 12 | 4 / 4 | 0 | 41.67% | 100.00% | 0.5883 | 100.00% |
+| `cycle7` | `run_1795023810_524533d` | 6 / 12 | 4 / 4 | 0 | 50.00% | 100.00% | 0.6667 | 100.00% |
+| `cycle8` | `run_1795027271_8c19acf` | **6 / 12** | **4 / 4** | **0** | **50.00%** | **100.00%** | **0.6667** | **100.00%** |
+
+Consolidated closure validation (`benchmarks/evidence/consolidated_closure_validation_evidence.json`): **21/21 checks PASSED**.
+
+### 2. Controlled L4 Mini-GRPO + Verifier-Guided Refinement (`Qwen/Qwen3-4B-Instruct-2507`, `DEV_EVAL_8`, 32 Rollouts)
+
+Trained on `poc_40t_train32` (32 disjoint train contracts, `checkpoint-step-69`, 3 epochs × 23 informative groups, `lr=1e-5`, `0 INFRA_ERROR`) and evaluated on 8 held-out `DEV_EVAL_8` targets (`benchmarks/evidence/grpo_poc/poc_40t_dev_3way_summary.json`):
+
+| Stage (`DEV_EVAL_8`, 8 contracts × `G=4`) | `FORMAT_ERR` | Valid EVM (`EXP+REV+SAFE`) | `EXPLOIT_CONFIRMED` (Pass@1) | Mean Reward v2 |
+| :--- | :---: | :---: | :---: | :---: |
+| 1. Pre-GRPO Base 4B (`R0`) | 13 / 32 (40.6%) | 18 / 32 (56.25%) | 2 / 32 (6.25%) | `-0.1922` |
+| 2. Post-GRPO `step-69` (`R0`) | **2 / 32 (6.25%)** | 24 / 32 (75.00%) | 3 / 32 (9.38%) | `-0.1438` |
+| 3. Post-GRPO `step-69` + Verifier `R1` | 3 / 32 (9.38%) | **26 / 32 (81.25%)** | **5 / 32 (15.63%, 2.5×)** | **`-0.0641`** |
+
+---
+
+## 🛡️ Dual-Loop «Exploit → Verified Patch» (Red + Blue RLVR)
+
+`core/patch_verifier.py` and `sandbox/patch_runner.py` extend the framework with a deterministic **Blue-team patch verification loop** (`BlueReward` spec `1.0.0`):
+1. **Static & Anti-Cheatcode Gate**: enforces `contract <TargetName>`, blocks `vm.*` / `forge-std` / `selfdestruct` (`-1.00`), and rejects no-op patches (`-0.35`).
+2. **Red Precondition Sanity Check**: fail-closed verification that the Red `ExploitModule` breaches the unpatched contract.
+3. **Functional Regression Gate (`*Functional.t.sol`)**: catches trivial bricking patches (e.g. `revert()`) as `FUNCTIONAL_REGRESSION` (`-0.25`).
+4. **Security Gate (`*Harness.t.sol`)**: confirms the Red exploit is blocked (`EXPLOIT_STILL_SUCCEEDS` = `-0.10`).
+5. **Independent Fresh-EVM Replay**: confirms deterministic `PATCH_VERIFIED` (`+1.00` vs `+0.50` without replay).
+
+Verified locally in real Foundry across 5 pilot contracts × 4 scenarios (`tests/test_patch_verifier.py`).
+
+---
+
+## 💻 Local Quickstart (`$0.00` Local Foundry CLI)
+
+```bash
+# 1. Inspect the 56-contract corpus & train/test SHA-256 isolation
+python -m benchmarks.aegis_evm_bench inspect
+
+# 2. Render verified benchmark & GRPO progression leaderboards
+python -m benchmarks.aegis_evm_bench leaderboard
+
+# 3. Evaluate external ExploitModule submissions locally
+python -m benchmarks.aegis_evm_bench evaluate --submissions path/to/subs.json --split test
+
+# 4. Run Dual-Loop Red+Blue patch verification tests (unit + real Foundry)
+python -m pytest -v tests/test_patch_verifier.py tests/test_aegis_evm_bench.py
+```
 
 ---
 
