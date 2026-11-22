@@ -1,0 +1,576 @@
+{
+  "app_name": "aegis-rlvr-grpo-poc",
+  "stage": "train",
+  "gpu_type": "L4",
+  "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+  "adapter_path": null,
+  "informative_only": true,
+  "run_id": "poc_40t_train32",
+  "trajectory_dir": "/vol/models/trajectories_grpo_poc/poc_40t_train32",
+  "checkpoint_dir": "/vol/models/checkpoints_grpo_poc/poc_40t_train32",
+  "timestamp_utc": "2026-11-21T18:24:50.446471+00:00",
+  "train": {
+    "status": "success",
+    "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+    "gpu_type": "L4",
+    "trajectory_dir": "/vol/models/trajectories_grpo_poc/poc_40t_train32",
+    "checkpoint_path": "/vol/models/checkpoints_grpo_poc/poc_40t_train32/checkpoint-step-69",
+    "steps_completed": 69,
+    "total_groups_count": 31,
+    "informative_groups_count": 23,
+    "logs": [
+      {
+        "step": 1,
+        "loss": -1.4901161193847656e-08,
+        "mean_reward": -0.4625,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 2,
+        "loss": 0.0005828998982906342,
+        "mean_reward": -0.32499999999999996,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0010515783760638442,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 3,
+        "loss": -0.0002559274435043335,
+        "mean_reward": 0.4125,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00021585715148830786,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 4,
+        "loss": -0.00012714043259620667,
+        "mean_reward": -0.3625,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00019750540195673238,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 5,
+        "loss": -0.0006539225578308105,
+        "mean_reward": -0.3,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.000252336590961022,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 6,
+        "loss": 0.0005266964435577393,
+        "mean_reward": -0.2875,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00033520563192723785,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 7,
+        "loss": -0.0008326489478349686,
+        "mean_reward": -0.36250000000000004,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00022300436648947652,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 8,
+        "loss": 0.0007875114679336548,
+        "mean_reward": -0.19999999999999998,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00046390075294766575,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 9,
+        "loss": -0.0005008280277252197,
+        "mean_reward": -0.3,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00019864016394421924,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 10,
+        "loss": -0.0008756965398788452,
+        "mean_reward": -0.42500000000000004,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0003803563231485896,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 11,
+        "loss": -0.00015513598918914795,
+        "mean_reward": -0.1625,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00024322394710907247,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 12,
+        "loss": -5.048513412475586e-05,
+        "mean_reward": -0.22499999999999998,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00038442866934929043,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 13,
+        "loss": -0.0006827712059020996,
+        "mean_reward": -0.4,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0007071603358781431,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 14,
+        "loss": 5.2928924560546875e-05,
+        "mean_reward": -0.425,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0002086365730065154,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 15,
+        "loss": -0.0006704702973365784,
+        "mean_reward": -0.2,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00038808245153632015,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 16,
+        "loss": 0.001227065920829773,
+        "mean_reward": -0.42500000000000004,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0005289472501317505,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 17,
+        "loss": 7.538497447967529e-05,
+        "mean_reward": -0.375,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00036080092468182556,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 18,
+        "loss": 0.0009070932865142822,
+        "mean_reward": -0.375,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0008204528203350492,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 19,
+        "loss": 0.0011546313762664795,
+        "mean_reward": -0.4625,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0004893332625215407,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 20,
+        "loss": 0.0010951906442642212,
+        "mean_reward": -0.3125,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0008932269483921118,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 21,
+        "loss": 0.0029477179050445557,
+        "mean_reward": 0.4125,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0004975415431545116,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 22,
+        "loss": 0.00039264559745788574,
+        "mean_reward": -0.4,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.000304587633763731,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 23,
+        "loss": -0.00253237783908844,
+        "mean_reward": -0.30000000000000004,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00031285135992220603,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 24,
+        "loss": -0.0030944496393203735,
+        "mean_reward": -0.4625,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0025028363525052555,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 25,
+        "loss": -0.0018826797604560852,
+        "mean_reward": -0.32499999999999996,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0004168528248555958,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 26,
+        "loss": -0.0032816529273986816,
+        "mean_reward": 0.4125,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0002433442577967071,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 27,
+        "loss": -0.0031162090599536896,
+        "mean_reward": -0.3625,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0005128916527610272,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 28,
+        "loss": -0.0035732537508010864,
+        "mean_reward": -0.3,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.000448936842076364,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 29,
+        "loss": -0.004161015152931213,
+        "mean_reward": -0.2875,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00034931188565678895,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 30,
+        "loss": -0.005502175539731979,
+        "mean_reward": -0.36250000000000004,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0006812045885453699,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 31,
+        "loss": -0.004461750388145447,
+        "mean_reward": -0.19999999999999998,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0013806141942040995,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 32,
+        "loss": -0.0019067823886871338,
+        "mean_reward": -0.3,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00028664136334555224,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 33,
+        "loss": -0.0033598393201828003,
+        "mean_reward": -0.42500000000000004,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00121137427049689,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 34,
+        "loss": -0.00012993812561035156,
+        "mean_reward": -0.1625,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0005777821033916553,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 35,
+        "loss": -0.0030969232320785522,
+        "mean_reward": -0.22499999999999998,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00040169433123082854,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 36,
+        "loss": -0.00339721143245697,
+        "mean_reward": -0.4,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0024380655959248543,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 37,
+        "loss": -0.0011355727910995483,
+        "mean_reward": -0.425,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.000632598921583849,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 38,
+        "loss": -0.0022902414202690125,
+        "mean_reward": -0.2,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0007234003787743859,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 39,
+        "loss": -0.0016807466745376587,
+        "mean_reward": -0.42500000000000004,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0005922892796661472,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 40,
+        "loss": -0.00438748300075531,
+        "mean_reward": -0.375,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.000901172163139563,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 41,
+        "loss": -0.004193201661109924,
+        "mean_reward": -0.375,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.001359244590275921,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 42,
+        "loss": -5.613267421722412e-05,
+        "mean_reward": -0.4625,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0006631888027186505,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 43,
+        "loss": -0.004533842206001282,
+        "mean_reward": -0.3125,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.00200351323292125,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 44,
+        "loss": -0.004390895366668701,
+        "mean_reward": 0.4125,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.006189160147187067,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 45,
+        "loss": -0.0021818727254867554,
+        "mean_reward": -0.4,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0008571385260438547,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 46,
+        "loss": -0.004348039627075195,
+        "mean_reward": -0.30000000000000004,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0012368645111564547,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 47,
+        "loss": -0.005110904574394226,
+        "mean_reward": -0.4625,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.004997863783501089,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 48,
+        "loss": -0.006398160010576248,
+        "mean_reward": -0.32499999999999996,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0012445952743291855,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 49,
+        "loss": -0.007086232304573059,
+        "mean_reward": 0.4125,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0007839527097530663,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 50,
+        "loss": -0.009475018829107285,
+        "mean_reward": -0.3625,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0027603671624092385,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 51,
+        "loss": -0.008112207055091858,
+        "mean_reward": -0.3,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0013972656015539542,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 52,
+        "loss": -0.007580891251564026,
+        "mean_reward": -0.2875,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.001276370501727797,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 53,
+        "loss": -0.010499294847249985,
+        "mean_reward": -0.36250000000000004,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0034886105931946076,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 54,
+        "loss": -0.007656678557395935,
+        "mean_reward": -0.19999999999999998,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.005238350771833211,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 55,
+        "loss": -0.004599675536155701,
+        "mean_reward": -0.3,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0008768772386247292,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 56,
+        "loss": -0.005148380994796753,
+        "mean_reward": -0.42500000000000004,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.003030929045053199,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 57,
+        "loss": -0.0011070668697357178,
+        "mean_reward": -0.1625,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0006903750509081874,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 58,
+        "loss": -0.008235231041908264,
+        "mean_reward": -0.22499999999999998,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0012586977827595547,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 59,
+        "loss": -0.009277582168579102,
+        "mean_reward": -0.4,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.004557287960778922,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 60,
+        "loss": -0.0036396682262420654,
+        "mean_reward": -0.425,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0023470788801205344,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 61,
+        "loss": -0.006626047194004059,
+        "mean_reward": -0.2,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0011506619484862313,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 62,
+        "loss": -0.003439784049987793,
+        "mean_reward": -0.42500000000000004,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.001186397552373819,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 63,
+        "loss": -0.007486864924430847,
+        "mean_reward": -0.375,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.002980424091219902,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 64,
+        "loss": -0.008664518594741821,
+        "mean_reward": -0.375,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.009755427003256045,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 65,
+        "loss": -0.0024451017379760742,
+        "mean_reward": -0.4625,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.001118103406042792,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 66,
+        "loss": -0.009490326046943665,
+        "mean_reward": -0.3125,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.0040422499005217105,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 67,
+        "loss": -0.009607434272766113,
+        "mean_reward": 0.4125,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.006062762287911028,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 68,
+        "loss": -0.004473000764846802,
+        "mean_reward": -0.4,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.003445779177127406,
+        "learning_rate": 1e-05
+      },
+      {
+        "step": 69,
+        "loss": -0.009286180138587952,
+        "mean_reward": -0.30000000000000004,
+        "mean_advantage": 0.0,
+        "kl_divergence": 0.004332823154982179,
+        "learning_rate": 1e-05
+      }
+    ]
+  }
+}

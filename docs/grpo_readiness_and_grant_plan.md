@@ -3,7 +3,7 @@
 > **Audit Scope & Status**: `$0.00` Modal spend across PR #30–#34 (code audit, isolated PoC contour, and local verification); **`$0.26` live Modal `L4` PoC spend** across Stage 1 (`$0.24`) + Stage 2 (`$0.02`) on `poc_run_7543d0db` (`Qwen/Qwen3-4B-Instruct-2507`).  
 > **Training Gate**: `TRAINING_STATUS = BLOCKED` by default in `core/config.py`, `core/grpo_trainer.py`, `modal_app.py`, `modal_grpo_poc_app.py`, and `benchmarks/run_grpo_poc.py` (temporarily unblocked only for the isolated 4-step `L4` Stage 2 PoC via `with_options(secrets=...)`, remaining fail-closed by default).  
 > **Reference Benchmark Artifact**: `benchmarks/artifacts/run_1795027271_8c19acf` (`cycle8`, `baseline_5`).  
-> **Metered Modal Balance**: **`$13.43` credits used** of `$30.00` starting credit limit (`~$16.57` / `~$16` remaining; total cost of live `L4` Stage 1+2 PoC = `$0.26`).
+> **Metered Modal Balance**: **`~$17.00` credits used** of `$30.00` starting credit limit (**`~$13.00` remaining** after the `poc_run_7543d0db` micro-PoC and the controlled 40-target L4 mini-GRPO experiment `poc_40t_*`).
 
 ---
 
@@ -73,7 +73,7 @@ A local `$0.00` compatibility check was executed against all 16 target stage-evi
   - Starting Modal credit limit: `$30.00`.
   - Observed cost per full R4 benchmark run (`baseline_5`, 16 targets): `$1.11–$1.38`.
   - Observed cost of live `L4` Stage 1 + Stage 2 PoC (`poc_run_7543d0db`, `Qwen/Qwen3-4B-Instruct-2507`): **`$0.26`** (`$0.24` Stage 1 + `$0.02` Stage 2).
-  - Current metered billing: **`$13.43` credits used** (**`~$16.57` / `~$16` remaining** of `$30.00`).
+  - Current metered billing: **`~$17.00` credits used** (**`~$13.00` remaining** of `$30.00` after `poc_run_7543d0db` + `poc_40t_*`).
 
 ### 4.2 Compute Budget Plan & Verified L4 PoC Results
 
@@ -84,7 +84,21 @@ A local `$0.00` compatibility check was executed against all 16 target stage-evi
 - **Stage 2 (`train`, 1 epoch / 4 steps, `$0.02`, explicit PoC unblock)**: Executed `benchmarks/run_grpo_poc.py --stage train` (`benchmarks/evidence/grpo_poc/poc_train_20261120T101305Z.json`) on `L4` with `Qwen/Qwen3-4B-Instruct-2507`:
   - LoRA GRPO completed (`steps_completed=4`), non-zero KL divergence observed (`0.000387` at step 3, `0.000186` at step 4), and checkpoint saved to `/vol/models/checkpoints_grpo_poc/checkpoint-step-4`.
 
-#### (B) Production GRPO on `H100 80 GB` (Grant Application Scope)
+#### (B) Controlled 40-Target L4 Mini-GRPO Experiment (`Qwen/Qwen3-4B-Instruct-2507`, `32 train / 8 held-out dev-eval`) — **COMPLETED**
+- **Train Split (`poc_40t_train32`, 32 contracts, `G=4`)**: Collected `126` rollouts across all `32/32` targets (`0` `INFRA_ERROR`, `8` `EXPLOIT_CONFIRMED` across `TrainUninitializedVault` 4/4, `TrainAdminTreasury` 2/4, `TrainRewardPrecisionCollapse` 2/4). `diagnose` (`benchmarks/evidence/grpo_poc/poc_collect-and-diagnose_20261121T181642Z.json`): `31` full groups (`124` rollouts), `23` informative groups, `8` degenerate groups, `mean_abs_advantage=0.6851`, `diagnostic_loss=0.1706`.
+- **Stage 2 LoRA GRPO Training (`--informative-only`, 69 steps)**: Executed 3 epochs × 23 informative groups (`lr=1e-5`, `benchmarks/evidence/grpo_poc/poc_train_20261121T185102Z.json`), saving `/vol/models/checkpoints_grpo_poc/poc_40t_train32/checkpoint-step-69`. Monotonic loss reduction with controlled KL (`Epoch 1`: `mean_loss=0.000105`, `mean_kl=0.000411`; `Epoch 2`: `mean_loss=-0.003051`, `mean_kl=0.001157`; `Epoch 3`: `mean_loss=-0.006759`, `mean_kl=0.002958`, `max_kl=0.009755`, `0` NaNs).
+- **Held-Out Dev-Eval (`DEV_EVAL_8`, `poc_40t_dev_pre` vs `poc_40t_dev_post`, 32 rollouts each)** — full summary in `benchmarks/evidence/grpo_poc/poc_40t_dev_pre_vs_post_summary.json`:
+
+| Metric (`DEV_EVAL_8`, 8 contracts × `G=4`) | Pre-GRPO (Base 4B) | Post-GRPO (`step-69`) | Delta |
+| :--- | :---: | :---: | :---: |
+| `GENERATION_FORMAT_ERROR` | `13 / 32` (`40.6%`) | `2 / 32` (`6.25%`) | **`-34.4 pp`** |
+| Valid compilable EVM runs (`EXPLOIT + REVERT + SAFE`) | `18 / 32` (`56.25%`) | `24 / 32` (`75.0%`) | **`+18.75 pp`** |
+| `EXPLOIT_CONFIRMED` rollouts | `2 / 32` (`6.25%`) | `3 / 32` (`9.38%`) | **`+50% rel.`** |
+| Contract Pass@4 (`EXPLOIT_CONFIRMED`) | `2 / 8` (`TrainSlippageVault`, `TrainShareVault`) | `2 / 8` (`TrainShareVault` `2/4`, `TrainERC4626RoundMismatch` `1/4`) | `TrainERC4626RoundMismatch` unlocked (`0/4 -> 1/4`), `TrainShareVault` doubled (`1/4 -> 2/4`), `TrainSlippageVault` variance (`1/4 -> 0/4`) |
+| Mean Reward v2 (all 32 rollouts) | `-0.1922` | `-0.1438` | **`+0.0484`** |
+| `INFRA_ERROR` | `0` | `0` | `0` |
+
+#### (C) Production GRPO on `H100 80 GB` (Grant Application Scope)
 - **Goal**: Scale GRPO LoRA/QLoRA training using **`Qwen/Qwen3-Coder-30B-A3B-Instruct`** (public MoE 30B/3B) as the priority open-weight replacement for the closed `qtum/Qwen3-Coder-30B-A3B-Audit` checkpoint—building on **`Qwen/Qwen3-4B-Instruct-2507`** as the verified `L4` PoC baseline (and optionally comparing 14B–32B dense coding checkpoints such as `Qwen/Qwen2.5-Coder-14B-Instruct` / `Qwen/Qwen2.5-Coder-32B-Instruct`)—to push `baseline_5` recall beyond the `50.00%` (`6/12`) ceiling while preserving `100.00%` precision (`0 FP`) and `100.00%` independent replay.
 - **Estimated Compute (Grant Sizing)**:
   - **Model Prefetch & Validation**: 1× cold download of public checkpoint to Modal Volume + `diagnostic_grpo_forward_remote` on `H100`.

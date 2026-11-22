@@ -1,0 +1,90 @@
+{
+  "app_name": "aegis-rlvr-grpo-poc",
+  "stage": "collect-and-diagnose",
+  "gpu_type": "L4",
+  "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+  "adapter_path": null,
+  "informative_only": false,
+  "run_id": "poc_40t_train32",
+  "trajectory_dir": "/vol/models/trajectories_grpo_poc/poc_40t_train32",
+  "checkpoint_dir": "/vol/models/checkpoints_grpo_poc/poc_40t_train32",
+  "timestamp_utc": "2026-11-21T18:02:37.515294+00:00",
+  "collect": {
+    "status": "success",
+    "run_id": "poc_40t_train32",
+    "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+    "adapter_path": null,
+    "gpu_type": "L4",
+    "trajectory_dir": "/vol/models/trajectories_grpo_poc/poc_40t_train32",
+    "persisted_count": 20,
+    "excluded_infra_count": 0,
+    "category_counts": {
+      "SAFE_RUN": 3,
+      "GENERATION_FORMAT_ERROR": 5,
+      "COMPILATION_ERROR": 7,
+      "RUNTIME_REVERT": 3,
+      "EXPLOIT_CONFIRMED": 2
+    },
+    "group_spread": {
+      "total_groups": 31,
+      "degenerate_groups": 8,
+      "informative_groups": 23,
+      "degenerate_ratio": 0.25806451612903225,
+      "mean_group_std": 0.11472460483026384,
+      "mean_abs_advantage": 0.6850650624693321,
+      "total_rollouts": 124,
+      "degenerate_group_ids": [
+        "d394ec46-e62f-4957-a52d-0b7a4eaf7fa1",
+        "e08c533c-8f8d-47bf-bc3a-1240c0f8ae95",
+        "0608ab83-6684-4cf6-8e34-dcdf3b828870",
+        "ec36637c-96e5-4785-bac5-ea2e4aef5e24",
+        "dc46cffc-54db-4b49-aa34-0423a7b46eb1",
+        "187c8299-400d-4d8f-a47a-5fff81f6af3b",
+        "2476ea56-b228-470f-a65a-1881cc278789",
+        "6e853554-4df2-4f3a-9b37-c2abbd8724e5"
+      ]
+    }
+  },
+  "diagnose": {
+    "status": "SUCCESS",
+    "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+    "gpu_type": "L4",
+    "trajectory_dir": "/vol/models/trajectories_grpo_poc/poc_40t_train32",
+    "device": "cuda:0",
+    "eligible_count": 126,
+    "skipped_overlength_count": 0,
+    "group_spread": {
+      "total_groups": 31,
+      "degenerate_groups": 8,
+      "informative_groups": 23,
+      "degenerate_ratio": 0.25806451612903225,
+      "mean_group_std": 0.11472460483026384,
+      "mean_abs_advantage": 0.6850650624693321,
+      "total_rollouts": 124,
+      "degenerate_group_ids": [
+        "0435d9aa-a61f-4a1c-ac14-569439861eb5",
+        "b42ba979-1aee-4bff-a013-c35b6c95cfb5",
+        "c2aee6db-7748-4e4a-a482-48b05ed9a5d8",
+        "b96be37b-9218-42aa-8f0d-14014f687086",
+        "b1b1e66e-a1b0-4257-813e-97d8367a549f",
+        "34cf12a5-ba31-49b1-abac-917ed0c75ed6",
+        "56326eee-6e09-4056-b815-6599af7022f6",
+        "473b752b-d8b2-4926-ba9e-87b8910d3436"
+      ]
+    },
+    "input_shape": [
+      1,
+      2397
+    ],
+    "mask_shape": [
+      1,
+      2397
+    ],
+    "prompt_tokens": 2001,
+    "completion_tokens": 396,
+    "diagnostic_loss": 0.17063298851552636,
+    "optimizer_step_executed": false,
+    "weights_updated": false,
+    "checkpoints_created": false
+  }
+}
