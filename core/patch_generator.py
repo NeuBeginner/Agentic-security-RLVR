@@ -165,8 +165,8 @@ def load_confirmed_red_exploits_from_dirs(
             tname = str(rec.get("target_name") or "")
             if tname not in wanted or tname in found:
                 continue
-            cat = str(rec.get("category") or rec.get("result_category") or "")
-            code = str(rec.get("exploit_code") or rec.get("test_code") or "").strip()
+            cat = str(rec.get("category") or rec.get("result_category") or "").replace("ResultCategory.", "")
+            code = str(rec.get("generated_exploit") or rec.get("exploit_code") or rec.get("test_code") or "").strip()
             if cat == ResultCategory.EXPLOIT_CONFIRMED.value and code:
                 found[tname] = {
                     "target_name": tname,
@@ -226,6 +226,7 @@ def collect_blue_patch_rollouts(
 
         target_best_res: Optional[PatchVerificationResult] = None
         target_best_code = ""
+        target_red_confirmed = False
 
         for cand_idx, temp in enumerate(sched):
             last_sb: Dict[str, Optional[PatchSandboxResult]] = {"res": None}
@@ -248,10 +249,12 @@ def collect_blue_patch_rollouts(
                 original_source=target.source_code,
                 candidate=cand_0,
                 exploit_code=red_code,
-                red_precondition_verified=False,
+                red_precondition_verified=target_red_confirmed,
                 red_verifier=red_verifier,
                 patch_runner=_recording_runner,
             )
+            if res_0.red_precondition_confirmed:
+                target_red_confirmed = True
 
             best_cand = cand_0
             best_res = res_0

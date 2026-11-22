@@ -92,6 +92,43 @@ def test_load_confirmed_red_exploits_from_dirs(tmp_path):
     assert "TrainShareVault" not in found
 
 
+def test_load_confirmed_red_exploits_from_real_rlvr_trajectory_schema(tmp_path):
+    """Regression: RLVRTrajectory.model_dump() stores exploit code in `generated_exploit`, not `exploit_code`."""
+    from core.schemas import AttackHypothesis, RLVRTrajectory
+
+    d = tmp_path / "traj_dir"
+    d.mkdir()
+    traj = RLVRTrajectory(
+        trajectory_id="traj_real_schema_01",
+        candidate_id="cand_01",
+        target_name="TrainShareVault",
+        target_code="contract TrainShareVault {}",
+        hypothesis=AttackHypothesis(
+            vulnerability_type="share_inflation",
+            reasoning_trace="reasoning",
+            attack_vector="deposit 1 wei",
+        ),
+        prompt_hash="abc123",
+        generated_exploit="contract ExploitModule { function runExploit() external payable {} }",
+        category=ResultCategory.EXPLOIT_CONFIRMED,
+        reward=1.0,
+        invariant_violated=True,
+        is_verified=True,
+        reproduced=True,
+        replay_status="CONFIRMED",
+        feedback_trace="EXPLOIT_CONFIRMED",
+    )
+    dumped = traj.model_dump(mode="json")
+    assert "exploit_code" not in dumped
+    assert "generated_exploit" in dumped
+    (d / "traj_real_schema_01.json").write_text(json.dumps(dumped), encoding="utf-8")
+
+    found = load_confirmed_red_exploits_from_dirs([str(d)], ["TrainShareVault"])
+    assert "TrainShareVault" in found
+    assert found["TrainShareVault"]["trajectory_id"] == "traj_real_schema_01"
+    assert "contract ExploitModule" in found["TrainShareVault"]["exploit_code"]
+
+
 def test_collect_blue_patch_rollouts_early_stop_and_honest_refinement(tmp_path):
     tgt = TargetProgram(
         name="TrainAdminTreasury",
