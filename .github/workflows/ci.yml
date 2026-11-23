@@ -140,6 +140,7 @@ jobs:
           python -m pytest -q tests/test_grpo_integrity.py
           python -m pytest -q tests/test_trajectory_integrity.py
           python -m pytest -q tests/test_round5_regression.py
+          python -m pytest -q tests/test_patch_poc.py
 
       - name: Run complete test suite
         env:

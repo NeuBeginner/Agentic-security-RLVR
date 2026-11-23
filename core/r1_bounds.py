@@ -931,6 +931,16 @@ UNAUTHORISED_CALL_SITES: Dict[str, str] = {
         "(modal_grpo_poc_app.py) is not part of the authorised R1 evidence-regeneration "
         "trace and is additionally blocked when TRAINING_STATUS=BLOCKED"
     ),
+    "poc_verify_train_patch": (
+        "the Blue patch verifier of the separate GRPO PoC app (modal_grpo_poc_app.py) "
+        "is not part of the authorised R1 evidence-regeneration trace; its live "
+        "invocation is refused without separate maintainer approval"
+    ),
+    "poc_run_dual_loop_patches": (
+        "the dual-loop patch PoC runner of the separate GRPO PoC app (modal_grpo_poc_app.py) "
+        "is not part of the authorised R1 evidence-regeneration trace; its live "
+        "invocation is refused without separate maintainer approval"
+    ),
 }
 
 
