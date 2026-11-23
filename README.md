@@ -93,6 +93,18 @@ Trained on `poc_40t_train32` (32 disjoint train contracts, `checkpoint-step-69`,
 
 Verified locally in real Foundry across 5 pilot contracts × 4 scenarios (`tests/test_patch_verifier.py`).
 
+### Live E2E Dual-Loop Demo (`dual_loop_poc_3t`, Modal L4, `Qwen/Qwen3-4B-Instruct-2507`)
+Executed end-to-end from real `EXPLOIT_CONFIRMED` Red trajectories on Modal Volume (`benchmarks/evidence/dual_loop_poc/dual_loop_patch_dual_loop_poc_3t_20261123T095314Z.json`):
+
+| Target | Red Source Trajectory | Blue Outcome | Reward | Functional Pass | Exploit Blocked | Replay |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: |
+| `TrainAdminTreasury` | `traj_poc_40t_train32_c4606d14` | **`PATCH_VERIFIED`** | **`+1.00`** | `true` | `true` | `true` |
+| `TrainUninitializedVault` | `traj_poc_40t_train32_0d6ce899` | **`PATCH_VERIFIED`** | **`+1.00`** | `true` | `true` | `true` |
+| `TrainShareVault` | `traj_poc_40t_dev_post_r1_9a025d5b` | `EXPLOIT_STILL_SUCCEEDS` | `-0.10` | `true` | `false` | `false` |
+
+- **`2 / 3` (`66.7%`) `PATCH_VERIFIED (+1.0)`**, `mean_blue_reward = +0.2667`, `0` compilation/functional/infra errors.
+- Full grant & technical evidence package: [`docs/grant_application_package.md`](docs/grant_application_package.md).
+
 ---
 
 ## 💻 Local Quickstart (`$0.00` Local Foundry CLI)

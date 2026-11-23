@@ -1,0 +1,57 @@
+{
+  "status": "success",
+  "run_id": "dual_loop_poc_3t",
+  "output_dir": "/vol/models/dual_loop_poc/dual_loop_poc_3t",
+  "total_candidates": 6,
+  "persisted_count": 6,
+  "persisted_paths": [
+    "/vol/models/dual_loop_poc/dual_loop_poc_3t/patch_dual_loop_poc_3t_TrainAdminTreasury_c0.json",
+    "/vol/models/dual_loop_poc/dual_loop_poc_3t/patch_dual_loop_poc_3t_TrainShareVault_c0.json",
+    "/vol/models/dual_loop_poc/dual_loop_poc_3t/patch_dual_loop_poc_3t_TrainShareVault_c1.json",
+    "/vol/models/dual_loop_poc/dual_loop_poc_3t/patch_dual_loop_poc_3t_TrainShareVault_c2.json",
+    "/vol/models/dual_loop_poc/dual_loop_poc_3t/patch_dual_loop_poc_3t_TrainShareVault_c3.json",
+    "/vol/models/dual_loop_poc/dual_loop_poc_3t/patch_dual_loop_poc_3t_TrainUninitializedVault_c0.json"
+  ],
+  "category_counts": {
+    "PATCH_VERIFIED": 2,
+    "EXPLOIT_STILL_SUCCEEDS": 4
+  },
+  "verified_targets": [
+    "TrainAdminTreasury",
+    "TrainUninitializedVault"
+  ],
+  "improved_by_refinement_count": 3,
+  "mean_blue_reward": 0.2667,
+  "best_patches_by_target": {
+    "TrainAdminTreasury": {
+      "category": "PATCH_VERIFIED",
+      "reward_score": 1.0,
+      "functional_pass": true,
+      "exploit_blocked": true,
+      "reproducibility_confirmed": true,
+      "red_source_trajectory_id": "traj_poc_40t_train32_c4606d14",
+      "patched_source": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\n/**\n * @title TrainAdminTreasury\n * @notice Training-only treasury with protected governance transfer.\n */\ncontract TrainAdminTreasury {\n    address public governance;\n\n    event GovernanceChanged(address indexed previousGov, address indexed newGov);\n    event TreasurySwept(address indexed to, uint256 amount);\n\n    constructor() payable {\n        governance = msg.sender;\n    }\n\n    // PATCHED: Add onlyGovernance check to prevent unauthorized governance changes\n    function updateGovernance(address newGovernance) external {\n        require(msg.sender == governance, \"only governance can update governance\");\n        require(newGovernance != address(0), \"zero address\");\n        address old = governance;\n        governance = newGovernance;\n        emit GovernanceChanged(old, newGovernance);\n    }\n\n    function sweepTreasury(address payable recipient) external {\n        require(msg.sender == governance, \"not governance\");\n        uint256 bal = address(this).balance;\n        (bool ok, ) = recipient.call{value: bal}(\"\");\n        require(ok, \"sweep failed\");\n        emit TreasurySwept(recipient, bal);\n    }\n\n    receive() external payable {}\n}"
+    },
+    "TrainShareVault": {
+      "category": "EXPLOIT_STILL_SUCCEEDS",
+      "reward_score": -0.1,
+      "functional_pass": true,
+      "exploit_blocked": false,
+      "reproducibility_confirmed": false,
+      "red_source_trajectory_id": "traj_poc_40t_dev_post_r1_9a025d5b",
+      "patched_source": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\n/**\n * @title TrainShareVault\n * @notice Training-only ERC4626-style share vault without virtual offset protection.\n */\ncontract TrainShareVault {\n    uint256 public totalSupplyShares;\n    mapping(address => uint256) public balanceOfShares;\n\n    event Deposited(address indexed user, uint256 assets, uint256 shares);\n    event Redeemed(address indexed user, uint256 assets, uint256 shares);\n\n    function poolAssets() public view returns (uint256) {\n        return address(this).balance;\n    }\n\n    function previewRedeem(uint256 shares) public view returns (uint256) {\n        if (totalSupplyShares == 0) return shares;\n        return (shares * poolAssets()) / totalSupplyShares;\n    }\n\n    function depositAssets() external payable returns (uint256 shares) {\n        require(msg.value > 0, \"zero deposit\");\n        uint256 assetsBefore = address(this).balance - msg.value;\n        if (totalSupplyShares == 0) {\n            shares = msg.value;\n        } else {\n            // Ensure the deposit does not cause a disproportionate increase in shares\n            // This prevents malicious actors from inflating shares via minimal deposits\n            shares = (msg.value * totalSupplyShares) / assetsBefore;\n        }\n        totalSupplyShares += shares;\n        balanceOfShares[msg.sender] += shares;\n        emit Deposited(msg.sender, msg.value, shares);\n    }\n\n    function redeemShares(uint256 shares) external returns (uint256 assets) {\n        require(shares > 0 && balanceOfShares[msg.sender] >= shares, \"bad shares\");\n        assets = (shares * poolAssets()) / totalSupplyShares;\n        require(assets > 0, \"zero payout\");\n        balanceOfShares[msg.sender] -= shares;\n        totalSupplyShares -= shares;\n        (bool ok, ) = msg.sender.call{value: assets}(\"\");\n        require(ok, \"eth transfer failed\");\n        emit Redeemed(msg.sender, assets, shares);\n    }\n\n    receive() external payable {}\n}"
+    },
+    "TrainUninitializedVault": {
+      "category": "PATCH_VERIFIED",
+      "reward_score": 1.0,
+      "functional_pass": true,
+      "exploit_blocked": true,
+      "reproducibility_confirmed": true,
+      "red_source_trajectory_id": "traj_poc_40t_train32_0d6ce899",
+      "patched_source": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\n/**\n * @title TrainUninitializedVault\n * @notice Training-only upgradeable-style vault with protected initialize().\n */\ncontract TrainUninitializedVault {\n    address public admin;\n    bool public initialized;\n\n    event Initialized(address indexed admin);\n    event Drained(address indexed to, uint256 amount);\n\n    constructor() payable {\n        // Initialize the contract with the deployer as admin\n        // This ensures that only the deployer can initialize the contract\n        // The deployer is the one who deploys the contract, so we set them as admin\n        // This prevents any arbitrary caller from taking control via initialize()\n        admin = msg.sender;\n        initialized = true;\n        emit Initialized(msg.sender);\n    }\n\n    // VULNERABILITY: Uninitialized admin allows any caller to invoke initialize() and take ownership\n    // PATCHED: Initialize is now only callable once and only by the deployer (via constructor)\n    function initialize(address _admin) external {\n        require(!initialized, \"already initialized\");\n        require(_admin != address(0), \"zero admin\");\n        require(msg.sender == address(this), \"only deployer can initialize\");\n        admin = _admin;\n        initialized = true;\n        emit Initialized(_admin);\n    }\n\n    function drain(address payable to) external {\n        require(initialized && msg.sender == admin, \"not admin\");\n        uint256 bal = address(this).balance;\n        (bool ok, ) = to.call{value: bal}(\"\");\n        require(ok, \"drain failed\");\n        emit Drained(to, bal);\n    }\n\n    receive() external payable {}\n}"
+    }
+  },
+  "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+  "adapter_path": null,
+  "gpu_type": "L4"
+}
