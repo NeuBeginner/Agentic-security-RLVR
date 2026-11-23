@@ -3,7 +3,7 @@
 > **Audit Scope & Status**: `$0.00` Modal spend across PR #30–#34 (code audit, isolated PoC contour, and local verification); **`$0.26` live Modal `L4` PoC spend** across Stage 1 (`$0.24`) + Stage 2 (`$0.02`) on `poc_run_7543d0db` (`Qwen/Qwen3-4B-Instruct-2507`).  
 > **Training Gate**: `TRAINING_STATUS = BLOCKED` by default in `core/config.py`, `core/grpo_trainer.py`, `modal_app.py`, `modal_grpo_poc_app.py`, and `benchmarks/run_grpo_poc.py` (temporarily unblocked only for the isolated 4-step `L4` Stage 2 PoC via `with_options(secrets=...)`, remaining fail-closed by default).  
 > **Reference Benchmark Artifact**: `benchmarks/artifacts/run_1795027271_8c19acf` (`cycle8`, `baseline_5`).  
-> **Metered Modal Balance**: **`~$18.00` credits used** of `$30.00` starting credit limit (**`~$12.00` remaining** after `poc_run_7543d0db`, `poc_40t_*`, and `poc_40t_dev_post_r1`).
+> **Metered Modal Balance**: **`~$18–$19` credits used** of `$30.00` starting credit limit (**`~$11–$12` remaining** after `poc_run_7543d0db`, `poc_40t_*`, `poc_40t_dev_post_r1`, and `dual_loop_poc_3t`). See full grant package in [`docs/grant_application_package.md`](grant_application_package.md).
 
 ---
 
@@ -73,7 +73,7 @@ A local `$0.00` compatibility check was executed against all 16 target stage-evi
   - Starting Modal credit limit: `$30.00`.
   - Observed cost per full R4 benchmark run (`baseline_5`, 16 targets): `$1.11–$1.38`.
   - Observed cost of live `L4` Stage 1 + Stage 2 PoC (`poc_run_7543d0db`, `Qwen/Qwen3-4B-Instruct-2507`): **`$0.26`** (`$0.24` Stage 1 + `$0.02` Stage 2).
-  - Current metered billing: **`~$18.00` credits used** (**`~$12.00` remaining** of `$30.00` after `poc_run_7543d0db` + `poc_40t_*` + `poc_40t_dev_post_r1`).
+  - Current metered billing: **`~$18–$19` credits used** (**`~$11–$12` remaining** of `$30.00` after `poc_run_7543d0db` + `poc_40t_*` + `poc_40t_dev_post_r1` + `dual_loop_poc_3t`).
 
 ### 4.2 Compute Budget Plan & Verified L4 PoC Results
 
@@ -98,7 +98,12 @@ A local `$0.00` compatibility check was executed against all 16 target stage-evi
 | Mean Reward v2 (all 32 rollouts) | `-0.1922` | `-0.1438` | **`-0.0641`** (`+0.1281` vs Pre) |
 | `INFRA_ERROR` | `0` | `0` | `0` |
 
-#### (C) Production GRPO on `H100 80 GB` (Grant Application Scope)
+#### (C) Live E2E Dual-Loop Demo (`dual_loop_poc_3t`, `Qwen/Qwen3-4B-Instruct-2507`, L4, ~7 min) — **COMPLETED**
+- Artifact: `benchmarks/evidence/dual_loop_poc/dual_loop_patch_dual_loop_poc_3t_20261123T095314Z.json`
+- **`2 / 3` (`66.7%`) `PATCH_VERIFIED (+1.0)`** (`TrainAdminTreasury`, `TrainUninitializedVault`; `functional_pass=true`, `exploit_blocked=true`, `reproducibility_confirmed=true`), `TrainShareVault` = `EXPLOIT_STILL_SUCCEEDS (-0.10, functional_pass=true)`, `mean_blue_reward = +0.2667`, `0` compile/functional/infra errors.
+- Full consolidated grant narrative & 4-milestone H100 roadmap: [`docs/grant_application_package.md`](grant_application_package.md).
+
+#### (D) Production GRPO on `H100 80 GB` (Grant Application Scope)
 - **Goal**: Scale GRPO LoRA/QLoRA training using **`Qwen/Qwen3-Coder-30B-A3B-Instruct`** (public MoE 30B/3B) as the priority open-weight replacement for the closed `qtum/Qwen3-Coder-30B-A3B-Audit` checkpoint—building on **`Qwen/Qwen3-4B-Instruct-2507`** as the verified `L4` PoC baseline (and optionally comparing 14B–32B dense coding checkpoints such as `Qwen/Qwen2.5-Coder-14B-Instruct` / `Qwen/Qwen2.5-Coder-32B-Instruct`)—to push `baseline_5` recall beyond the `50.00%` (`6/12`) ceiling while preserving `100.00%` precision (`0 FP`) and `100.00%` independent replay.
 - **Estimated Compute (Grant Sizing)**:
   - **Model Prefetch & Validation**: 1× cold download of public checkpoint to Modal Volume + `diagnostic_grpo_forward_remote` on `H100`.
