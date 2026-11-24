@@ -38,7 +38,7 @@ def test_inspect_56_contract_corpus_and_zero_overlap():
     assert counts["test_vulnerable"] == 12
     assert counts["test_safe_controls"] == 4
     assert counts["train_total"] == 40
-    assert counts["dual_loop_patch_pilots"] == 5
+    assert counts["dual_loop_patch_pilots"] == 13
     assert report["isolation"]["sha256_overlap_count"] == 0
     assert report["isolation"]["name_overlap_count"] == 0
     assert report["isolation"]["isolated"] is True
