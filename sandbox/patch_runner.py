@@ -31,13 +31,21 @@ LOCAL_TRAIN_FUNCTIONAL_TESTS_DIR = str(
     (REPO_ROOT / "benchmarks" / "targets" / "solidity_train_functional").resolve()
 )
 
-#: Pilot mapping of train contracts to their trusted functional regression suites.
+#: Mapping of train contracts to their trusted functional regression suites.
 TRAIN_FUNCTIONAL_TESTS: Dict[str, str] = {
     "TrainAdminTreasury": "TrainAdminTreasuryFunctional",
     "TrainShareVault": "TrainShareVaultFunctional",
     "TrainReentrancyBank": "TrainReentrancyBankFunctional",
     "TrainUninitializedVault": "TrainUninitializedVaultFunctional",
     "TrainTimelockBypass": "TrainTimelockBypassFunctional",
+    "TrainTxOriginWallet": "TrainTxOriginWalletFunctional",
+    "TrainSlippageVault": "TrainSlippageVaultFunctional",
+    "TrainMsgValueBatch": "TrainMsgValueBatchFunctional",
+    "TrainFeeOnTransferVault": "TrainFeeOnTransferVaultFunctional",
+    "TrainFlashStaking": "TrainFlashStakingFunctional",
+    "TrainERC4626RoundMismatch": "TrainERC4626RoundMismatchFunctional",
+    "TrainRoundingZeroVault": "TrainRoundingZeroVaultFunctional",
+    "TrainOraclePool": "TrainOraclePoolFunctional",
 }
 
 
